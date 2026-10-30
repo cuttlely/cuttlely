@@ -14,9 +14,11 @@ import {
     hasRecentAuthentication,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
+    stageAuthenticationMethodSwitch,
     switchAuthenticationMethod
 } from './authenticationState'
-import { addAuthenticationState } from './schemaMigration'
+import { addAuthenticationState, addAuthenticationSwitchStage } from './schemaMigration'
+import { workosEpochCookie, workosEpochCookieValid } from './cookies'
 import { applyAuthKitSwitchOnBoot } from './production'
 
 async function database(): Promise<DataSource> {
@@ -34,6 +36,7 @@ async function database(): Promise<DataSource> {
     await db.initialize()
     const runner = db.createQueryRunner()
     await addAuthenticationState(runner)
+    await addAuthenticationSwitchStage(runner)
     await runner.query(
         'CREATE TABLE "identity_authkit_switch" ("id" integer PRIMARY KEY, "configured" integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" datetime NULL)'
     )
@@ -116,6 +119,50 @@ describe('authentication provider foundation', () => {
             expect(await db.query('SELECT * FROM "api_key"')).toHaveLength(1)
             const audit = await db.query('SELECT "detail" FROM "audit_event"')
             expect(JSON.parse(audit[0].detail)).toMatchObject({ outcome: 'applied', configurationFingerprint: expect.any(String) })
+            await db.destroy()
+        })
+    })
+
+    it('applies a durable stage from another process and refuses its stale version and reuse', async () => {
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+            const db = await database()
+            const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
+            await expect(
+                switchAuthenticationMethod(db, 'workos', before.version, undefined, {
+                    id: staged.id,
+                    actorId: 'owner',
+                    version: staged.version + 1
+                })
+            ).rejects.toThrow('AUTH_STAGE_STALE')
+            const after = await switchAuthenticationMethod(db, 'workos', before.version, undefined, {
+                id: staged.id,
+                actorId: 'owner',
+                version: staged.version
+            })
+            expect(after.activeMethod).toBe('workos')
+            await expect(
+                switchAuthenticationMethod(db, 'local', after.version, undefined, {
+                    id: staged.id,
+                    actorId: 'owner',
+                    version: staged.version
+                })
+            ).rejects.toThrow('AUTH_STAGE_STALE')
+            await db.destroy()
+        })
+    })
+
+    it('rejects an old sealed WorkOS cookie after a WorkOS to Local to WorkOS round trip', async () => {
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+            const db = await database()
+            const first = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client' })
+            const password = 'p'.repeat(44)
+            const sealed = 'sealed-before-switches'
+            const claim = workosEpochCookie(sealed, first.authenticationEpoch, password, false).value
+            const local = await switchAuthenticationMethod(db, 'local', first.version)
+            const workos = await switchAuthenticationMethod(db, 'workos', local.version)
+            expect(workos.authenticationEpoch).toBe(first.authenticationEpoch + 2)
+            expect(workosEpochCookieValid(claim, sealed, workos.authenticationEpoch, password)).toBe(false)
             await db.destroy()
         })
     })

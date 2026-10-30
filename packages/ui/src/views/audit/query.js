@@ -11,7 +11,9 @@ export const AUDIT_TYPES = [
     { value: 'harness_run', label: 'Harness run from the API' },
     { value: 'harness_access', label: 'API key harness access' },
     { value: 'harness_schedule', label: 'Harness schedule' },
-    { value: 'pinned_query_change', label: 'Pinned query change' }
+    { value: 'pinned_query_change', label: 'Pinned query change' },
+    { value: 'auth_method_change', label: 'Sign-in method changed' },
+    { value: 'auth_config_warning_ack', label: 'Authentication warning acknowledged' }
 ]
 
 export function auditParams({ type, user, cursor } = {}) {

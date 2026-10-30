@@ -1,4 +1,4 @@
-import { auditParams } from './query'
+import { AUDIT_TYPES, auditParams } from './query'
 
 describe('audit list query', () => {
     it('sends type, user, and cursor only when they are set', () => {
@@ -9,5 +9,10 @@ describe('audit list query', () => {
             user: 'user-1',
             cursor: 'abc'
         })
+    })
+
+    it('offers every authentication audit type in the filter', () => {
+        const values = AUDIT_TYPES.map(({ value }) => value)
+        expect(values).toEqual(expect.arrayContaining(['auth_method_change', 'auth_config_warning_ack']))
     })
 })

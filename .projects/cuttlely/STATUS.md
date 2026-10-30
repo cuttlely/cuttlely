@@ -191,7 +191,7 @@ Cuttlely 1.4.7. The product version is the root `package.json`, `packages/server
 
 ## Not done
 
--   Auth / SSO Phase A is on branch `feat/auth-sso-phase-a` (draft pull request, not on `main`): provider boundary, durable method and epoch state, compatibility inference, staged session-ending switch, permission, audit entry, Admin Panel page, and operator guide. Generic OIDC, SCIM, and session convergence remain later phases.
+-   Auth / SSO Phase A is on branch `feat/auth-sso-phase-a` (draft pull request, not on `main`): provider boundary, durable method and epoch state, compatibility inference, database-backed staged session-ending switches, epoch-bound sealed WorkOS sessions, permission and audit entries, Admin Panel recovery warnings, an administrator application banner, and the operator guide. Phase A preserves sign-in behavior and only warns about missing owner recovery; the always-available recovery route begins in phase B. Generic OIDC, SCIM, and session convergence remain later phases.
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Hardened public config endpoints and template sanitizing are on `main` (#238).

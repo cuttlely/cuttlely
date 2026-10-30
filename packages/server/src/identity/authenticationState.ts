@@ -39,6 +39,15 @@ export interface AuthenticationState {
     version: number
 }
 
+export interface AuthenticationSwitchStage {
+    id: string
+    actorId: string
+    method: AuthenticationMethod
+    stateVersion: number
+    expiresAt: string
+    version: number
+}
+
 function publishState(state: AuthenticationState): AuthenticationState {
     effectiveMethod = state.activeMethod
     effectiveEpoch = state.authenticationEpoch
@@ -305,7 +314,7 @@ export async function acknowledgeAuthenticationWarning(
             )}, ${q(d, 'actorId')}, ${q(d, 'summary')}, ${q(d, 'detail')}, ${q(d, 'createdAt')}) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
             [
                 randomUUID(),
-                'auth_configuration_warning_acknowledged',
+                'auth_config_warning_ack',
                 audit.organizationId,
                 audit.actorId,
                 audit.actorId,
@@ -330,11 +339,39 @@ export async function automaticWorkosLinkingAllowed(dataSource: DataSource): Pro
     return Boolean(state && fingerprint && state.configurationFingerprint === fingerprint && !state.warning)
 }
 
+export async function stageAuthenticationMethodSwitch(
+    dataSource: DataSource,
+    actorId: string,
+    method: AuthenticationMethod,
+    stateVersion: number,
+    now = Date.now()
+): Promise<AuthenticationSwitchStage> {
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    try {
+        const d = dialect(runner)
+        const id = randomUUID()
+        const expiresAt = new Date(now + 10 * 60 * 1000)
+        await query(
+            runner,
+            `INSERT INTO ${q(d, 'identity_authentication_switch_stage')} (${q(d, 'id')}, ${q(d, 'actorId')}, ${q(d, 'method')}, ${q(
+                d,
+                'stateVersion'
+            )}, ${q(d, 'expiresAt')}, ${q(d, 'consumedAt')}, ${q(d, 'version')}) VALUES (?, ?, ?, ?, ?, NULL, 1)`,
+            [id, actorId, method, stateVersion, databaseDate(runner, expiresAt)]
+        )
+        return { id, actorId, method, stateVersion, expiresAt: expiresAt.toISOString(), version: 1 }
+    } finally {
+        await runner.release()
+    }
+}
+
 export async function switchAuthenticationMethod(
     dataSource: DataSource,
     method: AuthenticationMethod,
     expectedVersion: number,
-    audit?: { organizationId: string; actorId: string }
+    audit?: { organizationId: string; actorId: string },
+    stage?: { id: string; actorId: string; version: number; now?: number }
 ): Promise<AuthenticationState> {
     const runner = dataSource.createQueryRunner()
     await runner.connect()
@@ -342,6 +379,28 @@ export async function switchAuthenticationMethod(
     try {
         const current = await selectState(runner, true)
         if (!current || current.version !== expectedVersion) throw new Error('AUTH_STATE_CHANGED')
+        if (stage) {
+            const d = dialect(runner)
+            const rows = await query(
+                runner,
+                `SELECT * FROM ${q(d, 'identity_authentication_switch_stage')} WHERE ${q(d, 'id')} = ?${
+                    d === 'sqlite' ? '' : ' FOR UPDATE'
+                }`,
+                [stage.id]
+            )
+            const row = rows[0]
+            const expiresAt = row ? new Date(value(row, 'expiresAt') as string | number | Date).getTime() : 0
+            if (
+                !row ||
+                String(value(row, 'actorId')) !== stage.actorId ||
+                String(value(row, 'method')) !== method ||
+                Number(value(row, 'stateVersion')) !== expectedVersion ||
+                Number(value(row, 'version')) !== stage.version ||
+                value(row, 'consumedAt') !== null ||
+                expiresAt <= (stage.now ?? Date.now())
+            )
+                throw new Error('AUTH_STAGE_STALE')
+        }
         const fingerprint = method === 'workos' ? workosConfigurationFingerprint() : null
         if (method === 'workos' && (!workosEnvironmentConfigured() || !fingerprint)) throw new Error('METHOD_NOT_READY')
         if (method === 'local' && !localUsersSetting()) throw new Error('METHOD_NOT_READY')
@@ -350,6 +409,17 @@ export async function switchAuthenticationMethod(
             return current
         }
         const d = dialect(runner)
+        if (stage) {
+            const consumed = await query(
+                runner,
+                `UPDATE ${q(d, 'identity_authentication_switch_stage')} SET ${q(d, 'consumedAt')} = ?, ${q(d, 'version')} = ${q(
+                    d,
+                    'version'
+                )} + 1 WHERE ${q(d, 'id')} = ? AND ${q(d, 'version')} = ? AND ${q(d, 'consumedAt')} IS NULL`,
+                [databaseDate(runner, new Date(stage.now ?? Date.now())), stage.id, stage.version]
+            )
+            if (dialect(runner) === 'postgres' ? consumed.length === 0 : false) throw new Error('AUTH_STAGE_STALE')
+        }
         const counted = await query(runner, `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${q(d, 'identity_local_session')}`)
         const ended = Number(value(counted[0] || {}, 'count') || 0)
         await query(runner, `DELETE FROM ${q(d, 'identity_local_session')}`)

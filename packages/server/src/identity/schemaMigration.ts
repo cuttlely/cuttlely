@@ -561,11 +561,37 @@ function recentAuthenticationSql(dialect: Dialect): string {
     )`
 }
 
+function authenticationSwitchStageSql(dialect: Dialect): string {
+    const time = timeType(dialect)
+    return `CREATE TABLE ${q(dialect, 'identity_authentication_switch_stage')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'actorId')} varchar(36) NOT NULL,
+        ${q(dialect, 'method')} varchar(32) NOT NULL,
+        ${q(dialect, 'stateVersion')} integer NOT NULL,
+        ${q(dialect, 'expiresAt')} ${time} NOT NULL,
+        ${q(dialect, 'consumedAt')} ${time} NULL,
+        ${q(dialect, 'version')} integer NOT NULL
+    )`
+}
+
 /** Durable installation identity, selected sign-in method, and global authentication epoch. */
 export async function addAuthenticationState(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     if (!(await tableExists(runner, dialect, 'identity_authentication_state'))) await runner.query(authenticationStateSql(dialect))
     if (!(await tableExists(runner, dialect, 'identity_recent_authentication'))) await runner.query(recentAuthenticationSql(dialect))
+}
+
+/** Durable, optimistic, single-use method-switch stages shared by every server process. */
+export async function addAuthenticationSwitchStage(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await tableExists(runner, dialect, 'identity_authentication_switch_stage'))) {
+        await runner.query(authenticationSwitchStageSql(dialect))
+    }
+}
+
+export async function removeAuthenticationSwitchStage(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authentication_switch_stage')}`)
 }
 
 export async function removeAuthenticationState(runner: QueryRunner): Promise<void> {

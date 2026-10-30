@@ -2,7 +2,7 @@
 
 ## Status and intent
 
-This note proposes a provider-neutral authentication and provisioning design for Cuttlely. It is a design artifact only. The goals are to add an Admin Panel **Auth / SSO** section, support one selected interactive sign-in method, retain a permanent owner recovery path, and add optional SCIM v2 provisioning without changing authorization ownership.
+This note proposes a provider-neutral authentication and provisioning design for Cuttlely. It is a design artifact only. The goals are to add an Admin Panel **Auth / SSO** section, support one selected interactive sign-in method, add a permanent owner recovery path in phase B, and add optional SCIM v2 provisioning without changing authorization ownership.
 
 The selectable methods are:
 
@@ -10,7 +10,7 @@ The selectable methods are:
 -   **Generic OIDC**: standards-based browser sign-in configured from issuer metadata.
 -   **WorkOS**: the existing AuthKit experience behind the same provider boundary.
 
-Only one method is active for ordinary users at a time. The break-glass owner login is separate from that selection and is always available.
+Only one method is active for ordinary users at a time. Phase A preserves existing sign-in behavior and warns administrators until the existing owner recovery credential is ready. The separate, always-available break-glass owner login begins in phase B.
 
 ## Current-state constraints
 
@@ -36,7 +36,7 @@ Changing the selector is a staged operation:
 
 The saved model separates `activeMethod` from provider configuration. Secrets are references to environment values or the server secret store and are never returned to the browser. A configuration can be incomplete or staged without becoming active. Read APIs return presence, fingerprints, and health only. Writes use optimistic concurrency to prevent two administrators from applying conflicting changes.
 
-The ordinary sign-in page displays only the active method. A discreet owner recovery link reaches the break-glass flow. Public option responses expose capabilities and labels, never issuer secrets, client secrets, bearer tokens, or diagnostic details useful for account discovery.
+The ordinary sign-in page displays only the active method. Beginning in phase B, a discreet owner recovery link reaches the break-glass flow. Public option responses expose capabilities and labels, never issuer secrets, client secrets, bearer tokens, or diagnostic details useful for account discovery.
 
 ## Provider boundary
 
@@ -71,7 +71,7 @@ Cuttlely is the sole owner of the application session. After any method complete
 
 Every authenticated request checks the session row, user status, expiry, permission version, and epoch before constructing the existing `SessionUser` snapshot. Disabling a user, changing the active method, rotating relevant server session secrets, or an explicit revoke operation makes the session unusable. Disabling a user, whether through SCIM or an administrator action, also disables all of that user's API keys and personal tokens. A method switch does not disable API keys or personal tokens. Logout deletes the local row first and clears the cookie. A best-effort remote logout may follow, but remote availability cannot prevent local logout.
 
-The Cuttlely cookie retains the current protections: HTTP-only, `SameSite=Lax`, `/` path, secure transport outside explicitly allowed local development, bounded lifetime, and no readable claims. Login and callback responses use `Cache-Control: no-store`. Session creation rotates any pre-authentication identifier. Viewing or changing the OIDC secret, applying a method switch, creating or rotating the SCIM token, and changing recovery settings require recent reauthentication, cross-site request protection, rate limits, and audit entries. A recent break-glass sign-in satisfies this requirement when the active provider is unavailable.
+The Cuttlely cookie retains the current protections: HTTP-only, `SameSite=Lax`, `/` path, secure transport outside explicitly allowed local development, bounded lifetime, and no readable claims. Login and callback responses use `Cache-Control: no-store`. Session creation rotates any pre-authentication identifier. Viewing or changing the OIDC secret, applying a method switch, creating or rotating the SCIM token, and changing recovery settings require recent reauthentication, cross-site request protection, rate limits, and audit entries. Beginning in phase B, a recent break-glass sign-in satisfies this requirement when the active provider is unavailable.
 
 During phase A, existing sealed WorkOS cookies continue to work exactly as they do now. The convergence release ends every remaining sealed WorkOS session once and requires a new sign-in; it does not exchange cookies lazily. The release notes call out this one-time effect. No migration requires a user to edit settings. Compatibility routes, settings readers, and sealed-cookie handling remain for one minor release line, but expired sealed cookies cannot create sessions after convergence.
 
@@ -141,7 +141,9 @@ Inference is idempotent and recorded once. Existing users, invitations, credenti
 
 Local login keeps the current password hashing, rate limits, account and source lockouts, one-time invitation and reset links, session lifetimes, and session deletion after password reset. It is an ordinary selectable method for active local users.
 
-Break-glass access is a separate owner-only path and is always available regardless of the selected method or remote provider health. It uses the owner's local credential and the same Cuttlely-owned session system, but is clearly marked as recovery use, has stricter throttling, emits a high-severity audit event, and can trigger an administrator alert. It cannot be disabled from the Admin Panel. If no usable owner credential exists, setup requires creating or resetting one through the existing trusted server-side procedure before a remote method can activate.
+In phase A, no new recovery route is enabled and sign-in behavior is unchanged. The Auth / SSO page and an application banner warn administrators until `CUTTLELY_LOCAL_ADMIN` enables the existing recovery route and `pnpm user --email` creates an active owner credential with a usable password. Panel activation of WorkOS continues to return `409 Conflict` until both conditions hold.
+
+Beginning in phase B, break-glass access is a separate owner-only path and is always available regardless of the selected method or remote provider health. It uses the owner's local credential and the same Cuttlely-owned session system, but is clearly marked as recovery use, has stricter throttling, emits a high-severity audit event, and can trigger an administrator alert. It cannot be disabled from the Admin Panel.
 
 The recovery route must not disclose whether an address is the owner. It does not bypass user-disabled state, and recovery of a disabled owner requires the trusted server-side operator procedure. A break-glass session remains subject to idle and absolute limits. Switching the ordinary method ends it along with every other interactive session; the owner can immediately sign in again through the recovery path.
 
@@ -155,7 +157,7 @@ An owner creates a high-entropy bearer token from the Auth / SSO page. The clear
 
 ### Users
 
-`/Users` supports service-provider configuration discovery plus the needed create, get, filter, update, patch, and paginated list operations. Filters support `eq` and `and`/`or` expressions on `userName`, `externalId`, and `displayName`. Patch paths follow the forms exercised by the Entra ID and Okta SCIM test suites. There is no bulk endpoint in v1. The stable SCIM resource id maps to an internal provisioning-link row rather than email. `externalId` is stored as provider-controlled metadata with an appropriate uniqueness policy. Email normalization is used for cautious initial matching, but an existing linked resource wins and conflicting matches return a clear conflict.
+`/Users` supports service-provider configuration discovery plus the needed create, get, filter, update, patch, and paginated list operations. Filters support `eq` and `and`/`or` expressions on `userName`, `externalId`, and `displayName`. Patch paths follow forms commonly used by Entra ID and Okta. There is no bulk endpoint in v1. The stable SCIM resource id maps to an internal provisioning-link row rather than email. `externalId` is stored as provider-controlled metadata with an appropriate uniqueness policy. Email normalization is used for cautious initial matching, but an existing linked resource wins and conflicting matches return a clear conflict.
 
 Creation produces a provisioned account; it never grants owner status. The account has no session until its first successful SSO sign-in, with no policy toggle in v1. Setting `active` to false disables the user transactionally, invalidates open invitation and reset artifacts, increments the permission or authentication version, deletes all of that user's sessions, and disables all of the user's API keys and personal tokens before returning success. Re-enabling does not restore old sessions, keys, or tokens. Destructive deletion is represented as deactivation initially to retain audit and ownership integrity.
 
@@ -203,7 +205,7 @@ If activation fails before commit, the old method and sessions remain valid. If 
 
 Unit tests cover provider normalization; 10-minute state and nonce retention and consumption; PKCE generation; the allowed id-token algorithms, 60-second skew, and encrypted-token rejection; key rotation and cache bounds; provider-scoped linking; the default email-assurance rule and per-provider missing-claim option; invitation linking; epoch handling; cookie policy; redaction; SCIM filters and patches; group reconciliation and mapping removal; token rotation overlap; and owner protection.
 
-Integration tests run generic OIDC and SCIM flows against a disposable standards test service in CI. OIDC cases include success, denial, replay, mismatched issuer or audience, stale and future tokens, wrong nonce, unknown and rotated signing keys, malformed discovery, unreachable endpoints, missing and false email assurance, invitation acceptance, duplicate subjects, duplicate email, inactive users, callback races, remote logout failure, and a cloned-database provider-key mismatch. Network cases prove that discovery and JWKS use the PR #350 guard, reject redirects and DNS rebinding, and reach a private IdP only when its issuer host is explicitly allowed. SCIM cases cover `/Users`, `/Groups`, pagination, the defined filters, Entra ID and Okta patch paths, repeated requests, group mappings and confirmed removal, deactivation, disabled keys and tokens, immediate session loss, `409` owner protection, one-token rotation overlap, and rejection of bulk requests.
+Planned integration tests run generic OIDC and SCIM flows against a disposable standards test service in CI; they do not claim conformance testing against named identity providers. OIDC cases include success, denial, replay, mismatched issuer or audience, stale and future tokens, wrong nonce, unknown and rotated signing keys, malformed discovery, unreachable endpoints, missing and false email assurance, invitation acceptance, duplicate subjects, duplicate email, inactive users, callback races, remote logout failure, and a cloned-database provider-key mismatch. Network cases prove that discovery and JWKS use the PR #350 guard, reject redirects and DNS rebinding, and reach a private IdP only when its issuer host is explicitly allowed. SCIM cases cover `/Users`, `/Groups`, pagination, the defined filters, common patch paths, repeated requests, group mappings and confirmed removal, deactivation, disabled keys and tokens, immediate session loss, `409` owner protection, one-token rotation overlap, and rejection of bulk requests.
 
 Session tests assert that all three methods produce the same Cuttlely cookie and authorization snapshot after convergence; cookie theft resistance properties, idle and absolute expiry, permission-version changes, password reset, user and administrator deactivation, method switching, retained API keys on switching, logout, and concurrent requests are covered. Browser tests cover the setup card, secret masking, recent reauthentication for each sensitive action, break-glass satisfaction of that requirement during provider failure, same-browser test binding, activation confirmation, sign-in labels, error copy, recovery route, token one-time display, mapping removal preview and confirmation, and operations diagnostics.
 
@@ -227,6 +229,7 @@ The release gate includes schema migration checks, route contract checks, securi
 -   Generalize the existing one-time switch record into method plus epoch state.
 -   Implement the database installation id, issuer/client-id fingerprint, cloned-database mismatch warning, and compatibility inference for current WorkOS, local-user, and owner-only installs.
 -   Keep existing cookies and routes stable in this phase; prove no behavior change with characterization and upgrade tests.
+-   Warn administrators when the existing owner recovery credential is unavailable; do not add or enable the phase B recovery route.
 
 ### Phase B: generic OIDC and session convergence
 
@@ -234,6 +237,7 @@ The release gate includes schema migration checks, route contract checks, securi
 -   Add the setup card, secret references, missing-email-assurance option, invitation linking, configuration checks, same-browser test sign-in, and activation gate.
 -   End sealed WorkOS sessions once at release, make the Cuttlely database session and cookie authoritative for remote sign-ins, and document the effect in release notes.
 -   Keep compatibility routes, settings readers, and cookie handling for one minor release line, without lazy session exchange, and add unified logout semantics.
+-   Add the separate, always-available owner break-glass route.
 
 ### Phase C: SCIM v2
 
@@ -259,10 +263,10 @@ The release gate includes schema migration checks, route contract checks, securi
 5. Accepted id-token algorithms are `RS256`, `PS256`, and `ES256`, with 60 seconds of clock skew. Encrypted id tokens are unsupported.
 6. LAN and private-network IdPs require an explicit administrator allowlist of issuer hosts. Discovery and JWKS retrieval reuse the PR #350 outbound request guard with resolved-IP validation, pinned connections, and no redirects.
 7. A SCIM-provisioned account has no session until its first SSO sign-in. There is no v1 policy toggle.
-8. SCIM filters support `eq` plus `and`/`or` on `userName`, `externalId`, and `displayName`. Patch paths follow the Entra ID and Okta SCIM test suites. There is no bulk endpoint.
+8. SCIM filters support `eq` plus `and`/`or` on `userName`, `externalId`, and `displayName`. Patch paths follow forms commonly used by Entra ID and Okta. There is no bulk endpoint.
 9. Removing a group mapping removes the assignments it owns after preview and explicit confirmation.
 10. SCIM permits one active token plus a rotation overlap window.
 11. Authentication transactions are retained for 10 minutes, SCIM diagnostics for 30 days, and audit records according to the existing policy.
 12. A method switch keeps API keys and personal tokens.
-13. Recent reauthentication is required for the OIDC secret, method switch, SCIM token, and recovery settings. A break-glass sign-in satisfies it when the provider is unavailable.
+13. Recent reauthentication is required for the OIDC secret, method switch, SCIM token, and recovery settings. Beginning in phase B, a break-glass sign-in satisfies it when the provider is unavailable.
 14. Compatibility routes, settings readers, and cookie handling remain for one minor release line.

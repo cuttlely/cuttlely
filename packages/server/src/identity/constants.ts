@@ -16,6 +16,8 @@
 
 /** Sealed AuthKit session. The SDK examples use this name. */
 export const WOS_SESSION_COOKIE = 'wos-session'
+/** Authenticated binding from a sealed WorkOS session to the global authentication epoch. */
+export const WOS_EPOCH_COOKIE = 'cuttlely-workos-epoch'
 
 /** Break-glass session only. Never a WorkOS seal. */
 export const LOCAL_SESSION_COOKIE = 'cuttlely-local-session'

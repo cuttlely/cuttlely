@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
+import { createHmac, timingSafeEqual } from 'crypto'
 import {
     INVITE_COOKIE,
     INVITE_COOKIE_MS,
     INVITE_COOKIE_PATH,
     LOCAL_SESSION_COOKIE,
     RECENT_AUTH_COOKIE,
+    WOS_EPOCH_COOKIE,
     WOS_SESSION_COOKIE
 } from './constants'
 import { SetCookie } from './types'
@@ -36,6 +38,29 @@ export function sealedCookie(value: string, secure: boolean): SetCookie {
         value,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure }
     }
+}
+
+function epochDigest(sealed: string, epoch: number, password: string): string {
+    return createHmac('sha256', password).update(`${epoch}\n${sealed}`).digest('base64url')
+}
+
+export function workosEpochCookie(sealed: string, epoch: number, password: string, secure: boolean): SetCookie {
+    return {
+        name: WOS_EPOCH_COOKIE,
+        value: `${epoch}.${epochDigest(sealed, epoch, password)}`,
+        options: { httpOnly: true, sameSite: 'lax', path: '/', secure }
+    }
+}
+
+export function workosEpochCookieValid(value: string | undefined, sealed: string, epoch: number, password: string): boolean {
+    // Cookies issued before Phase A are accepted only before the first method switch.
+    if (!value) return epoch === 0
+    const [stored, digest] = value.split('.')
+    if (Number(stored) !== epoch || !digest) return false
+    const expected = epochDigest(sealed, epoch, password)
+    const left = Buffer.from(digest)
+    const right = Buffer.from(expected)
+    return left.length === right.length && timingSafeEqual(left, right)
 }
 
 export function inviteCookie(value: string, secure: boolean): SetCookie {

@@ -18,6 +18,7 @@ import {
 } from '@mui/material'
 import MainCard from '@/ui-component/cards/MainCard'
 import api from '@/api/authenticationSettings'
+import { RECOVERY_FIX } from './RecoveryWarningBanner'
 
 const label = (method) => (method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : 'No ordinary method')
 
@@ -39,14 +40,14 @@ export default function AuthenticationSettings() {
     const prepare = async () => {
         setError('')
         try {
-            setStage((await api.stage(choice, data.version)).data)
+            setStage({ ...(await api.stage(choice, data.version)).data, stateVersion: data.version })
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The change could not be staged.')
         }
     }
     const apply = async () => {
         try {
-            const result = (await api.apply(stage.stage, confirm)).data
+            const result = (await api.apply(stage, confirm)).data
             window.location.assign(result.redirectTo)
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The sign-in method was not changed.')
@@ -70,6 +71,11 @@ export default function AuthenticationSettings() {
         <MainCard title='Auth / SSO'>
             <Stack spacing={3} sx={{ maxWidth: 820 }}>
                 {error && <Alert severity='error'>{error}</Alert>}
+                {data && !data.recovery.available && (
+                    <Alert severity='error' data-testid='owner-recovery-blocking-warning'>
+                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of WorkOS is refused.
+                    </Alert>
+                )}
                 {data?.warning && (
                     <Alert
                         severity='warning'
@@ -105,12 +111,12 @@ export default function AuthenticationSettings() {
                         <FormControlLabel
                             value='workos'
                             control={<Radio />}
-                            disabled={!data?.methods.workos.configured || workosBlockedByRecovery}
+                            disabled={!data?.methods.workos.configured}
                             label={`WorkOS${
                                 !data?.methods.workos.configured
                                     ? ' — not configured'
                                     : workosBlockedByRecovery
-                                    ? ' — owner recovery must be ready first'
+                                    ? ' — activation will be refused until owner recovery is ready'
                                     : ''
                             }`}
                         />

@@ -1622,6 +1622,11 @@
             "to": "packages/server/src/utils/getUploadsConfig.ts"
         },
         {
+            "from": "packages/ui/src/api/authenticationSettings.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Auth / SSO admin page uses the shared API client and card like the other admin views"
+        },
+        {
             "from": "packages/ui/src/api/builder.js",
             "to": "packages/ui/src/api/client.js"
         },
@@ -1826,6 +1831,11 @@
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
             "to": "packages/ui/src/utils/usePrompt.js"
+        },
+        {
+            "from": "packages/ui/src/views/authentication/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "Auth / SSO admin page uses the shared API client and card like the other admin views"
         },
         {
             "from": "packages/ui/src/views/canvas/CanvasNode.missing.test.js",

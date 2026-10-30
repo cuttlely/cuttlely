@@ -20,9 +20,13 @@ This release supports **Local login** and **WorkOS**. Their existing environment
 
 Applying a different method ends every interactive session, including yours. API keys remain enabled. The browser returns to sign-in after the database transaction commits. Choosing the already-active method does not end sessions.
 
-WorkOS activation is refused unless the owner recovery route is enabled and the active owner has a usable local password. The page disables the action until both conditions are true. This guarantees that an enabled recovery route with a usable owner credential exists when WorkOS is activated; it does not guarantee that an operator retains the password or that a later server-side setting or account change cannot make recovery unavailable.
+Phase A does not enable a new recovery route or change sign-in behavior. Until the existing recovery route is enabled and an active owner has a usable password, administrators see a blocking warning on **Auth / SSO** and an application banner. The exact server-side fix is to enable `CUTTLELY_LOCAL_ADMIN`, then run `pnpm user --email` on the server to create the owner recovery credential. Do not put the password in an environment variable or command argument.
 
-The switch transaction increments the authentication epoch and ends interactive database sessions while leaving API keys enabled. Each process refreshes the durable method and epoch at most two seconds after its cached read, and session issuance checks the database epoch again before completion. A request that began under an older epoch cannot finish by creating a new session on another process.
+Panel activation of WorkOS continues to return `409 Conflict` until both recovery conditions are true. The warning does not claim that an operator retains the password or that a later server-side setting or account change cannot make recovery unavailable. The separate, always-available break-glass route starts in phase B.
+
+The switch transaction increments the authentication epoch and ends interactive database sessions while leaving API keys enabled. Sealed WorkOS sessions are bound to the epoch at sign-in and are rejected after any method switch, including a WorkOS to Local login to WorkOS round trip. Session invalidation therefore does not depend on row deletion. Each process refreshes the durable method and epoch at most two seconds after its cached read, and session issuance checks the database epoch again before completion. A request that began under an older epoch cannot finish by creating a new session on another process.
+
+The staged confirmation is stored in the database with a version, ten-minute expiry, and single-use marker. It can be applied by another application process; an expired, consumed, or stale-version stage is refused.
 
 ## Upgrade behavior
 

@@ -89,6 +89,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
+        cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,
         secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),

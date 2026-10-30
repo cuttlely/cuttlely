@@ -11,6 +11,7 @@ import Header from './Header'
 import Sidebar from './Sidebar'
 import { drawerWidth, headerHeight } from '@/store/constant'
 import { SET_MENU } from '@/store/actions'
+import RecoveryWarningBanner from '@/views/authentication/RecoveryWarningBanner'
 
 // styles
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(({ theme, open }) => ({
@@ -97,6 +98,7 @@ const MainLayout = () => {
 
             {/* main content */}
             <Main theme={theme} open={leftDrawerOpened}>
+                <RecoveryWarningBanner />
                 <Outlet />
             </Main>
         </Box>
