@@ -21,11 +21,28 @@ This setting requires an application version that exposes **Trusted outputs** on
             { "path": "rows.0.report_markdown" },
             { "path": "rows.0.reference_definitions" }
         ]
+    },
+    {
+        "pin": "pq_account_export_csv",
+        "hash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "mode": "table-payload-csv",
+        "payloadPath": "rows.0.table_payload",
+        "sourceLabel": "Example annual account export"
     }
 ]
 ```
 
 The example hashes are placeholders. Use the actual pin's tested statement hash, returned as `pinned.hash` in a captured run (`statementHash` on the node's result). Retest a changed query and update the contract deliberately. A changed hash, missing call ID, source error, capped result or missing field fails the protected section; it does not fall back to a model-written report or chart. Keep only the relevant source tools on a specialist that uses these contracts.
+
+The saved specialist input fields are:
+
+| Field                 | Type and default                             | Bounds and behavior                                                                                                                                                                                               |
+| --------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trustedOutputs`      | JSON array; empty/off                        | At most 16 contracts. Each has a unique `pq_` pin name, its lowercase 64-hex tested statement hash, and one of the three modes above.                                                                             |
+| `trustedOutputPolicy` | `strict` (default) or `verified-passthrough` | Applies only to specialists with contracts; the passthrough rules below still require independently stamped sources.                                                                                              |
+| `capacityWaitSeconds` | Number; `0` (off)                            | Positive values are floored and capped at 60 seconds. Waits only for an explicit pre-admission runtime concurrency rejection, never accepted work. See [Capacity wait](../how-to/harnesses.md#read-the-run-card). |
+
+A Markdown contract requires 1–32 `fields`, each with a static `path` (up to 300 characters) and optional single-line `heading` (up to 160 characters). Its optional `emptyText` is bounded to 1,000 characters. A CSV contract may set one static `payloadPath` (up to 300 characters); otherwise it uses `rows.0.table_payload`. PNG and CSV contracts may set a single-line `sourceLabel` of up to 200 characters. Paths cannot execute expressions or access prototype properties. Source-specific payload and delivery bounds follow below.
 
 There may be up to 16 contracts per specialist. A contract's pin is unique. With the default `trustedOutputPolicy: "strict"`, a specialist must produce a matching authoritative result to deliver its answer. An unmatched request receives an explicit unavailable section. Specialists without contracts keep their existing behavior.
 
@@ -80,7 +97,7 @@ Source boundaries must be first-of-month dates, inclusive start and exclusive en
 
 A successful mapped call returns the worker a small **source captured** receipt while retaining the full exact result on the server. This avoids retyping large result blocks or recovering their spill files. The receipt does not claim rendering has succeeded: source and renderer validation finish before delivery.
 
-The runtime discards protected workers' model-written prose and files. A protected final reply sends only server-rendered artifacts plus explicitly eligible standard passthrough attachments, so an unverified companion cannot attach a conflicting chart. It uses the existing native PNG artifact transport and per-turn byte/count checks. If a required verified artifact cannot be included, the run fails instead of acknowledging an absent download. The native chat wrapper waits for attachment storage success before emitting the acknowledgment. Canvas SSE sends verified artifact bytes before the protected answer. Storage/delivery failure emits no successful file acknowledgment. Cancellation and the remaining turn budget take precedence, including while native PNG encoding is in progress.
+The runtime discards protected workers' model-written prose and files. A protected final reply sends only server-rendered artifacts plus explicitly eligible standard passthrough attachments, so an unverified companion cannot attach a conflicting chart. It uses the existing native image/file artifact transport and per-turn byte/count checks. If a required verified artifact cannot be included, the run fails instead of acknowledging an absent download. The native chat wrapper waits for attachment storage success before emitting the acknowledgment. Canvas SSE sends verified artifact bytes before the protected answer. Storage/delivery failure emits no successful file acknowledgment. Cancellation and the remaining turn budget take precedence, including during native PNG encoding and attachment storage.
 
 This feature preserves selected source output; it does not establish that the model chose the correct account, metric or period. Test realistic paraphrases and ambiguous requests against source SQL before enabling a contract. No question-specific matching rule is added by these contracts.
 
@@ -89,6 +106,25 @@ A valid captured mapped source can still be delivered if the specialist model fa
 ## Source table CSV
 
 Use a dedicated approved export pin for `mode: "table-payload-csv"` when the same business query also serves ordinary text or charts. The optional `payloadPath` defaults to `rows.0.table_payload`; it is a static dot path without wildcards. `sourceLabel` is optional static text. The file name is generated by the server, never supplied by a model.
+
+For example, the `table_payload` source value can be:
+
+```json
+{
+    "headers": ["account_id", "direct_amount", "note"],
+    "complete_rows": [
+        ["example-1", "9007199254740993.1250", null],
+        ["example-2", "0.00", "Comma, quote \" and café"]
+    ],
+    "total_rows": 2,
+    "complete": true,
+    "truncated": false,
+    "metric_label": "Example direct booked amount",
+    "calendar_start_inclusive": "2026-01-01",
+    "calendar_end_exclusive": "2027-01-01",
+    "source_freshness": "Unavailable: the example source has no refresh timestamp"
+}
+```
 
 The source payload may be an object or JSON string with `headers`, `complete_rows`, `total_rows`, `complete: true` and `truncated: false`. Headers must be unique nonempty strings; every row is an array of the same width containing only exact UTF-8 strings or NULLs. There may be 0–100 rows and at most 100 columns. Counts, shapes, invalid UTF-8, numeric/boolean cells and incomplete sources are refused. Source strings are not cast, sorted or recalculated. NULLs become empty CSV fields. RFC4180 quoting preserves commas, quotes, line breaks, Unicode and long decimal strings. The native CSV file limit and combined turn limits still apply.
 
