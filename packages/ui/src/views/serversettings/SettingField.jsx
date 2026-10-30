@@ -2,10 +2,10 @@ import PropTypes from 'prop-types'
 import { useState } from 'react'
 
 import { alpha, useTheme } from '@mui/material/styles'
-import { Box, Button, Chip, InputAdornment, MenuItem, Select, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, InputAdornment, MenuItem, Select, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
 import { IconArrowBackUp, IconKey, IconLock, IconPointFilled } from '@tabler/icons-react'
 
-import { UNIT_LABELS, currentValue, describeValue, fromDisplay, limitedByLabel, toDisplay } from './model'
+import { UNIT_LABELS, currentValue, describeValue, fromDisplay, limitedByLabel, toDisplay, numberWarning } from './model'
 
 const CUSTOM = '__custom__'
 
@@ -22,6 +22,8 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
     const edited = Object.prototype.hasOwnProperty.call(drafts, setting.key)
     const value = currentValue(setting, drafts)
     const disabled = setting.locked || Boolean(readOnlyNote)
+    const warning = numberWarning(setting, drafts)
+    const zeroShown = setting.type === 'number' && setting.zeroLabel && String(value ?? '').trim() === '0'
 
     return (
         <Box
@@ -141,6 +143,21 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                             </Box>
                         )}
                     </Typography>
+                )}
+                {zeroShown && (
+                    <Typography variant='caption' data-testid={`zero-${setting.key}`} sx={{ display: 'block', mt: 0.75, fontWeight: 600 }}>
+                        {`0 = ${setting.zeroLabel}`}
+                    </Typography>
+                )}
+                {warning && (
+                    <Alert
+                        severity={warning.strong ? 'error' : 'warning'}
+                        data-testid={`warn-${setting.key}`}
+                        data-strong={warning.strong ? 'true' : 'false'}
+                        sx={{ mt: 1, borderRadius: 2, py: 0, '& .MuiAlert-message': { fontSize: '0.8rem' } }}
+                    >
+                        {warning.message}
+                    </Alert>
                 )}
                 {setting.key === 'CUTTLELY_HISTORY_KEEP' && setting.effective && (
                     <Typography
@@ -469,7 +486,12 @@ const settingShape = PropTypes.shape({
     range: PropTypes.shape({ min: PropTypes.number, max: PropTypes.number }),
     runtime: PropTypes.bool,
     placeholder: PropTypes.string,
-    secret: PropTypes.object
+    secret: PropTypes.object,
+    zeroLabel: PropTypes.string,
+    warnings: PropTypes.shape({
+        zero: PropTypes.string,
+        above: PropTypes.shape({ value: PropTypes.number, message: PropTypes.string })
+    })
 })
 
 SettingField.propTypes = {

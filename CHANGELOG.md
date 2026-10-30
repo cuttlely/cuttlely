@@ -6,6 +6,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   **Allow HTTP building blocks to call localhost** (`HTTP_ALLOW_LOCALHOST`) in **Admin** > **Server Settings** > **Security & network** > **Building blocks** lets HTTP building blocks, such as **HTTP** and **Execute Flow**, call `127.0.0.0/8`, `::1` and `localhost`. It is off by default and applies on the next request without a restart. When on, any flow author can reach any service listening on the server's own localhost. Private ranges, link-local and cloud metadata addresses, `0.0.0.0`, `::`, and every `HTTP_DENY_LIST` entry stay blocked. With `HTTP_SECURITY_CHECK=false` the switch changes nothing. See [Server settings](./docs/how-to/server-settings.md#let-http-building-blocks-call-localhost).
+
+-   **Maximum concurrent agent runs** (`CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`) in **Admin** > **Server Settings** > **Agent runtime** > **Limits** sets how many agent runs the agent runtime works on at once. It defaults to `10` and accepts `1` to `50`, or `0` for unlimited; negative values and values above 50 are refused. It applies after a restart. The page warns about memory and CPU above 25, and more strongly for unlimited. See [Server settings](./docs/how-to/server-settings.md#maximum-concurrent-agent-runs).
+
 -   Optional per-specialist **Trusted outputs** bind a tested query hash to exact source Markdown fields, a verified monthly-utilization PNG or an exact source table CSV (up to 100 rows). The server uses the actual captured result and native attachment transport, replaces conflicting model output, preserves source section captions and reference blocks, and skips Harness Prime rewriting. Empty remains off; failures and unsupported sections are explicit. See [Trusted pinned-query outputs](./docs/reference/trusted-outputs.md).
 
 -   Harness Specialist **Capacity wait (seconds)** can wait up to 60 seconds when the agent runtime rejects a new run because all concurrent-run slots are busy. It defaults to `0`, off, honors `Retry-After` and the turn budget, and does not rerun accepted turns or tools.
@@ -22,6 +26,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   HTTP building blocks also refuse the unspecified IPv6 address `::`, like `0.0.0.0`, and a host name listed in `HTTP_DENY_LIST` is now refused by name as well as by the addresses it resolves to.
+
 -   Guarded PostgreSQL queries run faster with fewer database round trips and JIT disabled for catalog checks; user statements retain the login JIT setting.
 
 -   The Harness Specialist **Handoff limit** tooltip now says what each value does: default 4,000, empty or `0` means the default, `-1` means no limit, and other values are kept from 160 to 20,000.
@@ -35,6 +41,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The UI HTML sanitizer uses dompurify 3.4.17.
 
 ### Fixed
+
+-   HTTP building blocks that call a host name, such as **HTTP**, **Execute Flow**, the API loader and the request tools, connect again on Node 20 and later. The connection still goes only to the address that was checked; it failed with `Invalid IP address: undefined` before.
 
 -   Trusted PNG/CSV replay through a Harness card returns real in-memory previews without persistent storage or successful chat-download events. Compare remains text-only; normal delivery still requires storage success within the turn deadline.
 
