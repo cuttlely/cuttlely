@@ -43,7 +43,7 @@ import {
     updateWorkspace,
     updateWorkspaceUserRole
 } from './directory'
-import { identityStore, refreshAuthenticationView } from './production'
+import { identityStore } from './production'
 import { teamAccess } from './sqlStore'
 import { acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
 import { HandlerResult } from './types'
@@ -222,15 +222,11 @@ identityRoleRouter.delete(
 identityRoleRouter.use(notFound)
 
 function localOnly(_req: Request, res: Response, next: NextFunction) {
-    void refreshAuthenticationView()
-        .catch(() => undefined)
-        .then(() => {
-            if (!localUsersMode()) {
-                res.status(404).json({ message: 'Not Found' })
-                return
-            }
-            next()
-        })
+    if (!localUsersMode()) {
+        res.status(404).json({ message: 'Not Found' })
+        return
+    }
+    next()
 }
 
 function disabledFlag(body: unknown): boolean {

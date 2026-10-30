@@ -659,6 +659,30 @@ describe('identity auth', () => {
         }
     })
 
+    it('removes an owner session that was inserted after a concurrent method switch', async () => {
+        const store = new MemoryStore()
+        const credential = await hashPassword(GOOD)
+        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+        jest.spyOn(authenticationState, 'refreshAuthenticationState').mockResolvedValue(null)
+        jest.spyOn(authenticationState, 'selectedAuthenticationEpoch').mockReturnValueOnce(4).mockReturnValue(5)
+        const result = json(
+            await handleLoginPost(
+                ctx({
+                    dataSource: {} as DataSource,
+                    authenticationEpoch: 4,
+                    localAdmin: true,
+                    localUsers: false,
+                    internal: true,
+                    store,
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+        expect(result.status).toBe(409)
+        expect(store.local.size).toBe(0)
+        jest.restoreAllMocks()
+    })
+
     it('uses a secure cookie when the redirect URI is https', async () => {
         const store = new MemoryStore()
         const result = await handleCallback(

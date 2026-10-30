@@ -242,6 +242,13 @@ async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' |
     return 'ok'
 }
 
+/** A method switch can commit between the epoch check and the insert. Recheck after the insert and remove a session that missed the switch. */
+async function sessionSurvivedSwitch(ctx: AuthContext, token: string): Promise<boolean> {
+    if (await authenticationEpochCurrent(ctx)) return true
+    await ctx.store.deleteLocalSession(hashSessionToken(token))
+    return false
+}
+
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
     if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
@@ -256,6 +263,7 @@ async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ to
         issuedAt: at,
         lastSeenAt: at
     })
+    if (!(await sessionSurvivedSwitch(ctx, token))) return null
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
     if (!session) return null
     return { token, session }
@@ -410,6 +418,7 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
         issuedAt: at,
         lastSeenAt: at
     })
+    if (!(await sessionSurvivedSwitch(ctx, token))) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
     const session = await sessionAfterLogin(ctx.store, owner.id, ctx.now)
     if (!session) {
         await noteSignIn(ctx, 'sign_in_failure', owner.id, 'owner')

@@ -36,7 +36,9 @@ export default function AuthenticationSettings() {
                 setChoice(value.activeMethod || '')
             })
             .catch(() => setError('Authentication settings could not be loaded.'))
-    useEffect(load, [])
+    useEffect(() => {
+        load()
+    }, [])
     const prepare = async () => {
         setError('')
         try {
