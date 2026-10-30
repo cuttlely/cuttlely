@@ -42,6 +42,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 -   If you're on 1.4.7, upgrade: **Admin** > **Server Settings** has two new owner settings. **Allow HTTP building blocks to call localhost** is off by default and marked high risk; when it is on, any flow author can reach any service on the server's own localhost, and entries in `HTTP_DENY_LIST` stay blocked. **Maximum concurrent agent runs** defaults to 10, accepts 1 to 50 or 0 for unlimited, and applies after a restart.
 -   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses.
+-   HTTP building blocks that call a host name, such as **HTTP** and **Execute Flow**, connect again on Node 20 and later; before, they failed with `Invalid IP address: undefined`.
 -   Publishing a specialist again with changed pinned-query parameters gives the agent the new tool schema on its next start.
 -   The UI HTML sanitizer uses dompurify 3.4.17.
 -   1.4.8 also adds Harness Specialist **Trusted outputs**, **Pin first** and **Answer direct**, and an **Agent run time** setting in Admin. The [changelog](./CHANGELOG.md#148---2026-10-30) lists every change.
