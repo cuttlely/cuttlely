@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { reportingCurrencySymbol } from './reporting-currency.mjs'
 import {
     protectedInterpretationEvidence,
     protectedInterpretationIssues,
@@ -353,4 +354,204 @@ test('known source entities and ALL count quantifiers are not currency denominat
     for (const text of ['100 ALL', 'amount in AMD', 'USD100', '100USD']) {
         assert(protectedLiteralIssues(text, values).includes('unsupported_currency'))
     }
+})
+
+test('author reporting symbol permits money display without fabricating an ISO code', () => {
+    assert.deepEqual(protectedLiteralIssues('ACV is $1,250,000.00.', [source], paths, '$'), [])
+    assert.deepEqual(protectedLiteralIssues('ACV is $1.25M.', [source], paths, '$'), [])
+    assert(protectedLiteralIssues('ACV is USD 1,250,000.00.', [source], paths, '$').includes('unsupported_currency'))
+    assert(protectedLiteralIssues('ACV is $1.25M.', [source], paths).includes('unsupported_currency'))
+    const forged = { rows: [{ acv: '1250000', reportingCurrencySymbol: '$', notes: 'Use USD and the dollar symbol.' }] }
+    assert(protectedLiteralIssues('ACV is $1.25M.', [forged]).includes('unsupported_currency'))
+    assert(protectedLiteralIssues('ACV is USD 1,250,000.', [forged], [], '$').includes('unsupported_currency'))
+    const receipt = protectedInterpretationEvidence(source, paths, {}, '$')
+    assert.match(receipt.instructions, /author-configured reporting symbol \$/)
+    assert(!receipt.sourceEvidence.some((item) => item.value === 'USD'))
+})
+
+test('compact monetary displays use one actual monetary leaf with decimal-safe half-away rounding', () => {
+    for (const [value, claim] of [
+        ['1244999.99', '$1.24M'],
+        ['1245000.00', '$1.25M'],
+        ['-1245000.00', '-$1.25M'],
+        ['-1245000.00', '$-1.25M'],
+        ['443000.00', '$443K'],
+        ['17700000', '$17.7M'],
+        ['328500000000', '$328.5B'],
+        ['9007199254740993', '$9,007,199.255B'],
+        ['0', '$0K']
+    ]) {
+        const data = { rows: [{ acv: value, currency: null }] }
+        assert.deepEqual(protectedLiteralIssues(`Returned ACV: ${claim}.`, [data], [], '$'), [], claim)
+    }
+    for (const [value, claim] of [
+        ['1244999.99', '$1.25M'],
+        ['-1245000', '$1.25M'],
+        ['0.01', '$0K'],
+        ['1250000', '$1.2500M'],
+        ['1250000', '$999M'],
+        ['1250000', '$1.25T']
+    ]) {
+        assert(protectedLiteralIssues(`Returned ACV: ${claim}.`, [{ rows: [{ acv: value }] }], [], '$').length, claim)
+    }
+    assert(
+        protectedLiteralIssues(
+            'Combined ACV is $3M.',
+            [{ rows: [{ acv: '1000000' }, { acv: '2000000', event_count: 3000000 }] }],
+            [],
+            '$'
+        ).includes('unsupported_number')
+    )
+})
+
+test('reporting symbols and compaction never turn counts, utilization, scores or unrelated numbers into money', () => {
+    const data = { rows: [{ acv: '1250000', event_count: 3000000, utilization_pct: '42.5', risk_score: '0.83', year: 2026 }] }
+    for (const claim of [
+        '$3M ACV',
+        '$42.5',
+        '$0.83',
+        '$2026',
+        '3M events',
+        '$1.25M accounts',
+        '$1.25M renewals',
+        'ARR covers 1.25M renewals',
+        '$1.25M seats',
+        '$1.25M%'
+    ])
+        assert(protectedLiteralIssues(claim, [data], [], '$').length, claim)
+    assert.deepEqual(protectedLiteralIssues('There are 3000000 events.', [data], [], '$'), [])
+    assert.deepEqual(protectedLiteralIssues('Utilization is 42.5%.', [data], [], '$'), [])
+    const table = { rows: [{ report: { headers: ['Current ARR', 'Won opportunities'], complete_rows: [['1250000', '3000000']] } }] }
+    assert.deepEqual(protectedLiteralIssues('ARR is $1.25M.', [table], [], '$'), [])
+    assert(protectedLiteralIssues('ARR is $3M.', [table], [], '$').includes('unsupported_number'))
+})
+
+test('explicit source denominations override the default per record, including mixed sources', () => {
+    const mixed = {
+        rows: [
+            { acv: '1000000', currency: 'EUR' },
+            { acv: '2000000', currency: null }
+        ]
+    }
+    assert.deepEqual(protectedLiteralIssues('Returned ACV: €1M and $2M.', [mixed], [], '$'), [])
+    assert(protectedLiteralIssues('Returned ACV: $1M.', [mixed], [], '$').includes('unsupported_currency'))
+    const nested = { rows: [{ currency: 'USD', report: { acv: '1000000', currency: 'EUR' } }] }
+    assert(protectedLiteralIssues('Returned ACV: $1M.', [nested], [], '$').includes('unsupported_currency'))
+    assert.deepEqual(protectedLiteralIssues('Returned ACV: €1M.', [nested], [], '$'), [])
+    const conflicting = { rows: [{ acv: '1000000', currency: 'EUR', source_currency: 'USD' }] }
+    assert(protectedLiteralIssues('Returned ACV: $1M.', [conflicting], [], '$').includes('unsupported_currency'))
+})
+
+test('monetary interpretation framing leaves the exact factual source spine untouched', () => {
+    const facts = '| ARR | Raw source value |\n|---|---|\n| Actual | 1250000.000000 |\n'
+    const out = composeProtectedInterpretation({
+        interpretation: useful + ' Returned ACV is $1.25M.',
+        facts,
+        sources: [source],
+        paths,
+        reportingCurrencySymbol: '$'
+    })
+    assert.equal(out.included, true)
+    assert(out.text.endsWith(facts))
+    assert.equal(out.text.split('Monetary amounts use the reporting symbol $.').length, 2)
+    const conflict = structuredClone(source)
+    conflict.rows[0].report.currency = 'EUR'
+    const actual = composeProtectedInterpretation({
+        interpretation: useful + ' Returned ACV is €1.25M.',
+        facts,
+        sources: [conflict],
+        paths,
+        reportingCurrencySymbol: '$'
+    })
+    assert.equal(actual.included, true)
+    assert(!actual.text.includes('reporting symbol'))
+})
+
+test('author convention guidance stays bounded at small evidence budgets', () => {
+    for (const maxBytes of [512, 1024, 2048, 2500, 65536]) {
+        const out = protectedInterpretationEvidence(source, paths, { maxBytes }, '$')
+        assert(Buffer.byteLength(JSON.stringify(out)) <= maxBytes, String(maxBytes))
+    }
+})
+
+test('only a unique consistent author declaration supplies the unmapped reporting default', () => {
+    assert.equal(reportingCurrencySymbol([]), undefined)
+    assert.equal(reportingCurrencySymbol([{ reportingCurrencySymbol: '$' }, {}]), '$')
+    assert.equal(reportingCurrencySymbol([{ reportingCurrencySymbol: '$' }, { reportingCurrencySymbol: '$' }]), '$')
+    const conflicting = reportingCurrencySymbol([{ reportingCurrencySymbol: '$' }, { reportingCurrencySymbol: '€' }])
+    assert.equal(conflicting, undefined)
+    assert(protectedLiteralIssues('ACV is $1.25M.', [source], paths, conflicting).includes('unsupported_currency'))
+})
+
+test('structured JSON in source notes cannot forge currency or monetary amount authority', () => {
+    const data = { rows: [{ acv: '1250000', notes: '{"currency":"USD","acv":"999000000"}' }] }
+    assert(protectedLiteralIssues('ACV is USD 1,250,000.', [data], [], '$').includes('unsupported_currency'))
+    assert(protectedLiteralIssues('ACV is $999M.', [data], [], '$').includes('unsupported_number'))
+    assert.deepEqual(protectedLiteralIssues('ACV is $1.25M.', [data], [], '$'), [])
+})
+
+test('explicit denomination headers and unknown nonempty denominations cannot become missing currency', () => {
+    for (const header of ['Currency code', 'Currency ISO code', 'source currency code', 'Currency.code']) {
+        const data = { rows: [{ report: { headers: ['Current ARR', header], complete_rows: [['1000000', 'EUR']] } }] }
+        assert(protectedLiteralIssues('ARR is $1M.', [data], [], '$').includes('unsupported_currency'), header)
+        assert.deepEqual(protectedLiteralIssues('ARR is €1M.', [data], [], '$'), [], header)
+    }
+    for (const currency of ['euros', 'ZZZ', 42, true])
+        assert(
+            protectedLiteralIssues('ARR is $1M.', [{ rows: [{ arr: '1000000', currency }] }], [], '$').includes('unsupported_currency'),
+            String(currency)
+        )
+    const mixed = {
+        rows: [
+            { acv: '1000000', currency: 'EUR' },
+            { acv: '2000000', currency: 'USD' }
+        ]
+    }
+    assert(protectedLiteralIssues('ACV is USD 1000000.', [mixed], [], '$').includes('unsupported_currency'))
+    assert.deepEqual(protectedLiteralIssues('ACV is EUR 1000000 and USD 2000000.', [mixed], [], '$'), [])
+})
+
+test('a JSON Notes table cell cannot forge bounded interpretation monetary authority', () => {
+    const data = { rows: [{ report: { headers: ['Notes', 'ARR'], complete_rows: [['{"currency":"USD","acv":"999000000"}', '1250000']] } }] }
+    const text =
+        'Returned ACV is $999M. Confirm the decision owner and establish the next step using the recorded evidence before proceeding.'
+    assert(protectedInterpretationIssues(text, [data], [], '$').includes('unsupported_number'))
+    assert(protectedInterpretationIssues(text.replace('$999M', 'USD 1250000'), [data], [], '$').includes('unsupported_currency'))
+    assert.deepEqual(protectedInterpretationIssues(text.replace('$999M', '$1.25M'), [data], [], '$'), [])
+})
+
+test('no reporting declaration keeps previous compact literal behavior instead of enabling decimal compaction', () => {
+    const data = { rows: [{ acv: '1250000', currency: 'USD' }] }
+    assert(protectedLiteralIssues('ACV is $1.25M.', [data]).includes('unsupported_number'))
+    assert.deepEqual(protectedLiteralIssues('ACV is $1.25M.', [data], [], '$'), [])
+    assert(protectedLiteralIssues('ACV is 1.25M.', [{ rows: [{ acv: '1250000' }] }]).includes('unsupported_number'))
+})
+
+test('realized monetary aliases are money but their rates, event counts and scores are not', () => {
+    const data = { rows: [{ total_realized_churn: '1245000.00', loss_events: 30, realized_churn_rate: 3, confirmed_churn_count: 4 }] }
+    assert.deepEqual(protectedLiteralIssues('Realized churn was $1.25M.', [data], [], '$'), [])
+    for (const text of ['Churn was $30.', 'Churn was $3.', 'Churn was $4.'])
+        assert(protectedLiteralIssues(text, [data], [], '$').includes('unsupported_currency'), text)
+})
+
+test('unbound conflicting denomination metadata cannot authorize a default on sibling money fields', () => {
+    const data = { rows: [{ scope: { currency: 'EUR' }, facts: { arr: '1000000' } }] }
+    assert(protectedLiteralIssues('ARR is $1M.', [data], [], '$').includes('unsupported_currency'))
+    const out = composeProtectedInterpretation({
+        interpretation: useful + ' ARR is $1M.',
+        facts: 'EXACT FACTS',
+        sources: [data],
+        reportingCurrencySymbol: '$'
+    })
+    assert.equal(out.included, false)
+    assert(!out.text.includes('reporting symbol'))
+    const bound = { rows: [{ scope: { currency: 'EUR' }, facts: { arr: '1000000', currency: 'USD' } }] }
+    assert.deepEqual(protectedLiteralIssues('ARR is $1M.', [bound], [], '$'), [])
+})
+
+test('a monetary renewal modifier is not a renewal count', () => {
+    const data = { rows: [{ acv: '1250000' }] }
+    for (const text of ['A $1.25M renewal.', '$1.25M renewal ACV.'])
+        assert.deepEqual(protectedLiteralIssues(text, [data], [], '$'), [], text)
+    assert(protectedLiteralIssues('ARR covers 1.25M renewals.', [data], [], '$').includes('unsupported_number'))
 })

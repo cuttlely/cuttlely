@@ -1,4 +1,4 @@
-import { protectedInterpretationEvidence } from './protected-interpretation.mjs'
+import { protectedInterpretationEvidence, protectedReportingCaption } from './protected-interpretation.mjs'
 
 const privatePath =
     /(?:^|\.)(?:_cuttlely[^.]*|[^.]*(?:password|api_?key|credential|secret|token|authorization)[^.]*|connection_?string|testedStamp|sql|queryEvidence)(?:\.|$)/i
@@ -26,7 +26,7 @@ function label(path) {
 
 // Emergency delivery only: no generated conclusion survives a failed literal
 // check. Fields come directly from bounded server captures, not model JSON.
-export function sourceAnswerFallback(captured) {
+export function sourceAnswerFallback(captured, reportingCurrencySymbol) {
     const rows = []
     let bounded = false
     for (let source = 0; source < captured.length; source++) {
@@ -45,7 +45,13 @@ export function sourceAnswerFallback(captured) {
             rows.push(`| ${captured.length > 1 ? `Source ${source + 1} / ` : ''}${escapeCell(label(field.path))} | ${escapeCell(shown)} |`)
         }
     }
-    const introduction = 'The additional interpretation could not be verified. The source-backed values are shown below.'
+    const caption = protectedReportingCaption(
+        captured.map((item) => item.result),
+        ['rows'],
+        reportingCurrencySymbol
+    )
+    const introduction =
+        'The additional interpretation could not be verified. The source-backed values are shown below.' + (caption ? `\n\n${caption}` : '')
     if (!rows.length) {
         const empty = captured.length && captured.every((item) => Array.isArray(item.result?.rows) && item.result.rows.length === 0)
         return `${introduction}\n\n${empty ? 'The executed query returned no rows.' : 'No displayable source values were returned.'}`

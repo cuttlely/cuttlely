@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Trusted-output contracts can declare an optional monetary reporting symbol for verified readouts. Explicit source denominations take precedence, compact K/M/B values must match decimal-safe rounding of actual monetary source fields, and unchanged factual sections retain their original values. Counts and percentages stay in their source units.
+
 -   Harness Specialist can explicitly allow verified native read-only SQL when no tested pin covers a request. PostgreSQL MCP can expose scoped pinned-query definitions without stamps or secure defaults; fallback queries retain database guards and are limited to two calls per specialist turn.
 -   Optional **Interpret protected evidence** gives a specialist bounded source observations for a labeled analyst readout before unchanged source-owned facts. Conservative provenance and comparability checks omit unsupported interpretation without rerunning the model or source query. Both features default off. See [Trusted outputs](./docs/reference/trusted-outputs.md).
 

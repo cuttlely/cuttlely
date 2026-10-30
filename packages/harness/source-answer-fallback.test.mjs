@@ -35,3 +35,22 @@ test('source field fallback is capped and distinguishes an executed empty query 
     assert.match(text, /bounded display/)
     assert.match(sourceAnswerFallback([{ result: { rows: [] } }]), /query returned no rows/)
 })
+
+test('fallback frames typed money with the author reporting convention without changing source cells', () => {
+    const captured = [{ result: { rows: [{ acv: '1250000.000000', currency: null, account_count: 3 }] } }]
+    const ordinary = sourceAnswerFallback(captured)
+    const reporting = sourceAnswerFallback(captured, '$')
+    assert.match(reporting, /Monetary amounts use the reporting symbol \$/)
+    assert.equal(
+        reporting
+            .split('\n')
+            .filter((line) => line.startsWith('|'))
+            .join('\n'),
+        ordinary
+            .split('\n')
+            .filter((line) => line.startsWith('|'))
+            .join('\n')
+    )
+    assert(!sourceAnswerFallback([{ result: { rows: [{ account_count: 3 }] } }], '$').includes('reporting symbol'))
+    assert(!sourceAnswerFallback([{ result: { rows: [{ acv: '1250000', currency: 'EUR' }] } }], '$').includes('reporting symbol'))
+})
