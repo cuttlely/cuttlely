@@ -1149,7 +1149,21 @@ function mcpServerBlocks(record) {
         blocks.push({
             name: bridgeName,
             command: process.execPath,
-            args: [bridgeScript, '--harness', record.name, '--specialist', specialist.name],
+            // Hermes keys both persisted tool schemas and live connections by this route.
+            // Tool bindings can change while the public specialist/server name stays the same.
+            // Model, answer and per-run settings are deliberately outside this revision.
+            args: [
+                bridgeScript,
+                '--harness',
+                record.name,
+                '--specialist',
+                specialist.name,
+                '--tool-revision',
+                crypto
+                    .createHash('sha256')
+                    .update(stableStringify({ modules: specialist.modules || [], mcpServers: specialist.mcpServers || [] }))
+                    .digest('hex')
+            ],
             // Hermes drops the parent environment when it starts this stdio bridge.
             // The data dir has to be in the profile env or the status file is never written.
             env: hasAnalystTool(specialist) ? { CUTTLELY_ANALYST_BRIDGE: '1', CUTTLELY_DATA_DIR: dataRoot() } : {}
@@ -2629,7 +2643,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '3'
+export const PROFILE_COMPILER_VERSION = '4'
 
 function compilerVersionOf(dir) {
     try {
