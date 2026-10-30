@@ -29,7 +29,7 @@ from pathlib import Path
 config = Path(sys.argv[2])
 raw = sys.argv[3] if len(sys.argv) > 3 else None
 result = scope["apply_max_concurrent_runs"](config, raw, json.loads, lambda data: json.dumps(data, indent=2))
-print(json.dumps({"result": result, "parse": [scope["parse_max_concurrent_runs"](v) for v in ["0", "10", "100", "101", "-1", "1.5", " 7 ", "", None, "ten"]]}))
+print(json.dumps({"result": result, "parse": [scope["parse_max_concurrent_runs"](v) for v in ["0", "10", "50", "51", "100", "-1", "1.5", " 7 ", "", None, "ten"]]}))
 `
 
 function python() {
@@ -54,10 +54,10 @@ function home(initial) {
 
 const BASE = { gateway: { multiplex_profiles: true }, agent: { disabled_toolsets: ['terminal'] } }
 
-test('the value accepted is a whole number from 0 to 100', () => {
+test('the value accepted is a whole number from 0 to 50; 51 is refused', () => {
     const h = home(BASE)
     try {
-        assert.deepEqual(run(h.config).parse, [0, 10, 100, null, null, null, 7, null, null, null])
+        assert.deepEqual(run(h.config).parse, [0, 10, 50, null, null, null, null, 7, null, null, null])
     } finally {
         fs.rmSync(h.dir, { recursive: true, force: true })
     }
@@ -124,10 +124,10 @@ test('an unusable value leaves config.yaml as it is and says so without echoing 
     const h = home({ ...BASE, gateway: { ...BASE.gateway, api_server: { max_concurrent_runs: 5 } } })
     try {
         const before = fs.readFileSync(h.config, 'utf8')
-        for (const raw of ['101', '-1', 'lots']) {
+        for (const raw of ['51', '-1', 'lots']) {
             const out = run(h.config, raw)
             assert.equal(out.result, null)
-            assert.match(out.stderr, /must be a whole number from 0 to 100/)
+            assert.match(out.stderr, /must be a whole number from 0 to 50/)
             assert.ok(!out.stderr.includes(raw))
         }
         assert.equal(fs.readFileSync(h.config, 'utf8'), before)

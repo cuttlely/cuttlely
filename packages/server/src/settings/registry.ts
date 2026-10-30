@@ -59,6 +59,10 @@ export interface SettingDef {
     max?: number
     /** Require a whole raw value, before any display-unit conversion. */
     integer?: boolean
+    /** For a number: the word Admin shows for 0 (for example Unlimited). */
+    zeroLabel?: string
+    /** For a number: warnings Admin shows under the field. `zero` is the strong one for 0; `above` applies to any value over `value`. Saving is still allowed. */
+    warnings?: { zero?: string; above?: { value: number; message: string } }
     /** Read on each use: host, then the settings file, then the default. No restart. */
     runtime?: boolean
     /** A saved value overrides the host. Read on each use. The field stays editable. */
@@ -492,13 +496,21 @@ export const SETTINGS: SettingDef[] = [
         section: 'runtime',
         group: 'Limits',
         label: 'Maximum concurrent agent runs',
-        help: 'How many agent runs the agent runtime works on at the same time. A run over the limit is turned away as busy. 0 means no limit. Higher values use more memory and CPU, and more model requests at once. Restart to apply.',
+        help: 'How many agent runs the agent runtime works on at the same time: 1 to 50, or 0 for unlimited. A run over the limit is turned away as busy. Higher values use more memory and CPU, and more model requests at once. Restart to apply.',
         type: 'number',
         integer: true,
         min: 0,
-        max: 100,
+        max: 50,
         defaultLabel: '10',
         defaultValue: '10',
+        zeroLabel: 'Unlimited',
+        warnings: {
+            zero: 'Unlimited: the agent runtime starts every run it is sent, with no cap. A burst of questions can use all the memory and CPU on the server and stop it from answering. Use a number unless you are sure the server has room.',
+            above: {
+                value: 25,
+                message: 'More than 25 runs at once can use a lot of memory and CPU. Check the server has room before you save.'
+            }
+        },
         risk: 'medium'
     },
     {

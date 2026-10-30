@@ -278,4 +278,60 @@ describe('SettingField', () => {
         expect(field.textContent).not.toContain('Another limit')
         expect(document.querySelector('input[aria-label="Prompt and tool text limit, Another limit"]')).toBeNull()
     })
+
+    it('labels 0 as Unlimited with a strong warning, warns above 25, and says nothing at 10', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = {
+            key: 'CUTTLELY_HERMES_MAX_CONCURRENT_RUNS',
+            label: 'Maximum concurrent agent runs',
+            help: 'How many agent runs at once.',
+            type: 'number',
+            integer: true,
+            min: 0,
+            max: 50,
+            defaultLabel: '10',
+            defaultValue: '10',
+            zeroLabel: 'Unlimited',
+            warnings: {
+                zero: 'Unlimited can use all the memory and CPU.',
+                above: { value: 25, message: 'More than 25 uses more memory and CPU.' }
+            },
+            value: '',
+            effective: '10',
+            source: 'default',
+            locked: false,
+            changed: false,
+            section: 'runtime',
+            group: 'Limits'
+        }
+        const show = async (drafts) => {
+            await act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(SettingField, { setting, drafts, onDraft: () => {} })
+                    )
+                )
+            })
+        }
+        const warn = () => document.querySelector('[data-testid="warn-CUTTLELY_HERMES_MAX_CONCURRENT_RUNS"]')
+        const zero = () => document.querySelector('[data-testid="zero-CUTTLELY_HERMES_MAX_CONCURRENT_RUNS"]')
+        await show({})
+        expect(warn()).toBeNull()
+        expect(zero()).toBeNull()
+        await show({ CUTTLELY_HERMES_MAX_CONCURRENT_RUNS: '0' })
+        expect(zero().textContent).toBe('0 = Unlimited')
+        expect(warn().textContent).toContain('Unlimited can use all the memory and CPU.')
+        expect(warn().getAttribute('data-strong')).toBe('true')
+        expect(warn().className).toMatch(/Error/)
+        await show({ CUTTLELY_HERMES_MAX_CONCURRENT_RUNS: '26' })
+        expect(zero()).toBeNull()
+        expect(warn().textContent).toContain('More than 25 uses more memory and CPU.')
+        expect(warn().getAttribute('data-strong')).toBe('false')
+        await show({ CUTTLELY_HERMES_MAX_CONCURRENT_RUNS: '25' })
+        expect(warn()).toBeNull()
+    })
 })

@@ -104,12 +104,12 @@ except Exception as error:  # noqa: BLE001
 # wrote, so clearing the setting removes it again (back to the runtime default, 10) while a value an operator
 # typed into config.yaml by hand is left alone.
 MAX_CONCURRENT_RUNS_ENV = "CUTTLELY_HERMES_MAX_CONCURRENT_RUNS"
-MAX_CONCURRENT_RUNS_LIMIT = 100
+MAX_CONCURRENT_RUNS_LIMIT = 50
 MAX_CONCURRENT_RUNS_MARKER = ".cuttlely-max-concurrent-runs"
 
 
 def parse_max_concurrent_runs(raw):
-    """A whole number from 0 to 100, or None (unset or unusable)."""
+    """A whole number from 0 to 50, or None (unset or unusable)."""
     text = (raw or "").strip()
     if not text.isdigit():
         return None
