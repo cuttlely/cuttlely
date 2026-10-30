@@ -26,7 +26,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. Tool details are masked by one JSON-aware step in every event, the returned payload and the trace, so they stay valid JSON, including a string that is itself JSON. A string in a tool detail that still holds a path after text masking, such as `a|/srv/x.csv`, is replaced as a whole. A label such as `Q3..Q4` is no longer read as a path. Answer text keeps the existing masking.
+-   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. Tool details are masked by one JSON-aware step in every event, the returned payload and the trace, so they stay valid JSON, including a string that is itself JSON. A string in a tool detail that still holds an absolute path after text masking, such as `a|/srv/x.csv`, is replaced as a whole; a URL keeps `,` and `;` in its query or fragment, and the workspace folder or a `file://` address after it is still replaced. A label such as `Q3..Q4` is no longer read as a path. Answer text keeps the existing masking.
 
 -   A HARNESS canvas id now works on the public `POST /api/v1/prediction/:id` route. It runs the Live (published) canvas, returns a `sessionToken` bound to the chat id, and needs the bound API key to list the harness. File uploads there are refused with 400; send them to a chatflow with a Harness card.
 

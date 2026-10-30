@@ -791,27 +791,39 @@ const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
 const DETAIL_JSON_DEPTH = 6
 const DETAIL_PHRASE = 'a server path'
 const realRoots = new Map()
+// The real path of the root, through its nearest folder that exists; a root that exists is cached.
+function realRoot(root) {
+    const rest = []
+    for (let dir = root; ; dir = path.dirname(dir)) {
+        try {
+            return { real: path.join(fs.realpathSync(dir), ...rest), exists: rest.length === 0 }
+        } catch {
+            if (path.dirname(dir) === dir) return { real: root, exists: false }
+            rest.unshift(path.basename(dir))
+        }
+    }
+}
 function workspaceRoots() {
     const root = specialistWorkspaceRoot()
-    if (!realRoots.has(root)) {
-        let real = root
-        try {
-            real = fs.realpathSync(root)
-        } catch {
-            // A root that does not exist yet has no other spelling.
-        }
+    if (!root) return []
+    if (realRoots.has(root)) return realRoots.get(root)
+    const { real, exists } = realRoot(root)
+    const roots = [...new Set([root, real])]
+    if (exists) {
         realRoots.clear()
-        realRoots.set(root, [...new Set([root, real].filter(Boolean))])
+        realRoots.set(root, roots)
     }
-    return realRoots.get(root)
+    return roots
 }
 // The look-behind starts a match only at the start of a word, so a long word is read once.
-const URL_SPAN = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>|,;]*/gi
+// A URL runs to the next space, quote, angle bracket or `|`. Before its query or fragment a `,` or `;` also ends it;
+// after `?` or `#` they stay part of it, so `?paths=/a,/b` is kept.
+const URL_SPAN = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>|,;?#]*(?:[?#][^\s"'`<>|]*)?/gi
 const PATH_START = /(?:^|[^A-Za-z0-9<.])(?:\/[A-Za-z0-9._~$%@+-]|~[/\\]|[A-Za-z]:[/\\]|\\\\[A-Za-z0-9])/
 // The backstop test. Escaped and percent-encoded slashes count as slashes; URLs are skipped unless they hold the root.
 function pathLeft(text) {
     const probe = text
-        .replace(/\\+\//g, '/')
+        .replace(/(?<!\\)\\+\//g, '/')
         .replace(/\\u002f/gi, '/')
         .replace(/%2f/gi, '/')
     if (workspaceRoots().some((root) => probe.includes(root)) || /file:\/\//i.test(probe)) return true

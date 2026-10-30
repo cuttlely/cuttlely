@@ -397,3 +397,37 @@ test('a long pinned tool error stays valid JSON with no path in every event and 
     assert.equal(all.includes(secret), false)
     assert.equal(all.includes('/tmp/private.csv'), false)
 })
+
+test('a URL keeps its commas and semicolons, and a workspace path joined after it is still replaced', () => {
+    const url = 'https://example.com/export?paths=/reports,/invoices'
+    for (const text of [url, `See ${url} and https://example.com/a?b=/c;d=/e#x,/y`, JSON.stringify({ link: url })]) {
+        assert.equal(maskDetail(text), text)
+    }
+    const root = path.dirname(specialistWorkspace('_'))
+    for (const joined of [`${url},${secret}`, `${url};${secret}`, `${url},file:///etc/hosts`, `https://example.com/a;${root}/x.csv`]) {
+        assert.equal(maskDetail(joined), 'a server path', joined)
+        assert.equal(JSON.parse(maskDetail(JSON.stringify({ cell: joined }))).cell, 'a server path', joined)
+    }
+    // In a query or fragment, a path outside the workspace after `,` or `;` is read as part of the URL.
+    assert.equal(maskDetail(`${url},/srv/x.csv`), `${url},/srv/x.csv`)
+    // Before the query, `,` and `;` end the URL, so a path joined there replaces the string.
+    for (const joined of ['http://[::1]:3000/api,/tmp/private.csv', 'https://example.com/a;~/notes']) {
+        assert.equal(maskDetail(joined), 'a server path', joined)
+    }
+    // Outside a URL, any absolute path that starts after a separator replaces the string.
+    assert.equal(maskDetail('3/4|/srv/x.csv'), 'a server path')
+})
+
+test('a long run of backslashes is masked in linear time', () => {
+    const text = '\\'.repeat(40000) + 'x'
+    for (const value of [text, JSON.stringify({ cell: text })]) {
+        maskDetail(value.slice(-200))
+        // The fastest of three runs, so a busy machine does not fail the check.
+        const times = [0, 1, 2].map(() => {
+            const started = performance.now()
+            maskDetail(value)
+            return performance.now() - started
+        })
+        assert.ok(Math.min(...times) < 50, `${Math.min(...times)} ms`)
+    }
+})
