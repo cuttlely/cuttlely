@@ -480,6 +480,9 @@ export async function switchAuthenticationMethod(
         const fingerprint = method === 'workos' ? workosConfigurationFingerprint() : null
         if (method === 'workos' && (!workosEnvironmentConfigured() || !fingerprint)) throw new Error('METHOD_NOT_READY')
         if (method === 'local' && !localUsersSetting()) throw new Error('METHOD_NOT_READY')
+        if (stage && method === 'workos' && !(localAdminEnabled() && (await usableLocalOwnerExists(runner)))) {
+            throw new Error('RECOVERY_REQUIRED')
+        }
         if (current.activeMethod === 'workos' && method === 'local' && !(await usableLocalOwnerExists(runner))) {
             throw new Error('LOCAL_OWNER_REQUIRED')
         }

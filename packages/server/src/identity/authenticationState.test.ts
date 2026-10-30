@@ -154,33 +154,64 @@ describe('authentication provider foundation', () => {
         })
     })
 
+    it('refuses a staged WorkOS activation when recovery stopped being ready after staging', async () => {
+        await withEnvironment(
+            { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true', CUTTLELY_LOCAL_ADMIN: 'true' },
+            async () => {
+                const db = await database()
+                const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+                await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+                await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+                await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+                const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
+                await db.query('UPDATE "user" SET "credential" = NULL')
+                await expect(
+                    switchAuthenticationMethod(db, 'workos', before.version, undefined, {
+                        id: staged.id,
+                        actorId: 'owner',
+                        version: staged.version
+                    })
+                ).rejects.toThrow('RECOVERY_REQUIRED')
+                const [row] = await db.query('SELECT "activeMethod", "authenticationEpoch" FROM "identity_authentication_state"')
+                expect(row).toMatchObject({ activeMethod: 'local', authenticationEpoch: before.authenticationEpoch })
+                await db.destroy()
+            }
+        )
+    })
+
     it('applies a durable stage from another process and refuses its stale version and reuse', async () => {
-        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
-            const db = await database()
-            const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
-            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
-            await expect(
-                switchAuthenticationMethod(db, 'workos', before.version, undefined, {
-                    id: staged.id,
-                    actorId: 'owner',
-                    version: staged.version + 1
-                })
-            ).rejects.toThrow('AUTH_STAGE_STALE')
-            const after = await switchAuthenticationMethod(db, 'workos', before.version, undefined, {
-                id: staged.id,
-                actorId: 'owner',
-                version: staged.version
-            })
-            expect(after.activeMethod).toBe('workos')
-            await expect(
-                switchAuthenticationMethod(db, 'local', after.version, undefined, {
+        await withEnvironment(
+            { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true', CUTTLELY_LOCAL_ADMIN: 'true' },
+            async () => {
+                const db = await database()
+                const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+                await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+                await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+                await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+                const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
+                await expect(
+                    switchAuthenticationMethod(db, 'workos', before.version, undefined, {
+                        id: staged.id,
+                        actorId: 'owner',
+                        version: staged.version + 1
+                    })
+                ).rejects.toThrow('AUTH_STAGE_STALE')
+                const after = await switchAuthenticationMethod(db, 'workos', before.version, undefined, {
                     id: staged.id,
                     actorId: 'owner',
                     version: staged.version
                 })
-            ).rejects.toThrow('AUTH_STAGE_STALE')
-            await db.destroy()
-        })
+                expect(after.activeMethod).toBe('workos')
+                await expect(
+                    switchAuthenticationMethod(db, 'local', after.version, undefined, {
+                        id: staged.id,
+                        actorId: 'owner',
+                        version: staged.version
+                    })
+                ).rejects.toThrow('AUTH_STAGE_STALE')
+                await db.destroy()
+            }
+        )
     })
 
     it('finds any active owner with a local password, not only the oldest owner', async () => {
@@ -337,26 +368,32 @@ livePg('applies a durable stage on postgres and refuses its reuse', async () => 
     await admin.query(`DROP DATABASE IF EXISTS ${name}`)
     await admin.query(`CREATE DATABASE ${name}`)
     await admin.end()
-    await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
-        const db = await database('postgres', name)
-        try {
-            const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
-            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
-            const after = await switchAuthenticationMethod(db, 'workos', before.version, undefined, {
-                id: staged.id,
-                actorId: 'owner',
-                version: staged.version
-            })
-            expect(after.activeMethod).toBe('workos')
-            await expect(
-                switchAuthenticationMethod(db, 'local', after.version, undefined, {
+    await withEnvironment(
+        { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true', CUTTLELY_LOCAL_ADMIN: 'true' },
+        async () => {
+            const db = await database('postgres', name)
+            try {
+                const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+                await db.query('INSERT INTO "user" VALUES ($1, $2, $3)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+                await db.query('INSERT INTO "role" VALUES ($1, $2)', ['owner-role', 'owner'])
+                await db.query('INSERT INTO "organization_user" VALUES ($1, $2, $3)', ['owner', 'owner-role', 'active'])
+                const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
+                const after = await switchAuthenticationMethod(db, 'workos', before.version, undefined, {
                     id: staged.id,
                     actorId: 'owner',
                     version: staged.version
                 })
-            ).rejects.toThrow('AUTH_STAGE_STALE')
-        } finally {
-            await db.destroy()
+                expect(after.activeMethod).toBe('workos')
+                await expect(
+                    switchAuthenticationMethod(db, 'local', after.version, undefined, {
+                        id: staged.id,
+                        actorId: 'owner',
+                        version: staged.version
+                    })
+                ).rejects.toThrow('AUTH_STAGE_STALE')
+            } finally {
+                await db.destroy()
+            }
         }
-    })
+    )
 })

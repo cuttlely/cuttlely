@@ -166,7 +166,11 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
         const code = error instanceof Error ? error.message : ''
         await auditAttempt(who, { newMethod: body.method, outcome: 'failed', reason: code || 'unexpected_error' })
         res.status(
-            code === 'AUTH_STATE_CHANGED' || code === 'AUTH_STAGE_STALE' || code === 'METHOD_NOT_READY' || code === 'LOCAL_OWNER_REQUIRED'
+            code === 'AUTH_STATE_CHANGED' ||
+                code === 'AUTH_STAGE_STALE' ||
+                code === 'METHOD_NOT_READY' ||
+                code === 'LOCAL_OWNER_REQUIRED' ||
+                code === 'RECOVERY_REQUIRED'
                 ? 409
                 : 500
         ).json({
@@ -175,6 +179,8 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
                     ? 'Authentication settings changed. Reload and try again.'
                     : code === 'LOCAL_OWNER_REQUIRED'
                     ? 'Local login requires an active owner with a usable local password.'
+                    : code === 'RECOVERY_REQUIRED'
+                    ? 'WorkOS cannot be activated until the owner recovery route is enabled and an active owner has a usable password.'
                     : 'The sign-in method was not changed.'
         })
     }
