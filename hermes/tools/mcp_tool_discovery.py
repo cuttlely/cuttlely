@@ -579,8 +579,8 @@ def _log_summary(prefix: str, names, **lazy) -> None:
 
 
 def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
-    """Connect ``{name: config}`` servers and register their tools; idempotent for connected
-    names, ``enabled: false`` skipped without disconnecting. Returns every MCP tool name."""
+    """Connect ``{name: config}`` servers and register their tools; idempotent for unchanged
+    connection identities, ``enabled: false`` skipped without disconnecting. Returns every MCP tool name."""
     if not _core._ensure_mcp_sdk():
         logger.debug("MCP SDK not available -- skipping explicit MCP registration")
         return []
@@ -593,7 +593,49 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
         _lifecycle._reregister_orphaned_adopters()
 
 
+def _retire_reconfigured_servers(servers: Dict[str, dict]) -> List[str]:
+    """Drop this profile's old connection/schema registrations before new discovery.
+
+    A live or lazy same-name server is not reusable after its route/config identity
+    changes. In particular, a stdio bridge can version tools in its args while keeping
+    the public MCP namespace stable. Do not touch other profiles' independently owned
+    connections. This runs only at discovery/reconciliation boundaries, never as a
+    retry of a tool call or a rewrite of an already-built agent's tool snapshot.
+    """
+    scope = _core._mcp_registry_scope()
+    # Discovery and the housekeeping reconciler can meet at the same revision.
+    # Serialize the compare + teardown so neither can close a freshly replaced server.
+    with _registration._SCOPE_REFRESH_LOCKS[hash(scope) % len(_registration._SCOPE_REFRESH_LOCKS)]:
+        return _retire_reconfigured_servers_in_scope(servers, scope)
+
+
+def _retire_reconfigured_servers_in_scope(servers: Dict[str, dict], scope) -> List[str]:
+    changed = []
+    lazy = []
+    with _core._lock:
+        for name, config in servers.items():
+            if not mcp_server_enabled(config):
+                continue
+            key = _server_key(name, scope, current=False)
+            server = _core._servers.get(key)
+            if server is not None and _registration._connection_identity(
+                    getattr(server, "_config", {}) or {}) != _registration._connection_identity(config):
+                changed.append(name)
+            old_lazy = _core._lazy_server_configs.get(key)
+            if old_lazy is not None and _registration._connection_identity(
+                    old_lazy) != _registration._connection_identity(config):
+                lazy.append(key)
+    if changed:
+        # Existing scoped shutdown semantics apply: a simultaneous accepted RPC can
+        # fail. Its arguments are never replayed against the new tool definition.
+        _lifecycle.shutdown_mcp_servers(scope=scope, names=set(changed))
+    for key in lazy:
+        _forget_lazy_server(key)
+    return sorted(set(changed) | {_key_name(key) for key in lazy})
+
+
 def _register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
+    _retire_reconfigured_servers(servers)
     scoped_healed = _registration.register_connected_into_current_scope(servers)
     if not servers:
         logger.debug("No explicit MCP servers provided")
@@ -704,6 +746,7 @@ def reconcile_mcp_servers_with_config() -> Dict[str, List[str]]:
     ``{"removed": [...], "added": [...], "pending": [...]}``; a no-op when nothing changed."""
     with _owner_secret_scope():
         servers = _config._load_mcp_config()
+    reconfigured = _retire_reconfigured_servers(servers)
     wanted = {name for name, cfg in servers.items() if mcp_server_enabled(cfg)}
     scope = _core._mcp_registry_scope()
     with _core._lock:
@@ -721,7 +764,7 @@ def reconcile_mcp_servers_with_config() -> Dict[str, List[str]]:
     added = _awaiting_connect(wanted, scope)
     if added:
         discover_mcp_tools()
-    return {"removed": stale + sorted(_key_name(k) for k in lazy), "added": added,
+    return {"removed": sorted(set(stale + reconfigured + [_key_name(k) for k in lazy])), "added": added,
             "pending": sorted(connecting - wanted)}
 
 
