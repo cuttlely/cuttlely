@@ -164,6 +164,7 @@ export function recordAnalystResult({
     toolName = '',
     sourceTurn = '',
     freeSqlWithPin = null,
+    queryEvidence = null,
     executedSql = ''
 } = {}) {
     if (!harness || !specialist || result == null) return
@@ -181,6 +182,7 @@ export function recordAnalystResult({
     pending.push({
         traceFields,
         ...(pinned ? { pinned } : {}),
+        ...(queryEvidence ? { queryEvidence: structuredClone(queryEvidence) } : {}),
         ...(Array.isArray(freeSqlWithPin) && freeSqlWithPin.length ? { freeSqlWithPin } : {}),
         harness: String(harness),
         specialist: String(specialist),
@@ -242,6 +244,7 @@ export function takeAnalystResults({ harness, specialist, chatId = '', since = 0
         callId: item.callId || '',
         ...(item.timings ? { timings: item.timings } : {}),
         ...(item.pinned ? { pinned: item.pinned } : {}),
+        ...(item.queryEvidence ? { queryEvidence: item.queryEvidence } : {}),
         ...(item.freeSqlWithPin ? { freeSqlWithPin: item.freeSqlWithPin } : {})
     }))
 }

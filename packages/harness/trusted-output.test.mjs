@@ -255,7 +255,9 @@ async function runFixture({
     mixedCsv = false,
     capacityBusyOnce = false,
     trustedOutputPreview = false,
-    reportText = markdown
+    reportText = markdown,
+    interpretation = false,
+    pinFast = false
 } = {}) {
     const invocation = ++serial
     const name = harnessName || `trusted-test-${invocation}`,
@@ -298,6 +300,21 @@ async function runFixture({
                 fileAccess: true,
                 ...(capacityBusyOnce ? { capacityWaitSeconds: 5 } : {}),
                 ...(policy ? { trustedOutputPolicy: policy } : {}),
+                ...(interpretation ? { trustedInterpretation: true } : {}),
+                ...(pinFast
+                    ? {
+                          pinFirst: true,
+                          pinFirstRules: [
+                              {
+                                  id: 'source-fast',
+                                  pin: person.entry.name,
+                                  when: ['query the database'],
+                                  params: { account: { source: 'fixed', value: 'Example Co' } },
+                                  answer: { columns: [{ key: 'utilization_payload', header: 'Source' }] }
+                              }
+                          ]
+                      }
+                    : {}),
                 ...(enabled && !(mixedUnprotected && person.name === 'report') ? { trustedOutputs: [person.contract] } : {}),
                 mcpServers: [
                     {
@@ -526,10 +543,17 @@ test('configuration normalization and draft validation preserve opt-in contracts
     const flow = JSON.parse(sample.flowData)
     const specialist = flow.nodes.find((node) => node.data?.name === 'harnessSpecialist')
     specialist.data.inputs.trustedOutputs = JSON.stringify([mdContract])
+    specialist.data.inputs.trustedOutputPolicy = 'verified-query-passthrough'
+    specialist.data.inputs.trustedInterpretation = true
+    specialist.data.inputs.trustedInterpretationPaths = JSON.stringify(['rows.0.report'])
     const roster = rosterFromFlow({ name: 'trusted-config', chatflowId: 'fixture-flow', flowData: JSON.stringify(flow) })
     assert.deepEqual(roster.specialists.find((person) => person.trustedOutputs).trustedOutputs, [mdContract])
     const saved = saveHarness({ ...roster, name: 'trusted-config' })
     assert.deepEqual(saved.specialists.find((person) => person.trustedOutputs).trustedOutputs, [mdContract])
+    const opted = saved.specialists.find((person) => person.trustedOutputs)
+    assert.equal(opted.trustedOutputPolicy, 'verified-query-passthrough')
+    assert.equal(opted.trustedInterpretation, true)
+    assert.deepEqual(opted.trustedInterpretationPaths, ['rows.0.report'])
     specialist.data.inputs.trustedOutputs = JSON.stringify([{ ...mdContract, fields: [{ path: 'rows.constructor.text' }] }])
     assert.throws(() => assertFlowLimits({ name: 'trusted-config', flowData: JSON.stringify(flow) }), /field path/)
 })
@@ -731,7 +755,7 @@ test('CSV rejects incomplete, over-cap, malformed or imprecise table sources and
             p.complete_rows[0].pop()
         },
         (p) => {
-            p.complete_rows[0][1] = 9007199254740993
+            p.complete_rows[0][1] = Number('9007199254740993')
         },
         (p) => {
             p.complete_rows[0][1] = false
@@ -828,4 +852,63 @@ test('preview selection survives durable queue serialization without changing de
         assert.equal(Object.hasOwn(claimed.payload, 'replay'), false)
         finishJob(job.id, { status: 'done', result: {} })
     }
+})
+
+test('opted-in real run presents grounded interpretation first and keeps the exact factual artifact caption', async () => {
+    const result = clone(body)
+    result.rows[0].notes = 'Procurement approval is pending; the renewal owner needs to confirm the approval path.'
+    const prose =
+        'The source notes say procurement approval is pending. Confirm the approval path with the renewal owner before treating this opportunity as committed.'
+    const expected = await renderTrustedOutputs({ name: 'data', trustedOutputs: [contract] }, [capture(result)])
+    const out = await runFixture({ interpretation: true, result, prose })
+    assert.ok(out.payload.text.indexOf(prose) < out.payload.text.indexOf(expected.text))
+    assert.ok(out.payload.text.endsWith(expected.text))
+    assert.ok(
+        out.receipts.some((receipt) =>
+            JSON.parse(receipt).interpretationEvidence.sourceEvidence.some((item) => String(item.value).includes('Procurement approval'))
+        )
+    )
+    assert.equal(out.payload.artifacts.length, 1)
+})
+
+test('opted-in unsupported currency cannot enter a protected final answer', async () => {
+    const out = await runFixture({
+        interpretation: true,
+        prose: 'The customer is forecast to lose $999999999 and therefore should cancel this contract immediately.'
+    })
+    assert.ok(!out.payload.text.includes('$999999999'))
+    assert.ok(out.payload.text.includes('13 source observations'))
+    assert.equal(out.payload.artifacts.length, 1)
+})
+
+test('opted-in unmapped answers cannot deliver an invented figure or currency and retain source values instead', async () => {
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        result: { rows: [{ amount: '8.20', currency: null, notes: 'Procurement approval is pending.' }] },
+        prose: 'The customer has $99999999 in losses. Currency is unavailable.'
+    })
+    assert.equal(out.payload.trace.specialists[0].status, 'completed')
+    assert.ok(!out.payload.text.includes('$99999999'))
+    assert.match(out.payload.text, /8\.20/)
+    assert.match(out.payload.text, /source-backed values/)
+    assert.equal(out.payload.artifacts.length, 0)
+    assert.equal(out.payload.trace.specialists[0].recovery.reason, 'interpretationOmitted')
+})
+
+test('interpretation opt-in takes precedence over a matching pin-first shortcut without a duplicate query', async () => {
+    const result = clone(body)
+    result.rows[0].notes = 'Procurement approval is pending; the renewal owner needs to confirm the approval path.'
+    const prose =
+        'The notes identify a pending procurement approval. Confirm the approval path with the renewal owner before treating this opportunity as committed.'
+    const out = await runFixture({ pinFast: true, interpretation: true, result, prose })
+    const { matchPinFirst } = await import('./pin-first.mjs')
+    assert.ok(
+        matchPinFirst(getHarness(out.name).specialists[0], 'Please query the database and create the requested chart and evidence.').rule
+    )
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.requests.length, 1)
+    assert.ok(out.payload.text.includes(prose))
+    assert.ok(out.payload.text.indexOf(prose) < out.payload.text.indexOf('13 source observations'))
 })

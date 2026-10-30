@@ -514,6 +514,10 @@ describe('Request overrides hard deny: credential, tracer and URL keys never app
         'baseOptions',
         'mcpServerConfig',
         'analystAllowedFunctions',
+        'allowPinDefinitions',
+        'trustedOutputPolicy',
+        'trustedInterpretation',
+        'trustedInterpretationPaths',
         'basePath',
         'basepath',
         'baseURL',
@@ -1562,5 +1566,26 @@ describe('Request overrides: inputs the server fetches or opens are hard-denied,
             setServerUploadOverride(overrideConfig, 'openApiLink', 'FILE-STORAGE::["x.yaml"]')
             expect(runFetch(overrideConfig, ALL_ALLOWED)).toEqual(fetchBaseline())
         })
+    })
+})
+
+describe('Saved-only source verification and interpretation controls', () => {
+    it('request overrides cannot opt in even when every new control is allowlisted', () => {
+        const initial = {
+            allowPinDefinitions: false,
+            trustedOutputPolicy: 'strict',
+            trustedInterpretation: false,
+            trustedInterpretationPaths: []
+        }
+        const node = makeNode('data', 'harnessSpecialist', 'Data specialist', initial)
+        const names = Object.keys(initial)
+        node.data.inputParams = names.map((name) => ({ name, type: 'string' }))
+        const config = {
+            allowPinDefinitions: true,
+            trustedOutputPolicy: 'verified-query-passthrough',
+            trustedInterpretation: true,
+            trustedInterpretationPaths: ['rows']
+        }
+        expect(run(config, allow({ 'Data specialist': names }), [], [node])).toEqual({ data: initial })
     })
 })
