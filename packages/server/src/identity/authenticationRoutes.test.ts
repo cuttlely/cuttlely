@@ -16,6 +16,7 @@ const localAccountOpen = jest.fn()
 const readAuthenticationState = jest.fn()
 const stageAuthenticationMethodSwitch = jest.fn()
 const switchAuthenticationMethod = jest.fn()
+const usableLocalOwnerReady = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -29,6 +30,7 @@ jest.mock('./authenticationState', () => ({
     readAuthenticationState,
     stageAuthenticationMethodSwitch,
     switchAuthenticationMethod,
+    usableLocalOwnerReady,
     workosConfigurationFingerprint: () => 'fingerprint'
 }))
 jest.mock('./constants', () => ({
@@ -66,6 +68,7 @@ describe('authentication settings routes', () => {
         readAuthenticationState.mockResolvedValue(state)
         findSuperUser.mockResolvedValue({ id: 'owner-1', credential: 'bcrypt' })
         localAccountOpen.mockResolvedValue(true)
+        usableLocalOwnerReady.mockResolvedValue(true)
         findLocalSession.mockResolvedValue({ issuedAt: new Date() })
         stageAuthenticationMethodSwitch.mockResolvedValue({ id: 'stage-1', version: 1, expiresAt: new Date('2026-11-01T00:00:00Z') })
         switchAuthenticationMethod.mockResolvedValue({
@@ -100,7 +103,7 @@ describe('authentication settings routes', () => {
 
     it('refuses a WorkOS-to-Local stage without an active owner password', async () => {
         readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
-        findSuperUser.mockResolvedValue({ id: 'owner-1', credential: null })
+        usableLocalOwnerReady.mockResolvedValue(false)
         const response = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'local', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body).toMatchObject({ code: 'LOCAL_OWNER_REQUIRED' })
@@ -108,7 +111,7 @@ describe('authentication settings routes', () => {
     })
 
     it('keeps the WorkOS recovery gate ahead of recent-auth staging', async () => {
-        localAccountOpen.mockResolvedValue(false)
+        usableLocalOwnerReady.mockResolvedValue(false)
         findLocalSession.mockResolvedValue({ issuedAt: new Date() })
         const response = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)

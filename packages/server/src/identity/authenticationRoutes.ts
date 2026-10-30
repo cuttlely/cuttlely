@@ -7,6 +7,7 @@ import {
     readAuthenticationState,
     stageAuthenticationMethodSwitch,
     switchAuthenticationMethod,
+    usableLocalOwnerReady,
     workosConfigurationFingerprint
 } from './authenticationState'
 import { LOCAL_SESSION_COOKIE, RECENT_AUTH_COOKIE, localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
@@ -38,8 +39,7 @@ async function recentlyAuthenticated(req: Request): Promise<boolean> {
 }
 
 async function ownerLocalPasswordReady(): Promise<boolean> {
-    const owner = await identityStore().findSuperUser()
-    return Boolean(owner?.credential && (await identityStore().localAccountOpen(owner.id)))
+    return usableLocalOwnerReady(applicationDataSource())
 }
 
 async function ownerRecoveryReady(): Promise<boolean> {

@@ -15,7 +15,8 @@ import {
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
     stageAuthenticationMethodSwitch,
-    switchAuthenticationMethod
+    switchAuthenticationMethod,
+    usableLocalOwnerReady
 } from './authenticationState'
 import { addAuthenticationState, addAuthenticationSwitchStage } from './schemaMigration'
 import { workosEpochCookie, workosEpochCookieValid } from './cookies'
@@ -179,6 +180,18 @@ describe('authentication provider foundation', () => {
             ).rejects.toThrow('AUTH_STAGE_STALE')
             await db.destroy()
         })
+    })
+
+    it('finds any active owner with a local password, not only the oldest owner', async () => {
+        const db = await database()
+        await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['first-owner', null, 'active'])
+        await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['first-owner', 'owner-role', 'active'])
+        expect(await usableLocalOwnerReady(db)).toBe(false)
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['second-owner', 'password-hash', 'active'])
+        await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['second-owner', 'owner-role', 'active'])
+        expect(await usableLocalOwnerReady(db)).toBe(true)
+        await db.destroy()
     })
 
     it('rejects an old sealed WorkOS cookie after a WorkOS to Local to WorkOS round trip', async () => {

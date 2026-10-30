@@ -414,6 +414,17 @@ export async function stageAuthenticationMethodSwitch(
     }
 }
 
+/** True when any active owner with an active membership has a usable local password. */
+export async function usableLocalOwnerReady(dataSource: DataSource): Promise<boolean> {
+    const runner = dataSource.createQueryRunner()
+    try {
+        await runner.connect()
+        return await usableLocalOwnerExists(runner)
+    } finally {
+        await runner.release()
+    }
+}
+
 async function usableLocalOwnerExists(runner: QueryRunner): Promise<boolean> {
     const d = dialect(runner)
     const rows = await query(
