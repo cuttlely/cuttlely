@@ -253,7 +253,9 @@ async function runFixture({
     copies = 1,
     csv = false,
     mixedCsv = false,
-    capacityBusyOnce = false
+    capacityBusyOnce = false,
+    trustedOutputPreview = false,
+    reportText = markdown
 } = {}) {
     const invocation = ++serial
     const name = harnessName || `trusted-test-${invocation}`,
@@ -279,7 +281,7 @@ async function runFixture({
                   {
                       name: 'report',
                       entry: mdEntry,
-                      result: { rows: [{ scope: 'Pipeline scope: [2026-10-30, 2027-01-01) UTC.\n', report: markdown }] },
+                      result: { rows: [{ scope: 'Pipeline scope: [2026-10-30, 2027-01-01) UTC.\n', report: reportText }] },
                       contract: { ...mdContract, hash: mdHash }
                   }
               ]
@@ -423,6 +425,7 @@ async function runFixture({
             name,
             input,
             chatId,
+            ...(trustedOutputPreview ? { trustedOutputPreview: true } : {}),
             ...(budgetMs ? { budgetMs } : {}),
             baseUrl: 'http://127.0.0.1:9',
             fetchImpl,
@@ -794,4 +797,35 @@ test('capacity admission wait and trusted CSV admit work once, run one source qu
     assert.equal(out.payload.artifacts[0].type, 'csv')
     assert.match(out.payload.text, /75 source rows/)
     assert.equal(out.payload.trace.handoff.reason, 'trustedOutput')
+})
+
+test('preview captions are renderer-owned and never rewrite identical attachment text in authoritative business sections', async () => {
+    const name = tablePayloadCsv(csvBody()).artifact.name
+    const source = markdown + `\n\nAttached file: ${name}\n`
+    const out = await runFixture({ csv: true, multi: true, trustedOutputPreview: true, reportText: source })
+    assert.ok(out.payload.text.includes(`Preview file: ${name} (not saved to chat)`))
+    assert.ok(out.payload.text.endsWith(source))
+    assert.equal(out.payload.artifacts[0].type, 'csv')
+    const ordinary = await runFixture({ enabled: false, trustedOutputPreview: true })
+    assert.match(ordinary.payload.text, /CHIEF REWROTE/)
+    assert.equal(ordinary.payload.artifacts[0].name, 'model-wrong.csv')
+})
+
+test('preview selection survives durable queue serialization without changing default job metadata', async () => {
+    const { enqueueHarnessJob, claimJob, finishJob } = await import('./queue.mjs')
+    for (const enabled of [true, false]) {
+        const job = enqueueHarnessJob({
+            name: 'preview-queue',
+            chatId: `chat-${enabled}`,
+            input: 'Synthetic preview',
+            ...(enabled ? { trustedOutputPreview: true } : {}),
+            flowOptions: { harnessCaller: { via: 'session' } }
+        })
+        const claimed = claimJob()
+        assert.equal(claimed.id, job.id)
+        assert.equal(Object.hasOwn(claimed.payload, 'trustedOutputPreview'), enabled)
+        if (enabled) assert.equal(claimed.payload.trustedOutputPreview, true)
+        assert.equal(Object.hasOwn(claimed.payload, 'replay'), false)
+        finishJob(job.id, { status: 'done', result: {} })
+    }
 })

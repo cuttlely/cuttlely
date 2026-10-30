@@ -2043,3 +2043,90 @@ describe('agentflow harness tool integration', () => {
         expect(message).toContain('TOOLS:harness')
     })
 })
+
+describe('verified replay previews', () => {
+    afterEach(() => {
+        mockHarnessRuns.current = null
+    })
+    it.each(['replay', 'cuttlelyReplay'])(
+        'returns real PNG and CSV bytes without storage or user download acknowledgment for %s',
+        async (flag) => {
+            const fixture = path.resolve(__dirname, '../../../../harness/test/trusted-output-fixture.mjs')
+            const artifacts = ['--artifact', '--csv-artifact'].map((mode) =>
+                JSON.parse(
+                    execFileSync(process.execPath, [fixture, mode], { encoding: 'utf8', timeout: 15000, maxBuffer: 5 * 1024 * 1024 })
+                )
+            )
+            const source =
+                'Scope: [2026-01-01, 2027-01-01) UTC.\r\nExact source note — Ω.\n\n[r]: https://example.org/record/1\n' +
+                `\nAttached file: ${artifacts[0].name}\n`
+            const text = artifacts.map((item) => `Preview file: ${item.name} (not saved to chat)`).join('\n') + '\n\n' + source
+            const stream = fakeStreamer()
+            queuedRun.mockImplementationOnce(async (opts: any) => {
+                expect(opts.trustedOutputPreview).toBe(true)
+                expect(opts).not.toHaveProperty('replay')
+                opts.onEvent({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+                opts.onEvent({
+                    type: 'final',
+                    text,
+                    trustedOutput: true,
+                    artifacts: artifacts.map((item) => ({ name: item.name, type: item.type }))
+                })
+                return { text, trustedOutput: true, artifacts, trace: { handoff: { reason: 'trustedOutput' } } }
+            })
+            const before = addSingleFileToStorage.mock.calls.length
+            const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Preview the files', {
+                chatId: 'preview-chat',
+                chatflowid: 'preview-flow',
+                orgId: 'preview-org',
+                [flag]: true,
+                sseStreamer: stream
+            })
+            expect(addSingleFileToStorage.mock.calls.length).toBe(before)
+            expect(out.artifacts).toHaveLength(2)
+            for (const [index, item] of artifacts.entries()) {
+                expect(out.artifacts[index]).toEqual({ type: item.type, name: item.name, data: `data:${item.mime};base64,${item.base64}` })
+                expect(Buffer.from(out.artifacts[index].data.split(',')[1], 'base64')).toEqual(Buffer.from(item.base64, 'base64'))
+                expect(out.text).toContain(`Preview file: ${item.name} (not saved to chat)`)
+            }
+            expect(out.text.endsWith(source)).toBe(true)
+            expect(out.text).toContain(`Attached file: ${artifacts[0].name}`)
+            expect(stream.sent).toEqual([])
+        },
+        20000
+    )
+    it('still refuses cancelled or expired protected replay previews and empty native bytes', async () => {
+        const artifact = { type: 'csv', mime: 'text/csv', name: 'preview.csv', base64: Buffer.from('"a"\r\n').toString('base64') }
+        const before = addSingleFileToStorage.mock.calls.length
+        await expect(storeHarnessImages([artifact], { replay: true, signal: AbortSignal.abort() }, true)).rejects.toMatchObject({
+            code: 'aborted'
+        })
+        await expect(storeHarnessImages([artifact], { cuttlelyReplay: true }, true, Date.now() - 1)).rejects.toMatchObject({
+            code: 'over_budget'
+        })
+        await expect(storeHarnessImages([{ ...artifact, base64: '' }], { replay: true }, true)).rejects.toMatchObject({
+            code: 'trusted_output'
+        })
+        expect(addSingleFileToStorage.mock.calls.length).toBe(before)
+    })
+})
+
+it.each(['replay', 'cuttlelyReplay'])('keeps legacy unprotected %s text and storage behavior unchanged', async (flag) => {
+    const text = 'Legacy supplied plain text.'
+    const artifact = { type: 'csv', mime: 'text/csv', name: 'legacy.csv', base64: Buffer.from('"a"\r\n').toString('base64') }
+    queuedRun.mockImplementationOnce(async (opts: any) => {
+        expect(opts.trustedOutputPreview).toBe(true)
+        expect(opts).not.toHaveProperty('replay')
+        return { text, artifacts: [artifact] }
+    })
+    const before = addSingleFileToStorage.mock.calls.length
+    const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Preview legacy output', {
+        chatId: 'legacy-preview',
+        chatflowid: 'legacy-flow',
+        [flag]: true
+    })
+    expect(out.text).toBe(text)
+    expect(out.artifacts).toEqual([])
+    expect(addSingleFileToStorage.mock.calls.length).toBe(before)
+    mockHarnessRuns.current = null
+})

@@ -309,7 +309,7 @@ export function utilizationPlan(body) {
     }
 }
 
-export async function utilizationPng(body, contract, { specialist = '', signal } = {}) {
+export async function utilizationPng(body, contract, { specialist = '', signal, preview = false } = {}) {
     check(signal)
     const plan = utilizationPlan(body)
     // An explicit server dependency supplies prebuilt binaries; no runtime package installation or shell.
@@ -423,18 +423,18 @@ export async function utilizationPng(body, contract, { specialist = '', signal }
     if (!matchesTurnType('png', bytes) || bytes.length > TURN_IMAGE_LIMITS.bytes) fail('Verified PNG exceeds native attachment limits.')
     const name = `monthly-utilization-${plan.sourceHash.slice(0, 12)}.png`
     const artifact = { name, type: 'png', mime: 'image/png', base64: bytes.toString('base64'), specialist, mtime: Date.now() }
-    const text = `Attached file: ${name}\n\n${plan.account}: ${plan.observations} source observations across ${
-        plan.series.length
-    } product/unit series over ${plan.months.length} source calendar months. ${plan.nulls} NULL measurements among ${
-        plan.sourceRows
-    } source rows; gaps are not interpolated.${
+    const text = `${preview ? `Preview file: ${name} (not saved to chat)` : `Attached file: ${name}`}\n\n${plan.account}: ${
+        plan.observations
+    } source observations across ${plan.series.length} product/unit series over ${plan.months.length} source calendar months. ${
+        plan.nulls
+    } NULL measurements among ${plan.sourceRows} source rows; gaps are not interpolated.${
         plan.partialMonth ? ' ' + plan.partialMonth + ' is partial; source calendar as of ' + plan.calendarAsOf + '.' : ''
     } Source: ${contract.sourceLabel || 'verified monthly utilization query'}. Source refresh: ${plan.sourceAsOf || 'unavailable'}.`
     return { text, artifact, plan }
 }
 
 // CSV consumes an author-owned complete table payload, never model arguments or renderer code.
-export function tablePayloadCsv(body, contract = {}, { specialist = '', signal } = {}) {
+export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, preview = false } = {}) {
     check(signal)
     completeResult(body)
     let payload = body
@@ -519,14 +519,14 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal }
     if (!own(payload, 'source_as_of') && !own(payload, 'source_freshness')) captions.push('Source freshness: unavailable')
     if (contract.sourceLabel) captions.push('Source label: ' + contract.sourceLabel)
     return {
-        text: `Attached file: ${name}\n\n${
+        text: `${preview ? `Preview file: ${name} (not saved to chat)` : `Attached file: ${name}`}\n\n${
             rows.length
         } source rows exported in source order with exact string values. NULL values are empty CSV fields.\n\n${captions.join('\n')}`,
         artifact: { name, type: 'csv', mime: 'text/csv', base64: bytes.toString('base64'), specialist, mtime: Date.now() }
     }
 }
 
-export async function renderTrustedOutputs(specialist, captured, { signal } = {}) {
+export async function renderTrustedOutputs(specialist, captured, { signal, preview = false } = {}) {
     const contracts = specialist.trustedOutputs || []
     if (!contracts.length) return null
     const matched = contracts.flatMap((contract) =>
@@ -552,8 +552,8 @@ export async function renderTrustedOutputs(specialist, captured, { signal } = {}
         else {
             const rendered =
                 contract.mode === 'table-payload-csv'
-                    ? tablePayloadCsv(item.result, contract, { specialist: specialist.name, signal })
-                    : await utilizationPng(item.result, contract, { specialist: specialist.name, signal })
+                    ? tablePayloadCsv(item.result, contract, { specialist: specialist.name, signal, preview })
+                    : await utilizationPng(item.result, contract, { specialist: specialist.name, signal, preview })
             sections.push(rendered.text)
             artifacts.push(rendered.artifact)
         }

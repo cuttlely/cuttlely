@@ -289,6 +289,7 @@ async function runHarnessTurn({
     images,
     record,
     replay,
+    trustedOutputPreview,
     turnFolders
 } = {}) {
     const harness = harnessForTurn(name, record)
@@ -320,6 +321,7 @@ async function runHarnessTurn({
                     budgetMs,
                     images,
                     replay,
+                    trustedOutputPreview,
                     turnFolders
                 }),
             { workspace: harness.workspaceId }
@@ -370,6 +372,7 @@ async function runTurn(
         budgetMs,
         images,
         replay,
+        trustedOutputPreview,
         turnFolders
     }
 ) {
@@ -396,6 +399,7 @@ async function runTurn(
             budgetMs,
             images,
             replay,
+            trustedOutputPreview,
             turnFolders
         })
     } finally {
@@ -424,6 +428,7 @@ async function runTurnBody(
         budgetMs,
         images,
         replay,
+        trustedOutputPreview,
         turnFolders
     }
 ) {
@@ -479,7 +484,8 @@ async function runTurnBody(
         images: promptImages(images),
         turnFolders,
         // Publish-check replay: do not read or write the harness session.
-        replay: replay === true
+        replay: replay === true,
+        trustedOutputPreview: trustedOutputPreview === true
     }
     try {
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
@@ -2003,7 +2009,8 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
     }
     replaceTrustedArtifacts(context, specialist.name)
     const rendered = await renderTrustedOutputs(specialist, captured, {
-        signal: context.workSignal
+        signal: context.workSignal,
+        preview: context.replay || context.trustedOutputPreview
     })
     if (!rendered) throw new HarnessError('trusted_output', 'No configured verified source output was produced for this requested section.')
     throwIfClient(context)

@@ -34,6 +34,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Trusted PNG/CSV replay through a Harness card returns real in-memory previews without persistent storage or successful chat-download events. Compare remains text-only; normal delivery still requires storage success within the turn deadline.
+
 -   A HARNESS canvas id now works on the public `POST /api/v1/prediction/:id` route. It runs the Live (published) canvas, returns a `sessionToken` bound to the chat id, and needs the bound API key to list the harness. File uploads there are refused with 400; send them to a chatflow with a Harness card.
 
 -   Guarded PostgreSQL queries, pins and `describe` samples work for a login whose role sets `default_transaction_read_only = on`. Validation opens a short read-write transaction only to create a temporary view, which is always rolled back; queries run in a read-only transaction. A read-only standby and a login without `TEMP` now get separate, plain messages instead of one shared one.

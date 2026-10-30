@@ -26,6 +26,8 @@ export interface HarnessRunArgs {
     name: string
     chatId: string
     input: string
+    /** Renderer-owned in-memory captions for Compare; does not change replay/session behavior. */
+    trustedOutputPreview?: boolean
     componentNodes?: unknown
     flowOptions?: HarnessFlowOptions
     baseUrl?: string
