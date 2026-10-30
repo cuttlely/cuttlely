@@ -220,7 +220,7 @@ export async function initializeAuthenticationState(
     try {
         return await initializeAuthenticationStateOnce(dataSource, env)
     } catch (error) {
-        // Another process may have created the singleton row first. Read and adopt the winner's row.
+        // Another process may have created the singleton row first. Read and adopt the row it wrote.
         if (!(await readAuthenticationState(dataSource))) throw error
         return await initializeAuthenticationStateOnce(dataSource, env)
     }
