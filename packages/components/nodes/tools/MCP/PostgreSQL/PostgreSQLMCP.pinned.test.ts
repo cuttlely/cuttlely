@@ -7,7 +7,7 @@ import { pathToFileURL } from 'url'
 import { Client } from 'pg'
 import { getCredentialData, getPinnedQueryKey } from '../../../../src/utils'
 
-const { nodeClass: PostgreSQLMCP } = require('./PostgreSQLMCP')
+const { nodeClass: PostgreSQLMCP, attestReadOnlyQueryResult } = require('./PostgreSQLMCP')
 
 const OVERWRITE = 'CUTTLELY_SECRETKEY_OVERWRITE'
 const SECRET = 'ZZ-TEST-node-key'
@@ -288,6 +288,190 @@ describe('PostgreSQL MCP pinned queries', () => {
         expect(tools).toBeUndefined()
     })
 
+    it('returns only an opted-in, offered pin definition without secrets or a database call', async () => {
+        const sink = await listenSink()
+        try {
+            process.env.CUTTLELY_PINNED_QUERIES = 'true'
+            const { entry, compiled } = await stamped({
+                id: 'ZZ-TEST-definition',
+                name: 'pq_definition',
+                version: 3,
+                purpose: 'Sales above a minimum in the requested region.',
+                description: 'Source metric and scope definition.',
+                sql: 'SELECT region, revenue FROM public.demo_sales WHERE revenue > :minimum AND region <> :secret_region LIMIT 10',
+                params: [
+                    { name: 'minimum', type: 'numeric', required: false, default: 4, min: 0 },
+                    {
+                        name: 'secret_region',
+                        type: 'text',
+                        required: false,
+                        secure: true,
+                        default: 'ZZ-TEST-secret-default',
+                        allowedValues: ['ZZ-TEST-secret-enum'],
+                        arbitrarySecret: 'ZZ-TEST-hidden-metadata'
+                    }
+                ]
+            })
+            const inputs = { mcpActions: [], pinnedQueries: [entry] }
+            for (const flag of [undefined, false, 'true']) {
+                const tools = await initAt(sink.url, { ...inputs, allowPinDefinitions: flag })
+                expect(namesOf(tools)).toEqual(['pq_definition'])
+            }
+            const tools = await initAt(sink.url, { ...inputs, allowPinDefinitions: true })
+            expect(namesOf(tools)).toEqual(['pq_definition', 'pin_definition'])
+            const lookup = tools.find((item: { name: string }) => item.name === 'pin_definition')
+            const result = JSON.parse(await lookup.invoke({ name: 'pq_definition' }))
+            expect(result).toMatchObject({
+                id: 'ZZ-TEST-definition',
+                name: 'pq_definition',
+                version: 3,
+                statementHash: compiled.statementHash,
+                purpose: (entry as Record<string, unknown>).purpose,
+                description: (entry as Record<string, unknown>).description,
+                sqlTemplate: (entry as Record<string, unknown>).sql,
+                params: [
+                    { name: 'minimum', type: 'numeric', required: false, default: 4, min: 0 },
+                    { name: 'secret_region', type: 'text', required: false, secure: true }
+                ]
+            })
+            const encoded = JSON.stringify(result)
+            for (const secret of [
+                String(entry.testedStamp),
+                sink.url,
+                'ZZ-TEST-secret-default',
+                'ZZ-TEST-secret-enum',
+                'ZZ-TEST-hidden-metadata'
+            ])
+                expect(encoded).not.toContain(secret)
+            expect(result).not.toHaveProperty('testedStamp')
+            expect(result).not.toHaveProperty('credential')
+            expect(result.note).toContain('not a tested pin')
+            expect(JSON.parse(await lookup.invoke({ name: 'pq_unknown' }))).toEqual({
+                error: 'This pinned definition is not offered.',
+                cuttlelyOutcome: 'expected'
+            })
+            delete process.env.CUTTLELY_PINNED_QUERIES
+            expect(JSON.parse(await lookup.invoke({ name: 'pq_definition' }))).toEqual({
+                error: OFF_ERROR,
+                cuttlelyOutcome: 'expected'
+            })
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            await sink.close()
+        }
+    })
+
+    it('cannot expose definitions for forged, stale or another-workspace stamps', async () => {
+        const sink = await listenSink()
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+            process.env.CUTTLELY_PINNED_QUERIES = 'true'
+            const { entry } = await stamped({
+                id: 'ZZ-TEST-definition',
+                name: 'pq_definition',
+                version: 1,
+                sql: 'SELECT 1 AS n LIMIT 1',
+                params: []
+            })
+            const inputs = { mcpActions: [], allowPinDefinitions: true, pinnedQueries: [entry] }
+            const forged = { ...entry, testedStamp: 'ZZ-TEST-invalid-stamp' }
+            const stale = { ...entry, sql: 'SELECT 2 AS n LIMIT 1' }
+            for (const invalid of [forged, stale]) {
+                const tools = await initAt(sink.url, { ...inputs, pinnedQueries: [invalid] })
+                expect(namesOf(tools)).toEqual([])
+            }
+            process.env.CUTTLELY_POSTGRES_URL = sink.url
+            const otherWorkspace = await node().init(data(inputs), '', { workspaceId: 'ZZ-TEST-other-workspace' })
+            expect(namesOf(otherWorkspace)).toEqual([])
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            warn.mockRestore()
+            await sink.close()
+        }
+    })
+
+    it('refuses an oversized SQL definition rather than exposing a truncated template', async () => {
+        const sink = await listenSink()
+        try {
+            process.env.CUTTLELY_PINNED_QUERIES = 'true'
+            const { entry } = await stamped({
+                id: 'ZZ-TEST-large-definition',
+                name: 'pq_large_definition',
+                version: 1,
+                sql: `SELECT 1 AS n ${' '.repeat(128 * 1024)}LIMIT 1`,
+                params: []
+            })
+            const tools = await initAt(sink.url, { mcpActions: [], allowPinDefinitions: true, pinnedQueries: [entry] })
+            const lookup = tools.find((item: { name: string }) => item.name === 'pin_definition')
+            expect(lookup).toBeTruthy()
+            expect(JSON.parse(await lookup.invoke({ name: 'pq_large_definition' }))).toEqual({
+                error: 'This SQL definition exceeds the template size limit.',
+                cuttlelyOutcome: 'expected'
+            })
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            await sink.close()
+        }
+    })
+
+    it('attests only successful native read-only query rows and does not mutate source values', () => {
+        const source = { rows: [{ label: 'west', amount: '12.30' }], totalRows: 1 }
+        const limits = { rowCap: 100, timeoutMs: 15000 }
+        expect(attestReadOnlyQueryResult(source, limits)).toEqual({
+            ...source,
+            _cuttlelyReadOnlyQuery: { readOnly: true, rowCap: 100, statementTimeoutMs: 15000 }
+        })
+        expect(source).not.toHaveProperty('_cuttlelyReadOnlyQuery')
+        expect(attestReadOnlyQueryResult({ rows: [] }, limits)).toHaveProperty('_cuttlelyReadOnlyQuery.readOnly', true)
+        for (const failure of [
+            { error: 'Query refused', rows: [] },
+            { status: 'error', rows: [] },
+            { cuttlelyOutcome: 'expected', rows: [] },
+            { columnsChanged: true, rows: [] },
+            { summary: 'No actual rows' }
+        ]) {
+            const forged = { ...failure, _cuttlelyReadOnlyQuery: { readOnly: true } }
+            expect(attestReadOnlyQueryResult(forged, limits)).not.toHaveProperty('_cuttlelyReadOnlyQuery')
+        }
+        expect(attestReadOnlyQueryResult({ rows: Array(101).fill({ n: 1 }) }, limits)).not.toHaveProperty('_cuttlelyReadOnlyQuery')
+        expect(attestReadOnlyQueryResult(source, { rowCap: 0, timeoutMs: 15000 })).not.toHaveProperty('_cuttlelyReadOnlyQuery')
+        expect(attestReadOnlyQueryResult(source, { rowCap: 100, timeoutMs: 0 })).not.toHaveProperty('_cuttlelyReadOnlyQuery')
+    })
+
+    it('opts only saved native URL nodes into attestation while preserving default query preparation', async () => {
+        const sink = await listenSink()
+        const urlTools = jest.spyOn(PostgreSQLMCP.prototype, 'urlTools').mockResolvedValue([])
+        try {
+            await initAt(sink.url, { mcpActions: ['query'] })
+            expect(urlTools.mock.calls[0]).toHaveLength(4)
+            await initAt(sink.url, { mcpActions: ['query'], allowPinDefinitions: true })
+            expect(urlTools.mock.calls[1]).toEqual([sink.url, {}, [], '', true])
+            await initAt(sink.url, { mcpActions: ['query'], allowPinDefinitions: 'true' })
+            expect(urlTools.mock.calls[2]).toHaveLength(4)
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            urlTools.mockRestore()
+            await sink.close()
+        }
+    })
+
+    it('does not attest a query refused by the native URL read-only guard', async () => {
+        const sink = await listenSink()
+        try {
+            const tools = await node().urlTools(sink.url, { rowCap: 100, statementTimeoutMs: 15000 }, [], '', true)
+            const query = tools.find((item: { name: string }) => item.name === 'query')
+            const body = JSON.parse(await query.invoke({ sql: 'SELECT pg_sleep(0) LIMIT 1' }))
+            expect(body).toEqual({
+                error: 'Cuttlely refused this query: pg_sleep is not allowed.',
+                cuttlelyOutcome: 'expected'
+            })
+            expect(body).not.toHaveProperty('_cuttlelyReadOnlyQuery')
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            await sink.close()
+        }
+    })
+
     it('every pinned call site passes readOnlySql: true', async () => {
         const sink = await listenSink()
         try {
@@ -362,7 +546,7 @@ describe('PostgreSQL MCP pinned queries', () => {
                 'sql',
                 'statement'
             ])
-            expect(node().version).toBe(1.4)
+            expect(node().version).toBe(1.5)
             const profile = (await importEsm(pathToFileURL(path.join(root, 'packages/harness/profile.mjs')).href)) as {
                 specialistSoul: (specialist: unknown, env: Record<string, string>) => string
             }

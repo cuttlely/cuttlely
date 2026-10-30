@@ -28,6 +28,8 @@ import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
 import { renderTrustedOutputs, composeTrustedOutputs, verifiedUnmappedOutput } from './trusted-output.mjs'
+import { composeProtectedInterpretation, protectedLiteralIssues } from './protected-interpretation.mjs'
+import { sourceAnswerFallback } from './source-answer-fallback.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
@@ -2128,6 +2130,20 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
                 clarification: typeof text === 'string' && text.length <= 2000 && /\?\s*$/.test(text)
             })
         ) {
+            if (specialist.trustedInterpretation === true && captured.length) {
+                const issues = protectedLiteralIssues(
+                    text,
+                    captured.map((item) => item.result)
+                )
+                if (issues.length) {
+                    replaceTrustedArtifacts(context, specialist.name)
+                    return {
+                        text: maskWorkspacePaths(sourceAnswerFallback(captured)),
+                        artifacts: [],
+                        interpretation: { included: false, reason: issues.join(',') }
+                    }
+                }
+            }
             if (!context.passthroughArtifactObjects) context.passthroughArtifactObjects = new Set()
             for (const artifact of ownArtifacts) context.passthroughArtifactObjects.add(artifact)
             return { passthrough: true }
@@ -2142,6 +2158,17 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
     throwIfClient(context)
     if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
     replaceTrustedArtifacts(context, specialist.name, rendered.artifacts)
+    if (specialist.trustedInterpretation === true) {
+        const composed = composeProtectedInterpretation({
+            interpretation: maskWorkspacePaths(text),
+            facts: rendered.text,
+            sources: captured.map((item) => item.result),
+            paths: specialist.trustedInterpretationPaths
+        })
+        if (Buffer.byteLength(composed.text) > 200000)
+            throw new HarnessError('trusted_output', 'Interpreted output exceeds the composed output limit.')
+        return { ...rendered, text: composed.text, interpretation: { included: composed.included, reason: composed.reason } }
+    }
     return rendered
 }
 
@@ -2166,6 +2193,7 @@ async function runStep(context, step) {
         context._stepTask = task
         const match =
             context.pinFirstSingleStep &&
+            specialist.trustedInterpretation !== true &&
             !step.after &&
             !step.paging &&
             !context.images?.length &&
@@ -2241,7 +2269,14 @@ async function runStep(context, step) {
                 ...out,
                 // Pin-first text is the harness's own rendering of the logged result (escaped cells, author columns), so
                 // it is not rewritten from the raw payload; the payloads still ride along for the answer checks.
-                text: preRun ? out.text : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
+                text:
+                    preRun ||
+                    (specialist.trustedInterpretation === true &&
+                        (context.trustedCaptures?.get(specialist.name) || []).some((item) =>
+                            specialist.trustedOutputs?.some((contract) => item.toolName === contract.pin)
+                        ))
+                        ? out.text
+                        : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
                 analystPayloads: analystPayloadsFor(context.toolLog, specialist.name)
             }
         }
@@ -2252,7 +2287,10 @@ async function runStep(context, step) {
                 ...out,
                 text: protectedOutput.text,
                 trustedOutput: true,
-                trustedArtifactNames: protectedOutput.artifacts.map((item) => item.name)
+                trustedArtifactNames: protectedOutput.artifacts.map((item) => item.name),
+                ...(!protectedOutput.interpretation?.included && protectedOutput.interpretation?.reason && !out.recovery
+                    ? { recovery: { reason: 'interpretationOmitted', error: protectedOutput.interpretation.reason } }
+                    : {})
             }
         const ms = Date.now() - started
         emit(context, 'specialist', {

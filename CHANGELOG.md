@@ -4,6 +4,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Harness Specialist can explicitly allow verified native read-only SQL when no tested pin covers a request. PostgreSQL MCP can expose scoped pinned-query definitions without stamps or secure defaults; fallback queries retain database guards and are limited to two calls per specialist turn.
+-   Optional **Interpret protected evidence** gives a specialist bounded source observations for a labeled analyst readout before unchanged source-owned facts. Conservative provenance and comparability checks omit unsupported interpretation without rerunning the model or source query. Both features default off. See [Trusted outputs](./docs/reference/trusted-outputs.md).
+
 ### Changed
 
 -   Upgraded WorkOS installations now warn administrators on **Auth / SSO** and in an application banner until `CUTTLELY_LOCAL_ADMIN` is enabled and `pnpm user --email owner@example.com` has created an active owner recovery credential. Phase A does not enable recovery or change sign-in behavior. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until an active owner has a usable local password; the latter is checked again in the switch transaction.

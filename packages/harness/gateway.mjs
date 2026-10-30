@@ -2,7 +2,14 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
-import { noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
+import { analystSqlTrace, noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
+import {
+    guardedQueryEvidence,
+    verifiedSourceTurn,
+    reserveGuardedQueryAttempt,
+    forgetGuardedQueryAttempts,
+    VERIFIED_QUERY_POLICY
+} from './verified-query-output.mjs'
 import { isAnalystQueryTool } from './context.mjs'
 import { SQL_TOOL_REFUSED, enforcesTables, runsSql } from './sql-tools.mjs'
 import { analystTracePreviewsEnabled } from './trace.mjs'
@@ -151,6 +158,8 @@ export function profileTokenKnown(token) {
 }
 
 export function forgetProfileToken(token) {
+    const profile = tokens.get(token)?.profileName
+    if (profile) forgetGuardedQueryAttempts(profile)
     if (token) tokens.delete(token)
 }
 
@@ -160,7 +169,10 @@ export function revokeHarnessTokens(harnessName, profileNames = [], { harnessWid
     const name = harnessWide ? String(harnessName || '') : ''
     const directories = new Set(profileNames)
     for (const [token, meta] of [...tokens]) {
-        if ((name && meta.harnessName === name && !meta.tryProfile) || directories.has(meta.profileName)) tokens.delete(token)
+        if ((name && meta.harnessName === name && !meta.tryProfile) || directories.has(meta.profileName)) {
+            forgetGuardedQueryAttempts(meta.profileName)
+            tokens.delete(token)
+        }
     }
 }
 
@@ -974,6 +986,13 @@ export function refuseSqlTools(profileName, specialistName, binding, specs, refu
     return kept
 }
 
+function queryBindingFor(specialist, profileName, toolName) {
+    const route = toolRoutes.get(refusalKey(profileName))?.get(toolName)
+    if (!route) return null
+    const bindings = [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]
+    return route.nodeId ? bindings.find((binding) => binding.nodeId === route.nodeId) : bindings[route.index]
+}
+
 function routeFor(profileName, toolName) {
     const route = profileName ? toolRoutes.get(refusalKey(profileName))?.get(toolName) : null
     if (!route) return {}
@@ -1040,6 +1059,34 @@ async function callTool(req, res, meta) {
         sendJson(res, 200, { result })
         return
     }
+    const specialist = record.specialists?.find((item) => item.name === meta.specialistName)
+    const queryBinding = queryBindingFor(specialist, meta.profileName, body.name)
+    const sourceTurn = typeof body.scope === 'string' ? body.scope : ''
+    if (
+        specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY &&
+        body.name === 'query' &&
+        queryBinding?.nodeName === 'postgreSQLMCP' &&
+        !verifiedSourceTurn(meta.profileName, sourceTurn)
+    ) {
+        sendJson(res, 200, {
+            result: JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
+        })
+        return
+    }
+    if (
+        specialist?.trustedOutputPolicy === VERIFIED_QUERY_POLICY &&
+        body.name === 'query' &&
+        queryBinding?.nodeName === 'postgreSQLMCP' &&
+        !reserveGuardedQueryAttempt(meta.profileName, sourceTurn)
+    ) {
+        sendJson(res, 200, {
+            result: JSON.stringify({
+                error: 'The read-only SQL fallback allows at most two query calls per turn, including a correction or page.',
+                cuttlelyOutcome: 'expected'
+            })
+        })
+        return
+    }
     const secureNames = secretNamesFor(meta.profileName, body.name)
     const captureId = isAnalystQueryTool(body.name)
         ? noteAnalystGatewayCall({
@@ -1082,6 +1129,14 @@ async function callTool(req, res, meta) {
     const shown = modelToolResult(result)
     rememberAnalystResult(record.name, meta.specialistName, shown.result, scope, args, captureId, timings.at(-1), {
         executedSql: shown.traceSql,
+        queryEvidenceContext: {
+            specialist,
+            binding: queryBinding,
+            profileName: meta.profileName,
+            sourceTurn,
+            receipt: shown.readOnlyQuery
+        },
+        sourceTurn,
         freeSqlWithPin: freePinsFor(meta.profileName, body.name),
         secureNames,
         pinnedCall: isPinnedToolName(body.name),
@@ -1186,22 +1241,18 @@ export async function invokeOfferedPinnedTool({
 }
 
 function modelToolResult(result) {
-    if (typeof result !== 'string' || !result.includes('_cuttlelyTraceSql')) return { result, traceSql: '' }
+    if (typeof result !== 'string' || (!result.includes('_cuttlelyTraceSql') && !result.includes('_cuttlelyReadOnlyQuery')))
+        return { result, traceSql: '', readOnlyQuery: null }
     try {
         const parsed = JSON.parse(result)
-        if (
-            !parsed ||
-            typeof parsed !== 'object' ||
-            Array.isArray(parsed) ||
-            !Object.prototype.hasOwnProperty.call(parsed, '_cuttlelyTraceSql')
-        ) {
-            return { result, traceSql: '' }
-        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { result, traceSql: '', readOnlyQuery: null }
         const traceSql = typeof parsed._cuttlelyTraceSql === 'string' ? parsed._cuttlelyTraceSql : ''
+        const readOnlyQuery = parsed._cuttlelyReadOnlyQuery || null
         delete parsed._cuttlelyTraceSql
-        return { result: JSON.stringify(parsed), traceSql }
+        delete parsed._cuttlelyReadOnlyQuery
+        return { result: JSON.stringify(parsed), traceSql, readOnlyQuery }
     } catch {
-        return { result, traceSql: '' }
+        return { result, traceSql: '', readOnlyQuery: null }
     }
 }
 
@@ -1265,6 +1316,12 @@ function rememberAnalystResult(savedName, specialistName, result, scope, args, c
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     const protectedPin = extra.pinnedCall && extra.captureTrusted
+    const queryEvidence = guardedQueryEvidence({
+        ...extra.queryEvidenceContext,
+        toolName: extra.toolName,
+        result: parsed,
+        sqlHash: analystSqlTrace({ harness: savedName, specialist: specialistName, chatId, ...statement }).sqlHash
+    })
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor && !protectedPin)
         return
     const params = extra.pinnedCall ? capturePinnedParams(args, extra.secureNames || [], analystTracePreviewsEnabled()) : null
@@ -1274,8 +1331,9 @@ function rememberAnalystResult(savedName, specialistName, result, scope, args, c
         chatId,
         callId: id,
         result: parsed,
-        ...(protectedPin ? { toolName: extra.toolName } : {}),
-        ...(protectedPin && extra.sourceTurn ? { sourceTurn: extra.sourceTurn } : {}),
+        ...(protectedPin || queryEvidence ? { toolName: extra.toolName } : {}),
+        ...((protectedPin || queryEvidence) && extra.sourceTurn ? { sourceTurn: extra.sourceTurn } : {}),
+        ...(queryEvidence ? { queryEvidence } : {}),
         timings,
         ...statement,
         executedSql: extra.executedSql || '',

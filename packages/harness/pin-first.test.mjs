@@ -364,7 +364,7 @@ test('config normalization retains true and refuses invalid rules on full save; 
     assert.equal(specialistSoul(plain), specialistSoul(specialist))
     assert.match(
         fs.readFileSync(new URL('../components/nodes/harness/HarnessSpecialist/HarnessSpecialist.ts', import.meta.url), 'utf8'),
-        /this.version = 2\.4/
+        /this.version = 2\.5/
     )
 })
 
@@ -426,7 +426,8 @@ test('threshold extraction uses validated value and every how-many row remains i
 })
 
 test('workspace paths are masked in answers events trace and stored turn; secure start has no detail', async () => {
-    const out = await run({ result: { ...body, rows: [{ family: '/workspace/fixture/report.csv', count: 2 }] } })
+    const out = await run({ modelPin: true, result: { ...body, rows: [{ family: '/workspace/fixture/report.csv', count: 2 }] } })
+    assert.equal(out.calls.length, 1)
     for (const value of [out.payload, out.events, out.stored]) assert.doesNotMatch(JSON.stringify(value), /\/workspace\/fixture/)
     assert.equal(out.events.find((event) => event.type === 'tool' && event.phase === 'start').detail, undefined)
 })

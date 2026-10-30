@@ -50,7 +50,11 @@ export const HARD_DENIED_OVERRIDE_KEYS: ReadonlySet<string> = new Set([
     'baseOptions',
     'mcpServerConfig',
     // PostgreSQL MCP Allowed functions: which database functions the node lets run is set only by the flow author.
-    'analystAllowedFunctions'
+    'analystAllowedFunctions',
+    'allowPinDefinitions',
+    'trustedOutputPolicy',
+    'trustedInterpretation',
+    'trustedInterpretationPaths'
 ])
 // Credentials: apiKey, unstructuredAPIKey, webhookSecret, callbackSecret, bearerToken, clientKeyPath, caPemPath, password,
 // redisCachePwd, passphrase, accessKeyId, sessionToken, refreshToken, Authorization, ...

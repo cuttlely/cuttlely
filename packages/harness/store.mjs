@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { trustedOutputContracts, normalizeTrustedPolicy } from './trusted-output.mjs'
+import { normalizeInterpretationPaths } from './protected-interpretation.mjs'
 import path from 'node:path'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { specialistHandoffChars } from './context.mjs'
@@ -148,6 +149,7 @@ export function assertRosterLimits(record) {
         assertAnalystRules(record, specialist)
         trustedOutputContracts(specialist.trustedOutputs)
         normalizeTrustedPolicy(specialist.trustedOutputPolicy)
+        normalizeInterpretationPaths(specialist.trustedInterpretationPaths)
     }
 }
 
@@ -244,8 +246,13 @@ export function saveHarness(record, { overwrite = false } = {}) {
         if (outputs.length) specialist.trustedOutputs = outputs
         else delete specialist.trustedOutputs
         const policy = normalizeTrustedPolicy(specialist.trustedOutputPolicy)
-        if (outputs.length && policy === 'verified-passthrough') specialist.trustedOutputPolicy = policy
+        if (outputs.length && ['verified-passthrough', 'verified-query-passthrough'].includes(policy))
+            specialist.trustedOutputPolicy = policy
         else delete specialist.trustedOutputPolicy
+        if (!outputs.length || specialist.trustedInterpretation !== true) delete specialist.trustedInterpretation
+        const interpretationPaths = normalizeInterpretationPaths(specialist.trustedInterpretationPaths)
+        if (specialist.trustedInterpretation && interpretationPaths.length) specialist.trustedInterpretationPaths = interpretationPaths
+        else delete specialist.trustedInterpretationPaths
 
         const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
         if (capacityWaitSeconds) specialist.capacityWaitSeconds = capacityWaitSeconds
