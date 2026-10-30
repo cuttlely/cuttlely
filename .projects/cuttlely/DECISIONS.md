@@ -44,7 +44,7 @@ The API server has nobody to answer an approval prompt, so profiles for Code exe
 
 ## D11. The SSRF guard stays on
 
-The HTTP security guard in `packages/components/src/httpSecurity.ts` blocks loopback, private addresses, cloud metadata hosts and the carrier-grade NAT range `100.64.0.0/10` by default, and re-checks redirects. Samples use public endpoints. A model on a loopback or private address fails with a message that explains the block. Trade-off: hosts reached over CGNAT addresses are blocked too; `HTTP_SECURITY_CHECK=false` drops the whole default list and is not recommended.
+The HTTP security guard in `packages/components/src/httpSecurity.ts` blocks loopback, private addresses, cloud metadata hosts and the carrier-grade NAT range `100.64.0.0/10` by default, and re-checks redirects. Samples use public endpoints. A model on a loopback or private address fails with a message that explains the block. The Admin switch `HTTP_ALLOW_LOCALHOST` (Server Settings > Security > Building blocks, default off, read per request) opens only `localhost`, `ip6-localhost`, `127.0.0.0/8` and `::1`; private ranges, link-local, metadata addresses and every `HTTP_DENY_LIST` entry stay blocked. Trade-off: hosts reached over CGNAT addresses are blocked too; `HTTP_SECURITY_CHECK=false` drops the whole default list and is not recommended.
 
 ## D12. Load on first use; keep the runtime warm
 
