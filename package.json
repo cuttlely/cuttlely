@@ -15,7 +15,7 @@
         "dev": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --parallel --no-cache",
         "start": "run-script-os",
         "start:harness": "bash scripts/start-cuttlely.sh",
-        "harness:check": "node packages/harness/check.mjs && node --test packages/harness/mcp-bridge-token.test.mjs && node --test packages/harness/test/pinned/ packages/harness/test/category.test.mjs",
+        "harness:check": "node packages/harness/check.mjs && node --test packages/harness/mcp-bridge-token.test.mjs packages/harness/mcp-schema-revision.test.mjs && node --test packages/harness/test/pinned/ packages/harness/test/category.test.mjs",
         "verify": "node scripts/verify.mjs",
         "release": "node scripts/release.mjs",
         "upgrade:check": "node scripts/upgrade-check.mjs",

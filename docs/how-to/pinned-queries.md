@@ -28,6 +28,8 @@ On the **PostgreSQL MCP** node, open **Pinned queries** and choose **Add**.
 4. Parameters are required unless you say otherwise. Description, default, allowed values, and min/max sit under **Advanced**.
 5. **Test & save** runs the statement with the sample values you typed, through the same guard and the same connection the specialist will use. When it passes, the server stores a tested stamp.
 
+After changing a pin or its tool parameters, test and save it, then publish when it is ready for Live. On the next specialist tool discovery, changed tool definitions refresh automatically even when the specialist reuses its runtime profile; unchanged definitions can reuse their cache. Finish active runs before publishing query or tool-schema changes: refreshing the changed connection can fail an in-flight tool call, and does not retry the source query or model. Other independently configured Cuttlely profiles are not disconnected.
+
 A trailing semicolon is refused. The editor can remove it. A statement with no top-level `LIMIT` is refused. The editor can insert `LIMIT 100`. The `LIMIT` count has to be a literal number in the saved SQL. A parameter in `LIMIT` or `OFFSET` is refused, including inside a subquery. `:n` cannot be the page size.
 
 The agent cannot choose the table, the column list, `ORDER BY`, or `LIMIT`. Those stay in the SQL you saved. There is no `IN`-list parameter, no array parameter, and no parameter that names an identifier.
