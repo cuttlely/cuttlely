@@ -102,7 +102,7 @@ The generic OIDC card contains:
 
 Saving a draft fetches discovery metadata from the issuer's well-known endpoint over TLS. The server validates issuer equality, authorization and token endpoints, supported code flow, signing algorithms, and a usable key-set URL. Issuers on loopback, link-local, LAN, or other private-network addresses are rejected unless an administrator has explicitly added the issuer host to the private-issuer allowlist. The allowlist is host-based and does not relax URL, port, or resolved-address validation for unrelated hosts.
 
-Discovery and JWKS retrieval both reuse the single outbound request guard introduced in PR #350. That guard validates every resolved IP, pins the connection to the validated address, sends the intended host for TLS and HTTP, forbids redirects, and applies scheme, credential, port, size, and timeout limits. No second outbound-fetch implementation is permitted. This supports explicitly allowed LAN IdPs such as Keycloak or Authentik while retaining DNS-rebinding protection.
+Discovery and JWKS retrieval both reuse the single outbound request guard introduced in PR #350. That guard validates every resolved IP, pins the connection to the validated address, sends the intended host for TLS and HTTP, forbids redirects, and applies scheme, credential, port, size, and timeout limits. No second outbound-fetch implementation is permitted. This supports explicitly allowed private-network issuers, such as other OIDC providers hosted on a LAN, while retaining DNS-rebinding protection.
 
 The test flow is bound to the initiating administrator and current browser session, expires quickly, is single-use, and does not replace the active method or create a durable user session. It reports protocol steps, the returned email, and its assurance status in a sanitized result. Activation is unavailable until the current configuration fingerprint has passed a test sign-in.
 
@@ -238,6 +238,14 @@ The release gate includes schema migration checks, route contract checks, securi
 -   End sealed WorkOS sessions once at release, make the Cuttlely database session and cookie authoritative for remote sign-ins, and document the effect in release notes.
 -   Keep compatibility routes, settings readers, and cookie handling for one minor release line, without lazy session exchange, and add unified logout semantics.
 -   Add the separate, always-available owner break-glass route.
+-   Make the break-glass alert and audit entry mandatory and not suppressible, require a second factor (TOTP or WebAuthn) on the break-glass owner or document that limit, and document manual owner offboarding.
+-   Check user status on every API credential request and every session request, so a disabled user is refused on the next call; state that IdP deactivation ends sessions only with SCIM, or add OIDC back-channel logout.
+-   Treat `xms_edov=true` as a verified email for Entra ID issuers, and make invitation linking refuse an explicit `email_verified=false`.
+-   Name the env var or KMS source and the rotation procedure for managed server secrets, state whether rotating the client secret ends sessions, keep the PKCE verifier in an encrypted envelope, and add a log-redaction test for the code, verifier, client secret and bearer token.
+-   Run the disposable test IdP in this phase's CI instead of waiting for Phase D.
+-   Derive the epoch-binding HMAC secret with HKDF and its own label instead of reusing `WORKOS_COOKIE_PASSWORD`.
+-   Use outcome-specific audit summaries, so a failed attempt is not recorded as refused.
+-   Pin the authorization-response `iss` per sign-in transaction (RFC 9700 mix-up defense), and rate-limit the switch stage and apply routes with a 429 test.
 
 ### Phase C: SCIM v2
 
@@ -246,6 +254,11 @@ The release gate includes schema migration checks, route contract checks, securi
 -   Make deactivation disable the user, sessions, API keys, and personal tokens atomically, with audited `409` protection for owners.
 -   Add optional group-to-team and role mappings, assignment ownership, preview-and-confirm removal, and 30-day diagnostics.
 -   Run the conformance suite in CI.
+-   Let SCIM deactivate an owner other than the last active owner; keep the audited `409` for the last owner only.
+-   Accept the Okta and Entra ID deprovisioning forms: PUT with `active:false`, PATCH with no `path`, capitalized operation names, member removal through `value` arrays and `members[value eq ...]`, `excludedAttributes=members`, and the random-id connection probe that expects an empty `ListResponse`; route every form into the same disable transaction (sessions, API credentials, personal tokens).
+-   Implement DELETE `/Groups/{id}` to remove the assignments that group owns, and make DELETE `/Users/{id}` answer 204 and then 404 and omit the user from queries (RFC 7644 section 3.6) while the internal row is kept.
+-   Bump the permission version in the group reconcile transaction, so removal from a mapped group takes effect on the next request, and refuse mappings to roles that hold `authentication:manage`.
+-   Add recorded Okta and Entra ID request fixtures to this phase's CI instead of waiting for Phase D.
 
 ### Phase D: hardening and release readiness
 
