@@ -83,6 +83,12 @@ The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use millisec
 
 **Turn time limit** separately bounds the whole team turn and defaults to 45 seconds. A shorter turn limit still stops unfinished work, so raise it too when a turn needs longer, or set it to `0` to turn that limit off. Unlimited agent run time still permits cancellation and does not remove model, provider, other MCP tool, SQL query, or HTTP request limits. [How long a turn should take](./harnesses.md#how-long-a-turn-should-take) explains the whole-turn budget.
 
+## Maximum concurrent agent runs
+
+Under **Agent runtime** > **Limits**, **Maximum concurrent agent runs** caps how many agent runs the agent runtime works on at the same time, across every agent team. The default is **10**. The field accepts **1** to **50**, or **0** for no limit, which the page shows as **Unlimited**. A negative number or a number above 50 is refused when you save. A run over the limit is turned away as busy, and the agent team turn reports it unless the specialist's **Capacity wait** is on (see [Agent teams](./harnesses.md)). Higher values use more memory and CPU, and send more model requests at once. The page shows a warning under the field for a value above 25, and a stronger one for **Unlimited**, because a burst of questions can then use all the memory and CPU on the server. Review and save, then restart Cuttlely to apply it. A value set on the host locks the field.
+
+The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime starts, `scripts/cuttlely-hermes-api.py` writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime's `config.yaml` (`$HERMES_HOME/config.yaml`). Only that key changes; the rest of the file is kept. A saved value replaces a value typed into that file by hand. Clearing the setting removes the value Cuttlely wrote, so the runtime default of 10 applies again, and leaves a value someone typed into the file afterwards alone.
+
 ## Analyst limits
 
 **Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.
@@ -105,6 +111,18 @@ The picture is from a local demo install. The account is a made-up owner. It sho
 ![Testing and Limits. Publish check is On. Publish check time limit shows Set by the host. The range line is under the field. At the bottom, Set by the host lists host-only settings with a status and no value; the two rows in view, PORT and HOST, show Set, from Environment. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/server-settings/testing-and-limits.png)
 
 The full list of startup options, with the default, the range, where each one can be set, and whether a restart is needed, is [Startup options](../reference/startup-options.md). Secret values and host-only values are named and marked not shown.
+
+## Let HTTP building blocks call localhost
+
+On **Security & network**, under **Building blocks**, **Allow HTTP building blocks to call localhost** (`HTTP_ALLOW_LOCALHOST`) is off by default. HTTP building blocks, such as **HTTP**, **Execute Flow**, the API loader and the request tools, refuse loopback addresses while it is off.
+
+When it is on, any flow author can reach any service listening on this server's own localhost: `127.0.0.0/8`, `::1`, and the names `localhost` and `ip6-localhost`, including a host name that resolves to one of those addresses. Nothing else is opened. `0.0.0.0`, `::`, link-local and cloud metadata addresses such as `169.254.169.254`, and the private ranges `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` and `fc00::/7` stay blocked, including their `::ffff:` forms. Every address and name in **Blocked addresses for HTTP building blocks** (`HTTP_DENY_LIST`) stays blocked too.
+
+How far the check goes depends on the building block. **HTTP**, **Execute Flow**, the API loader, the request tools and the Cheerio loader connect to the exact address that was checked, and check every redirect again. The Playwright and Puppeteer loaders check each request the page starts, but the browser looks up the name again itself, so the connection is not tied to the checked address, and Playwright follows a redirect without checking it again. MCP over HTTP and the chat models that take a base address (such as Ollama, LocalAI and OpenAI Custom) check the address once before they connect; after that, the client looks up the name and follows redirects on its own.
+
+The switch is read on each request, so a saved change applies to the next request without a restart. Only the owner can change it, and each change is kept in History with who made it and when. A host value of `true` or `false` wins and locks the switch. A queue worker that reads the same data folder picks up a saved change within 5 seconds. A worker in another container follows its own host value.
+
+When `HTTP_SECURITY_CHECK` is `false` on the host, the built-in block list is off, loopback and private addresses are already reachable, and this switch changes nothing. Only `HTTP_DENY_LIST` entries are blocked then.
 
 ## Limits that apply immediately
 

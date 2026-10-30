@@ -74,6 +74,10 @@ Send `"0"` for unlimited waiting. An empty string removes the saved value. The h
 
 The whole-turn budget (`CUTTLELY_HARNESS_TURN_BUDGET_MS`, default `45000`, `0` to disable) still stops unfinished work when it expires sooner. Cancellation and independent model, provider, other MCP tool, SQL query, and HTTP request limits remain in effect. [Agent run time guide](../how-to/server-settings.md#agent-run-time).
 
+## Maximum concurrent agent runs
+
+`CUTTLELY_HERMES_MAX_CONCURRENT_RUNS` appears under **Agent runtime** > **Limits** as **Maximum concurrent agent runs**. It is a whole number: `1` to `50`, or `0` for no limit (shown as **Unlimited**); the default is `10`. A negative value or a value above `50` is refused with a 400 and nothing is saved. The field definition carries `zeroLabel` and `warnings` (`zero`, and `above` with `value: 25`), which the page shows under the field; they do not block a save. It has no `runtime: true` flag: save, then restart Cuttlely. On start the value is written to `gateway.api_server.max_concurrent_runs` in the agent runtime's `config.yaml`; other keys in that file are kept. An empty string removes the saved value, and the value Cuttlely wrote is removed from `config.yaml` on the next start. The host value takes precedence and locks the setting. [Guide](../how-to/server-settings.md#maximum-concurrent-agent-runs).
+
 ## Runtime limits
 
 | Variable                         | Default | Range                                      | Unit    |

@@ -13,6 +13,7 @@ import { AbortControllerPool } from '../AbortControllerPool'
 import { UsageCacheManager } from '../UsageCacheManager'
 import { ossIdentity } from '../identity/ossPlatform'
 import { registerCuttlelyTraces, shutdownCuttlelyTraces } from '../metrics/tracing'
+import { installHttpLocalhostReader } from '../settings/httpLocalhost'
 
 interface CustomListener extends QueueEventsListener {
     abort: (args: { id: string }, id: string) => void
@@ -26,6 +27,7 @@ export default class Worker extends BaseCommand {
     async run(): Promise<void> {
         logger.info('Starting Flowise Worker...')
         registerCuttlelyTraces()
+        installHttpLocalhostReader()
 
         const { appDataSource, telemetry, componentNodes, cachePool, abortControllerPool, usageCacheManager, identityManager } =
             await this.prepareData()

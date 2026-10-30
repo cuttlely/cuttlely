@@ -18,6 +18,7 @@ import { IMetricsProvider } from './Interface.Metrics'
 import { OpenTelemetry } from './metrics/OpenTelemetry'
 import { Prometheus } from './metrics/Prometheus'
 import { registerCuttlelyTraces, shutdownCuttlelyTraces } from './metrics/tracing'
+import { installHttpLocalhostReader } from './settings/httpLocalhost'
 import errorHandlerMiddleware from './middlewares/errors'
 import { NodesPool } from './NodesPool'
 import type { QueueManager } from './queue/QueueManager'
@@ -293,6 +294,7 @@ export class App {
         }
 
         registerCuttlelyTraces()
+        installHttpLocalhostReader()
 
         this.app.use('/api/v1', flowiseApiV1Router)
 
