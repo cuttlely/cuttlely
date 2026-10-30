@@ -39,7 +39,7 @@ import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
 import { utcEpoch } from './dbTime'
-import { addIdentityActionLinks } from './schemaMigration'
+import { addAuthenticationState, addIdentityActionLinks } from './schemaMigration'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
 
@@ -141,7 +141,9 @@ async function sqliteBackend(): Promise<Backend> {
             release: async () => undefined,
             query: run
         } as unknown as QueryRunner)
-    await addIdentityActionLinks(runner())
+    const setup = runner()
+    await addIdentityActionLinks(setup)
+    await addAuthenticationState(setup)
     const dataSource = fakeDataSource('sqlite', runner, run)
     return {
         dataSource,
@@ -207,6 +209,7 @@ async function postgresBackend(): Promise<Backend> {
     const setup = runner()
     await setup.connect()
     await addIdentityActionLinks(setup)
+    await addAuthenticationState(setup)
     await setup.release()
     const dataSource = fakeDataSource('postgres', runner, async (statement, params = []) => (await pool.query(statement, params)).rows)
     const sql = sqlFromDataSource(dataSource)

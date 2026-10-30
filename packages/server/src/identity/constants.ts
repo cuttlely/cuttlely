@@ -19,6 +19,8 @@ export const WOS_SESSION_COOKIE = 'wos-session'
 
 /** Break-glass session only. Never a WorkOS seal. */
 export const LOCAL_SESSION_COOKIE = 'cuttlely-local-session'
+/** Opaque handle for a server-side fresh-sign-in record. */
+export const RECENT_AUTH_COOKIE = 'cuttlely-recent-auth'
 
 /** Raw invite token held only for the AuthKit round trip. The callback always clears it. */
 export const INVITE_COOKIE = 'cuttlely-invite'

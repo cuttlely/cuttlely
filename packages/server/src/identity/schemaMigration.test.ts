@@ -30,6 +30,7 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
             calls.push({ sql, params })
             if (sql.includes('information_schema.tables')) return present.has(String(params?.[0])) ? [{ name: params?.[0] }] : []
             if (sql.startsWith('CREATE TABLE "identity_authentication_state"')) present.add('identity_authentication_state')
+            if (sql.startsWith('CREATE TABLE "identity_recent_authentication"')) present.add('identity_recent_authentication')
             if (sql.includes('information_schema.columns')) return []
             if (sql.includes('FROM "role"') && sql.includes('SELECT')) {
                 return existingRoles.has(String(params?.[0] || '').toLowerCase()) ? [{ id: 'existing' }] : []
@@ -80,5 +81,6 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"installationId" varchar(64) NOT NULL')
         expect(creates[0].sql).toContain('"authenticationEpoch" integer NOT NULL')
         expect(creates[0].sql).toContain('"activeMethod" varchar(32) NULL')
+        expect(calls.filter((call) => call.sql.startsWith('CREATE TABLE "identity_recent_authentication"'))).toHaveLength(1)
     })
 })

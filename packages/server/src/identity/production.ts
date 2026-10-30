@@ -18,7 +18,7 @@ import { Request } from 'express'
 import { DataSource } from 'typeorm'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
-import { cookieSecure } from './cookies'
+import { cookieSecure, recentAuthenticationCookie } from './cookies'
 import { organizationsForUser, recordAudit } from './auditLog'
 import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
@@ -27,7 +27,13 @@ import { bindSetupCodeStore } from './setupCode'
 import { SqlIdentityStore, SqlLoginRateLimit, SqlSetupCodeStore } from './sqlStore'
 import { workosPort } from './workosAdapter'
 import { workosProvider } from './provider'
-import { initializeAuthenticationState, selectedAuthenticationEpoch } from './authenticationState'
+import {
+    automaticWorkosLinkingAllowed,
+    initializeAuthenticationState,
+    recordRecentAuthentication,
+    refreshAuthenticationState,
+    selectedAuthenticationEpoch
+} from './authenticationState'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
@@ -42,12 +48,14 @@ export function applicationSql(): Sql {
  * A second start while AuthKit stays on returns null and does not end new sessions.
  */
 export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
+    const durable = await initializeAuthenticationState(dataSource)
     const switchStore = new SqlIdentityStore(dataSource)
     const before = await switchStore.readAuthKitSwitch()
-    const configured = workosConfigured()
+    // A panel transition already ended sessions in its own transaction. The compatibility cutoff must never repeat it.
+    if (durable.changedAt) return null
+    const configured = durable.activeMethod === 'workos' && workosConfigured()
     // recordOff is this process: the web server. A queue worker does not call this.
     const after = await switchStore.applyAuthKitSwitch(configured, new Date(), { recordOff: !configured })
-    await initializeAuthenticationState(dataSource)
     if (after.configured && !before?.configured) return { ended: after.sessionsEnded }
     return null
 }
@@ -66,7 +74,8 @@ function loginLimiter(): SqlLoginRateLimit {
     return limiter
 }
 
-export function buildAuthContext(req: Request): AuthContext {
+export async function buildAuthContext(req: Request): Promise<AuthContext> {
+    await refreshAuthenticationState(getDataSource())
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
     return {
@@ -88,6 +97,15 @@ export function buildAuthContext(req: Request): AuthContext {
         store: identityStore(),
         workos: workosProvider(workosPort, () => workosConfigured()).compatibility,
         rateLimit: loginLimiter(),
+        automaticWorkosLinkingAllowed: () => automaticWorkosLinkingAllowed(getDataSource()),
+        recordRecentAuthentication: async (userId) => {
+            const recent = await recordRecentAuthentication(getDataSource(), userId)
+            return recentAuthenticationCookie(
+                recent.token,
+                cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
+                recent.expiresAt - Date.now()
+            )
+        },
         noteAudit: noteSignIn
     }
 }

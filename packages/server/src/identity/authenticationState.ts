@@ -8,13 +8,15 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { createHash, randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
 
 export type AuthenticationMethod = 'local' | 'workos'
 let effectiveMethod: AuthenticationMethod | null | undefined
 let effectiveEpoch: number | undefined
+let stateRefreshedAt = 0
+const STATE_CACHE_MS = 2_000
 
 export function selectedAuthenticationMethod(): AuthenticationMethod | null | undefined {
     return effectiveMethod
@@ -35,6 +37,13 @@ export interface AuthenticationState {
     changedAt: string | null
     inferredAt: string
     version: number
+}
+
+function publishState(state: AuthenticationState): AuthenticationState {
+    effectiveMethod = state.activeMethod
+    effectiveEpoch = state.authenticationEpoch
+    stateRefreshedAt = Date.now()
+    return state
 }
 
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mariadb'
@@ -60,9 +69,17 @@ function value(row: Record<string, unknown>, name: string): unknown {
     return key ? row[key] : undefined
 }
 
+function databaseDate(runner: QueryRunner, valueToWrite: Date): Date | number {
+    return dialect(runner) === 'sqlite' ? valueToWrite.getTime() : valueToWrite
+}
+
 function date(valueToRead: unknown): string | null {
     if (!valueToRead) return null
-    return new Date(valueToRead as string | number | Date).toISOString()
+    const numeric = typeof valueToRead === 'string' ? Number(valueToRead) : Number.NaN
+    const valueAsDate = Number.isFinite(numeric) ? new Date(numeric) : new Date(valueToRead as string | number | Date)
+    if (!Number.isFinite(valueAsDate.getTime()))
+        throw new Error(`Invalid stored authentication date (${typeof valueToRead}: ${String(valueToRead)})`)
+    return valueAsDate.toISOString()
 }
 
 function fromRow(row: Record<string, unknown>): AuthenticationState {
@@ -91,7 +108,64 @@ export function stableWorkosProviderKey(installationId: string, fingerprint: str
     return createHash('sha256').update(`workos\n${installationId}\n${fingerprint}`).digest('hex')
 }
 
+export async function recordRecentAuthentication(
+    dataSource: DataSource,
+    userId: string,
+    now = Date.now()
+): Promise<{ token: string; expiresAt: number }> {
+    const token = randomBytes(32).toString('base64url')
+    const digest = createHash('sha256').update(token).digest('hex')
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    try {
+        const d = dialect(runner)
+        const expiresAt = now + 10 * 60 * 1000
+        await query(runner, `DELETE FROM ${q(d, 'identity_recent_authentication')} WHERE ${q(d, 'expiresAt')} <= ?`, [
+            databaseDate(runner, new Date(now))
+        ])
+        await query(
+            runner,
+            `INSERT INTO ${q(d, 'identity_recent_authentication')} (${q(d, 'token')}, ${q(d, 'userId')}, ${q(d, 'authenticatedAt')}, ${q(
+                d,
+                'expiresAt'
+            )}) VALUES (?, ?, ?, ?)`,
+            [digest, userId, databaseDate(runner, new Date(now)), databaseDate(runner, new Date(expiresAt))]
+        )
+        return { token, expiresAt }
+    } finally {
+        await runner.release()
+    }
+}
+
+export async function hasRecentAuthentication(dataSource: DataSource, userId: string, token: string, now = Date.now()): Promise<boolean> {
+    const digest = createHash('sha256').update(token).digest('hex')
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    try {
+        const d = dialect(runner)
+        const rows = await query(
+            runner,
+            `SELECT ${q(d, 'authenticatedAt')}, ${q(d, 'expiresAt')} FROM ${q(d, 'identity_recent_authentication')} WHERE ${q(
+                d,
+                'token'
+            )} = ? AND ${q(d, 'userId')} = ?`,
+            [digest, userId]
+        )
+        if (!rows[0]) return false
+        const authenticatedAt = new Date(value(rows[0], 'authenticatedAt') as string | Date).getTime()
+        const expiresAt = new Date(value(rows[0], 'expiresAt') as string | Date).getTime()
+        return authenticatedAt <= now && now - authenticatedAt <= 10 * 60 * 1000 && expiresAt > now
+    } finally {
+        await runner.release()
+    }
+}
+
 function inferredMethod(env: NodeJS.ProcessEnv): { method: AuthenticationMethod | null; warning: string | null } {
+    if (workosEnvironmentConfigured(env) && localUsersSetting(env))
+        return {
+            method: 'workos',
+            warning: 'Both ordinary sign-in settings are enabled. WorkOS remains active until an administrator reviews the configuration.'
+        }
     if (workosEnvironmentConfigured(env)) return { method: 'workos', warning: null }
     if (localUsersSetting(env)) return { method: 'local', warning: null }
     if (localAdminEnabled(env)) return { method: null, warning: null }
@@ -138,9 +212,7 @@ export async function initializeAuthenticationState(
             }
             await runner.commitTransaction()
             const result = (await readAuthenticationState(dataSource)) as AuthenticationState
-            effectiveMethod = result.activeMethod
-            effectiveEpoch = result.authenticationEpoch
-            return result
+            return publishState(result)
         }
         const d = dialect(runner)
         const installationId = randomUUID()
@@ -166,17 +238,15 @@ export async function initializeAuthenticationState(
                 fingerprint ? stableWorkosProviderKey(installationId, fingerprint) : null,
                 inferred.warning,
                 sessionsEnded,
-                changedAt ? new Date(changedAt) : null,
-                now
+                changedAt ? databaseDate(runner, new Date(changedAt)) : null,
+                databaseDate(runner, now)
             ]
         )
         await runner.commitTransaction()
         const result = (await readAuthenticationState(dataSource)) as AuthenticationState
-        effectiveMethod = result.activeMethod
-        effectiveEpoch = result.authenticationEpoch
-        return result
+        return publishState(result)
     } catch (error) {
-        await runner.rollbackTransaction()
+        if (runner.isTransactionActive) await runner.rollbackTransaction()
         throw error
     } finally {
         await runner.release()
@@ -191,6 +261,73 @@ export async function readAuthenticationState(dataSource: DataSource): Promise<A
     } finally {
         await runner.release()
     }
+}
+
+/** Refreshes the process view from durable state. The bounded cache limits request-path database reads. */
+export async function refreshAuthenticationState(dataSource: DataSource, force = false): Promise<AuthenticationState | null> {
+    if (!force && effectiveMethod !== undefined && Date.now() - stateRefreshedAt < STATE_CACHE_MS) return null
+    const state = await readAuthenticationState(dataSource)
+    if (state) publishState(state)
+    return state
+}
+
+export function authenticationStateCacheMs(): number {
+    return STATE_CACHE_MS
+}
+
+export async function acknowledgeAuthenticationWarning(
+    dataSource: DataSource,
+    expectedVersion: number,
+    audit: { organizationId: string; actorId: string }
+): Promise<AuthenticationState> {
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    await runner.startTransaction()
+    try {
+        const current = await selectState(runner, true)
+        if (!current || current.version !== expectedVersion) throw new Error('AUTH_STATE_CHANGED')
+        const fingerprint = workosConfigurationFingerprint()
+        const d = dialect(runner)
+        const now = new Date()
+        await query(
+            runner,
+            `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'configurationFingerprint')} = ?, ${q(d, 'providerKey')} = ?, ${q(
+                d,
+                'warning'
+            )} = NULL, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+            [fingerprint, fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null]
+        )
+        await query(
+            runner,
+            `INSERT INTO ${q(d, 'audit_event')} (${q(d, 'id')}, ${q(d, 'type')}, ${q(d, 'organizationId')}, ${q(d, 'workspaceId')}, ${q(
+                d,
+                'userId'
+            )}, ${q(d, 'actorId')}, ${q(d, 'summary')}, ${q(d, 'detail')}, ${q(d, 'createdAt')}) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+            [
+                randomUUID(),
+                'auth_configuration_warning_acknowledged',
+                audit.organizationId,
+                audit.actorId,
+                audit.actorId,
+                'Authentication configuration warning acknowledged',
+                JSON.stringify({ configurationFingerprint: fingerprint, outcome: 'acknowledged' }),
+                now.getTime()
+            ]
+        )
+        await runner.commitTransaction()
+        return publishState((await readAuthenticationState(dataSource)) as AuthenticationState)
+    } catch (error) {
+        if (runner.isTransactionActive) await runner.rollbackTransaction()
+        throw error
+    } finally {
+        await runner.release()
+    }
+}
+
+export async function automaticWorkosLinkingAllowed(dataSource: DataSource): Promise<boolean> {
+    const state = await readAuthenticationState(dataSource)
+    const fingerprint = workosConfigurationFingerprint()
+    return Boolean(state && fingerprint && state.configurationFingerprint === fingerprint && !state.warning)
 }
 
 export async function switchAuthenticationMethod(
@@ -226,7 +363,13 @@ export async function switchAuthenticationMethod(
                 d,
                 'sessionsEnded'
             )} = ?, ${q(d, 'changedAt')} = ?, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
-            [method, fingerprint, fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null, ended, now]
+            [
+                method,
+                fingerprint,
+                fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null,
+                ended,
+                databaseDate(runner, now)
+            ]
         )
         if (audit) {
             await query(
@@ -245,6 +388,7 @@ export async function switchAuthenticationMethod(
                     JSON.stringify({
                         oldMethod: current.activeMethod || 'none',
                         newMethod: method,
+                        configurationFingerprint: fingerprint,
                         authenticationEpoch: current.authenticationEpoch + 1,
                         sessionsEnded: ended,
                         outcome: 'applied'
@@ -254,13 +398,10 @@ export async function switchAuthenticationMethod(
             )
         }
         await runner.commitTransaction()
-        effectiveEpoch = current.authenticationEpoch + 1
         const result = (await readAuthenticationState(dataSource)) as AuthenticationState
-        effectiveMethod = result.activeMethod
-        effectiveEpoch = result.authenticationEpoch
-        return result
+        return publishState(result)
     } catch (error) {
-        await runner.rollbackTransaction()
+        if (runner.isTransactionActive) await runner.rollbackTransaction()
         throw error
     } finally {
         await runner.release()

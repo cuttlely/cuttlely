@@ -82,6 +82,8 @@ export interface AuthContext {
     store: IdentityStore
     workos: WorkosPort
     rateLimit: LoginLimiter
+    automaticWorkosLinkingAllowed?: () => Promise<boolean>
+    recordRecentAuthentication?: (userId: string) => Promise<SetCookie>
     /** Optional. Production writes a redacted audit row. Tests leave it unset. */
     noteAudit?: (note: {
         type: 'sign_in_success' | 'sign_in_failure' | 'lockout'
@@ -91,9 +93,12 @@ export interface AuthContext {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
-function authenticationEpochCurrent(ctx: AuthContext): boolean {
+async function authenticationEpochCurrent(ctx: AuthContext): Promise<boolean> {
     if (ctx.authenticationEpoch === undefined) return true
-    const { selectedAuthenticationEpoch } = require('./authenticationState') as typeof import('./authenticationState')
+    const { refreshAuthenticationState, selectedAuthenticationEpoch } =
+        require('./authenticationState') as typeof import('./authenticationState')
+    const { getDataSource } = require('../DataSource') as typeof import('../DataSource')
+    await refreshAuthenticationState(getDataSource(), true)
     return selectedAuthenticationEpoch() === ctx.authenticationEpoch
 }
 export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {
@@ -209,7 +214,7 @@ async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' |
 }
 
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
-    if (!authenticationEpochCurrent(ctx)) return null
+    if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)
@@ -293,11 +298,12 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.cookiePasswordOk) return textUnavailable()
     try {
         const authenticated = await ctx.workos.authenticate(ctx.code)
-        if (!authenticationEpochCurrent(ctx)) return { type: 'redirect', status: 302, url: '/signin' }
+        if (!(await authenticationEpochCurrent(ctx))) return { type: 'redirect', status: 302, url: '/signin' }
         const linked = await linkWorkosUser(ctx.store, authenticated.user, {
             bootstrapEmail: ctx.bootstrapEmail,
             inviteToken: inviteTokenFrom(ctx),
-            now: ctx.now
+            now: ctx.now,
+            automaticEmailLinking: ctx.automaticWorkosLinkingAllowed ? await ctx.automaticWorkosLinkingAllowed() : true
         })
         if (!linked.ok && (linked.reason === 'bootstrap-unset' || linked.reason === 'bootstrap-denied')) {
             return bootstrapPage(linked.reason)
@@ -321,7 +327,10 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             type: 'redirect',
             status: 302,
             url: '/',
-            cookies: [sealedCookie(authenticated.sealedSession, ctx.secure)],
+            cookies: [
+                sealedCookie(authenticated.sealedSession, ctx.secure),
+                ...(ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(linked.user.id)] : [])
+            ],
             ...cleared(ctx, [LOCAL_SESSION_COOKIE])
         }
     } catch (error) {
@@ -359,7 +368,7 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
-    if (!authenticationEpochCurrent(ctx)) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
+    if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
     const token = randomToken()
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)

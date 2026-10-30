@@ -14,13 +14,15 @@ This release supports **Local login** and **WorkOS**. Their existing environment
 ## Change the method
 
 1. Configure the candidate method through the existing server settings.
-2. Sign in again if the page asks for recent authentication. An owner recovery sign-in also satisfies this requirement.
+2. Choose **Sign in again** and complete a fresh sign-in. A local password sign-in, WorkOS callback, or owner recovery sign-in records fresh authentication on the server for 10 minutes. A valid older session does not satisfy this requirement.
 3. Select the method and choose **Review change**.
 4. Read the impact statement, type `END SESSIONS`, and apply the change.
 
 Applying a different method ends every interactive session, including yours. API keys remain enabled. The browser returns to sign-in after the database transaction commits. Choosing the already-active method does not end sessions.
 
-The owner recovery route remains available regardless of the selected method and cannot be disabled from this page. Keep an owner credential usable before relying on remote sign-in.
+WorkOS activation is refused unless the owner recovery route is enabled and the active owner has a usable local password. The page disables the action until both conditions are true. This guarantees that an enabled recovery route with a usable owner credential exists when WorkOS is activated; it does not guarantee that an operator retains the password or that a later server-side setting or account change cannot make recovery unavailable.
+
+The switch transaction increments the authentication epoch and ends interactive database sessions while leaving API keys enabled. Each process refreshes the durable method and epoch at most two seconds after its cached read, and session issuance checks the database epoch again before completion. A request that began under an older epoch cannot finish by creating a new session on another process.
 
 ## Upgrade behavior
 
@@ -30,4 +32,8 @@ On the first start after upgrade, Cuttlely records a database installation id an
 -   Local-user mode remains on Local login.
 -   An owner-only installation keeps recovery access without enabling ordinary local login.
 
-The prior one-time WorkOS cutoff record is imported, so an upgrade does not repeat session deletion. If the saved WorkOS identity differs from the current client identity, the page shows a warning for administrator review. Existing sign-in routes, cookies, invitations, and settings continue unchanged.
+The durable method state is loaded before the prior one-time WorkOS cutoff is considered. After a panel switch, restart defers to that durable state and does not repeat session deletion.
+
+If the saved WorkOS identity differs from the current client identity, the page shows a warning and blocks automatic email linking. Existing durable WorkOS subject links can still sign in. An administrator must complete a fresh sign-in and explicitly acknowledge the warning on **Auth / SSO**; that audited action accepts the current configuration fingerprint and enables automatic email linking again. Existing sign-in routes, cookies, invitations, and settings otherwise continue unchanged.
+
+Method-change audit rows include the configuration fingerprint, session count, and outcome. Refused and failed apply attempts are recorded without secret values.

@@ -2,6 +2,61 @@
 import { workosConfigurationFingerprint, stableWorkosProviderKey } from './authenticationState'
 import { workosProvider } from './provider'
 import { WorkosPort } from './types'
+import fs from 'fs'
+import path from 'path'
+import { createRequire } from 'module'
+import type { DataSource } from 'typeorm'
+import {
+    automaticWorkosLinkingAllowed,
+    initializeAuthenticationState,
+    readAuthenticationState,
+    recordRecentAuthentication,
+    hasRecentAuthentication,
+    refreshAuthenticationState,
+    selectedAuthenticationEpoch,
+    switchAuthenticationMethod
+} from './authenticationState'
+import { addAuthenticationState } from './schemaMigration'
+import { applyAuthKitSwitchOnBoot } from './production'
+
+async function database(): Promise<DataSource> {
+    const candidates = [
+        path.join(__dirname, '../../node_modules/typeorm/package.json'),
+        path.join(__dirname, '../../../../node_modules/typeorm/package.json')
+    ]
+    const pkgPath = candidates.find((candidate) => fs.existsSync(candidate))
+    if (!pkgPath) throw new Error('database package was not found')
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { main?: string }
+    const RealDataSource = (
+        createRequire(pkgPath)(path.join(path.dirname(pkgPath), pkg.main || 'index.js')) as { DataSource: typeof DataSource }
+    ).DataSource
+    const db = new RealDataSource({ type: 'sqlite', database: ':memory:', entities: [] })
+    await db.initialize()
+    const runner = db.createQueryRunner()
+    await addAuthenticationState(runner)
+    await runner.query(
+        'CREATE TABLE "identity_authkit_switch" ("id" integer PRIMARY KEY, "configured" integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" datetime NULL)'
+    )
+    await runner.query(
+        'CREATE TABLE "identity_local_session" ("id" varchar(36) PRIMARY KEY, "userId" varchar(36) NOT NULL, "token" varchar(64) NOT NULL)'
+    )
+    await runner.query('CREATE TABLE "api_key" ("id" varchar(36) PRIMARY KEY)')
+    await runner.query(
+        'CREATE TABLE "audit_event" ("id" varchar(36) PRIMARY KEY, "type" varchar(80), "organizationId" varchar(36), "workspaceId" varchar(36), "userId" varchar(36), "actorId" varchar(36), "summary" varchar(255), "detail" text, "createdAt" bigint)'
+    )
+    await runner.release()
+    return db
+}
+
+async function withEnvironment<T>(values: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
+    const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]))
+    Object.entries(values).forEach(([key, value]) => (value === undefined ? delete process.env[key] : (process.env[key] = value)))
+    try {
+        return await run()
+    } finally {
+        Object.entries(saved).forEach(([key, value]) => (value === undefined ? delete process.env[key] : (process.env[key] = value)))
+    }
+}
 
 describe('authentication provider foundation', () => {
     it('fingerprints issuer and client id without including the API key', () => {
@@ -23,5 +78,87 @@ describe('authentication provider foundation', () => {
         expect(provider.kind).toBe('workos')
         expect(provider.configurationStatus()).toEqual({ configured: true })
         expect(provider.compatibility).toBe(port)
+    })
+
+    it.each([
+        ['WorkOS', { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: undefined }, 'workos', null],
+        ['local user', { WORKOS_API_KEY: undefined, WORKOS_CLIENT_ID: undefined, CUTTLELY_LOCAL_USERS: 'true' }, 'local', null],
+        [
+            'owner only',
+            { WORKOS_API_KEY: undefined, WORKOS_CLIENT_ID: undefined, CUTTLELY_LOCAL_USERS: undefined, CUTTLELY_LOCAL_ADMIN: 'true' },
+            null,
+            null
+        ],
+        ['ambiguous', { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, 'workos', 'Both ordinary']
+    ])('infers the %s upgrade once and idempotently', async (_name, env, method, warning) => {
+        const db = await database()
+        const first = await initializeAuthenticationState(db, env)
+        const second = await initializeAuthenticationState(db, env)
+        expect(first.activeMethod).toBe(method)
+        expect(first.inferredAt).toBe(second.inferredAt)
+        expect(first.version).toBe(second.version)
+        expect(first.warning).toEqual(warning ? expect.stringContaining(warning) : null)
+        await db.destroy()
+    })
+
+    it('switches method, epoch, sessions, and audit atomically while retaining API keys', async () => {
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+            const db = await database()
+            const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['session', 'user', 'token'])
+            await db.query('INSERT INTO "api_key" VALUES (?)', ['key'])
+            const after = await switchAuthenticationMethod(db, 'workos', before.version, {
+                organizationId: 'org',
+                actorId: 'user'
+            })
+            expect(after.authenticationEpoch).toBe(before.authenticationEpoch + 1)
+            expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(0)
+            expect(await db.query('SELECT * FROM "api_key"')).toHaveLength(1)
+            const audit = await db.query('SELECT "detail" FROM "audit_event"')
+            expect(JSON.parse(audit[0].detail)).toMatchObject({ outcome: 'applied', configurationFingerprint: expect.any(String) })
+            await db.destroy()
+        })
+    })
+
+    it('blocks new mailbox linking after a fingerprint mismatch until review', async () => {
+        const db = await database()
+        await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'first' })
+        await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' })
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' }, async () => {
+            expect(await automaticWorkosLinkingAllowed(db)).toBe(false)
+        })
+        expect((await readAuthenticationState(db))?.warning).toContain('differs')
+        await db.destroy()
+    })
+
+    it('refreshes a changed epoch from the shared database for another process view', async () => {
+        const db = await database()
+        const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+        await db.query('UPDATE "identity_authentication_state" SET "authenticationEpoch" = "authenticationEpoch" + 1')
+        await refreshAuthenticationState(db, true)
+        expect(selectedAuthenticationEpoch()).toBe(before.authenticationEpoch + 1)
+        await db.destroy()
+    })
+
+    it('does not repeat the compatibility session cutoff after a panel switch and restart', async () => {
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+            const db = await database()
+            const local = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+            await switchAuthenticationMethod(db, 'workos', local.version)
+            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['recovery-session', 'owner', 'token'])
+            expect(await applyAuthKitSwitchOnBoot(db)).toBeNull()
+            expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
+            await db.destroy()
+        })
+    })
+
+    it('accepts only a server-side fresh-sign-in record within ten minutes', async () => {
+        const db = await database()
+        const now = Date.parse('2026-10-30T12:00:00.000Z')
+        const recent = await recordRecentAuthentication(db, 'owner', now)
+        expect(await hasRecentAuthentication(db, 'owner', recent.token, now + 9 * 60 * 1000)).toBe(true)
+        expect(await hasRecentAuthentication(db, 'other', recent.token, now + 60 * 1000)).toBe(false)
+        expect(await hasRecentAuthentication(db, 'owner', recent.token, now + 10 * 60 * 1000)).toBe(false)
+        await db.destroy()
     })
 })

@@ -40,6 +40,8 @@ export interface LinkOptions {
     /** Raw token from the invite link, carried through the AuthKit round trip. */
     inviteToken?: string
     now?: number
+    /** A durable subject link may sign in; new mailbox matches wait for administrator review when false. */
+    automaticEmailLinking?: boolean
 }
 
 async function acceptLinkedUser(store: IdentityStore, row: UserRow, identity: WorkosIdentity, options: LinkOptions): Promise<LinkResult> {
@@ -93,6 +95,8 @@ export async function linkWorkosUser(store: IdentityStore, identity: WorkosIdent
     const byExternal = await store.findUserByExternalId(identity.id)
     if (byExternal) return acceptLinkedUser(store, byExternal, identity, options)
 
+    if (options.automaticEmailLinking === false) return { ok: false, reason: 'review-required' }
+
     const byEmail = (await store.findUsersByEmail(wanted)).filter((row) => mailboxKey(row.email) === wanted)
     if (byEmail.length > 1) return { ok: false, reason: 'ambiguous' }
     if (byEmail.length === 1) {
@@ -141,6 +145,8 @@ export function linkFailureMessage(reason: LinkFailure): string {
             return INVITE_PENDING
         case 'invite-invalid':
             return INVITE_LINK_INVALID
+        case 'review-required':
+            return 'An administrator must review the WorkOS configuration before this account can be linked.'
         default:
             return 'No account exists for this email.'
     }

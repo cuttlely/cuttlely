@@ -120,6 +120,7 @@ export type LinkFailure =
     | 'bootstrap-denied'
     | 'invite-required'
     | 'invite-invalid'
+    | 'review-required'
 
 /** An AuthKit sign-in that carries the raw token from an invite link. */
 export interface InviteSignIn {

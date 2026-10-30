@@ -66,10 +66,10 @@ async function dispatch(
     req: Request,
     res: Response,
     next: NextFunction,
-    run: (ctx: ReturnType<typeof buildAuthContext>) => Promise<HandlerResult>
+    run: (ctx: Awaited<ReturnType<typeof buildAuthContext>>) => Promise<HandlerResult>
 ) {
     try {
-        const result = await run(buildAuthContext(req))
+        const result = await run(await buildAuthContext(req))
         if (result.type === 'next') {
             next()
             return
@@ -132,7 +132,7 @@ identityAuthRouter.get('/signin-options', (_req, res) => {
 })
 identityAuthRouter.get('/options', (req, res) => {
     void (async () => {
-        const ctx = buildAuthContext(req)
+        const ctx = await buildAuthContext(req)
         const state = ctx.store ? await ctx.store.readAuthKitSwitch() : null
         if (!res.headersSent) res.json(authOptionsBody(process.env, state))
     })().catch((error: unknown) => {
@@ -195,7 +195,8 @@ const acceptLinkLimit = rateLimit({
 
 identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
     const query = req.query && typeof req.query === 'object' ? (req.query as Record<string, unknown>) : {}
-    void acceptLocalRoute(buildAuthContext(req), query)
+    void buildAuthContext(req)
+        .then((ctx) => acceptLocalRoute(ctx, query))
         .then((result) => {
             if (res.headersSent) return
             if (result.type !== 'json') {
