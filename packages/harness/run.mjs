@@ -460,7 +460,9 @@ async function runTurnBody(
         clientSignal,
         budgetSignal,
         budgetMs: budget,
-        deliveryDeadlineAt: budget > 0 ? Date.now() + budget : 0,
+        // Do not add a clock read to the default-off path; its deterministic trace remains unchanged.
+        deliveryDeadlineAt:
+            budget > 0 && roster.specialists?.some((specialist) => specialist.trustedOutputs?.length) ? Date.now() + budget : 0,
         workSignal: combineSignals(clientSignal, budgetSignal),
         // In-process LangSmith tracer callbacks from the calling tool run, so model steps appear as its child runs.
         traceCallbacks: callbacks,
