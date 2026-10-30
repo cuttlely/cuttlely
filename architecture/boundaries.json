@@ -137,6 +137,7 @@
             "packages/server/src/database/migrations/*/1800900000000-AddAuthenticationSwitchStage.ts",
             "packages/ui/src/api/authenticationSettings.js",
             "packages/ui/src/views/authentication/index.jsx",
+            "packages/ui/src/views/authentication/RecoveryWarningBanner.jsx",
             "packages/server/src/settings/**",
             "packages/server/src/routes/server-settings/**",
             "packages/server/src/routes/server-setup/**",

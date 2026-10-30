@@ -168,7 +168,7 @@ function catalogKeysFrom(source, rel) {
     }
     if (rel.endsWith('identity/permissionsCatalog.ts')) {
         for (const block of source.matchAll(
-            /(?:ADMIN_KEYS|LOG_KEYS|AUDIT_KEYS|DROPPED_KEYS)[\s\S]*?\[[\s\S]*?\]|new Set\(\[[\s\S]*?\]\)/g
+            /(?:ADMIN_KEYS|LOG_KEYS|AUDIT_KEYS|AUTHENTICATION_KEYS|DROPPED_KEYS)[\s\S]*?\[[\s\S]*?\]|new Set\(\[[\s\S]*?\]\)/g
         )) {
             keys.push(...keysInText(block[0]))
         }
@@ -265,7 +265,8 @@ export function grantableCatalogKeys(root = ROOT) {
         ...fromStore,
         ...quotedList(catalog, 'ADMIN_KEYS'),
         ...quotedList(catalog, 'LOG_KEYS'),
-        ...quotedList(catalog, 'AUDIT_KEYS')
+        ...quotedList(catalog, 'AUDIT_KEYS'),
+        ...quotedList(catalog, 'AUTHENTICATION_KEYS')
     ]
     return [
         ...new Set(

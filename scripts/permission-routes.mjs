@@ -19,7 +19,8 @@ const IDENTITY_ROUTER_FILE = {
     identityUserRouter: 'packages/server/src/identity/directoryRoutes.ts',
     identityUsersRouter: 'packages/server/src/identity/directoryRoutes.ts',
     identityRolesRouter: 'packages/server/src/identity/directoryRoutes.ts',
-    identityAuditRouter: 'packages/server/src/identity/auditRoutes.ts'
+    identityAuditRouter: 'packages/server/src/identity/auditRoutes.ts',
+    identityAuthenticationRouter: 'packages/server/src/identity/authenticationRoutes.ts'
 }
 
 function keysIn(value) {
@@ -111,6 +112,10 @@ function joinMount(mount, routePath) {
 function routesInFile(source, mountFor) {
     const helpers = helperKeys(source)
     const ownerGate = /router\.use\(\s*requireOwner\(\s*\)\s*\)/.test(source)
+    const routerKeys = new Set()
+    for (const match of source.matchAll(/\b[A-Za-z0-9_]+\.use\(\s*require(?:Any)?Permission\s*\(([^)]*)\)/g)) {
+        for (const key of keysIn(match[0])) routerKeys.add(key)
+    }
     const found = []
     const re = /\b([A-Za-z0-9_]+)\.(get|post|put|patch|delete)\s*\(/g
     let match
@@ -121,7 +126,7 @@ function routesInFile(source, mountFor) {
         if (!mount) continue
         const body = callBody(source, match.index + match[0].length)
         const paths = routePaths(body)
-        const keys = new Set(keysIn(body))
+        const keys = new Set([...routerKeys, ...keysIn(body)])
         if (/\brequireOwner\s*\(/.test(body) || ownerGate) keys.add('server:owner')
         for (const [name, extra] of helpers) {
             if (new RegExp(`\\b${name}\\b`).test(body)) {
