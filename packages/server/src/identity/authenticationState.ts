@@ -87,6 +87,18 @@ async function query(runner: QueryRunner, sql: string, params: unknown[] = []): 
     return Array.isArray(result) ? result : []
 }
 
+// Row count of an UPDATE or DELETE, or null when the driver does not report one.
+// PostgreSQL answers [rows, rowCount]; MySQL and MariaDB answer an object with affectedRows.
+async function affectedRows(runner: QueryRunner, sql: string, params: unknown[] = []): Promise<number | null> {
+    let n = 0
+    const text = dialect(runner) === 'postgres' ? sql.replace(/\?/g, () => `$${++n}`) : sql
+    const result: unknown = await runner.query(text, params)
+    if (Array.isArray(result) && result.length === 2 && typeof result[1] === 'number') return result[1]
+    if (result && typeof result === 'object' && typeof (result as { affectedRows?: unknown }).affectedRows === 'number')
+        return (result as { affectedRows: number }).affectedRows
+    return null
+}
+
 function value(row: Record<string, unknown>, name: string): unknown {
     const key = Object.keys(row).find((item) => item.toLowerCase() === name.toLowerCase())
     return key ? row[key] : undefined
@@ -446,7 +458,7 @@ export async function switchAuthenticationMethod(
         }
         const d = dialect(runner)
         if (stage) {
-            const consumed = await query(
+            const consumed = await affectedRows(
                 runner,
                 `UPDATE ${q(d, 'identity_authentication_switch_stage')} SET ${q(d, 'consumedAt')} = ?, ${q(d, 'version')} = ${q(
                     d,
@@ -454,7 +466,7 @@ export async function switchAuthenticationMethod(
                 )} + 1 WHERE ${q(d, 'id')} = ? AND ${q(d, 'version')} = ? AND ${q(d, 'consumedAt')} IS NULL`,
                 [databaseDate(runner, new Date(stage.now ?? Date.now())), stage.id, stage.version]
             )
-            if (dialect(runner) === 'postgres' ? consumed.length === 0 : false) throw new Error('AUTH_STAGE_STALE')
+            if (consumed === 0) throw new Error('AUTH_STAGE_STALE')
         }
         const counted = await query(runner, `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${q(d, 'identity_local_session')}`)
         const ended = Number(value(counted[0] || {}, 'count') || 0)

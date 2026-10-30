@@ -21,7 +21,7 @@ import { addAuthenticationState, addAuthenticationSwitchStage } from './schemaMi
 import { workosEpochCookie, workosEpochCookieValid } from './cookies'
 import { applyAuthKitSwitchOnBoot } from './production'
 
-async function database(): Promise<DataSource> {
+async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Promise<DataSource> {
     const candidates = [
         path.join(__dirname, '../../node_modules/typeorm/package.json'),
         path.join(__dirname, '../../../../node_modules/typeorm/package.json')
@@ -32,13 +32,26 @@ async function database(): Promise<DataSource> {
     const RealDataSource = (
         createRequire(pkgPath)(path.join(path.dirname(pkgPath), pkg.main || 'index.js')) as { DataSource: typeof DataSource }
     ).DataSource
-    const db = new RealDataSource({ type: 'sqlite', database: ':memory:', entities: [] })
+    const db =
+        type === 'postgres'
+            ? new RealDataSource({
+                  type: 'postgres',
+                  host: process.env.CUTTLELY_TEST_PG_HOST || process.env.PGHOST || '127.0.0.1',
+                  port: Number(process.env.CUTTLELY_TEST_PG_PORT || process.env.PGPORT || 5432),
+                  username: 'postgres',
+                  password: process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD,
+                  database: name,
+                  entities: []
+              })
+            : new RealDataSource({ type: 'sqlite', database: ':memory:', entities: [] })
     await db.initialize()
     const runner = db.createQueryRunner()
     await addAuthenticationState(runner)
     await addAuthenticationSwitchStage(runner)
     await runner.query(
-        'CREATE TABLE "identity_authkit_switch" ("id" integer PRIMARY KEY, "configured" integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" datetime NULL)'
+        `CREATE TABLE "identity_authkit_switch" ("id" integer PRIMARY KEY, "configured" integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" ${
+            type === 'postgres' ? 'timestamp' : 'datetime'
+        } NULL)`
     )
     await runner.query(
         'CREATE TABLE "identity_local_session" ("id" varchar(36) PRIMARY KEY, "userId" varchar(36) NOT NULL, "token" varchar(64) NOT NULL)'
@@ -252,5 +265,51 @@ describe('authentication provider foundation', () => {
         expect(await hasRecentAuthentication(db, 'other', recent.token, now + 60 * 1000)).toBe(false)
         expect(await hasRecentAuthentication(db, 'owner', recent.token, now + 10 * 60 * 1000)).toBe(false)
         await db.destroy()
+    })
+})
+
+const livePg = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD ? it : it.skip
+
+livePg('applies a durable stage on postgres and refuses its reuse', async () => {
+    const pg = require('pg') as {
+        Client: new (config: Record<string, unknown>) => {
+            connect(): Promise<void>
+            query(text: string): Promise<unknown>
+            end(): Promise<void>
+        }
+    }
+    const admin = new pg.Client({
+        host: process.env.CUTTLELY_TEST_PG_HOST || process.env.PGHOST || '127.0.0.1',
+        port: Number(process.env.CUTTLELY_TEST_PG_PORT || process.env.PGPORT || 5432),
+        user: 'postgres',
+        password: process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD,
+        database: 'postgres'
+    })
+    const name = `cuttlely_auth_stage_${process.pid}`
+    await admin.connect()
+    await admin.query(`DROP DATABASE IF EXISTS ${name}`)
+    await admin.query(`CREATE DATABASE ${name}`)
+    await admin.end()
+    await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+        const db = await database('postgres', name)
+        try {
+            const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'workos', before.version)
+            const after = await switchAuthenticationMethod(db, 'workos', before.version, undefined, {
+                id: staged.id,
+                actorId: 'owner',
+                version: staged.version
+            })
+            expect(after.activeMethod).toBe('workos')
+            await expect(
+                switchAuthenticationMethod(db, 'local', after.version, undefined, {
+                    id: staged.id,
+                    actorId: 'owner',
+                    version: staged.version
+                })
+            ).rejects.toThrow('AUTH_STAGE_STALE')
+        } finally {
+            await db.destroy()
+        }
     })
 })
