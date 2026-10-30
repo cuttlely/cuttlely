@@ -18,6 +18,7 @@ describe('Sidebar active item', () => {
             'users',
             'workspaces',
             'roles',
+            'authenticationSettings',
             'serverSettings',
             'serverLogs',
             'auditLog',
