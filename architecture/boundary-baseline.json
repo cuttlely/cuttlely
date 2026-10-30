@@ -171,6 +171,11 @@
             "reason": "the test drives the inherited evaluation runner's chatflow id check"
         },
         {
+            "from": "packages/components/src/httpSecurity.localhost.test.ts",
+            "to": "packages/components/src/httpSecurity.ts",
+            "reason": "The test drives the inherited HTTP guard with the localhost switch on and off"
+        },
+        {
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
             "to": "packages/components/src/handler.ts",
             "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
@@ -1168,6 +1173,11 @@
         {
             "from": "packages/server/src/settings/connection.ts",
             "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/settings/httpLocalhost.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "The HTTP localhost switch is read from Server settings and handed to the components HTTP guard through its reader setter"
         },
         {
             "from": "packages/server/src/settings/runs.test.ts",

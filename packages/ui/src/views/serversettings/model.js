@@ -47,6 +47,22 @@ export function currentValue(setting, drafts) {
     return savedValue(setting)
 }
 
+/**
+ * The warning for a number setting's value (the draft, else the saved value, else the default):
+ * { strong: true, message } for 0 when the setting has a zero warning, { strong: false, message } above its threshold, else null.
+ */
+export function numberWarning(setting, drafts) {
+    const warnings = setting.warnings
+    if (!warnings || setting.type !== 'number') return null
+    const raw = currentValue(setting, drafts)
+    const text = String(raw === '' || raw === undefined || raw === null ? setting.defaultValue ?? '' : raw).trim()
+    if (!/^\d+(\.\d+)?$/.test(text)) return null
+    const value = Number(text)
+    if (value === 0 && warnings.zero) return { strong: true, message: warnings.zero }
+    if (warnings.above && value > warnings.above.value) return { strong: false, message: warnings.above.message }
+    return null
+}
+
 /** Effective values (what the server behaves as if it had) with drafts applied, for conditions. */
 export function effectiveValues(settings, drafts) {
     const map = new Map()
@@ -102,6 +118,7 @@ export function describeValue(setting, raw) {
         const option = (setting.options ?? []).find((item) => item.value === raw)
         if (option) return option.label
     }
+    if (setting.type === 'number' && setting.zeroLabel && String(raw).trim() === '0') return setting.zeroLabel
     if (setting.type === 'number' && setting.unit) {
         return `${toDisplay(setting, raw)} ${UNIT_LABELS[setting.unit] ?? ''}`.trim()
     }

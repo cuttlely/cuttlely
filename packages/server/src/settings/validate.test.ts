@@ -70,6 +70,30 @@ describe('checking values from the page', () => {
         for (const value of ['-1', '1.5', '3600001', 'Infinity', 'NaN', 'soon']) expect(checkValue(runTime, value).ok).toBe(false)
     })
 
+    it('accepts 0 (unlimited) or 1 to 50 runs at once, refuses 51 and negatives, restart to apply', () => {
+        const runs = def('CUTTLELY_HERMES_MAX_CONCURRENT_RUNS')
+        expect(runs).toMatchObject({
+            section: 'runtime',
+            group: 'Limits',
+            type: 'number',
+            integer: true,
+            min: 0,
+            max: 50,
+            defaultValue: '10',
+            zeroLabel: 'Unlimited'
+        })
+        expect(runs.runtime).toBeUndefined()
+        expect(runs.help).toMatch(/1 to 50, or 0 for unlimited/)
+        expect(runs.help).toMatch(/more memory and CPU/)
+        expect(runs.help).toMatch(/Restart to apply/)
+        expect(runs.warnings?.zero).toMatch(/memory and CPU/)
+        expect(runs.warnings?.above).toEqual({ value: 25, message: expect.stringMatching(/memory and CPU/) })
+        for (const value of ['0', '1', '10', '25', '26', '50']) expect(checkValue(runs, value)).toEqual({ ok: true, value })
+        for (const value of ['-1', '51', '100', '2.5', 'Infinity', 'NaN', 'many']) expect(checkValue(runs, value).ok).toBe(false)
+        expect(checkValue(runs, '-1')).toMatchObject({ ok: false, error: expect.stringMatching(/smallest value is 0/) })
+        expect(checkValue(runs, '51')).toMatchObject({ ok: false, error: expect.stringMatching(/largest value is 50/) })
+    })
+
     it('tidies lists and refuses multi-line text', () => {
         expect(checkValue(def('CORS_ORIGINS'), 'https://a.example.com\n https://a.example.com, https://b.example.com')).toEqual({
             ok: true,
