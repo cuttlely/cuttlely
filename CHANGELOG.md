@@ -4,11 +4,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-10-30
+
 ### Added
 
--   **Allow HTTP building blocks to call localhost** (`HTTP_ALLOW_LOCALHOST`) in **Admin** > **Server Settings** > **Security & network** > **Building blocks** lets HTTP building blocks, such as **HTTP** and **Execute Flow**, call `127.0.0.0/8`, `::1` and `localhost`. It is off by default and applies on the next request without a restart. When on, any flow author can reach any service listening on the server's own localhost. Private ranges, link-local and cloud metadata addresses, `0.0.0.0`, `::`, and every `HTTP_DENY_LIST` entry stay blocked. With `HTTP_SECURITY_CHECK=false` the switch changes nothing. See [Server settings](./docs/how-to/server-settings.md#let-http-building-blocks-call-localhost).
+-   **Allow HTTP building blocks to call localhost** (`HTTP_ALLOW_LOCALHOST`) in **Admin** > **Server Settings** > **Security & network** > **Building blocks** lets HTTP building blocks, such as **HTTP** and **Execute Flow**, call `127.0.0.0/8`, `::1` and `localhost`. It is off by default and applies on the next request without a restart. When on, any flow author can reach any service listening on the server's own localhost. Private ranges, link-local and cloud metadata addresses, `0.0.0.0`, `::`, and every `HTTP_DENY_LIST` entry stay blocked. With `HTTP_SECURITY_CHECK=false` the switch changes nothing. See [Server settings](./docs/how-to/server-settings.md#let-http-building-blocks-call-localhost). [#350](https://github.com/cuttlely/cuttlely/pull/350).
 
--   **Maximum concurrent agent runs** (`CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`) in **Admin** > **Server Settings** > **Agent runtime** > **Limits** sets how many agent runs the agent runtime works on at once. It defaults to `10` and accepts `1` to `50`, or `0` for unlimited; negative values and values above 50 are refused. It applies after a restart. The page warns about memory and CPU above 25, and more strongly for unlimited. See [Server settings](./docs/how-to/server-settings.md#maximum-concurrent-agent-runs).
+-   **Maximum concurrent agent runs** (`CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`) in **Admin** > **Server Settings** > **Agent runtime** > **Limits** sets how many agent runs the agent runtime works on at once. It defaults to `10` and accepts `1` to `50`, or `0` for unlimited; negative values and values above 50 are refused. It applies after a restart. The page warns about memory and CPU above 25, and more strongly for unlimited. See [Server settings](./docs/how-to/server-settings.md#maximum-concurrent-agent-runs). [#350](https://github.com/cuttlely/cuttlely/pull/350).
 
 -   Optional per-specialist **Trusted outputs** bind a tested query hash to exact source Markdown fields, a verified monthly-utilization PNG or an exact source table CSV (up to 100 rows). The server uses the actual captured result and native attachment transport, replaces conflicting model output, preserves source section captions and reference blocks, and skips Harness Prime rewriting. Empty remains off; failures and unsupported sections are explicit. See [Trusted pinned-query outputs](./docs/reference/trusted-outputs.md).
 
@@ -26,7 +28,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   HTTP building blocks also refuse the unspecified IPv6 address `::`, like `0.0.0.0`, and a host name listed in `HTTP_DENY_LIST` is now refused by name as well as by the addresses it resolves to.
+-   HTTP building blocks also refuse the unspecified IPv6 address `::`, like `0.0.0.0`, and a host name listed in `HTTP_DENY_LIST` is now refused by name as well as by the addresses it resolves to. [#350](https://github.com/cuttlely/cuttlely/pull/350).
 
 -   Guarded PostgreSQL queries run faster with fewer database round trips and JIT disabled for catalog checks; user statements retain the login JIT setting.
 
@@ -38,15 +40,17 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Analyst Postgres queries (a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node and auto storage on Postgres) whose first page holds every row run their statement once instead of four times: the row count, the column type probe and the row length pass now run only when the first page is full or cut, and a result that pages is unchanged. Each transaction the query opens starts in one round trip, the PostgreSQL MCP node reuses its table selection summary for 30 seconds instead of opening a connection on every call, and the run trace's query step records per-step timings (`timings`), with the database's share (`dbMs`, every round trip to Postgres) apart from the connect (`connectMs`) and Cuttlely's own time (`cuttlelyMs`).
 
--   The UI HTML sanitizer uses dompurify 3.4.17.
+-   The UI HTML sanitizer uses dompurify 3.4.17. [#349](https://github.com/cuttlely/cuttlely/pull/349).
 
 ### Fixed
 
--   HTTP building blocks that call a host name, such as **HTTP**, **Execute Flow**, the API loader and the request tools, connect again on Node 20 and later. The connection still goes only to the address that was checked; it failed with `Invalid IP address: undefined` before.
+-   HTTP building blocks that call a host name, such as **HTTP**, **Execute Flow**, the API loader and the request tools, connect again on Node 20 and later. The connection still goes only to the address that was checked; it failed with `Invalid IP address: undefined` before. [#350](https://github.com/cuttlely/cuttlely/pull/350).
+
+-   Publishing a specialist again with changed pinned-query parameters, under the same name, now gives the agent the new tool schema on its next start instead of the old one, and a changed connection no longer leaves that specialist without tools. Unchanged connections are reused, and public tool names stay the same. A tool call that is running while such a change is published can fail; it is not retried. [#351](https://github.com/cuttlely/cuttlely/pull/351).
 
 -   Trusted PNG/CSV replay through a Harness card returns real in-memory previews without persistent storage or successful chat-download events. Compare remains text-only; normal delivery still requires storage success within the turn deadline.
 
--   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. Tool details are masked by one JSON-aware step in every event, the returned payload and the trace, so they stay valid JSON, including a string that is itself JSON. A string in a tool detail that still holds an absolute path after text masking, such as `a|/srv/x.csv`, is replaced as a whole; a URL keeps `,` and `;` in its query or fragment, and the workspace folder or a `file://` address after it is still replaced. A label such as `Q3..Q4` is no longer read as a path. Answer text keeps the existing masking.
+-   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. Tool details are masked by one JSON-aware step in every event, the returned payload and the trace, so they stay valid JSON, including a string that is itself JSON. A string in a tool detail that still holds an absolute path after text masking, such as `a|/srv/x.csv`, is replaced as a whole; a URL keeps `,` and `;` in its query or fragment, and the workspace folder or a `file://` address after it is still replaced. A label such as `Q3..Q4` is no longer read as a path. Answer text keeps the existing masking. [#345](https://github.com/cuttlely/cuttlely/pull/345).
 
 -   A HARNESS canvas id now works on the public `POST /api/v1/prediction/:id` route. It runs the Live (published) canvas, returns a `sessionToken` bound to the chat id, and needs the bound API key to list the harness. File uploads there are refused with 400; send them to a chatflow with a Harness card.
 
@@ -63,6 +67,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Publish now checks the shared draft the same way a save does. If someone else saved the draft after you opened the canvas, Publish stops before anything goes live and offers to review their changes or publish their draft anyway. The publish route accepts `expectedDraftHash` and `overwriteDraftChanges`; a publish that sends no `expectedDraftHash` works as before.
 
 -   When a save or a publish finds a draft someone else saved, a review screen now compares their draft with yours card by card and connection by connection. Changes that do not overlap merge on their own. Where you both changed the same card, connection, or setting, you see the changed fields side by side and pick yours or theirs. **Apply merge** puts the result on your canvas without saving it. Reload and Save anyway are still there.
+
+### Upgrade notes / breaking changes
+
+-   **Localhost access is off by default.** After the upgrade, HTTP building blocks still refuse `localhost`, `127.0.0.0/8` and `::1`. An owner can turn on **Allow HTTP building blocks to call localhost** in **Admin** > **Server Settings** > **Security & network**; the page marks it high risk, because any flow author can then reach any service on the server's own localhost. Entries in `HTTP_DENY_LIST` stay blocked either way.
+-   **Concurrent agent runs apply after a restart.** **Maximum concurrent agent runs** defaults to `10`, the same limit the agent runtime used before. A saved change takes effect only after Cuttlely restarts.
 
 ## [1.4.7] - 2026-10-26
 
@@ -605,7 +614,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.7...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.8...HEAD
+[1.4.8]: https://github.com/cuttlely/cuttlely/compare/v1.4.7...v1.4.8
 [1.4.7]: https://github.com/cuttlely/cuttlely/compare/v1.4.6...v1.4.7
 [1.4.6]: https://github.com/cuttlely/cuttlely/compare/v1.4.5...v1.4.6
 [1.4.5]: https://github.com/cuttlely/cuttlely/compare/v1.4.4...v1.4.5
