@@ -80,7 +80,7 @@ import {
 import { createHmac } from 'crypto'
 import type { DataSource } from 'typeorm'
 import * as authenticationState from './authenticationState'
-import { workosEpochCookie } from './cookies'
+import { signedReauthenticationState, workosEpochCookie } from './cookies'
 import { workosPort } from './workosAdapter'
 import fs from 'fs'
 import os from 'os'
@@ -317,6 +317,7 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
         localAdmin: false,
         localUsers: false,
         cookiePasswordOk: true,
+        cookiePassword: 'p'.repeat(44),
         redirectUri: 'http://127.0.0.1:43117/api/v1/auth/callback',
         secure: false,
         now: NOW,
@@ -514,7 +515,11 @@ describe('identity auth', () => {
         expect(recordRecentAuthentication).not.toHaveBeenCalled()
     })
 
-    it('state-bound reauthentication callback records recent-authentication evidence', async () => {
+    it.each([
+        ['without auth_time', undefined, false],
+        ['with auth_time before the request', NOW / 1000 - 1, false],
+        ['with auth_time at the request', NOW / 1000, true]
+    ])('state-bound reauthentication callback %s', async (_name, authTime, expected) => {
         const store = new MemoryStore()
         store.add({ id: 'user-9', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential: null }, true)
         const recordRecentAuthentication = jest.fn(async () => ({
@@ -522,18 +527,26 @@ describe('identity auth', () => {
             value: 'recent',
             options: { httpOnly: true as const, sameSite: 'lax' as const, path: '/', secure: false }
         }))
+        const state = signedReauthenticationState(NOW, 'reauth-state', 'p'.repeat(44))
         const result = await handleCallback(
             ctx({
                 workosConfigured: true,
                 code: 'code',
-                state: 'reauth-state',
-                cookies: { 'cuttlely-reauth-state': 'reauth-state' },
+                state,
+                cookies: { 'cuttlely-reauth-state': state },
                 store,
+                workos: workos({
+                    authenticate: async () => ({
+                        user: { id: 'wos-1', email: 'owner@example.com', emailVerified: true, name: 'Owner' },
+                        sealedSession: 'sealed-1',
+                        authTime
+                    })
+                }),
                 recordRecentAuthentication
             })
         )
-        expect(recordRecentAuthentication).toHaveBeenCalledWith('user-9')
-        if (result.type === 'redirect') expect(result.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(true)
+        expect(recordRecentAuthentication).toHaveBeenCalledTimes(expected ? 1 : 0)
+        if (result.type === 'redirect') expect(result.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(expected)
     })
 
     it('callback uses the existing external id and does not rebind a different one', async () => {

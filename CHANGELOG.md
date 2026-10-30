@@ -6,11 +6,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Upgraded WorkOS installations now warn administrators on **Auth / SSO** and in an application banner until `CUTTLELY_LOCAL_ADMIN` is enabled and `pnpm user --email` has created an active owner recovery credential. Phase A does not enable recovery or change sign-in behavior, and panel activation of WorkOS still refuses the switch until recovery is ready.
+-   Upgraded WorkOS installations now warn administrators on **Auth / SSO** and in an application banner until `CUTTLELY_LOCAL_ADMIN` is enabled and `pnpm user --email owner@example.com` has created an active owner recovery credential. Phase A does not enable recovery or change sign-in behavior. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until an active owner has a usable local password; the latter is checked again in the switch transaction.
 
 -   Every sign-in method switch increments the authentication epoch. Valid existing sealed WorkOS sessions remain accepted until the first method switch and gain an epoch cookie after successful validation; epoch-bound sessions become invalid after a switch. Staged switches are durable, expiring, single-use database records that can be applied by another server process.
 
--   **Sign in again** on **Auth / SSO** now starts a distinct WorkOS reauthentication request that requires active authentication. Only its state-bound callback records the ten-minute recent-authentication evidence; an ordinary WorkOS sign-in does not.
+-   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. The current integration cannot provide that proof, so administrators use a local owner password for this check. Ordinary WorkOS sign-in never records the evidence.
 
 ## [1.4.8] - 2026-10-30
 

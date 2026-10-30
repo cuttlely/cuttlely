@@ -56,6 +56,9 @@ async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Prom
     await runner.query(
         'CREATE TABLE "identity_local_session" ("id" varchar(36) PRIMARY KEY, "userId" varchar(36) NOT NULL, "token" varchar(64) NOT NULL)'
     )
+    await runner.query('CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "credential" text, "status" varchar(20))')
+    await runner.query('CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(100))')
+    await runner.query('CREATE TABLE "organization_user" ("userId" varchar(36), "roleId" varchar(36), "status" varchar(20))')
     await runner.query('CREATE TABLE "api_key" ("id" varchar(36) PRIMARY KEY)')
     await runner.query(
         'CREATE TABLE "audit_event" ("id" varchar(36) PRIMARY KEY, "type" varchar(80), "organizationId" varchar(36), "workspaceId" varchar(36), "userId" varchar(36), "actorId" varchar(36), "summary" varchar(255), "detail" text, "createdAt" bigint)'
@@ -182,6 +185,9 @@ describe('authentication provider foundation', () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
             const db = await database()
             const first = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client' })
+            await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', 'password-hash', 'active'])
+            await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+            await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
             const password = 'p'.repeat(44)
             const sealed = 'sealed-before-switches'
             const claim = workosEpochCookie(sealed, first.authenticationEpoch, password, false).value
@@ -189,6 +195,30 @@ describe('authentication provider foundation', () => {
             const workos = await switchAuthenticationMethod(db, 'workos', local.version)
             expect(workos.authenticationEpoch).toBe(first.authenticationEpoch + 2)
             expect(workosEpochCookieValid(claim, sealed, workos.authenticationEpoch, password)).toBe(false)
+            await db.destroy()
+        })
+    })
+
+    it('keeps the epoch and local sessions when the owner password disappears after staging', async () => {
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+            const db = await database()
+            const before = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client' })
+            await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', 'password-hash', 'active'])
+            await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+            await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['session', 'owner', 'token'])
+            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'local', before.version)
+            await db.query('UPDATE "user" SET "credential" = NULL WHERE "id" = ?', ['owner'])
+            await expect(
+                switchAuthenticationMethod(db, 'local', before.version, undefined, {
+                    id: staged.id,
+                    actorId: 'owner',
+                    version: staged.version
+                })
+            ).rejects.toThrow('LOCAL_OWNER_REQUIRED')
+            const unchanged = await initializeAuthenticationState(db)
+            expect(unchanged.authenticationEpoch).toBe(before.authenticationEpoch)
+            expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
             await db.destroy()
         })
     })

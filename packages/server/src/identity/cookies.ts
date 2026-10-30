@@ -97,6 +97,25 @@ export function reauthenticationStateCookie(value: string, secure: boolean): Set
     }
 }
 
+function reauthenticationStateDigest(requestedAt: number, nonce: string, password: string): string {
+    return createHmac('sha256', password).update(`${requestedAt}\n${nonce}`).digest('base64url')
+}
+
+export function signedReauthenticationState(requestedAt: number, nonce: string, password: string): string {
+    return `${requestedAt}.${nonce}.${reauthenticationStateDigest(requestedAt, nonce, password)}`
+}
+
+export function reauthenticationRequestTime(value: string | undefined, password: string | undefined): number | null {
+    if (!value || !password) return null
+    const [requestedAtText, nonce, digest, extra] = value.split('.')
+    const requestedAt = Number(requestedAtText)
+    if (extra !== undefined || !Number.isSafeInteger(requestedAt) || requestedAt <= 0 || !nonce || !digest) return null
+    const expected = reauthenticationStateDigest(requestedAt, nonce, password)
+    const left = Buffer.from(digest)
+    const right = Buffer.from(expected)
+    return left.length === right.length && timingSafeEqual(left, right) ? requestedAt : null
+}
+
 export function expiredReauthenticationStateCookie(secure: boolean): SetCookie {
     return {
         name: REAUTH_STATE_COOKIE,

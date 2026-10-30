@@ -22,7 +22,9 @@ import {
     inviteCookie,
     localCookie,
     reauthenticationStateCookie,
+    reauthenticationRequestTime,
     sealedCookie,
+    signedReauthenticationState,
     workosEpochCookie,
     workosEpochCookieValid
 } from './cookies'
@@ -322,7 +324,8 @@ export async function handleReauthenticationGet(ctx: AuthContext): Promise<Handl
     const reauthorizationUrl = ctx.workos.reauthorizationUrl
     if (!reauthorizationUrl) return textUnavailable()
     try {
-        const state = randomUUID()
+        if (!ctx.cookiePassword) return textUnavailable()
+        const state = signedReauthenticationState(ctx.now, randomUUID(), ctx.cookiePassword)
         return {
             type: 'redirect',
             status: 302,
@@ -392,7 +395,14 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
         }
         await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
-        const reauthenticated = Boolean(ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE])
+        const reauthenticationRequestedAt =
+            ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE] ? reauthenticationRequestTime(ctx.state, ctx.cookiePassword) : null
+        const reauthenticated = Boolean(
+            reauthenticationRequestedAt !== null &&
+                typeof authenticated.authTime === 'number' &&
+                Number.isFinite(authenticated.authTime) &&
+                authenticated.authTime * 1000 >= reauthenticationRequestedAt
+        )
         return {
             type: 'redirect',
             status: 302,

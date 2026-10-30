@@ -98,6 +98,15 @@ describe('authentication settings routes', () => {
         expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'workos', 4)
     })
 
+    it('refuses a WorkOS-to-Local stage without an active owner password', async () => {
+        readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
+        findSuperUser.mockResolvedValue({ id: 'owner-1', credential: null })
+        const response = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'local', version: 4 })
+        expect(response.status).toBe(409)
+        expect(response.body).toMatchObject({ code: 'LOCAL_OWNER_REQUIRED' })
+        expect(stageAuthenticationMethodSwitch).not.toHaveBeenCalled()
+    })
+
     it('keeps the WorkOS recovery gate ahead of recent-auth staging', async () => {
         localAccountOpen.mockResolvedValue(false)
         findLocalSession.mockResolvedValue({ issuedAt: new Date() })
@@ -160,5 +169,18 @@ describe('authentication settings routes', () => {
         const stale = await request(app('fresh')).post('/api/v1/authentication/apply').send(body)
         expect(stale.status).toBe(409)
         expect(stale.body.message).toContain('changed')
+    })
+
+    it('reports an owner-password refusal during apply', async () => {
+        switchAuthenticationMethod.mockRejectedValueOnce(new Error('LOCAL_OWNER_REQUIRED'))
+        const response = await request(app('fresh')).post('/api/v1/authentication/apply').send({
+            stage: 'stage-1',
+            stageVersion: 1,
+            method: 'local',
+            stateVersion: 4,
+            confirm: 'END SESSIONS'
+        })
+        expect(response.status).toBe(409)
+        expect(response.body.message).toContain('active owner')
     })
 })

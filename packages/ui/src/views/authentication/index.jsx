@@ -131,6 +131,12 @@ export default function AuthenticationSettings() {
                     <Button sx={{ ml: 1 }} onClick={reauthenticate}>
                         Sign in again
                     </Button>
+                    {data?.activeMethod === 'workos' && (
+                        <Typography color='text.secondary' sx={{ mt: 1 }}>
+                            WorkOS satisfies this check only when it proves the sign-in time. If it cannot, use a local owner password at
+                            /signin?reauth=1.
+                        </Typography>
+                    )}
                 </Paper>
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack direction='row' justifyContent='space-between'>

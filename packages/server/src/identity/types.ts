@@ -136,7 +136,8 @@ export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { 
 export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
     reauthorizationUrl?(redirectUri: string, state: string): string
-    authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string }>
+    /** authTime is the provider's auth_time claim, in Unix seconds, when the provider supplies a verified value. */
+    authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string; authTime?: number }>
     authenticateSession(
         sealed: string
     ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>

@@ -414,6 +414,23 @@ export async function stageAuthenticationMethodSwitch(
     }
 }
 
+async function usableLocalOwnerExists(runner: QueryRunner): Promise<boolean> {
+    const d = dialect(runner)
+    const rows = await query(
+        runner,
+        `SELECT u.${q(d, 'id')} FROM ${q(d, 'user')} u
+         INNER JOIN ${q(d, 'organization_user')} ou ON ou.${q(d, 'userId')} = u.${q(d, 'id')}
+         INNER JOIN ${q(d, 'role')} r ON r.${q(d, 'id')} = ou.${q(d, 'roleId')}
+         WHERE LOWER(r.${q(d, 'name')}) = 'owner'
+           AND LOWER(u.${q(d, 'status')}) = 'active'
+           AND LOWER(ou.${q(d, 'status')}) = 'active'
+           AND u.${q(d, 'credential')} IS NOT NULL
+           AND u.${q(d, 'credential')} <> ''
+         LIMIT 1`
+    )
+    return rows.length > 0
+}
+
 export async function switchAuthenticationMethod(
     dataSource: DataSource,
     method: AuthenticationMethod,
@@ -452,6 +469,9 @@ export async function switchAuthenticationMethod(
         const fingerprint = method === 'workos' ? workosConfigurationFingerprint() : null
         if (method === 'workos' && (!workosEnvironmentConfigured() || !fingerprint)) throw new Error('METHOD_NOT_READY')
         if (method === 'local' && !localUsersSetting()) throw new Error('METHOD_NOT_READY')
+        if (current.activeMethod === 'workos' && method === 'local' && !(await usableLocalOwnerExists(runner))) {
+            throw new Error('LOCAL_OWNER_REQUIRED')
+        }
         if (current.activeMethod === method && current.configurationFingerprint === fingerprint) {
             await runner.commitTransaction()
             return current

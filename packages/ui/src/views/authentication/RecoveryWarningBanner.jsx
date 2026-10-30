@@ -6,8 +6,8 @@ import api from '@/api/authenticationSettings'
 
 export const RECOVERY_FIX = (
     <>
-        Enable <code>CUTTLELY_LOCAL_ADMIN</code>, then run <code>pnpm user --email</code> on the server to create the owner recovery
-        credential. See the{' '}
+        Enable <code>CUTTLELY_LOCAL_ADMIN</code>, then run <code>pnpm user --email owner@example.com</code> on the server to create the
+        owner recovery credential. See the{' '}
         <a href='https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/auth-sso.md#change-the-method'>Auth / SSO guide</a>.
     </>
 )

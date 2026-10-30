@@ -37,10 +37,13 @@ async function recentlyAuthenticated(req: Request): Promise<boolean> {
     return Boolean(who && recent && (await hasRecentAuthentication(applicationDataSource(), who.id, recent)))
 }
 
-async function ownerRecoveryReady(): Promise<boolean> {
-    if (!localAdminEnabled()) return false
+async function ownerLocalPasswordReady(): Promise<boolean> {
     const owner = await identityStore().findSuperUser()
     return Boolean(owner?.credential && (await identityStore().localAccountOpen(owner.id)))
+}
+
+async function ownerRecoveryReady(): Promise<boolean> {
+    return localAdminEnabled() && (await ownerLocalPasswordReady())
 }
 
 async function auditAttempt(who: { id: string; organizationId: string }, detail: Record<string, unknown>): Promise<void> {
@@ -97,9 +100,16 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
                 message: 'WorkOS cannot be activated until the owner recovery route is enabled and an active owner has a usable password.'
             })
         }
+        const state = await readAuthenticationState(applicationDataSource())
+        if (method === 'local' && state?.activeMethod === 'workos' && !(await ownerLocalPasswordReady())) {
+            await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'local_owner_unavailable' })
+            return void res.status(409).json({
+                code: 'LOCAL_OWNER_REQUIRED',
+                message: 'Local login requires an active owner with a usable local password.'
+            })
+        }
         if (!(await recentlyAuthenticated(req)))
             return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the sign-in method.' })
-        const state = await readAuthenticationState(applicationDataSource())
         if (!state || state.version !== version)
             return void res.status(409).json({ code: 'STATE_CHANGED', message: 'Authentication settings changed. Reload and try again.' })
         const staged = await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version)
@@ -155,10 +165,16 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
     } catch (error) {
         const code = error instanceof Error ? error.message : ''
         await auditAttempt(who, { newMethod: body.method, outcome: 'failed', reason: code || 'unexpected_error' })
-        res.status(code === 'AUTH_STATE_CHANGED' || code === 'AUTH_STAGE_STALE' || code === 'METHOD_NOT_READY' ? 409 : 500).json({
+        res.status(
+            code === 'AUTH_STATE_CHANGED' || code === 'AUTH_STAGE_STALE' || code === 'METHOD_NOT_READY' || code === 'LOCAL_OWNER_REQUIRED'
+                ? 409
+                : 500
+        ).json({
             message:
                 code === 'AUTH_STATE_CHANGED' || code === 'AUTH_STAGE_STALE'
                     ? 'Authentication settings changed. Reload and try again.'
+                    : code === 'LOCAL_OWNER_REQUIRED'
+                    ? 'Local login requires an active owner with a usable local password.'
                     : 'The sign-in method was not changed.'
         })
     }
