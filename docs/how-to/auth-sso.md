@@ -33,11 +33,12 @@ The staged confirmation is stored in the database with a version, ten-minute exp
 On the first start after upgrade, Cuttlely records a database installation id and infers the current method once:
 
 -   A complete WorkOS configuration remains on WorkOS.
+-   A complete WorkOS configuration with `CUTTLELY_LOCAL_USERS=true` also remains on WorkOS. The page reports the mixed settings for review, but automatic email linking and invitation sign-in continue normally.
 -   Local-user mode remains on Local login.
 -   An owner-only installation keeps recovery access without enabling ordinary local login.
 
 The durable method state is loaded before the prior one-time WorkOS cutoff is considered. After a panel switch, restart defers to that durable state and does not repeat session deletion.
 
-If the saved WorkOS identity differs from the current client identity, the page shows a warning and blocks automatic email linking. Existing durable WorkOS subject links can still sign in. An administrator must complete a fresh sign-in and explicitly acknowledge the warning on **Auth / SSO**; that audited action accepts the current configuration fingerprint and enables automatic email linking again. Existing sign-in routes, cookies, invitations, and settings otherwise continue unchanged.
+Only a saved WorkOS client identity that differs from the current client identity pauses automatic email linking, including the email linking used to accept an invitation. Existing durable WorkOS subject links can still sign in. An administrator must complete a fresh sign-in and explicitly acknowledge that warning on **Auth / SSO**; that audited action accepts the current configuration fingerprint and enables automatic email and invitation linking again. Other configuration warnings are informational and do not pause linking. Existing sign-in routes, cookies, and settings otherwise continue unchanged.
 
 Method-change audit rows include the configuration fingerprint, session count, and outcome. Refused and failed apply attempts are recorded without secret values.

@@ -13,6 +13,12 @@ import type { DataSource, QueryRunner } from 'typeorm'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
 
 export type AuthenticationMethod = 'local' | 'workos'
+export type AuthenticationWarningKind = 'configuration-ambiguous' | 'method-missing' | 'workos-client-mismatch'
+const AMBIGUOUS_CONFIGURATION_WARNING =
+    'Both ordinary sign-in settings are enabled. WorkOS remains active until an administrator reviews the configuration.'
+const METHOD_MISSING_WARNING = 'No ordinary sign-in method is configured.'
+const WORKOS_CLIENT_MISMATCH_WARNING =
+    'The WorkOS client identity differs from the saved installation. Review this database before linking accounts.'
 let effectiveMethod: AuthenticationMethod | null | undefined
 let effectiveEpoch: number | undefined
 let stateRefreshedAt = 0
@@ -33,6 +39,7 @@ export interface AuthenticationState {
     configurationFingerprint: string | null
     providerKey: string | null
     warning: string | null
+    warningKind: AuthenticationWarningKind | null
     sessionsEnded: number
     changedAt: string | null
     inferredAt: string
@@ -93,13 +100,22 @@ function date(valueToRead: unknown): string | null {
 
 function fromRow(row: Record<string, unknown>): AuthenticationState {
     const method = String(value(row, 'activeMethod') || '')
+    const warning = value(row, 'warning') ? String(value(row, 'warning')) : null
     return {
         installationId: String(value(row, 'installationId')),
         activeMethod: method === 'local' || method === 'workos' ? method : null,
         authenticationEpoch: Number(value(row, 'authenticationEpoch') || 0),
         configurationFingerprint: value(row, 'configurationFingerprint') ? String(value(row, 'configurationFingerprint')) : null,
         providerKey: value(row, 'providerKey') ? String(value(row, 'providerKey')) : null,
-        warning: value(row, 'warning') ? String(value(row, 'warning')) : null,
+        warning,
+        warningKind:
+            warning === WORKOS_CLIENT_MISMATCH_WARNING
+                ? 'workos-client-mismatch'
+                : warning === AMBIGUOUS_CONFIGURATION_WARNING
+                ? 'configuration-ambiguous'
+                : warning === METHOD_MISSING_WARNING
+                ? 'method-missing'
+                : null,
         sessionsEnded: Number(value(row, 'sessionsEnded') || 0),
         changedAt: date(value(row, 'changedAt')),
         inferredAt: date(value(row, 'inferredAt')) as string,
@@ -173,12 +189,12 @@ function inferredMethod(env: NodeJS.ProcessEnv): { method: AuthenticationMethod 
     if (workosEnvironmentConfigured(env) && localUsersSetting(env))
         return {
             method: 'workos',
-            warning: 'Both ordinary sign-in settings are enabled. WorkOS remains active until an administrator reviews the configuration.'
+            warning: AMBIGUOUS_CONFIGURATION_WARNING
         }
     if (workosEnvironmentConfigured(env)) return { method: 'workos', warning: null }
     if (localUsersSetting(env)) return { method: 'local', warning: null }
     if (localAdminEnabled(env)) return { method: null, warning: null }
-    return { method: null, warning: 'No ordinary sign-in method is configured.' }
+    return { method: null, warning: METHOD_MISSING_WARNING }
 }
 
 async function selectState(runner: QueryRunner, lock = false): Promise<AuthenticationState | null> {
@@ -200,14 +216,12 @@ export async function initializeAuthenticationState(
         const current = await selectState(runner, true)
         if (current) {
             const fingerprint = workosConfigurationFingerprint(env)
-            const mismatchWarning =
-                'The WorkOS client identity differs from the saved installation. Review this database before linking accounts.'
             if (
                 current.activeMethod === 'workos' &&
                 current.configurationFingerprint &&
                 fingerprint &&
                 current.configurationFingerprint !== fingerprint &&
-                current.warning !== mismatchWarning
+                current.warning !== WORKOS_CLIENT_MISMATCH_WARNING
             ) {
                 const d = dialect(runner)
                 await query(
@@ -216,7 +230,7 @@ export async function initializeAuthenticationState(
                         d,
                         'version'
                     )} + 1 WHERE ${q(d, 'id')} = 1`,
-                    [mismatchWarning]
+                    [WORKOS_CLIENT_MISMATCH_WARNING]
                 )
             }
             await runner.commitTransaction()
@@ -295,6 +309,7 @@ export async function acknowledgeAuthenticationWarning(
     try {
         const current = await selectState(runner, true)
         if (!current || current.version !== expectedVersion) throw new Error('AUTH_STATE_CHANGED')
+        if (current.warningKind !== 'workos-client-mismatch') throw new Error('AUTH_WARNING_NOT_ACTIONABLE')
         const fingerprint = workosConfigurationFingerprint()
         const d = dialect(runner)
         const now = new Date()
@@ -336,7 +351,7 @@ export async function acknowledgeAuthenticationWarning(
 export async function automaticWorkosLinkingAllowed(dataSource: DataSource): Promise<boolean> {
     const state = await readAuthenticationState(dataSource)
     const fingerprint = workosConfigurationFingerprint()
-    return Boolean(state && fingerprint && state.configurationFingerprint === fingerprint && !state.warning)
+    return Boolean(state && fingerprint && state.configurationFingerprint === fingerprint && state.warningKind !== 'workos-client-mismatch')
 }
 
 export async function stageAuthenticationMethodSwitch(

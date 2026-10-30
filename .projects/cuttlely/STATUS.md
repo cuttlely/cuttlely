@@ -193,6 +193,8 @@ Cuttlely 1.4.7. The product version is the root `package.json`, `packages/server
 
 -   Auth / SSO Phase A is on branch `feat/auth-sso-phase-a` (draft pull request, not on `main`): provider boundary, durable method and epoch state, compatibility inference, database-backed staged session-ending switches, epoch-bound sealed WorkOS sessions, permission and audit entries, Admin Panel recovery warnings, an administrator application banner, and the operator guide. Phase A preserves sign-in behavior and only warns about missing owner recovery; the always-available recovery route begins in phase B. Generic OIDC, SCIM, and session convergence remain later phases.
 
+    -   Review follow-up: warning responses now include a distinct kind. Only a WorkOS client fingerprint mismatch pauses automatic mailbox and invitation linking; a mixed local-user and WorkOS upgrade remains informational. A fresh-sign-in acknowledgment accepts the new fingerprint and restores linking. The recovery guide links use the published GitHub document URL.
+
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Hardened public config endpoints and template sanitizing are on `main` (#238).
 -   Chatflow import checks (model and tool credentials, sticky notes, tool files, older card names, custom tools by id) are on `main` ([#245](https://github.com/cuttlely/cuttlely/pull/245)). Refreshing every imported card from the current spec and partial import of unsupported cards are still open.

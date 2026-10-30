@@ -8,8 +8,8 @@ import { createRequire } from 'module'
 import type { DataSource } from 'typeorm'
 import {
     automaticWorkosLinkingAllowed,
+    acknowledgeAuthenticationWarning,
     initializeAuthenticationState,
-    readAuthenticationState,
     recordRecentAuthentication,
     hasRecentAuthentication,
     refreshAuthenticationState,
@@ -101,6 +101,18 @@ describe('authentication provider foundation', () => {
         expect(first.inferredAt).toBe(second.inferredAt)
         expect(first.version).toBe(second.version)
         expect(first.warning).toEqual(warning ? expect.stringContaining(warning) : null)
+        expect(first.warningKind).toBe(warning ? 'configuration-ambiguous' : null)
+        await db.destroy()
+    })
+
+    it('keeps mailbox linking enabled for a mixed local-user and WorkOS upgrade', async () => {
+        const env = { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }
+        const db = await database()
+        const state = await initializeAuthenticationState(db, env)
+        expect(state.warningKind).toBe('configuration-ambiguous')
+        await withEnvironment(env, async () => {
+            expect(await automaticWorkosLinkingAllowed(db)).toBe(true)
+        })
         await db.destroy()
     })
 
@@ -167,14 +179,21 @@ describe('authentication provider foundation', () => {
         })
     })
 
-    it('blocks new mailbox linking after a fingerprint mismatch until review', async () => {
+    it('blocks new mailbox linking after a fingerprint mismatch until acknowledgment restores it', async () => {
         const db = await database()
         await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'first' })
-        await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' })
+        const mismatch = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' })
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' }, async () => {
             expect(await automaticWorkosLinkingAllowed(db)).toBe(false)
+            const acknowledged = await acknowledgeAuthenticationWarning(db, mismatch.version, {
+                organizationId: 'org',
+                actorId: 'owner'
+            })
+            expect(acknowledged.warning).toBeNull()
+            expect(acknowledged.warningKind).toBeNull()
+            expect(await automaticWorkosLinkingAllowed(db)).toBe(true)
         })
-        expect((await readAuthenticationState(db))?.warning).toContain('differs')
+        expect(mismatch.warningKind).toBe('workos-client-mismatch')
         await db.destroy()
     })
 

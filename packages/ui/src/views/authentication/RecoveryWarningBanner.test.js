@@ -29,5 +29,8 @@ it('shows administrators the owner recovery warning and settings link', async ()
     expect(container.querySelector('[data-testid="owner-recovery-warning"]')).not.toBeNull()
     expect(container.textContent).toContain('Owner recovery is not ready')
     expect(container.querySelector('a[href="/authentication-settings"]')).not.toBeNull()
+    expect(
+        container.querySelector('a[href="https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/auth-sso.md#change-the-method"]')
+    ).not.toBeNull()
     act(() => root.unmount())
 })

@@ -76,7 +76,7 @@ export default function AuthenticationSettings() {
                         Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of WorkOS is refused.
                     </Alert>
                 )}
-                {data?.warning && (
+                {data?.warning && data.warningKind === 'workos-client-mismatch' && (
                     <Alert
                         severity='warning'
                         action={
@@ -88,6 +88,7 @@ export default function AuthenticationSettings() {
                         {data.warning} Automatic email linking is blocked until this warning is acknowledged after a fresh sign-in.
                     </Alert>
                 )}
+                {data?.warning && data.warningKind !== 'workos-client-mismatch' && <Alert severity='warning'>{data.warning}</Alert>}
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack spacing={1}>
                         <Typography variant='h4'>Active method</Typography>
