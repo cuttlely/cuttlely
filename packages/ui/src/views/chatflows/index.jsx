@@ -23,6 +23,7 @@ import { FlowListTable } from '@/ui-component/table/FlowListTable'
 
 // API
 import chatflowsApi from '@/api/chatflows'
+import nodesApi from '@/api/nodes'
 
 // Hooks
 import useApi from '@/hooks/useApi'
@@ -37,6 +38,7 @@ import FlowiseMigrationWizard from '@/ui-component/flow/FlowiseMigrationWizard'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { BRING_YOUR_FLOWS_URL } from '@/ui-component/flow/buildChoices'
+import { showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from '@/utils/genericHelper'
 
 const headerButtonSx = {
     borderRadius: 2,
@@ -66,6 +68,8 @@ const Chatflows = () => {
     const { error, setError } = useError()
 
     const getAllChatflowsApi = useApi(chatflowsApi.getAllChatflows)
+    const getNodesApi = useApi(nodesApi.getAllNodes)
+    const nodeSpecsReady = Array.isArray(getNodesApi.data) && getNodesApi.data.length > 0
     const [view, setView] = useState(localStorage.getItem('chatFlowDisplayStyle') || 'card')
 
     /* Table Pagination */
@@ -114,6 +118,7 @@ const Chatflows = () => {
         setImportMenu(null)
         setImportError('')
         if (kind !== 'langflow') {
+            if (!nodeSpecsReady && !getNodesApi.loading) getNodesApi.request()
             setMigrationOpen(true)
             return
         }
@@ -345,6 +350,10 @@ const Chatflows = () => {
             <ConfirmDialog />
             <FlowiseMigrationWizard
                 open={migrationOpen}
+                specs={nodeSpecsReady ? getNodesApi.data : undefined}
+                updateNodeData={updateOutdatedNodeData}
+                showHide={{ params: showHideInputParams, anchors: showHideInputAnchors }}
+                catalogPending={!nodeSpecsReady && !getNodesApi.error}
                 onClose={() => setMigrationOpen(false)}
                 onOpen={({ canvas, name, route }) => {
                     localStorage.setItem('duplicatedFlowData', JSON.stringify({ cuttlelyMigration: true, name, flow: canvas }))

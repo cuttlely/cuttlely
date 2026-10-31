@@ -3,7 +3,7 @@ import { join } from 'path'
 
 import { anyNeedsSync, applyEdgeRefs, fillSpecDefaults, healImportedFlow, needsSync, stageCanvasPayload, wizardHeal } from './edgeRefs'
 import { scanFlowiseMigration } from './flowiseMigration.mjs'
-import { updateOutdatedNodeData } from './genericHelper'
+import { showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from './genericHelper'
 import { normalizeCanvasFlow, specsByName } from './normalizeCanvasFlow'
 
 const copy = (value) => JSON.parse(JSON.stringify(value))
@@ -298,6 +298,49 @@ describe('healing output connections', () => {
         expect(result.attention).toContain(
             'Removed the edge from Sample Chain to Target: the output it came from is no longer on Sample Chain. Connect it again.'
         )
+    })
+})
+
+describe('healing conditional inputs', () => {
+    it('rechecks dependent fields after filling a controller default', () => {
+        const spec = {
+            name: 'sampleNode',
+            label: 'Sample Node',
+            version: 2,
+            type: 'SampleNode',
+            category: 'Utilities',
+            baseClasses: ['SampleNode'],
+            inputs: [
+                { label: 'Enabled', name: 'enabled', type: 'boolean', default: true },
+                { label: 'Details', name: 'details', type: 'string', show: { enabled: true } },
+                { label: 'Model', name: 'model', type: 'BaseModel', show: { enabled: true } }
+            ]
+        }
+        const nodes = [
+            {
+                id: 'sample_0',
+                data: {
+                    id: 'sample_0',
+                    name: 'sampleNode',
+                    label: 'Sample Node',
+                    version: 1,
+                    inputs: { enabled: '' },
+                    outputs: {},
+                    inputParams: [],
+                    inputAnchors: [],
+                    outputAnchors: []
+                }
+            }
+        ]
+        const result = healImportedFlow(nodes, [], [spec], {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData,
+            showHide: { params: showHideInputParams, anchors: showHideInputAnchors }
+        })
+        const data = result.nodes[0].data
+        expect(data.inputs.enabled).toBe(true)
+        expect(data.inputParams.find((param) => param.name === 'details').display).toBe(true)
+        expect(data.inputAnchors.find((anchor) => anchor.name === 'model').display).toBe(true)
     })
 })
 

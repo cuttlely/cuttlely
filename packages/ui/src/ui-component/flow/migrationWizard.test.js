@@ -66,6 +66,25 @@ describe('import wizard attention list', () => {
         document.body.innerHTML = ''
     })
 
+    it('waits for the node catalog before accepting a file', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(Wizard, { open: true, catalogPending: true, onClose() {}, onOpen() {} })
+                )
+            )
+        })
+
+        expect(document.body.textContent).toContain('The node catalog is loading')
+        expect(document.body.querySelector('input[type="file"]').disabled).toBe(true)
+        expect([...document.body.querySelectorAll('button')].some((item) => item.textContent.trim() === 'Next')).toBe(false)
+    })
+
     it('shows a tool id on the scan step and the result step', async () => {
         const container = document.createElement('div')
         document.body.appendChild(container)

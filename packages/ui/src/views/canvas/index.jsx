@@ -62,7 +62,14 @@ import {
 } from '@tabler/icons-react'
 
 // utils
-import { getUniqueNodeId, initNode, getUpsertDetails, updateOutdatedNodeData } from '@/utils/genericHelper'
+import {
+    getUniqueNodeId,
+    initNode,
+    getUpsertDetails,
+    showHideInputAnchors,
+    showHideInputParams,
+    updateOutdatedNodeData
+} from '@/utils/genericHelper'
 import { anyNeedsSync, applyEdgeRefs, healImportedFlow, stageCanvasPayload } from '@/utils/edgeRefs'
 import { readyToFit, FIT_ON_OPEN } from '@/utils/canvasFit'
 import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
@@ -294,7 +301,8 @@ const Canvas = () => {
         const flowData = normalizeCanvasFlow(JSON.parse(canvasText), specs)
         const healed = healImportedFlow(flowData.nodes || [], flowData.edges || [], specs, {
             canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
-            updateNodeData: updateOutdatedNodeData
+            updateNodeData: updateOutdatedNodeData,
+            showHide: { params: showHideInputParams, anchors: showHideInputAnchors }
         })
         setNodes(healed.nodes)
         setEdges(healed.edges)
@@ -613,7 +621,8 @@ const Canvas = () => {
     const syncNodes = () => {
         const healed = healImportedFlow(nodes, edges, canvas.componentNodes, {
             canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
-            updateNodeData: updateOutdatedNodeData
+            updateNodeData: updateOutdatedNodeData,
+            showHide: { params: showHideInputParams, anchors: showHideInputAnchors }
         })
         setNodes(healed.nodes)
         setEdges(healed.edges)

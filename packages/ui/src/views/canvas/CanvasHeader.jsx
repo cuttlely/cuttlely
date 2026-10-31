@@ -57,7 +57,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 
 // utils
-import { generateExportFlowData, updateOutdatedNodeData } from '@/utils/genericHelper'
+import { generateExportFlowData, showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from '@/utils/genericHelper'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
@@ -964,6 +964,8 @@ const CanvasHeader = ({
                 open={migrationOpen}
                 specs={canvas.componentNodes}
                 updateNodeData={updateOutdatedNodeData}
+                showHide={{ params: showHideInputParams, anchors: showHideInputAnchors }}
+                catalogPending={!Array.isArray(canvas.componentNodes) || canvas.componentNodes.length === 0}
                 onClose={() => setMigrationOpen(false)}
                 onOpen={({ canvas, name, route }) => {
                     setMigrationOpen(false)

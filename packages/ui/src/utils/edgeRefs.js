@@ -52,7 +52,7 @@ export const stageCanvasPayload = (payload, specs) => {
     return { ready: ready ? payload : null, pending: ready ? null : payload }
 }
 
-export const fillSpecDefaults = (data, spec, edges = []) => {
+export const fillSpecDefaults = (data, spec, edges = [], showHide) => {
     if (!data || !spec || data.cuttlelyRawNode) return data
     const next = cloneDeep(data)
     const inputs = { ...(next.inputs || {}) }
@@ -77,6 +77,13 @@ export const fillSpecDefaults = (data, spec, edges = []) => {
         }
     }
     next.outputs = outputs
+
+    if (typeof showHide?.params === 'function' && Array.isArray(next.inputParams)) {
+        next.inputParams = showHide.params(next)
+    }
+    if (typeof showHide?.anchors === 'function' && Array.isArray(next.inputAnchors)) {
+        next.inputAnchors = showHide.anchors(next)
+    }
     return next
 }
 
@@ -228,7 +235,7 @@ export const healImportedFlow = (nodes, edges, specs, options = {}) => {
         ) {
             return node
         }
-        return { ...node, data: fillSpecDefaults(node.data, spec, nextEdges) }
+        return { ...node, data: fillSpecDefaults(node.data, spec, nextEdges, options.showHide) }
     })
 
     const refs = applyEdgeRefs(nextNodes, nextEdges, options)
