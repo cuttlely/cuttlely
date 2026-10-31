@@ -58,6 +58,7 @@ async function acceptLinkedUser(store: IdentityStore, row: UserRow, identity: Wo
             email: identity.email,
             externalId: identity.id,
             now: options.now ?? Date.now(),
+            authenticationMethod: 'workos',
             ...(options.providerKey
                 ? {
                       providerKey: options.providerKey,

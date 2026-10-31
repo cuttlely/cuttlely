@@ -2,7 +2,7 @@
 import { Request, Response, Router } from 'express'
 import { isIP } from 'net'
 import { expiredOidcBrowserCookie, oidcBrowserCookie, oidcCallbackUrl, oidcSessionCookieSecure } from './cookies'
-import { LOGIN_FAILURE_WINDOW_MS, OIDC_BROWSER_COOKIE, RECENT_AUTH_COOKIE, signinErrorUrl } from './constants'
+import { INVITE_TOKEN_MAX_LENGTH, LOGIN_FAILURE_WINDOW_MS, OIDC_BROWSER_COOKIE, RECENT_AUTH_COOKIE, signinErrorUrl } from './constants'
 import { issueDatabaseSession, establishSession } from './handlers'
 import {
     IdentityFailureRateLimit,
@@ -21,9 +21,11 @@ import {
     completeOidcAuthorization,
     oidcCallbackError,
     oidcReauthenticationIsRecent,
+    OidcEnvelope,
     OidcError
 } from './oidcProvider'
 import {
+    ensureProviderLink,
     migrateLegacyProviderLinks,
     oidcConfigurationTestPassed,
     oidcConfigurationFingerprint,
@@ -38,7 +40,8 @@ import {
     validatedOidcIssuer
 } from './oidcStore'
 import { readAuthenticationState } from './authenticationState'
-import { oidcLinkFailureMessage } from './link'
+import { INVITE_LINK_INVALID, oidcLinkFailureMessage } from './link'
+import { liveInviteUser } from './actionLink'
 import {
     oidcCallbackFailureAuditDetail,
     oidcFailureLogDetail,
@@ -69,10 +72,6 @@ function actor(req: Request): { id: string; organizationId: string } | null {
         : null
 }
 
-export function oidcPostLogoutUrl(): string {
-    return `${new URL(oidcCallbackUrl()).origin}/signin`
-}
-
 function configuredCallbackError(): string | null {
     const configuredOrigin = process.env.RENDER_EXTERNAL_URL?.trim() || process.env.APP_URL?.trim()
     return oidcCallbackError(configuredOrigin || oidcCallbackUrl())
@@ -87,7 +86,7 @@ function oidcCookieIsSecure(req: Request): boolean {
 }
 
 function providerCallbackUrl(req: Request): string {
-    const provider = typeof req.query.provider === 'string' ? req.query.provider : undefined
+    const provider = typeof req.params.provider === 'string' ? req.params.provider : undefined
     return oidcCallbackUrl(provider)
 }
 
@@ -158,16 +157,20 @@ async function auditConfiguration(req: Request, outcome: string, fingerprint: st
     })
 }
 
-async function auditCallbackFailure(error: unknown): Promise<void> {
-    await safeRecordAudit(applicationSql(), {
-        type: 'sign_in_failure',
-        organizationId: '',
-        workspaceId: null,
-        userId: null,
-        actorId: null,
-        summary: 'OIDC callback failed',
-        detail: oidcCallbackFailureAuditDetail(error)
-    })
+async function auditCallbackFailure(error: unknown, envelope?: Readonly<OidcEnvelope> | null): Promise<void> {
+    const userId = envelope?.purpose === 'test' || envelope?.purpose === 'reauth' ? envelope.initiatingUserId : null
+    const organizations = userId ? await organizationsForUser(applicationSql(), userId) : ['']
+    for (const organizationId of organizations.length ? organizations : ['']) {
+        await safeRecordAudit(applicationSql(), {
+            type: 'sign_in_failure',
+            organizationId,
+            workspaceId: null,
+            userId,
+            actorId: userId,
+            summary: 'OIDC callback failed',
+            detail: oidcCallbackFailureAuditDetail(error)
+        })
+    }
 }
 
 function auditCallbackLimitDue(clientAddress: string, now = Date.now()): boolean {
@@ -198,7 +201,6 @@ oidcAdminRouter.get('/', async (_req, res) => {
             activeCallbackUrl:
                 active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null,
             callbackError: configuredCallbackError(),
-            postLogoutUrl: oidcPostLogoutUrl(),
             scopes: ['openid', 'email', 'profile'],
             testedDraftDiffersFromActive: testedOidcDraftDiffersFromActive(draft, active),
             linkMigrationComplete: migration.complete,
@@ -396,6 +398,10 @@ export async function oidcInviteStartUrl(req: Request, token: string): Promise<{
     const clientAddress = address(req)
     if (startFailures.blocked(clientAddress)) throw new OidcError('transaction', 'Too many attempts.')
     try {
+        if (!token || token.length > INVITE_TOKEN_MAX_LENGTH) throw new OidcError('transaction', INVITE_LINK_INVALID)
+        if (!(await liveInviteUser(applicationSql(), token))) {
+            throw new OidcError('transaction', INVITE_LINK_INVALID)
+        }
         const state = await readAuthenticationState(applicationDataSource())
         if (!state || state.activeMethod !== 'oidc') throw new OidcError('configuration', 'OIDC is not active.')
         const begun = await beginOidcAuthorization({
@@ -416,7 +422,7 @@ export async function oidcInviteStartUrl(req: Request, token: string): Promise<{
 }
 
 oidcAuthRouter.get(
-    '/callback',
+    '/callback/:provider',
     (req, res, next) => {
         cacheNoStore(res)
         clearOidcBrowserCookie(req, res)
@@ -437,6 +443,8 @@ oidcAuthRouter.get(
         const errorParam = typeof req.query.error === 'string' ? req.query.error : undefined
         const responseIssuer = typeof req.query.iss === 'string' ? req.query.iss : undefined
         let callbackTestFingerprint: string | null = null
+        let callbackEnvelope: Readonly<OidcEnvelope> | null = null
+        let callbackBound = false
         try {
             const authState = await readAuthenticationState(applicationDataSource())
             if (!authState) throw new OidcError('transaction', 'Authentication state is unavailable.')
@@ -450,9 +458,16 @@ oidcAuthRouter.get(
                 browserNonce: (req.cookies || {})[OIDC_BROWSER_COOKIE] || null,
                 currentEpoch: authState.authenticationEpoch,
                 onEnvelope: (envelope) => {
+                    callbackEnvelope = envelope
                     if (envelope.purpose === 'test') callbackTestFingerprint = envelope.configFingerprint
+                },
+                onBrowserBound: () => {
+                    callbackBound = true
                 }
             })
+            callbackEnvelope = completed.envelope
+            if (completed.envelope.purpose === 'test') callbackTestFingerprint = completed.envelope.configFingerprint
+            callbackBound = true
             if (completed.envelope.purpose === 'test') {
                 const ctx = await buildAuthContext(req)
                 const current = await establishSession(ctx)
@@ -486,7 +501,8 @@ oidcAuthRouter.get(
             const linked = await resolveOidcUser(applicationDataSource(), identityStore(), completed.identity, {
                 trustMissing: completed.config.trustMissingEmailVerification,
                 invitationToken: completed.envelope.invitationToken,
-                bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL
+                bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL,
+                linkIdentity: completed.envelope.purpose === 'reauth' ? false : undefined
             })
             const matchedUser = linked.ok ? linked.user.id : linked.matchedUserId || null
             const orgs = matchedUser ? await organizationsForUser(applicationSql(), matchedUser) : ['']
@@ -518,6 +534,24 @@ oidcAuthRouter.get(
                     'reauthentication_account_mismatch'
                 )
             }
+            let reauthenticationLinkCreated = false
+            if (completed.envelope.purpose === 'reauth') {
+                const link = await ensureProviderLink(applicationDataSource(), {
+                    providerKey: completed.identity.providerKey,
+                    subject: completed.identity.subject,
+                    userId: linked.user.id,
+                    emailAtLink: completed.identity.email?.trim().toLowerCase() || null,
+                    assuranceBasis: linked.basis
+                })
+                if (link === 'conflict') {
+                    throw new OidcError(
+                        'transaction',
+                        'The provider identity link changed during sign-in.',
+                        'reauthentication_account_mismatch'
+                    )
+                }
+                reauthenticationLinkCreated = link === 'linked'
+            }
             const ctx = await buildAuthContext(req)
             ctx.authenticationEpoch = completed.envelope.authEpoch
             ctx.secure = oidcCookieIsSecure(req)
@@ -537,7 +571,7 @@ oidcAuthRouter.get(
                 res.clearCookie(RECENT_AUTH_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax', secure: ctx.secure })
             }
             for (const organizationId of orgs.length ? orgs : ['']) {
-                const identityLinked = linked.linkCreated
+                const identityLinked = linked.linkCreated || reauthenticationLinkCreated
                 await safeRecordAudit(applicationSql(), {
                     type: 'sign_in_success',
                     organizationId,
@@ -556,9 +590,9 @@ oidcAuthRouter.get(
             }
             res.redirect(302, completed.envelope.redirectTarget)
         } catch (error) {
-            callbackFailures.recordFailure(clientAddress)
+            if (callbackBound) callbackFailures.recordFailure(clientAddress)
             console.warn('[server]: OIDC callback failed', oidcFailureLogDetail(error))
-            await auditCallbackFailure(error)
+            await auditCallbackFailure(error, callbackEnvelope)
             if (callbackTestFingerprint) {
                 await recordOidcTestFailure(applicationDataSource(), callbackTestFingerprint, oidcTestCallbackFailure(error))
                 return void res.redirect(302, '/authentication-settings?oidcTest=failed')

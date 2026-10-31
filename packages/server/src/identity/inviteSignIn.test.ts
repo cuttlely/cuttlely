@@ -24,7 +24,7 @@ import { randomUUID } from 'crypto'
 import express from 'express'
 import request from 'supertest'
 import type { DataSource, QueryRunner } from 'typeorm'
-import { INVITE_NEEDS_AUTHKIT, LinkDeps, acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
+import { INVITE_NEEDS_AUTHKIT, LinkDeps, acceptLocalPassword, inviteAccount, liveInviteUser, resetLocalLink } from './actionLink'
 import {
     DirectoryActor,
     Sql,
@@ -39,12 +39,12 @@ import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
 import { utcEpoch } from './dbTime'
-import { addAuthenticationState, addIdentityActionLinks, addOidcProvider } from './schemaMigration'
+import { addAuditLog, addAuthenticationState, addIdentityActionLinks, addOidcProvider } from './schemaMigration'
 import { automaticWorkosLinkingAllowed, initializeAuthenticationState } from './authenticationState'
 import type { AuthenticationMethod } from './authenticationState'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
-import { resolveOidcUser } from './oidcStore'
+import { createProviderLink, resolveOidcUser } from './oidcStore'
 
 const { DatabaseSync } = require('node:sqlite') as {
     DatabaseSync: new (path: string) => {
@@ -168,6 +168,7 @@ async function sqliteBackend(): Promise<Backend> {
     await addIdentityActionLinks(setup)
     await addAuthenticationState(setup)
     await addOidcProvider(setup)
+    await addAuditLog(setup)
     const dataSource = fakeDataSource('sqlite', runner, run)
     return {
         dataSource,
@@ -235,6 +236,7 @@ async function postgresBackend(): Promise<Backend> {
     await addIdentityActionLinks(setup)
     await addAuthenticationState(setup)
     await addOidcProvider(setup)
+    await addAuditLog(setup)
     await setup.release()
     const dataSource = fakeDataSource('postgres', runner, async (statement, params = []) => (await pool.query(statement, params)).rows)
     const sql = sqlFromDataSource(dataSource)
@@ -424,12 +426,20 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(links[0].usedAt).not.toBeNull()
         expect(links[0].consumeId).toEqual(expect.any(String))
         expect(
-            await db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-ada', now: NOW })
+            await db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'wos-ada',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ).toBe('invalid')
     })
 
     maybe('valid token plus matching sign-in activates the user and binds that sign-in once', async () => {
         const ada = await invite('ada@example.com')
+        expect(await liveInviteUser(db.sql, ada.token, NOW)).toBe(ada.id)
         const result = await signIn('ada@example.com', ada.token, NOW + HOUR)
         expect(result).toMatchObject({ ok: true, bootstrapped: false, user: { id: ada.id, status: 'active', externalId: 'wos-ada' } })
         expect(await user(ada.id)).toEqual({ status: 'active', externalId: 'wos-ada' })
@@ -438,7 +448,10 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(used).toHaveLength(1)
         expect(used[0].consumeId).toEqual(expect.any(String))
         const consumed = await db.rows(`SELECT reason FROM identity_action_audit WHERE action = ?`, ['token_consumed'])
-        expect(consumed).toEqual([{ reason: 'authkit' }])
+        expect(consumed).toEqual([{ reason: 'workos' }])
+        const acceptedAudit = await db.rows(`SELECT detail FROM audit_event WHERE summary = ?`, ['Invite accepted'])
+        expect(acceptedAudit.map((row) => JSON.parse(String(row.detail)))).toContainEqual({ action: 'completed', method: 'workos' })
+        expect(await liveInviteUser(db.sql, ada.token, NOW + HOUR)).toBeNull()
 
         expect(await signIn('ada@example.com', undefined, NOW + 2 * HOUR)).toMatchObject({ ok: true, user: { id: ada.id } })
         expect(await signIn('ada@example.com', undefined, NOW, 'wos-someone-else')).toEqual({ ok: false, reason: 'rebind' })
@@ -455,6 +468,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
                 providerKey: 'provider-1',
                 subject: 'subject-1',
                 assuranceBasis: 'invitation',
+                authenticationMethod: 'oidc',
                 now: NOW
             })
         ).resolves.toBe('accepted')
@@ -472,6 +486,10 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
                 assuranceBasis: 'invitation'
             }
         ])
+        const consumed = await db.rows(`SELECT reason FROM identity_action_audit WHERE action = ?`, ['token_consumed'])
+        expect(consumed).toEqual([{ reason: 'oidc' }])
+        const acceptedAudit = await db.rows(`SELECT detail FROM audit_event WHERE summary = ?`, ['Invite accepted'])
+        expect(acceptedAudit.map((row) => JSON.parse(String(row.detail)))).toContainEqual({ action: 'completed', method: 'oidc' })
         await expect(
             db.store.acceptInvite({
                 token: ada.token,
@@ -481,9 +499,55 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
                 providerKey: 'provider-1',
                 subject: 'subject-1',
                 assuranceBasis: 'invitation',
+                authenticationMethod: 'oidc',
                 now: NOW
             })
         ).resolves.toBe('invalid')
+    })
+
+    maybe('handles an OIDC invitation before an existing subject or mailbox sign-in', async () => {
+        const ada = await invite('ada@example.com')
+        await createProviderLink(db.dataSource, {
+            providerKey: 'provider-1',
+            subject: 'other-account-subject',
+            userId: OWNER,
+            emailAtLink: 'rosa@example.com',
+            assuranceBasis: 'email_verified'
+        })
+        const base = {
+            providerKey: 'provider-1',
+            issuer: 'https://issuer.example',
+            emailVerified: true,
+            emailVerificationPresent: true
+        }
+
+        await expect(
+            resolveOidcUser(
+                db.dataSource,
+                db.store,
+                { ...base, subject: 'other-account-subject', email: 'ada@example.com' },
+                { trustMissing: false, invitationToken: ada.token, now: NOW }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'invite_invalid', matchedUserId: ada.id })
+        await expect(
+            resolveOidcUser(
+                db.dataSource,
+                db.store,
+                { ...base, subject: 'unlinked-other-account', email: 'rosa@example.com' },
+                { trustMissing: false, invitationToken: ada.token, now: NOW }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'invite_invalid' })
+        expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
+        expect(await liveInviteUser(db.sql, ada.token, NOW)).toBe(ada.id)
+
+        await expect(
+            resolveOidcUser(
+                db.dataSource,
+                db.store,
+                { ...base, subject: 'ada-subject', email: 'ada@example.com' },
+                { trustMissing: false, invitationToken: ada.token, now: NOW }
+            )
+        ).resolves.toMatchObject({ ok: true, user: { id: ada.id, status: 'active' } })
     })
 
     maybe('an OIDC subject can accept a new invitation after its former user is removed', async () => {
@@ -570,8 +634,22 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
     maybe('lets only one of two sign-ins racing with the same token through', async () => {
         const ada = await invite('ada@example.com')
         const results = await Promise.all([
-            db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-ada', now: NOW }),
-            db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-other', now: NOW })
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'wos-ada',
+                authenticationMethod: 'workos',
+                now: NOW
+            }),
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'wos-other',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ])
         expect(results.filter((item) => item === 'accepted')).toHaveLength(1)
         expect((await user(ada.id)).status).toBe('active')
@@ -623,7 +701,14 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         await deleteOrganizationUser(db.sql, owner, ORG, grace.id)
         expect(await signIn('grace@example.com', grace.token)).toEqual({ ok: false, reason: 'unknown' })
         expect(
-            await db.store.acceptInvite({ token: grace.token, userId: grace.id, email: 'grace@example.com', externalId: 'g', now: NOW })
+            await db.store.acceptInvite({
+                token: grace.token,
+                userId: grace.id,
+                email: 'grace@example.com',
+                externalId: 'g',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ).toBe('invalid')
     })
 
@@ -634,7 +719,14 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await user(bob.id)).toEqual({ status: 'invited', externalId: null })
         expect(await signIn('mallory@example.com', ada.token)).toEqual({ ok: false, reason: 'unknown' })
         expect(
-            await db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'mallory@example.com', externalId: 'm', now: NOW })
+            await db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'mallory@example.com',
+                externalId: 'm',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ).toBe('invalid')
         expect(await rejections()).toEqual(['other-user', 'other-email'])
         expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true })

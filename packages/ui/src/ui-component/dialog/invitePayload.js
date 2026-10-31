@@ -12,17 +12,26 @@ export function invitationPayload({ email, name, createdBy, workspaceId, roleId,
 }
 
 export function invitationResults(selectedUsers, responses) {
-    const links = responses.flatMap((response, index) => {
-        const inviteLink = response?.link
-        if (!inviteLink) return []
+    const links = []
+    const failures = []
+    let successCount = 0
+    responses.forEach((response, index) => {
         const selected = selectedUsers[index]
-        return [{ email: selected?.isNewUser ? selected.email : selected?.user?.email || '', link: inviteLink }]
+        const email = selected?.isNewUser ? selected.email : selected?.user?.email || ''
+        if (response.status === 'rejected') {
+            const reason = response.reason
+            failures.push({ email, message: reason?.response?.data?.message || reason?.message || 'Could not invite this person.' })
+            return
+        }
+        successCount += 1
+        const inviteLink = response.value?.link
+        if (inviteLink) links.push({ email, link: inviteLink })
     })
-    return { links, keepOpen: links.length > 0 }
+    return { links, failures, successCount, keepOpen: links.length > 0 || failures.length > 0 }
 }
 
-export function submitInvitations({ selectedUsers, currentUserId, workspaceId, roleId, inviteAccount, addWorkspaceUser }) {
-    return Promise.all(
+export function submitInvitations({ selectedUsers, currentUserId, workspaceId, roleId, link, inviteAccount, addWorkspaceUser }) {
+    return Promise.allSettled(
         selectedUsers.map((item) => {
             if (!item.isNewUser) {
                 return addWorkspaceUser({
@@ -36,7 +45,8 @@ export function submitInvitations({ selectedUsers, currentUserId, workspaceId, r
                 email: item.email,
                 createdBy: currentUserId,
                 workspaceId,
-                roleId
+                roleId,
+                link
             })
             return inviteAccount(request).then((response) => response.data)
         })

@@ -18,6 +18,9 @@ const providerLinkMigrationStatus = jest.fn()
 const migrateLegacyProviderLinks = jest.fn()
 const saveOidcDraft = jest.fn()
 const checkOidcConfiguration = jest.fn()
+const beginOidcAuthorization = jest.fn()
+const ensureProviderLink = jest.fn()
+const liveInviteUser = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -42,6 +45,7 @@ jest.mock('./oidcStore', () => {
     const actual = jest.requireActual('./oidcStore')
     return {
         ...actual,
+        ensureProviderLink,
         resolveOidcUser,
         recordOidcTestFailure,
         recordOidcTestResult,
@@ -55,16 +59,17 @@ jest.mock('./oidcProvider', () => {
     const actual = jest.requireActual('./oidcProvider')
     return {
         ...actual,
-        beginOidcAuthorization: jest.fn(),
+        beginOidcAuthorization,
         checkOidcConfiguration,
         completeOidcAuthorization
     }
 })
+jest.mock('./actionLink', () => ({ liveInviteUser }))
 
 import { oidcCallbackUrl } from './cookies'
 import { OidcError } from './oidcProvider'
 import { oidcProviderKey } from './oidcStore'
-import { oidcAdminRouter, oidcAuthRouter } from './oidcRoutes'
+import { oidcAdminRouter, oidcAuthRouter, oidcInviteStartUrl } from './oidcRoutes'
 
 function app() {
     const server = express()
@@ -113,6 +118,7 @@ describe('OIDC callback audit outcomes', () => {
         jest.clearAllMocks()
         readAuthenticationState.mockResolvedValue({ authenticationEpoch: 4, activeMethod: 'oidc' })
         organizationsForUser.mockResolvedValue(['org-1'])
+        ensureProviderLink.mockResolvedValue('existing')
     })
 
     it.each([
@@ -123,7 +129,7 @@ describe('OIDC callback audit outcomes', () => {
         ['upstream_unavailable', new OidcError('upstream', 'upstream', 'upstream_unavailable')]
     ])('writes the %s outcome without callback values', async (outcome, failure) => {
         completeOidcAuthorization.mockRejectedValueOnce(failure)
-        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
         expect(response.status).toBe(302)
         expect(safeRecordAudit).toHaveBeenCalledWith(
             expect.anything(),
@@ -178,7 +184,7 @@ describe('OIDC callback audit outcomes', () => {
         buildAuthContext.mockResolvedValueOnce({})
         if (scenario.sessionResult) issueDatabaseSession.mockResolvedValueOnce(scenario.sessionResult)
 
-        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
         expect(response.status).toBe(302)
         expect(safeRecordAudit).toHaveBeenCalledWith(
             expect.anything(),
@@ -191,7 +197,89 @@ describe('OIDC callback audit outcomes', () => {
         if (outcome === 'reauthentication_account_mismatch') {
             expect(safeRecordAudit).toHaveBeenCalledTimes(1)
             expect(safeRecordAudit).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type: 'sign_in_success' }))
+            expect(resolveOidcUser).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+                expect.objectContaining({ linkIdentity: false })
+            )
+            expect(ensureProviderLink).not.toHaveBeenCalled()
         }
+    })
+
+    it.each(['test', 'reauth'])('scopes a known %s callback failure to the initiating user', async (purpose) => {
+        completeOidcAuthorization.mockImplementationOnce(async (input: any) => {
+            input.onEnvelope?.({
+                purpose,
+                initiatingUserId: 'admin-1',
+                configFingerprint: 'draft-fingerprint'
+            })
+            input.onBrowserBound?.({ purpose, initiatingUserId: 'admin-1' })
+            throw new OidcError('denied', 'denied', 'provider_denied')
+        })
+
+        await request(app())
+            .get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&error=access_denied')
+            .set('x-forwarded-for', `192.0.2.${purpose === 'test' ? 61 : 62}`)
+
+        expect(organizationsForUser).toHaveBeenCalledWith(expect.anything(), 'admin-1')
+        expect(safeRecordAudit).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ organizationId: 'org-1', userId: 'admin-1', actorId: 'admin-1' })
+        )
+    })
+
+    it('does not charge unknown states to the browser-bound callback allowance', async () => {
+        const unknown = new OidcError('transaction', 'state', 'state_expired_or_unknown')
+        completeOidcAuthorization.mockRejectedValue(unknown)
+        const client = request(app())
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const response = await client
+                .get(`/api/v1/auth/oidc/callback/provider-1?state=unknown-${attempt}&code=code`)
+                .set('x-forwarded-for', '192.0.2.63')
+            expect(response.headers.location).not.toContain('Too%20many')
+        }
+        const next = await client
+            .get('/api/v1/auth/oidc/callback/provider-1?state=unknown-next&code=code')
+            .set('x-forwarded-for', '192.0.2.63')
+        expect(next.headers.location).not.toContain('Too%20many')
+        expect(completeOidcAuthorization).toHaveBeenCalledTimes(21)
+    })
+
+    it('creates a reauthentication link only after the initiating account matches', async () => {
+        completeOidcAuthorization.mockResolvedValueOnce({
+            envelope: { purpose: 'reauth', initiatingUserId: 'user-1', authEpoch: 4, redirectTarget: '/authentication-settings' },
+            config: { trustMissingEmailVerification: false },
+            identity: {
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                issuer: 'https://issuer.example',
+                email: 'ada@example.com',
+                emailVerified: true,
+                emailVerificationPresent: true
+            }
+        })
+        resolveOidcUser.mockResolvedValueOnce({
+            ok: true,
+            user: { id: 'user-1' },
+            basis: 'email_verified',
+            linkCreated: false
+        })
+        ensureProviderLink.mockResolvedValueOnce('linked')
+        buildAuthContext.mockResolvedValueOnce({})
+        issueDatabaseSession.mockResolvedValueOnce({ type: 'json', status: 200, body: {}, cookies: [], clearCookies: [] })
+
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
+
+        expect(response.status).toBe(302)
+        expect(ensureProviderLink).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ userId: 'user-1', providerKey: 'provider-1', subject: 'subject-1' })
+        )
+        expect(safeRecordAudit).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ type: 'sign_in_success', summary: 'OIDC identity linked' })
+        )
     })
 
     it.each([
@@ -214,7 +302,7 @@ describe('OIDC callback audit outcomes', () => {
         resolveOidcUser.mockResolvedValueOnce({ ok: false, reason, basis: null, ...(matchedUserId ? { matchedUserId } : {}) })
 
         const response = await request(app())
-            .get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+            .get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
             .set('x-forwarded-for', `192.0.2.${reason.length + 100}`)
 
         const error = new URL(response.headers.location, 'http://localhost').searchParams.get('error')
@@ -260,7 +348,7 @@ describe('OIDC callback audit outcomes', () => {
         buildAuthContext.mockResolvedValueOnce({})
         issueDatabaseSession.mockResolvedValueOnce({ type: 'json', status: 200, body: {}, cookies: [], clearCookies: [] })
 
-        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
 
         expect(response.status).toBe(302)
         expect(safeRecordAudit).toHaveBeenCalledWith(
@@ -291,7 +379,7 @@ describe('OIDC callback audit outcomes', () => {
         resolveOidcUser.mockResolvedValue({ ok: false, reason: 'unlinked', basis: null })
         const client = request(app())
         const callback = () =>
-            client.get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code').set('x-forwarded-for', '192.0.2.88')
+            client.get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code').set('x-forwarded-for', '192.0.2.88')
 
         for (let attempt = 0; attempt < 20; attempt += 1) {
             const response = await callback()
@@ -337,7 +425,7 @@ describe('OIDC administrator test callback', () => {
     it('passes only after the identity is accepted by ordinary sign-in rules', async () => {
         resolveOidcUser.mockResolvedValue({ ok: true, user: { id: 'user-1' }, basis: 'email_verified' })
 
-        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
 
         expect(response.status).toBe(302)
         expect(response.headers.location).toBe('/authentication-settings?oidcTest=passed')
@@ -373,7 +461,7 @@ describe('OIDC administrator test callback', () => {
         completeOidcAuthorization.mockResolvedValueOnce({ ...completion, identity })
         resolveOidcUser.mockResolvedValue({ ok: false, reason })
 
-        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
 
         expect(response.status).toBe(302)
         expect(response.headers.location).toBe('/authentication-settings?oidcTest=failed')
@@ -397,7 +485,7 @@ describe('OIDC administrator test callback', () => {
             throw failure
         })
 
-        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+        const response = await request(app()).get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code')
 
         expect(response.status).toBe(302)
         expect(response.headers.location).toBe('/authentication-settings?oidcTest=failed')
@@ -439,6 +527,9 @@ describe('OIDC administrator callback URLs', () => {
         expect(response.body.callbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)))
         expect(response.body.activeCallbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)))
         expect(response.body.callbackUrl).not.toBe(response.body.activeCallbackUrl)
+        expect(new URL(response.body.callbackUrl).search).toBe('')
+        expect(new URL(response.body.callbackUrl).pathname).toMatch(/\/callback\/[a-f0-9]{64}$/)
+        expect(response.body).not.toHaveProperty('postLogoutUrl')
         expect(response.body.testedDraftDiffersFromActive).toBe(true)
     })
 
@@ -472,5 +563,37 @@ describe('OIDC administrator callback URLs', () => {
         expect(response.status).toBe(200)
         expect(response.body.callbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)))
         expect(response.body.activeCallbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)))
+    })
+})
+
+describe('OIDC invitation starts', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        readAuthenticationState.mockResolvedValue({ installationId: 'installation-1', authenticationEpoch: 4, activeMethod: 'oidc' })
+        beginOidcAuthorization.mockResolvedValue({ url: 'https://id.example/authorize', browserNonce: 'browser-nonce' })
+    })
+
+    it('checks the pending invitation before creating an authorization transaction', async () => {
+        liveInviteUser.mockResolvedValueOnce(null)
+        await expect(oidcInviteStartUrl({ ip: '192.0.2.71' } as any, 'invalid-token')).rejects.toThrow('This invite link is not valid.')
+        expect(beginOidcAuthorization).not.toHaveBeenCalled()
+
+        liveInviteUser.mockResolvedValueOnce('user-1')
+        await expect(oidcInviteStartUrl({ ip: '192.0.2.72' } as any, 'valid-token')).resolves.toEqual({
+            url: 'https://id.example/authorize',
+            browserNonce: 'browser-nonce'
+        })
+        expect(beginOidcAuthorization).toHaveBeenCalledTimes(1)
+    })
+
+    it('counts invalid invitation starts in the shared failure allowance', async () => {
+        liveInviteUser.mockResolvedValue(null)
+        const req = { ip: '192.0.2.73' } as any
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            await expect(oidcInviteStartUrl(req, `invalid-token-${attempt}`)).rejects.toThrow('This invite link is not valid.')
+        }
+        await expect(oidcInviteStartUrl(req, 'invalid-token-limited')).rejects.toThrow('Too many attempts.')
+        expect(liveInviteUser).toHaveBeenCalledTimes(20)
+        expect(beginOidcAuthorization).not.toHaveBeenCalled()
     })
 })

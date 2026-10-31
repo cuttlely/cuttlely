@@ -700,6 +700,14 @@ async function findLink(query: QueryFn, sql: Sql, hash: string): Promise<StoredL
     }
 }
 
+export async function liveInviteUser(sql: Sql, token: string, now = Date.now()): Promise<string | null> {
+    const found = await findLink(sql.query, sql, hashSessionToken(token))
+    if (!found || found.purpose !== 'invite' || found.usedAt || !found.expiresAt || found.expiresAt <= now) return null
+    const target = await loadTarget(sql.query, sql, found.organizationId, found.workspaceId, found.userId)
+    if (blockReason(target, 'invite', true) || !target || target.status !== 'invited') return null
+    return found.userId
+}
+
 export interface AcceptInput {
     body: Record<string, unknown>
     /** Ignored. A token in the query is not a credential. */
@@ -900,7 +908,7 @@ async function inviteTargetRefusal(query: QueryFn, sql: Sql, found: StoredLink, 
 }
 
 /**
- * AuthKit sign-in with an invite link. The token is used, the user activated, and the AuthKit id bound in one
+ * Remote sign-in with an invite link. The token is used, the user activated, and the provider identity bound in one
  * transaction, so a second sign-in with the same link finds the token used.
  */
 export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promise<'accepted' | 'invalid'> {
@@ -930,20 +938,30 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
             if (await inviteTargetRefusal(query, sql, found, input)) throw new Error('ineligible')
             await activatePending(query, sql, input.userId, input.now)
             if (input.providerKey && input.subject && input.assuranceBasis) {
-                await query(
-                    `INSERT INTO ${q(sql, 'identity_provider_link')} (${q(sql, 'providerKey')}, ${q(sql, 'subject')}, ${q(
+                const existing = await query(
+                    `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'identity_provider_link')} WHERE ${q(
                         sql,
-                        'userId'
-                    )}, ${q(sql, 'emailAtLink')}, ${q(sql, 'assuranceBasis')}, ${q(sql, 'createdAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [
-                        input.providerKey,
-                        input.subject,
-                        input.userId,
-                        input.email.trim().toLowerCase(),
-                        input.assuranceBasis,
-                        dbTime(sql, input.now)
-                    ]
+                        'providerKey'
+                    )} = ? AND ${q(sql, 'subject')} = ?`,
+                    [input.providerKey, input.subject]
                 )
+                if (existing.length && !existing.some((row) => text(cell(row, 'userId')) === input.userId)) throw new Error('ineligible')
+                if (!existing.length) {
+                    await query(
+                        `INSERT INTO ${q(sql, 'identity_provider_link')} (${q(sql, 'providerKey')}, ${q(sql, 'subject')}, ${q(
+                            sql,
+                            'userId'
+                        )}, ${q(sql, 'emailAtLink')}, ${q(sql, 'assuranceBasis')}, ${q(sql, 'createdAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
+                        [
+                            input.providerKey,
+                            input.subject,
+                            input.userId,
+                            input.email.trim().toLowerCase(),
+                            input.assuranceBasis,
+                            dbTime(sql, input.now)
+                        ]
+                    )
+                }
             }
             if (!input.providerKey || input.retainExternalId) {
                 await query(
@@ -986,7 +1004,7 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
                     userId: input.userId,
                     actorId: input.userId,
                     result: 'success',
-                    reason: input.providerKey ? 'oidc' : 'authkit'
+                    reason: input.authenticationMethod
                 },
                 input.now
             )
@@ -1007,7 +1025,7 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
         userId: input.userId,
         actorId: input.userId,
         summary: 'Invite accepted',
-        detail: { action: 'completed', method: input.providerKey ? 'oidc' : 'authkit' }
+        detail: { action: 'completed', method: input.authenticationMethod }
     })
     return 'accepted'
 }

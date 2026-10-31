@@ -19,19 +19,20 @@ describe('user invitation dialog requests', () => {
         })
     })
 
-    it('lets the multi-user dialog use the active-method delivery default', () => {
+    it('asks for a Local link in the multi-user dialog', () => {
         const request = invitationPayload({
             email: 'grace@example.com',
             createdBy: 'owner-1',
             workspaceId: 'team-1',
-            roleId: 'role-1'
+            roleId: 'role-1',
+            link: true
         })
 
         expect(request).toEqual({
             user: { email: 'grace@example.com', createdBy: 'owner-1' },
             workspace: { id: 'team-1' },
-            role: { id: 'role-1' }
+            role: { id: 'role-1' },
+            link: true
         })
-        expect(request).not.toHaveProperty('link')
     })
 })

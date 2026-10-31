@@ -142,7 +142,7 @@ export type LinkFailure =
     | 'invite-invalid'
     | 'review-required'
 
-/** An AuthKit sign-in that carries the raw token from an invite link. */
+/** A remote sign-in that carries the raw token from an invite link. */
 export interface InviteSignIn {
     token: string
     userId: string
@@ -153,6 +153,7 @@ export interface InviteSignIn {
     subject?: string
     assuranceBasis?: string
     retainExternalId?: boolean
+    authenticationMethod: 'workos' | 'oidc'
 }
 
 export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { ok: false; reason: LinkFailure }

@@ -816,6 +816,7 @@
                 "packages/ui/src/views/auth/ownerRecovery.jsx",
                 "packages/ui/src/views/apikey/ownerNotice.js",
                 "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+                "packages/ui/src/ui-component/dialog/inviteDialogState.js",
                 "packages/ui/src/ui-component/dialog/invitePayload.js",
                 "packages/ui/src/utils/roleLabel.js",
                 "packages/ui/src/views/auth/resolveLogin.js"

@@ -17,9 +17,8 @@ const authResponse = {
 }
 
 const oidcResponse = {
-    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-1',
-    activeCallbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-active',
-    postLogoutUrl: 'https://app.example/signin',
+    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback/provider-1',
+    activeCallbackUrl: 'https://app.example/api/v1/auth/oidc/callback/provider-active',
     testedDraftDiffersFromActive: false,
     linkMigrationComplete: true,
     linkMigration: { complete: true, migrated: 0, inert: 2, error: null },
@@ -106,8 +105,9 @@ it('shows session convergence details, owner recovery, and OIDC setup together',
     expect(container.textContent).toContain('Discovery and keys ready')
     expect(container.textContent).toContain('Returned email: person@example.test. Assurance: email_verified.')
     expect(container.textContent).toContain('2 legacy WorkOS subject links could not be attributed')
-    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback?provider=provider-1"]')).not.toBeNull()
-    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback?provider=provider-active"]')).not.toBeNull()
+    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback/provider-1"]')).not.toBeNull()
+    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback/provider-active"]')).not.toBeNull()
+    expect(container.textContent).not.toContain('Post-logout URL')
     expect(container.textContent).not.toContain('client-secret-value')
     expect([...container.querySelectorAll('button')].find((button) => button.textContent === 'Activate')?.disabled).toBe(false)
     act(() => root.unmount())

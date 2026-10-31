@@ -19,7 +19,7 @@
 import { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
-import { INVITE_TOKEN_MAX_LENGTH, LOGIN_FAILURE_WINDOW_MS, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
+import { LOGIN_FAILURE_WINDOW_MS, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 import { runtimeNumber } from '../settings/runtime'
 import {
     TOO_MANY,
@@ -48,6 +48,8 @@ import { HandlerResult } from './types'
 import { readAuthenticationState, selectedAuthenticationMethod } from './authenticationState'
 import { oidcInviteStartUrl } from './oidcRoutes'
 import { oidcBrowserCookie, oidcSessionCookieSecure } from './cookies'
+import { identityRouteLimit, OIDC_INVITE_START_LIMIT } from './rateLimit'
+import { INVITE_LINK_INVALID } from './link'
 
 function apply(res: Response, result: Exclude<HandlerResult, { type: 'next' }>): void {
     const secure = result.secure ?? result.cookies?.[0]?.options.secure ?? false
@@ -286,20 +288,21 @@ identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
             if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })
         })
 })
-identityAuthRouter.post('/invite/start', (req, res, next) => {
+identityAuthRouter.post('/invite/start', identityRouteLimit(OIDC_INVITE_START_LIMIT), (req, res, next) => {
     void currentAuthenticationView().then(() => {
         if (selectedAuthenticationMethod() !== 'oidc') return void dispatch(req, res, next, handleInviteStart)
         if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Unauthorized' })
         const token = typeof req.body?.token === 'string' ? req.body.token : ''
-        if (!token || token.length > INVITE_TOKEN_MAX_LENGTH) {
-            return void res.status(400).json({ message: 'This invite link is not valid. Ask for a new invite.' })
-        }
         void oidcInviteStartUrl(req, token)
             .then(({ url, browserNonce }) => {
                 const cookie = oidcBrowserCookie(browserNonce, oidcSessionCookieSecure(Boolean(req.secure) || req.protocol === 'https'))
                 res.cookie(cookie.name, cookie.value, cookie.options).status(200).json({ url })
             })
-            .catch(() => res.status(409).json({ message: 'OIDC sign-in could not start.' }))
+            .catch((error: unknown) =>
+                error instanceof Error && error.message === INVITE_LINK_INVALID
+                    ? res.status(400).json({ message: INVITE_LINK_INVALID })
+                    : res.status(409).json({ message: 'OIDC sign-in could not start.' })
+            )
     })
 })
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))

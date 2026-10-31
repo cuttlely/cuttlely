@@ -42,6 +42,27 @@ const page = {
                     { key: 'SMTP_PASSWORD', values: 'hidden' }
                 ]
             }
+        },
+        ...['saved', 'saved_with_error', 'applied_to_active'].map((outcome, index) => ({
+            id: `config-${index}`,
+            type: 'auth_config_change',
+            at: `2026-10-15T12:1${index}:00.000Z`,
+            userId: 'admin-1',
+            summary: 'OIDC configuration changed',
+            detail: { outcome, configurationFingerprint: `fingerprint-${index}` }
+        })),
+        {
+            id: 'oidc-signin',
+            type: 'sign_in_success',
+            at: '2026-10-15T12:20:00.000Z',
+            userId: 'user-2',
+            summary: 'OIDC sign-in succeeded',
+            detail: {
+                issuer: 'https://id.example',
+                subject: 'subject-2',
+                basis: 'email_verified',
+                outcome: 'signed_in'
+            }
         }
     ],
     nextCursor: null,
@@ -68,6 +89,13 @@ describe('Audit log page', () => {
         expect(document.body.textContent).toContain('Settings changed')
         expect(document.body.textContent).toContain('LOG_LEVEL')
         expect(document.body.textContent).toContain('SMTP_PASSWORD (hidden)')
+        expect(document.body.textContent).toContain('outcome: saved')
+        expect(document.body.textContent).toContain('outcome: saved_with_error')
+        expect(document.body.textContent).toContain('outcome: applied_to_active')
+        expect(document.body.textContent).toContain('configuration fingerprint: fingerprint-2')
+        expect(document.body.textContent).toContain('issuer: https://id.example')
+        expect(document.body.textContent).toContain('subject: subject-2')
+        expect(document.body.textContent).toContain('assurance basis: email_verified')
         expect(document.body.textContent).not.toContain('debug')
         expect(document.body.textContent).not.toContain('Oh snap!')
         act(() => root.unmount())

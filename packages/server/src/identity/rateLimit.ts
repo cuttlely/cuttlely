@@ -37,6 +37,7 @@ type FailureRow = { scope: 'ip' | 'account'; key: string; at: number }
 export const ACCOUNT_LOCK_CAP = 1024
 export const OIDC_LOGIN_START_LIMIT = 600
 export const OIDC_CALLBACK_LIMIT = 1200
+export const OIDC_INVITE_START_LIMIT = 120
 export const OIDC_FAILURE_LIMIT = 20
 export const OIDC_FAILURE_ADDRESS_CAP = 1024
 export const OIDC_ADMIN_WRITE_LIMIT = 10

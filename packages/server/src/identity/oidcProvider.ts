@@ -334,7 +334,8 @@ export async function beginOidcAuthorization(input: {
     const providerKey = oidcProviderKey(input.installationId, config.issuer, config.clientId)
     const redirectUri = (() => {
         const url = new URL(input.callbackUrl)
-        url.searchParams.set('provider', providerKey)
+        url.search = ''
+        url.pathname = `${url.pathname.replace(/\/+$/, '')}/${encodeURIComponent(providerKey)}`
         return url.toString()
     })()
     const envelope: OidcEnvelope = {
@@ -678,6 +679,7 @@ export async function completeOidcAuthorization(input: {
     currentEpoch: number
     now?: number
     onEnvelope?: (envelope: Readonly<OidcEnvelope>) => void
+    onBrowserBound?: (envelope: Readonly<OidcEnvelope>) => void
 }): Promise<{ envelope: OidcEnvelope; config: OidcConfiguration; identity: ValidatedOidcIdentity }> {
     const now = input.now ?? Date.now()
     const envelope = await consumeEnvelope(input.dataSource, input.state, now)
@@ -685,6 +687,7 @@ export async function completeOidcAuthorization(input: {
     if (!input.browserNonce || !safeEqual(envelope.browserNonceHash, sha256(input.browserNonce))) {
         throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.', 'browser_binding_failed')
     }
+    input.onBrowserBound?.(envelope)
     if (input.error) {
         validateAuthorizationResponseBinding(envelope, input.callbackUrl, input.responseIssuer)
         throw new OidcError('denied', 'The identity provider denied sign-in.', 'provider_denied')

@@ -1,4 +1,6 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
+import express from 'express'
+import request from 'supertest'
 let mockCachedMethod: 'workos' | 'oidc' = 'workos'
 const mockRefreshAuthenticationView = jest.fn(async () => {
     mockCachedMethod = 'oidc'
@@ -33,7 +35,15 @@ function inviteStartHandler(): (req: unknown, res: unknown, next: (error?: unkno
     const layer = (
         identityAuthRouter as unknown as { stack: Array<{ route?: { path?: string; stack?: Array<{ handle: unknown }> } }> }
     ).stack.find((candidate) => candidate.route?.path === '/invite/start')
-    return layer?.route?.stack?.[0]?.handle as (req: unknown, res: unknown, next: (error?: unknown) => void) => void
+    return layer?.route?.stack?.at(-1)?.handle as (req: unknown, res: unknown, next: (error?: unknown) => void) => void
+}
+
+function app() {
+    const server = express()
+    server.set('trust proxy', true)
+    server.use(express.json())
+    server.use('/api/v1/auth', identityAuthRouter)
+    return server
 }
 
 describe('active authentication method route dispatch', () => {
@@ -79,5 +89,35 @@ describe('active authentication method route dispatch', () => {
         expect(mockRefreshAuthenticationView).toHaveBeenCalledTimes(1)
         expect(mockOidcInviteStartUrl).toHaveBeenCalledWith(expect.anything(), 'invitation-token')
         expect(mockHandleInviteStart).not.toHaveBeenCalled()
+    })
+
+    it('uses the same invitation response for a rejected OIDC token', async () => {
+        mockOidcInviteStartUrl.mockRejectedValueOnce(new Error('This invite link is not valid. Ask for a new invite.'))
+        const response = await request(app())
+            .post('/api/v1/auth/invite/start')
+            .set('x-request-from', 'internal')
+            .set('x-forwarded-for', '192.0.2.81')
+            .send({ token: 'well-formed-but-invalid' })
+
+        expect(response.status).toBe(400)
+        expect(response.body).toEqual({ message: 'This invite link is not valid. Ask for a new invite.' })
+    })
+
+    it('limits invitation starts independently', async () => {
+        const server = app()
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+            const response = await request(server)
+                .post('/api/v1/auth/invite/start')
+                .set('x-request-from', 'internal')
+                .set('x-forwarded-for', '192.0.2.82')
+                .send({ token: `token-${attempt}` })
+            expect(response.status).toBe(200)
+        }
+        const limited = await request(server)
+            .post('/api/v1/auth/invite/start')
+            .set('x-request-from', 'internal')
+            .set('x-forwarded-for', '192.0.2.82')
+            .send({ token: 'token-limited' })
+        expect(limited.status).toBe(429)
     })
 })

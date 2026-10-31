@@ -522,6 +522,17 @@ export async function createProviderLink(
     }
 }
 
+export async function ensureProviderLink(
+    dataSource: DataSource,
+    link: Omit<ProviderLink, 'createdAt'>,
+    now = Date.now()
+): Promise<'linked' | 'existing' | 'conflict'> {
+    const created = await createProviderLink(dataSource, link, now)
+    if (created === 'linked') return created
+    const existing = await findProviderLink(dataSource, link.providerKey, link.subject)
+    return existing?.userId === link.userId ? 'existing' : 'conflict'
+}
+
 export async function migrateLegacyProviderLinks(
     dataSource: DataSource,
     state: { activeMethod: string | null; providerKey: string | null; warningKind: string | null }
@@ -714,6 +725,31 @@ export async function resolveOidcUser(
     { ok: true; user: UserRow; basis: string; linkCreated: boolean } | { ok: false; reason: string; basis?: string; matchedUserId?: string }
 > {
     const linked = await findProviderLink(dataSource, identity.providerKey, identity.subject)
+    const email = identity.email ? mailboxKey(identity.email) : ''
+    if (options.invitationToken) {
+        if (!email) return { ok: false, reason: 'email_required' }
+        if (identity.emailVerified === false) return { ok: false, reason: 'email_not_assured' }
+        const pending = (await store.findUsersByEmail(email)).filter(
+            (row) => mailboxKey(row.email) === email && String(row.status).toLowerCase() === 'invited'
+        )
+        if (pending.length !== 1) return { ok: false, reason: 'invite_invalid', matchedUserId: pending[0]?.id }
+        const user = pending[0]
+        if (linked && linked.userId !== user.id) return { ok: false, reason: 'invite_invalid', matchedUserId: user.id }
+        const accepted = await store.acceptInvite({
+            token: options.invitationToken,
+            userId: user.id,
+            email,
+            externalId: identity.subject,
+            providerKey: identity.providerKey,
+            subject: identity.subject,
+            assuranceBasis: 'invitation',
+            authenticationMethod: 'oidc',
+            now: options.now ?? Date.now()
+        })
+        return accepted === 'accepted'
+            ? { ok: true, user: { ...user, status: 'active' }, basis: 'invitation', linkCreated: !linked }
+            : { ok: false, reason: 'invite_invalid', matchedUserId: user.id }
+    }
     if (linked) {
         const session = await store.sessionFor(linked.userId)
         if (!session || String(session.status).toLowerCase() !== 'active') {
@@ -726,7 +762,6 @@ export async function resolveOidcUser(
             : { ok: false, reason: 'inactive', matchedUserId: linked.userId }
     }
 
-    const email = identity.email ? mailboxKey(identity.email) : ''
     if (!email) return { ok: false, reason: 'email_required' }
     if (identity.emailVerified === false) return { ok: false, reason: 'email_not_assured' }
     const entra = isEntraAuthorityIssuer(identity.issuer) && identity.xmsEdov === true
@@ -770,20 +805,7 @@ export async function resolveOidcUser(
     if (matches.length !== 1) return { ok: false, reason: matches.length > 1 ? 'ambiguous' : 'unknown', basis: basis || undefined }
     const user = matches[0]
     if (String(user.status).toLowerCase() === 'invited') {
-        if (!options.invitationToken) return { ok: false, reason: 'invite_required', matchedUserId: user.id }
-        const accepted = await store.acceptInvite({
-            token: options.invitationToken,
-            userId: user.id,
-            email,
-            externalId: identity.subject,
-            providerKey: identity.providerKey,
-            subject: identity.subject,
-            assuranceBasis: 'invitation',
-            now: options.now ?? Date.now()
-        })
-        return accepted === 'accepted'
-            ? { ok: true, user: { ...user, status: 'active' }, basis: 'invitation', linkCreated: true }
-            : { ok: false, reason: 'invite_invalid', matchedUserId: user.id }
+        return { ok: false, reason: 'invite_required', matchedUserId: user.id }
     }
     if (String(user.status).toLowerCase() !== 'active') return { ok: false, reason: 'inactive', matchedUserId: user.id }
     if (!basis) return { ok: false, reason: 'email_not_assured', matchedUserId: user.id }

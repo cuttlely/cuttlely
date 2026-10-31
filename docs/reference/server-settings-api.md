@@ -201,7 +201,7 @@ A lifetime or port must be a whole number inside its range. A value outside the 
 | `SMTP_USER`                           | empty     | one line                      |
 | `SENDER_EMAIL`                        | empty     | one email address             |
 
-`INVITE_DELIVERY` is `request` (follow the request), `link` (copy link), or `email`. It applies when an invite omits `link`. An invite that sets `link` still wins. With nothing saved and nothing in the environment, an omitted `link` still returns `{ "id" }` only while AuthKit is off. With AuthKit on, `request` returns the link.
+`INVITE_DELIVERY` is `request` (follow the request), `link` (copy link), or `email`. It applies when an invite omits `link`. An invite that sets `link` still wins. With nothing saved and nothing in the environment, an omitted `link` returns `{ "id" }` only with Local active. With WorkOS or generic OIDC active, `request` returns the link. Delivery `email` sends the URL and returns `{ "id", "mailed": true }` when mail is configured.
 
 `SMTP_PASSWORD` is env-only. `GET` returns `secret.set` and omits `value` and `effective`. `PUT` is rejected. A password stored in the settings file is ignored. `pnpm settings list` prints `(set, hidden)` or `(not set)`. `SMTP_STARTTLS` is not a panel setting. It stays in the environment.
 

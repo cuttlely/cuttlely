@@ -314,6 +314,9 @@ describe('generic OIDC provider', () => {
             redirectTarget: '/',
             purpose: 'signin'
         })
+        expect(new URL(begun.callbackUrl).search).toBe('')
+        expect(new URL(begun.callbackUrl).pathname).toMatch(/\/api\/v1\/auth\/oidc\/callback\/[a-f0-9]{64}$/)
+        expect(new URL(begun.url).searchParams.get('redirect_uri')).toBe(begun.callbackUrl)
         idp.nonce = new URL(begun.url).searchParams.get('nonce') || ''
         await completeOidcAuthorization({
             dataSource: db.source,

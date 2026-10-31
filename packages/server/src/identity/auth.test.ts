@@ -647,7 +647,14 @@ describe('identity auth', () => {
         }
         expect(store.users[0]).toMatchObject({ status: 'active', externalId: 'wos-1', credential: null })
         expect(store.inviteCalls).toEqual([
-            { token: 'invite-token', userId: 'user-2', email: 'owner@example.com', externalId: 'wos-1', now: NOW }
+            {
+                token: 'invite-token',
+                userId: 'user-2',
+                email: 'owner@example.com',
+                externalId: 'wos-1',
+                authenticationMethod: 'workos',
+                now: NOW
+            }
         ])
         expect(port.externalIds).toEqual([{ workosUserId: 'wos-1', ourUserId: 'user-2' }])
 

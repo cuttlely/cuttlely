@@ -300,7 +300,6 @@ export default function AuthenticationSettings() {
                             helperText='Keep this exact URL registered while this provider is active.'
                         />
                         {oidc?.callbackError && <Alert severity='error'>{oidc.callbackError}</Alert>}
-                        <TextField label='Post-logout URL' value={oidc?.postLogoutUrl || ''} InputProps={{ readOnly: true }} />
                         <TextField label='Scopes' value='openid email profile' InputProps={{ readOnly: true }} />
                         <FormControlLabel
                             control={

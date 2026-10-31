@@ -22,17 +22,37 @@ import auditApi from '@/api/audit'
 import { AUDIT_TYPES, auditParams } from './query'
 import LogsEmptySVG from '@/assets/images/logs_empty.svg'
 
-function detailText(event) {
+const DETAIL_FIELDS = [
+    ['method', 'method'],
+    ['outcome', 'outcome'],
+    ['configurationFingerprint', 'configuration fingerprint'],
+    ['issuer', 'issuer'],
+    ['subject', 'subject'],
+    ['matchedUser', 'matched user'],
+    ['basis', 'assurance basis'],
+    ['category', 'category']
+]
+
+export function detailText(event) {
     const changes = event?.detail?.changes
-    if (!Array.isArray(changes) || !changes.length) return ''
-    return changes
-        .map((change) => {
-            if (!change || typeof change.key !== 'string' || !change.key) return ''
-            if (change.values === 'hidden' || change.secret) return `${change.key} (hidden)`
-            return change.key
-        })
-        .filter(Boolean)
-        .join(', ')
+    if (Array.isArray(changes) && changes.length) {
+        return changes
+            .map((change) => {
+                if (!change || typeof change.key !== 'string' || !change.key) return ''
+                if (change.values === 'hidden' || change.secret) return `${change.key} (hidden)`
+                return change.key
+            })
+            .filter(Boolean)
+            .join(', ')
+    }
+    const detail = event?.detail
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return ''
+    return DETAIL_FIELDS.flatMap(([key, label]) => {
+        const value = detail[key]
+        if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return []
+        const shown = String(value).slice(0, 200)
+        return shown ? [`${label}: ${shown}`] : []
+    }).join(', ')
 }
 
 const AuditLog = () => {

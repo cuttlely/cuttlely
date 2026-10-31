@@ -24,6 +24,7 @@ const mockReadAuthenticationState = jest.fn()
 const mockBeginOidcAuthorization = jest.fn()
 const mockCompleteOidcAuthorization = jest.fn()
 const mockSafeRecordAudit = jest.fn()
+const mockLiveInviteUser = jest.fn()
 
 jest.mock('../controllers/nvidia-nim', () => {
     const actual = jest.requireActual('../controllers/nvidia-nim').default
@@ -57,6 +58,10 @@ jest.mock('../identity/oidcProvider', () => {
 jest.mock('../identity/auditLog', () => {
     const actual = jest.requireActual('../identity/auditLog')
     return { ...actual, safeRecordAudit: mockSafeRecordAudit }
+})
+jest.mock('../identity/actionLink', () => {
+    const actual = jest.requireActual('../identity/actionLink')
+    return { ...actual, liveInviteUser: mockLiveInviteUser }
 })
 jest.mock('../identity/production', () => {
     const actual = jest.requireActual('../identity/production')
@@ -140,6 +145,7 @@ describe('API key gate on the real API router', () => {
         })
         mockCompleteOidcAuthorization.mockReset().mockRejectedValue(new Error('deterministic callback stop'))
         mockSafeRecordAudit.mockReset().mockResolvedValue(undefined)
+        mockLiveInviteUser.mockReset().mockResolvedValue('user-1')
     })
 
     it.each(nimSpellings)('refuses a no-permission API key on %s %s before the router', async (method, path) => {
@@ -269,14 +275,14 @@ describe('API key gate on the real API router', () => {
         expect(login.status).toBe(302)
         expect(login.headers.location).toBe('https://id.example/authorize')
 
-        const callback = await app().get('/api/v1/auth/oidc/callback?state=state-1&code=code-1')
+        const callback = await app().get('/api/v1/auth/oidc/callback/provider-1?state=state-1&code=code-1')
         expect(callback.status).toBe(302)
         expect(callback.headers.location).toContain('/signin?error=')
         expect(mockCompleteOidcAuthorization).toHaveBeenCalledWith(expect.objectContaining({ state: 'state-1', code: 'code-1' }))
     })
 
     it('keeps non-browser methods on the public OIDC routes behind the session gate', async () => {
-        for (const path of ['/api/v1/auth/oidc/login', '/api/v1/auth/oidc/callback']) {
+        for (const path of ['/api/v1/auth/oidc/login', '/api/v1/auth/oidc/callback/provider-1']) {
             const res = await app().post(path)
             expect({ path, status: res.status, body: res.body }).toEqual({
                 path,
@@ -322,7 +328,7 @@ describe('API key gate on the real API router', () => {
             expect.objectContaining({ purpose: 'invite', invitationToken: 'invite-token' })
         )
 
-        const callback = await app().get('/api/v1/auth/oidc/callback?state=invite-state&code=invite-code')
+        const callback = await app().get('/api/v1/auth/oidc/callback/provider-1?state=invite-state&code=invite-code')
         expect(callback.status).toBe(302)
         expect(callback.body).not.toEqual({ error: 'Unauthorized Access' })
     })
