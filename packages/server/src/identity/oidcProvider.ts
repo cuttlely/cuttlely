@@ -12,7 +12,14 @@ import {
 } from 'crypto'
 import type { DataSource } from 'typeorm'
 import { secureFetch } from '@cuttlely/components'
-import { OidcConfiguration, consumeOidcTransaction, createOidcTransaction, oidcProviderKey, readOidcConfiguration } from './oidcStore'
+import {
+    isEntraAuthorityIssuer,
+    OidcConfiguration,
+    consumeOidcTransaction,
+    createOidcTransaction,
+    oidcProviderKey,
+    readOidcConfiguration
+} from './oidcStore'
 import { authSecret } from './authSecrets'
 
 export const OIDC_TRANSACTION_MS = 10 * 60 * 1000
@@ -551,7 +558,10 @@ async function completeIdentityFromUserInfo(
     config: OidcConfiguration,
     discovery: OidcDiscovery
 ): Promise<ValidatedOidcIdentity> {
-    if ((identity.email !== undefined && identity.emailVerificationPresent) || !discovery.userinfo_endpoint) return identity
+    const idTokenHasEmailAssurance =
+        identity.email !== undefined &&
+        (identity.emailVerificationPresent || (identity.xmsEdov === true && isEntraAuthorityIssuer(identity.issuer)))
+    if (idTokenHasEmailAssurance || !discovery.userinfo_endpoint) return identity
     if (typeof accessToken !== 'string' || !accessToken)
         throw new OidcError('response', 'The token response has no access token.', 'userinfo_invalid')
     const response = await boundedJson(discovery.userinfo_endpoint, config, {

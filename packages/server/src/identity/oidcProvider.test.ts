@@ -5,8 +5,10 @@ import { createHash, createHmac, generateKeyPairSync, randomBytes, sign } from '
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import type { AddressInfo } from 'net'
 import type { DataSource, QueryRunner } from 'typeorm'
+import type { IdentityStore } from './store'
+import type { UserRow } from './types'
 import { addOidcProvider } from './schemaMigration'
-import { oidcConfigurationFingerprint, OidcConfiguration, saveOidcDraft } from './oidcStore'
+import { oidcConfigurationFingerprint, OidcConfiguration, resolveOidcUser, saveOidcDraft } from './oidcStore'
 import {
     beginOidcAuthorization,
     checkOidcConfiguration,
@@ -206,6 +208,18 @@ function configuration(idp: TestIdp, privateIssuerHosts = ['127.0.0.1']): OidcCo
     }
 }
 
+function identityStore(users: UserRow[]): IdentityStore {
+    return {
+        countUsers: async () => users.length,
+        findUsersByEmail: async (email: string) => users.filter((candidate) => candidate.email.toLowerCase() === email.toLowerCase()),
+        sessionFor: async () => null,
+        acceptInvite: async () => 'invalid',
+        createOwner: async () => {
+            throw new Error('not used')
+        }
+    } as unknown as IdentityStore
+}
+
 describe('generic OIDC provider', () => {
     let idp: TestIdp
     const savedEnvironment: Record<string, string | undefined> = {}
@@ -340,6 +354,74 @@ describe('generic OIDC provider', () => {
         await expect(validateIdToken(idp.token(), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
             subject: 'subject-1'
         })
+    })
+
+    it('links an Entra ID-token email with xms_edov when UserInfo omits assurance', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const issuer = 'https://login.microsoftonline.com/tenant/v2.0'
+        const safe = {
+            issuer,
+            clientId: idp.clientId,
+            clientSecretEnvVar: 'CUTTLELY_TEST_OIDC_CLIENT_SECRET',
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: ['127.0.0.1']
+        }
+        const fingerprint = oidcConfigurationFingerprint(safe)
+        const discovery = { ...idp.discovery(), issuer }
+        await saveOidcDraft(
+            db.source,
+            {
+                ...safe,
+                fingerprint,
+                discovery,
+                health: 'ready',
+                healthError: null,
+                checkedAt: new Date().toISOString()
+            },
+            0
+        )
+        await db.source.query('UPDATE identity_oidc_configuration SET slot = ? WHERE slot = ?', ['active', 'draft'])
+
+        idp.issuer = issuer
+        idp.claims = { email: 'ada@example.com', email_verified: undefined, xms_edov: true }
+        idp.userInfo = { sub: 'subject-1', email: 'ada@example.com' }
+        const begun = await beginOidcAuthorization({
+            dataSource: db.source,
+            slot: 'active',
+            installationId: 'installation',
+            authenticationEpoch: 1,
+            callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+            redirectTarget: '/',
+            purpose: 'signin'
+        })
+        idp.nonce = new URL(begun.url).searchParams.get('nonce') || ''
+        const completed = await completeOidcAuthorization({
+            dataSource: db.source,
+            state: begun.state,
+            code: 'code',
+            responseIssuer: issuer,
+            callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+            browserNonce: begun.browserNonce,
+            currentEpoch: 1
+        })
+        const user: UserRow = {
+            id: 'user-1',
+            email: 'ada@example.com',
+            name: 'Ada',
+            externalId: null,
+            credential: null,
+            status: 'active'
+        }
+        await expect(resolveOidcUser(db.source, identityStore([user]), completed.identity, { trustMissing: false })).resolves.toMatchObject(
+            {
+                ok: true,
+                user: { id: 'user-1' },
+                basis: 'xms_edov'
+            }
+        )
+        expect(idp.lastUserInfoAuthorization).toBe('')
+        db.close()
     })
 
     it('uses a single-use encrypted transaction and rejects state, epoch, denial, and response issuer errors', async () => {
