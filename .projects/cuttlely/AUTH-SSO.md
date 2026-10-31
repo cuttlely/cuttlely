@@ -161,7 +161,7 @@ An owner creates a high-entropy bearer token from the Auth / SSO page. The clear
 
 Creation produces a provisioned account; it never grants owner status. The account has no session until its first successful SSO sign-in, with no policy toggle in v1. Setting `active` to false disables the user transactionally, invalidates open invitation and reset artifacts, increments the permission or authentication version, deletes all of that user's sessions, and disables all of the user's API keys and personal tokens before returning success. Re-enabling does not restore old sessions, keys, or tokens. Destructive deletion is represented as deactivation initially to retain audit and ownership integrity.
 
-SCIM can never deactivate, delete, or demote an owner, including the last owner. Such a request returns `409 Conflict`, makes no user, role, credential, or session change, and records an audit event. The same last-owner invariant applies to administrator actions; attempts to disable, delete, or demote the last owner fail with `409 Conflict` and are audited.
+SCIM can deactivate or delete an owner only while another active owner remains, and it never changes the owner role. A request to deactivate or delete the last active owner returns `409 Conflict`, makes no user, role, credential, or session change, and records an audit event. The same last-owner invariant applies to administrator actions; attempts to disable, delete, or demote the last active owner fail with `409 Conflict` and are audited.
 
 ### Groups and mappings
 

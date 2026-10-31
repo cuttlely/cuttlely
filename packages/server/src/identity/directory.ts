@@ -12,7 +12,14 @@
 
 import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
-import { builtInPermissionJson, builtInPermissionKeys, builtInRoleName, isReservedRoleName, permissionsLowered } from './builtInRoles'
+import {
+    builtInPermissionJson,
+    builtInPermissionKeys,
+    builtInRoleName,
+    isReservedRoleName,
+    permissionsLowered,
+    scimMappingRoleAllowed
+} from './builtInRoles'
 import { DEFAULT_WORKSPACE, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { utcDbTime } from './dbTime'
 import { likeEscapeClause } from './likeEscape'
@@ -175,6 +182,15 @@ export async function revokeInviteLinks(
     )
 }
 
+/** Close every open invite and password-reset link for a deactivated account. */
+async function revokeAuthenticationLinks(query: QueryFn, sql: Sql, userId: string, now = Date.now()): Promise<void> {
+    await query(
+        `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} IN (?, ?) AND ${q(sql, 'usedAt')} IS NULL`,
+        [utcDbTime(sql.type, now), 'revoked', userId, 'invite', 'reset']
+    )
+}
+
 function storedPermissions(value: unknown): string[] {
     const raw = text(value)
     if (!raw) return []
@@ -244,6 +260,53 @@ async function refuseLastOwnerDisable(query: QueryFn, sql: Sql, organizationId: 
         [organizationId, userId]
     )
     return text(cell(rows[0] || {}, 'status')).toLowerCase() === 'disable' ? 'ok' : 'last'
+}
+
+/**
+ * Deactivate one account and every local credential in the caller's transaction.
+ * The owner rows are locked first so concurrent requests cannot remove all owners.
+ */
+export async function deactivateUserInTransaction(
+    query: QueryFn,
+    sql: Sql,
+    organizationId: string,
+    userId: string,
+    now = Date.now(),
+    options: { preservePendingStatus?: boolean } = {}
+): Promise<void> {
+    await lockOrgOwners(query, sql, organizationId, userId)
+    const membership = await query(
+        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
+         WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+        [organizationId, userId]
+    )
+    if (!membership.length) throw new DirectoryError(404, 'User not found')
+    if ((await refuseLastOwnerDisable(query, sql, organizationId, userId)) === 'last') {
+        throw new DirectoryError(409, 'The last owner cannot be removed')
+    }
+    await query(
+        `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'disable', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+         WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) ${
+            options.preservePendingStatus ? "= 'active'" : "IN ('active', 'invited')"
+        }`,
+        [userId]
+    )
+    await revokeAuthenticationLinks(query, sql, userId, now)
+    await endLocalSessions(query, sql, userId)
+    const at = utcDbTime(sql.type, now)
+    for (const table of ['apikey', 'identity_personal_token']) {
+        try {
+            await query(
+                `UPDATE ${q(sql, table)} SET ${q(sql, 'disabledAt')} = ?
+                 WHERE ${q(sql, 'ownerUserId')} = ? AND ${q(sql, 'disabledAt')} IS NULL`,
+                [at, userId]
+            )
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            // Supports an application copy completing this transaction while its schema migration is still pending.
+            if (!/no such table|does not exist|doesn't exist|unknown column|no column named/i.test(message)) throw error
+        }
+    }
 }
 
 async function actorGrant(query: QueryFn, sql: Sql, actor: DirectoryActor): Promise<{ owner: boolean; permissions: string[] }> {
@@ -612,6 +675,84 @@ async function ownerUser(query: QueryFn, sql: Sql, organizationId: string, userI
     return text(cell(rows[0] || {}, 'name')).toLowerCase() === OWNER_ROLE
 }
 
+async function auditLastOwnerRefusal(
+    sql: Sql,
+    actor: DirectoryActor,
+    userId: string,
+    operation: string,
+    type: 'user_disable' | 'role_change',
+    workspaceId: string | null = null
+): Promise<void> {
+    await safeRecordAudit(sql, {
+        type,
+        organizationId: actor.organizationId,
+        workspaceId,
+        userId,
+        actorId: actor.id,
+        summary: 'Last owner change refused',
+        detail: { operation, outcome: 'refused' }
+    })
+}
+
+async function auditScimReferenceRefusal(
+    sql: Sql,
+    actor: DirectoryActor,
+    type: 'role_change' | 'user_disable',
+    operation: string,
+    options: { userId?: string | null; workspaceId?: string | null; roleId?: string | null } = {}
+): Promise<void> {
+    await safeRecordAudit(sql, {
+        type,
+        organizationId: actor.organizationId,
+        workspaceId: options.workspaceId || null,
+        userId: options.userId || null,
+        actorId: actor.id,
+        summary: 'SCIM-managed change refused',
+        detail: { operation, outcome: 'refused', roleId: options.roleId || null, rule: 'scim_reference' }
+    })
+}
+
+function missingOptionalIdentityTable(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    return /no such table|does not exist|doesn't exist|unknown table/i.test(message)
+}
+
+async function scimMappingCount(
+    query: QueryFn,
+    sql: Sql,
+    organizationId: string,
+    column: 'roleId' | 'workspaceId',
+    id: string
+): Promise<number> {
+    try {
+        const rows = await query(
+            `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(
+                sql,
+                column
+            )} = ?`,
+            [organizationId, id]
+        )
+        return num(cell(rows[0] || {}, 'count'))
+    } catch (error) {
+        if (missingOptionalIdentityTable(error)) return 0
+        throw error
+    }
+}
+
+async function hasCurrentScimLink(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<boolean> {
+    try {
+        const rows = await query(
+            `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_user')} WHERE ${q(sql, 'organizationId')} = ?
+             AND ${q(sql, 'userId')} = ? AND ${q(sql, 'deletedAt')} IS NULL`,
+            [organizationId, userId]
+        )
+        return num(cell(rows[0] || {}, 'count')) > 0
+    } catch (error) {
+        if (missingOptionalIdentityTable(error)) return false
+        throw error
+    }
+}
+
 export async function deleteOrganizationUser(
     sql: Sql,
     actor: DirectoryActor,
@@ -620,51 +761,70 @@ export async function deleteOrganizationUser(
 ): Promise<{ id: string }> {
     sameOrg(actor, organizationId)
     if (!userId) throw new DirectoryError(400, 'User is required')
-    return sql.transaction(async (query) => {
-        await assertSharedActiveTeam(query, sql, actor, userId)
-        if (!(await ownerUser(query, sql, organizationId, actor.id))) {
-            throw new DirectoryError(403, 'Only an owner can remove someone from every team')
-        }
-        await lockOrgOwners(query, sql, organizationId, userId)
-        const membership = await query(
-            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
+    let scimLinkRefused = false
+    try {
+        return await sql.transaction(async (query) => {
+            await assertSharedActiveTeam(query, sql, actor, userId)
+            if (!(await ownerUser(query, sql, organizationId, actor.id))) {
+                throw new DirectoryError(403, 'Only an owner can remove someone from every team')
+            }
+            await lockOrgOwners(query, sql, organizationId, userId)
+            const membership = await query(
+                `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-            [organizationId, userId]
-        )
-        if (!membership.length) throw new DirectoryError(404, 'User not found')
-        const owners = await enabledOwnerIds(query, sql, organizationId)
-        if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
-        await query(
-            `DELETE FROM ${q(sql, 'organization_user')}
-             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-            [organizationId, userId]
-        )
-        const kept = await query(
-            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
-             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-            [organizationId, userId]
-        )
-        if (kept.length) throw new DirectoryError(409, 'The last owner cannot be removed')
-        await query(
-            `DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'workspaceId')} IN
-                (SELECT ${q(sql, 'id')} FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'organizationId')} = ?)`,
-            [userId, organizationId]
-        )
-        await revokeInviteLinks(query, sql, userId, { organizationId })
-        const remaining = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'organization_user')} WHERE ${q(sql, 'userId')} = ?`, [
-            userId
-        ])
-        if (num(cell(remaining[0] || {}, 'count')) === 0) {
+                [organizationId, userId]
+            )
+            if (!membership.length) throw new DirectoryError(404, 'User not found')
+            const owners = await enabledOwnerIds(query, sql, organizationId)
+            if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
+            if (await hasCurrentScimLink(query, sql, organizationId, userId)) {
+                scimLinkRefused = true
+                throw new DirectoryError(
+                    409,
+                    'Delete this person in the identity provider, or remove the SCIM link, before removing them from the organization'
+                )
+            }
             await query(
-                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'email')} = ?, ${q(sql, 'status')} = ?, ${q(sql, 'externalId')} = NULL,
+                `DELETE FROM ${q(sql, 'organization_user')}
+             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                [organizationId, userId]
+            )
+            const kept = await query(
+                `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
+             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                [organizationId, userId]
+            )
+            if (kept.length) throw new DirectoryError(409, 'The last owner cannot be removed')
+            await query(
+                `DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'workspaceId')} IN
+                (SELECT ${q(sql, 'id')} FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'organizationId')} = ?)`,
+                [userId, organizationId]
+            )
+            await revokeInviteLinks(query, sql, userId, { organizationId })
+            const remaining = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'organization_user')} WHERE ${q(sql, 'userId')} = ?`, [
+                userId
+            ])
+            if (num(cell(remaining[0] || {}, 'count')) === 0) {
+                await query(
+                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'email')} = ?, ${q(sql, 'status')} = ?, ${q(sql, 'externalId')} = NULL,
                     ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
                  WHERE ${q(sql, 'id')} = ?`,
-                [`deleted.${userId}@users.invalid`, 'deleted', userId]
-            )
-            await endLocalSessions(query, sql, userId)
+                    [`deleted.${userId}@users.invalid`, 'deleted', userId]
+                )
+                await endLocalSessions(query, sql, userId)
+            }
+            return { id: userId }
+        })
+    } catch (error) {
+        if (error instanceof DirectoryError && error.status === 409) {
+            if (scimLinkRefused) {
+                await auditScimReferenceRefusal(sql, actor, 'user_disable', 'organization membership removal', { userId })
+            } else {
+                await auditLastOwnerRefusal(sql, actor, userId, 'organization membership removal', 'user_disable')
+            }
         }
-        return { id: userId }
-    })
+        throw error
+    }
 }
 
 export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, body: unknown): Promise<{ id: string }> {
@@ -683,60 +843,54 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
             ? 'invited'
             : ''
     if (!status) throw new DirectoryError(400, 'Status must be active or inactive')
-    return sql.transaction(async (query) => {
-        await assertSharedActiveTeam(query, sql, actor, userId)
-        await lockOrgOwners(query, sql, organizationId, userId)
-        const still = await query(
-            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
+    try {
+        return await sql.transaction(async (query) => {
+            await assertSharedActiveTeam(query, sql, actor, userId)
+            const still = await query(
+                `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-            [organizationId, userId]
-        )
-        if (!still.length) throw new DirectoryError(404, 'User not found')
-        if (status === 'invited') {
-            // Keeps a pending user pending and enabled. It never sets anyone to invited and never activates the user.
-            const current = await query(`SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ?`, [userId])
-            if (text(cell(current[0] || {}, 'status')).toLowerCase() !== 'invited') {
-                throw new DirectoryError(400, 'Status must be active or inactive')
+                [organizationId, userId]
+            )
+            if (!still.length) throw new DirectoryError(404, 'User not found')
+            if (status === 'invited') {
+                // Keeps a pending user pending and enabled. It never sets anyone to invited and never activates the user.
+                const current = await query(`SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ?`, [
+                    userId
+                ])
+                if (text(cell(current[0] || {}, 'status')).toLowerCase() !== 'invited') {
+                    throw new DirectoryError(400, 'Status must be active or inactive')
+                }
+                await query(
+                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                    ['active', organizationId, userId]
+                )
+                return { id: userId }
             }
+            if (status === 'disable') {
+                await deactivateUserInTransaction(query, sql, organizationId, userId, Date.now(), { preservePendingStatus: true })
+                return { id: userId }
+            }
+            await lockOrgOwners(query, sql, organizationId, userId)
             await query(
                 `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                ['active', organizationId, userId]
+             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                [status, organizationId, userId]
             )
-            return { id: userId }
-        }
-        if (status === 'disable') {
-            const kept = await refuseLastOwnerDisable(query, sql, organizationId, userId)
-            if (kept === 'last') throw new DirectoryError(409, 'The last owner cannot be removed')
+            // Enabling never activates a pending invite. Only that person's invite link does.
             await query(
                 `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'active'`,
-                ['disable', userId]
-            )
-            // A pending invite stays pending. Disabling it closes the membership and its open invite links.
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
-                   AND EXISTS (SELECT 1 FROM ${q(sql, 'user')} u WHERE u.${q(sql, 'id')} = ? AND LOWER(u.${q(sql, 'status')}) = 'invited')`,
-                ['disable', organizationId, userId, userId]
-            )
-            await revokeInviteLinks(query, sql, userId, { organizationId })
-            await endLocalSessions(query, sql, userId)
-            return { id: userId }
-        }
-        await query(
-            `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-            [status, organizationId, userId]
-        )
-        // Enabling never activates a pending invite. Only that person's invite link does.
-        await query(
-            `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
              WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'disable'`,
-            ['active', userId]
-        )
-        return { id: userId }
-    })
+                ['active', userId]
+            )
+            return { id: userId }
+        })
+    } catch (error) {
+        if (status === 'disable' && error instanceof DirectoryError && error.status === 409) {
+            await auditLastOwnerRefusal(sql, actor, userId, 'user disable', 'user_disable')
+        }
+        throw error
+    }
 }
 
 export interface WorkspaceMembershipJson {
@@ -836,22 +990,23 @@ export async function listWorkspaceMemberships(
 
 export async function deleteWorkspaceUser(sql: Sql, actor: DirectoryActor, workspaceId: string, userId: string): Promise<{ id: string }> {
     if (!workspaceId || !userId) throw new DirectoryError(400, 'User and team are required')
-    return sql.transaction(async (query) => {
-        await assertSameWorkspace(query, sql, actor, workspaceId)
-        await lockOrgOwners(query, sql, actor.organizationId, userId)
-        const rows = await query(
-            `SELECT wu.${q(sql, 'userId')} AS userId, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
+    try {
+        return await sql.transaction(async (query) => {
+            await assertSameWorkspace(query, sql, actor, workspaceId)
+            await lockOrgOwners(query, sql, actor.organizationId, userId)
+            const rows = await query(
+                `SELECT wu.${q(sql, 'userId')} AS userId, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
              FROM ${q(sql, 'workspace_user')} wu
              LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = wu.${q(sql, 'roleId')}
              WHERE wu.${q(sql, 'workspaceId')} = ? AND wu.${q(sql, 'userId')} = ?`,
-            [workspaceId, userId]
-        )
-        if (!rows.length) throw new DirectoryError(404, 'Workspace user not found')
-        // A non-owner may remove only someone whose current team role they cover.
-        assertCovers(await actorGrant(query, sql, actor), permissionsOn(rows[0] || {}), TARGET_REMOVE_NOT_COVERED)
-        const owners = `(${enabledOwnersSql(sql)})`
-        const blocked = await query(
-            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')} current
+                [workspaceId, userId]
+            )
+            if (!rows.length) throw new DirectoryError(404, 'Workspace user not found')
+            // A non-owner may remove only someone whose current team role they cover.
+            assertCovers(await actorGrant(query, sql, actor), permissionsOn(rows[0] || {}), TARGET_REMOVE_NOT_COVERED)
+            const owners = `(${enabledOwnersSql(sql)})`
+            const blocked = await query(
+                `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')} current
              WHERE current.${q(sql, 'workspaceId')} = ? AND current.${q(sql, 'userId')} = ?
                AND EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = current.${q(sql, 'userId')})
                AND (SELECT COUNT(*) FROM ${owners} owners) < 2
@@ -864,17 +1019,23 @@ export async function deleteWorkspaceUser(sql: Sql, actor: DirectoryActor, works
                    AND otherTeam.${q(sql, 'name')} <> ?
                    AND LOWER(other.${q(sql, 'status')}) IN ('active', 'invited')
                )`,
-            [workspaceId, userId, actor.organizationId, actor.organizationId, actor.organizationId, PERSONAL_WORKSPACE]
-        )
-        if (blocked.length) throw new DirectoryError(409, 'The last owner cannot be removed')
-        await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`, [
-            workspaceId,
-            userId
-        ])
-        await revokeInviteLinks(query, sql, userId, { workspaceId })
-        await endLocalSessions(query, sql, userId)
-        return { id: userId }
-    })
+                [workspaceId, userId, actor.organizationId, actor.organizationId, actor.organizationId, PERSONAL_WORKSPACE]
+            )
+            if (blocked.length) throw new DirectoryError(409, 'The last owner cannot be removed')
+            await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`, [
+                workspaceId,
+                userId
+            ])
+            await revokeInviteLinks(query, sql, userId, { workspaceId })
+            await endLocalSessions(query, sql, userId)
+            return { id: userId }
+        })
+    } catch (error) {
+        if (error instanceof DirectoryError && error.status === 409) {
+            await auditLastOwnerRefusal(sql, actor, userId, 'team membership removal', 'role_change', workspaceId)
+        }
+        throw error
+    }
 }
 
 export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, body: unknown): Promise<{ id: string }> {
@@ -885,73 +1046,81 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
     if (!userId || !workspaceId || !roleId) throw new DirectoryError(400, 'User, team, and role are required')
     if (userId === actor.id) throw new DirectoryError(403, 'You cannot change your own role')
     let fromRoleId = ''
-    const result = await sql.transaction(async (query) => {
-        await assertSameWorkspace(query, sql, actor, workspaceId)
-        const grant = await actorGrant(query, sql, actor)
-        // Only another owner may change an owner's team role. An admin never can, even with several owners.
-        if (!grant.owner && (await ownerUser(query, sql, actor.organizationId, userId))) {
-            throw new DirectoryError(403, "The organization owner's role cannot be changed")
-        }
-        const role = await roleRow(query, sql, roleId)
-        if (!role) throw new DirectoryError(400, 'Choose a role')
-        const roleName = text(cell(role, 'name')).toLowerCase()
-        if (roleName === OWNER_ROLE && !grant.owner) throw new DirectoryError(403, 'Only an owner can assign the owner role')
-        if (!assignable(role, actor.organizationId, grant.owner)) throw new DirectoryError(400, 'Choose a role')
-        assertCovers(grant, permissionsOn(role))
-        const current = await query(
-            `SELECT wu.${q(sql, 'roleId')} AS roleId, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
+    let result: { id: string }
+    try {
+        result = await sql.transaction(async (query) => {
+            await assertSameWorkspace(query, sql, actor, workspaceId)
+            const grant = await actorGrant(query, sql, actor)
+            // Only another owner may change an owner's team role. An admin never can, even with several owners.
+            if (!grant.owner && (await ownerUser(query, sql, actor.organizationId, userId))) {
+                throw new DirectoryError(403, "The organization owner's role cannot be changed")
+            }
+            const role = await roleRow(query, sql, roleId)
+            if (!role) throw new DirectoryError(400, 'Choose a role')
+            const roleName = text(cell(role, 'name')).toLowerCase()
+            if (roleName === OWNER_ROLE && !grant.owner) throw new DirectoryError(403, 'Only an owner can assign the owner role')
+            if (!assignable(role, actor.organizationId, grant.owner)) throw new DirectoryError(400, 'Choose a role')
+            assertCovers(grant, permissionsOn(role))
+            const current = await query(
+                `SELECT wu.${q(sql, 'roleId')} AS roleId, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
              FROM ${q(sql, 'workspace_user')} wu
              LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = wu.${q(sql, 'roleId')}
              WHERE wu.${q(sql, 'workspaceId')} = ? AND wu.${q(sql, 'userId')} = ?`,
-            [workspaceId, userId]
-        )
-        if (!current.length) throw new DirectoryError(404, 'Workspace user not found')
-        // A non-owner may change only someone whose current team role they cover.
-        assertCovers(grant, permissionsOn(current[0] || {}), TARGET_NOT_COVERED)
-        fromRoleId = text(cell(current[0] || {}, 'roleId'))
-        await lockOrgOwners(query, sql, actor.organizationId, userId)
-        const wasOwner = await ownerUser(query, sql, actor.organizationId, userId)
-        const willBeOwner = roleName === OWNER_ROLE
-        // A team role change leaves the organization role alone. Owner is the exception:
-        // gaining it sets the organization role to owner, and losing it sets that role back to member.
-        if (!wasOwner && willBeOwner) {
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                [roleId, actor.organizationId, userId]
+                [workspaceId, userId]
             )
-        } else if (wasOwner && !willBeOwner) {
-            const memberId = await plainMemberRoleId(query, sql)
-            const owners = await enabledOwnerIds(query, sql, actor.organizationId)
-            if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+            if (!current.length) throw new DirectoryError(404, 'Workspace user not found')
+            // A non-owner may change only someone whose current team role they cover.
+            assertCovers(grant, permissionsOn(current[0] || {}), TARGET_NOT_COVERED)
+            fromRoleId = text(cell(current[0] || {}, 'roleId'))
+            await lockOrgOwners(query, sql, actor.organizationId, userId)
+            const wasOwner = await ownerUser(query, sql, actor.organizationId, userId)
+            const willBeOwner = roleName === OWNER_ROLE
+            // A team role change leaves the organization role alone. Owner is the exception:
+            // gaining it sets the organization role to owner, and losing it sets that role back to member.
+            if (!wasOwner && willBeOwner) {
+                await query(
+                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
                  WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                [memberId, actor.organizationId, userId]
-            )
-            const still = await query(
-                `SELECT r.${q(sql, 'name')} AS name FROM ${q(sql, 'organization_user')} ou
+                    [roleId, actor.organizationId, userId]
+                )
+            } else if (wasOwner && !willBeOwner) {
+                const memberId = await plainMemberRoleId(query, sql)
+                const owners = await enabledOwnerIds(query, sql, actor.organizationId)
+                if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
+                await query(
+                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                    [memberId, actor.organizationId, userId]
+                )
+                const still = await query(
+                    `SELECT r.${q(sql, 'name')} AS name FROM ${q(sql, 'organization_user')} ou
                  LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = ou.${q(sql, 'roleId')}
                  WHERE ou.${q(sql, 'organizationId')} = ? AND ou.${q(sql, 'userId')} = ?`,
-                [actor.organizationId, userId]
-            )
-            if (text(cell(still[0] || {}, 'name')).toLowerCase() === OWNER_ROLE) {
-                throw new DirectoryError(409, 'The last owner cannot be removed')
+                    [actor.organizationId, userId]
+                )
+                if (text(cell(still[0] || {}, 'name')).toLowerCase() === OWNER_ROLE) {
+                    throw new DirectoryError(409, 'The last owner cannot be removed')
+                }
             }
-        }
-        await query(
-            `UPDATE ${q(sql, 'workspace_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedBy')} = ?, ${q(
-                sql,
-                'updatedDate'
-            )} = CURRENT_TIMESTAMP
+            await query(
+                `UPDATE ${q(sql, 'workspace_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedBy')} = ?, ${q(
+                    sql,
+                    'updatedDate'
+                )} = CURRENT_TIMESTAMP
              WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
-            [roleId, actor.id, workspaceId, userId]
-        )
-        if (permissionsLowered(permissionsOn(current[0] || {}), permissionsOn(role), wasOwner && !willBeOwner)) {
-            await endLocalSessions(query, sql, userId)
+                [roleId, actor.id, workspaceId, userId]
+            )
+            if (permissionsLowered(permissionsOn(current[0] || {}), permissionsOn(role), wasOwner && !willBeOwner)) {
+                await endLocalSessions(query, sql, userId)
+            }
+            return { id: userId }
+        })
+    } catch (error) {
+        if (error instanceof DirectoryError && error.status === 409) {
+            await auditLastOwnerRefusal(sql, actor, userId, 'owner role removal', 'role_change', workspaceId)
         }
-        return { id: userId }
-    })
+        throw error
+    }
     if (fromRoleId && fromRoleId !== roleId) {
         await safeRecordAudit(sql, {
             type: 'role_change',
@@ -1091,8 +1260,14 @@ async function chatflowCount(query: QueryFn, sql: Sql, workspaceId: string): Pro
     return workspaceRowCount(query, sql, 'chat_flow', workspaceId)
 }
 
-/** Tables with a workspace foreign key, besides chat_flow, that block deleting the team. */
-const TEAM_OWNED_ROWS: { table: string; label: string }[] = [
+/** Workspace-owned records, besides chat_flow, that block deleting the team. */
+const TEAM_OWNED_ROWS: { table: string; label: string; message?: string; status?: number }[] = [
+    {
+        table: 'identity_scim_mapping',
+        label: 'SCIM mappings',
+        message: 'Remove the SCIM mapping first',
+        status: 409
+    },
     { table: 'credential', label: 'credentials' },
     { table: 'variable', label: 'variables' },
     { table: 'apikey', label: 'API keys' },
@@ -1114,22 +1289,37 @@ function teamOwnedMessage(labels: string[]): string {
 }
 
 export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: string): Promise<{ id: string }> {
-    return sql.transaction(async (query) => {
-        await assertSameWorkspace(query, sql, actor, id)
-        await lockOrgOwners(query, sql, actor.organizationId, actor.id)
-        const current = await workspaceInOrg(query, sql, id, actor.organizationId)
-        if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be deleted')
-        const members = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
-        if (num(cell(members[0] || {}, 'count')) > 1) throw new DirectoryError(400, 'Remove the other people from this team first')
-        if ((await chatflowCount(query, sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
-        const owned: string[] = []
-        for (const item of TEAM_OWNED_ROWS) {
-            if ((await workspaceRowCount(query, sql, item.table, id)) > 0) owned.push(item.label)
-        }
-        if (owned.length) throw new DirectoryError(400, teamOwnedMessage(owned))
-        const owners = `(${enabledOwnersSql(sql)})`
-        const stranded = await query(
-            `SELECT owners.userId AS userId FROM ${owners} owners
+    let refusedOwnerId = actor.id
+    let scimMappingRefused = false
+    try {
+        return await sql.transaction(async (query) => {
+            await assertSameWorkspace(query, sql, actor, id)
+            await lockOrgOwners(query, sql, actor.organizationId, actor.id)
+            const current = await workspaceInOrg(query, sql, id, actor.organizationId)
+            for (const item of TEAM_OWNED_ROWS) {
+                if (!item.message) continue
+                if ((await workspaceRowCount(query, sql, item.table, id)) > 0) {
+                    scimMappingRefused = true
+                    throw new DirectoryError(item.status || 409, item.message)
+                }
+            }
+            if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be deleted')
+            const members = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [
+                id
+            ])
+            if (num(cell(members[0] || {}, 'count')) > 1) throw new DirectoryError(400, 'Remove the other people from this team first')
+            if ((await chatflowCount(query, sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
+            const owned: string[] = []
+            for (const item of TEAM_OWNED_ROWS) {
+                if (item.message) continue
+                if ((await workspaceRowCount(query, sql, item.table, id)) > 0) {
+                    owned.push(item.label)
+                }
+            }
+            if (owned.length) throw new DirectoryError(400, teamOwnedMessage(owned))
+            const owners = `(${enabledOwnersSql(sql)})`
+            const stranded = await query(
+                `SELECT owners.userId AS userId FROM ${owners} owners
              WHERE EXISTS (
                SELECT 1 FROM ${q(sql, 'workspace_user')} here
                WHERE here.${q(sql, 'userId')} = owners.userId AND here.${q(sql, 'workspaceId')} = ?
@@ -1144,18 +1334,29 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
                  AND LOWER(other.${q(sql, 'status')}) IN ('active', 'invited')
              )
              AND (SELECT COUNT(*) FROM ${owners} allOwners) < 2`,
-            [actor.organizationId, id, id, actor.organizationId, PERSONAL_WORKSPACE, actor.organizationId]
-        )
-        if (!stranded.length) {
-            const counted = await query(`SELECT COUNT(*) AS count FROM ${owners} owners`, [actor.organizationId])
-            if (num(cell(counted[0] || {}, 'count')) < 1) throw new DirectoryError(409, 'The last owner cannot be removed')
-        } else {
-            throw new DirectoryError(409, 'The last owner cannot be removed')
+                [actor.organizationId, id, id, actor.organizationId, PERSONAL_WORKSPACE, actor.organizationId]
+            )
+            if (!stranded.length) {
+                const counted = await query(`SELECT COUNT(*) AS count FROM ${owners} owners`, [actor.organizationId])
+                if (num(cell(counted[0] || {}, 'count')) < 1) throw new DirectoryError(409, 'The last owner cannot be removed')
+            } else {
+                refusedOwnerId = text(cell(stranded[0], 'userId')) || actor.id
+                throw new DirectoryError(409, 'The last owner cannot be removed')
+            }
+            await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
+            await query(`DELETE FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'id')} = ?`, [id])
+            return { id }
+        })
+    } catch (error) {
+        if (error instanceof DirectoryError && error.status === 409) {
+            if (scimMappingRefused) {
+                await auditScimReferenceRefusal(sql, actor, 'role_change', 'mapped team deletion', { workspaceId: id })
+            } else {
+                await auditLastOwnerRefusal(sql, actor, refusedOwnerId, 'team deletion', 'role_change', id)
+            }
         }
-        await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
-        await query(`DELETE FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'id')} = ?`, [id])
-        return { id }
-    })
+        throw error
+    }
 }
 
 export async function switchWorkspace(sql: Sql, store: IdentityStore, actor: DirectoryActor, workspaceId: string): Promise<SessionUser> {
@@ -1312,6 +1513,10 @@ export async function updateRole(sql: Sql, actor: DirectoryActor, body: unknown)
     const description = text(record.description).trim()
     const keys = permissionList(record.permissions)
     assertCovers(await actorGrant(sql.query, sql, actor), keys)
+    if ((await scimMappingCount(sql.query, sql, actor.organizationId, 'roleId', id)) > 0 && !scimMappingRoleAllowed(name, keys)) {
+        await auditScimReferenceRefusal(sql, actor, 'role_change', 'mapped role update', { roleId: id })
+        throw new DirectoryError(409, 'This role is used by a SCIM mapping and cannot become an Owner or Auth / SSO administration role')
+    }
     const permissions = JSON.stringify(keys)
     const before = permissionsOn(role)
     await sql.query(
@@ -1349,6 +1554,10 @@ export async function deleteRole(sql: Sql, actor: DirectoryActor, id: string, or
         throw new DirectoryError(403, 'Built-in roles cannot be changed')
     }
     if (text(cell(role, 'organizationId')) !== organizationId) throw new DirectoryError(404, 'Role not found')
+    if ((await scimMappingCount(sql.query, sql, organizationId, 'roleId', id)) > 0) {
+        await auditScimReferenceRefusal(sql, actor, 'role_change', 'mapped role deletion', { roleId: id })
+        throw new DirectoryError(409, 'Remove the SCIM mapping before deleting this role')
+    }
     const count = await roleAssignmentCount(sql, id)
     if (count > 0) throw new DirectoryError(400, 'Remove users with this role first')
     await sql.query(`DELETE FROM ${q(sql, 'role')} WHERE ${q(sql, 'id')} = ?`, [id])

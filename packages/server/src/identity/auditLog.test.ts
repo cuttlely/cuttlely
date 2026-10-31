@@ -17,6 +17,7 @@ jest.mock('../DataSource', () => ({
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { randomBytes } from 'crypto'
 import express, { Request } from 'express'
 import request from 'supertest'
 import { appendHistory } from '../settings/history'
@@ -86,6 +87,7 @@ function dump(db: InstanceType<typeof DatabaseSync>): string {
 describe('audit redaction', () => {
     it('keeps every registered audit type within the database limit', () => {
         expect(AUDIT_TYPES).toContain('auth_config_warning_ack')
+        expect(AUDIT_TYPES).toEqual(expect.arrayContaining(['scim_group', 'scim_mapping']))
         expect(AUDIT_TYPES.every((type) => type.length <= 32)).toBe(true)
     })
     it('drops passwords, tokens, secret values, and question text', () => {
@@ -136,6 +138,17 @@ describe('audit redaction', () => {
         const encoded = JSON.stringify(redacted)
         for (const value of Object.values(addresses)) expect(encoded).not.toContain(value)
         expect(redacted.detail).toEqual({ method: 'local', description: 'bakery route' })
+    })
+
+    it('removes a SCIM bearer value while retaining its display prefix', () => {
+        const clear = `cuttlely_scim_${randomBytes(24).toString('base64url')}`
+        const redacted = redactAudit({
+            type: 'scim_token',
+            summary: `SCIM credential changed ${clear}`,
+            detail: { bearerCredential: clear, displayPrefix: 'cuttlely_scim_clear-v…', operation: 'rotated' }
+        })
+        expect(JSON.stringify(redacted)).not.toContain(clear)
+        expect(redacted.detail).toEqual({ displayPrefix: 'cuttlely_scim_clear-v…', operation: 'rotated' })
     })
 
     it('stores none of those values on a row', async () => {

@@ -12,5 +12,20 @@ export default {
             confirm
         }),
     acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version }),
-    acknowledgeRecoveryAlert: (id) => client.post('/authentication-settings/acknowledge-recovery-alert', { id })
+    acknowledgeRecoveryAlert: (id) => client.post('/authentication-settings/acknowledge-recovery-alert', { id }),
+    createScimToken: () => client.post('/authentication-settings/scim-token'),
+    rotateScimToken: (overlapHours) => client.post('/authentication-settings/scim-token/rotate', { overlapHours }),
+    endScimOverlap: () => client.post('/authentication-settings/scim-token/end-previous'),
+    revokeScimToken: () => client.delete('/authentication-settings/scim-token'),
+    previewScimMappingCreation: (groupId, workspaceId, roleId) =>
+        client.post('/authentication-settings/scim-mappings/preview', { groupId, workspaceId, roleId: roleId || null }),
+    confirmScimMappingCreation: (mapping, fingerprint) =>
+        client.post('/authentication-settings/scim-mappings/confirm', {
+            groupId: mapping.groupId,
+            workspaceId: mapping.workspaceId,
+            roleId: mapping.roleId,
+            fingerprint
+        }),
+    previewScimMappingRemoval: (id) => client.get(`/authentication-settings/scim-mappings/${id}/remove-preview`),
+    removeScimMapping: (id, fingerprint) => client.post(`/authentication-settings/scim-mappings/${id}/remove`, { fingerprint })
 }

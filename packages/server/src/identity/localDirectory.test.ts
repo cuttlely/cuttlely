@@ -53,6 +53,7 @@ const { DatabaseSync } = require('node:sqlite') as {
         close(): void
         prepare(sql: string): {
             all(...params: unknown[]): Record<string, unknown>[]
+            get(...params: unknown[]): Record<string, unknown> | undefined
             run(...params: unknown[]): { changes: number }
         }
     }
@@ -100,6 +101,19 @@ function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof Datab
         CREATE TABLE identity_action_link (
             id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
             userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
+        );
+        CREATE TABLE audit_event (
+            id text, type text, organizationId text, workspaceId text, userId text,
+            actorId text, summary text, detail text, createdAt integer
+        );
+        CREATE TABLE identity_scim_user (
+            id text primary key, organizationId text, userId text, deletedAt text
+        );
+        CREATE TABLE identity_scim_group (
+            id text primary key, organizationId text, deletedAt text
+        );
+        CREATE TABLE identity_scim_mapping (
+            id text primary key, organizationId text, groupId text, workspaceId text, roleId text
         );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Cuttlely');
         INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
@@ -355,6 +369,43 @@ describe('local directory rules', () => {
         })
     })
 
+    it('refuses unsafe updates and deletion for a mapped role while allowing an unrelated permission update', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO role (id, "organizationId", name, description, permissions)
+                VALUES ('role-mapped', '${ORG}', 'mapped', 'mapped', '["chatflows:view"]');
+            INSERT INTO identity_scim_group (id, organizationId, deletedAt) VALUES ('group-mapped', '${ORG}', NULL);
+            INSERT INTO identity_scim_mapping (id, organizationId, groupId, workspaceId, roleId)
+                VALUES ('mapping-role', '${ORG}', 'group-mapped', '${TEAM_B}', 'role-mapped');
+        `)
+        await expect(
+            updateRole(sql, owner, {
+                id: 'role-mapped',
+                name: 'mapped',
+                permissions: '["chatflows:view","authentication:manage"]'
+            })
+        ).rejects.toMatchObject({
+            status: 409,
+            message: 'This role is used by a SCIM mapping and cannot become an Owner or Auth / SSO administration role'
+        })
+        await expect(
+            updateRole(sql, owner, {
+                id: 'role-mapped',
+                name: 'mapped',
+                permissions: '["chatflows:view","chatflows:update"]'
+            })
+        ).resolves.toMatchObject({ id: 'role-mapped' })
+        await expect(deleteRole(sql, owner, 'role-mapped', ORG)).rejects.toMatchObject({
+            status: 409,
+            message: 'Remove the SCIM mapping before deleting this role'
+        })
+        expect(
+            db
+                .prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'role_change' AND summary = 'SCIM-managed change refused'")
+                .get()
+        ).toMatchObject({ count: 2 })
+    })
+
     it('refuses to disable, delete, unlink, or demote the last owner, including themselves', async () => {
         const { sql, db } = memorySql()
         await expect(setUserDisabled(sql, owner, OWNER, true)).rejects.toMatchObject({
@@ -369,6 +420,21 @@ describe('local directory rules', () => {
                 status: 403
             }
         )
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('owner-disabled', 'Disabled owner', 'disabled-owner@example.com', 'disable', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'owner-disabled', 'role-owner', 'disable');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM}', 'owner-disabled', 'role-owner', 'disable');
+        `)
+        const disabledOwner = { id: 'owner-disabled', organizationId: ORG, workspaceId: TEAM }
+        await expect(
+            updateWorkspaceUserRole(sql, disabledOwner, { userId: OWNER, workspaceId: TEAM, roleId: 'role-admin' })
+        ).rejects.toMatchObject({ status: 409 })
+        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE summary = 'Last owner change refused'").all()[0]).toMatchObject({
+            count: 5
+        })
         expect(db.prepare('SELECT status FROM organization_user WHERE "userId" = ?').all(OWNER)).toEqual([{ status: 'active' }])
     })
 
@@ -395,10 +461,19 @@ describe('local directory rules', () => {
         db.exec(`
             INSERT INTO identity_local_session (id, userId, token, expiresAt, absoluteExpiresAt, createdDate, permissionVersion)
             VALUES ('sess-1', 'member-1', 'digest-secret', '2099-01-01', '2099-01-08', '2026-10-01', 0);
+            INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, userId, expiresAt)
+            VALUES
+                ('link-1', 'digest-1', 'invite', '${ORG}', 'member-1', '2099-01-01'),
+                ('link-2', 'digest-2', 'reset', 'another-org', 'member-1', '2099-01-01');
         `)
         const first = await setUserDisabled(sql, admin, 'member-1', true)
         expect(first).toEqual({ id: 'member-1', disabled: true })
         expect(db.prepare('SELECT id, token FROM identity_local_session').all()).toEqual([])
+        expect(
+            db.prepare('SELECT COUNT(*) AS count FROM identity_action_link WHERE userId = ? AND usedAt IS NOT NULL').all('member-1')[0]
+        ).toMatchObject({
+            count: 2
+        })
         expect(db.prepare('SELECT permissionVersion, status FROM "user" WHERE id = ?').all('member-1')).toEqual([
             { permissionVersion: 1, status: 'disable' }
         ])
@@ -595,6 +670,58 @@ describe('local directory rules', () => {
         expect(db.prepare('SELECT "roleId" AS roleId FROM organization_user WHERE "userId" = ?').all(OWNER)).toEqual([
             { roleId: 'role-owner' }
         ])
+    })
+
+    it('refuses to delete a team referenced by a SCIM mapping', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO workspace (id, name, "organizationId") VALUES ('team-mapped', 'Mapped', '${ORG}');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES
+                    ('team-mapped', '${OWNER}', 'role-owner', 'active'),
+                    ('team-mapped', 'member-1', 'role-member', 'active');
+            INSERT INTO identity_scim_user (id, organizationId, userId, deletedAt)
+                VALUES ('scim-team-member', '${ORG}', 'member-1', NULL);
+            INSERT INTO identity_scim_group (id, organizationId, deletedAt) VALUES ('group-team', '${ORG}', NULL);
+            INSERT INTO identity_scim_mapping (id, organizationId, groupId, workspaceId, roleId)
+                VALUES ('mapping-team', '${ORG}', 'group-team', 'team-mapped', NULL);
+        `)
+        await expect(deleteWorkspace(sql, owner, 'team-mapped')).rejects.toMatchObject({
+            status: 409,
+            message: 'Remove the SCIM mapping first'
+        })
+        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').get('team-mapped')).toEqual({ id: 'team-mapped' })
+        expect(
+            db
+                .prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'role_change' AND summary = 'SCIM-managed change refused'")
+                .get()
+        ).toMatchObject({ count: 1 })
+    })
+
+    it('refuses direct organization removal for a current SCIM link and allows it after SCIM deletion', async () => {
+        const { sql, db } = memorySql()
+        db.prepare('INSERT INTO identity_scim_user (id, organizationId, userId, deletedAt) VALUES (?, ?, ?, NULL)').run(
+            'scim-member',
+            ORG,
+            'member-1'
+        )
+        await expect(deleteOrganizationUser(sql, owner, ORG, 'member-1')).rejects.toMatchObject({
+            status: 409,
+            message: 'Delete this person in the identity provider, or remove the SCIM link, before removing them from the organization'
+        })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('member-1')).toEqual({
+            userId: 'member-1'
+        })
+        expect(
+            db
+                .prepare(
+                    "SELECT COUNT(*) AS count FROM audit_event WHERE type = 'user_disable' AND summary = 'SCIM-managed change refused'"
+                )
+                .get()
+        ).toMatchObject({ count: 1 })
+        db.prepare('UPDATE identity_scim_user SET deletedAt = ? WHERE id = ?').run('2026-10-31T12:00:00.000Z', 'scim-member')
+        await expect(deleteOrganizationUser(sql, owner, ORG, 'member-1')).resolves.toEqual({ id: 'member-1' })
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('member-1')).toBeUndefined()
     })
 
     it('matches percent and underscore in search as those characters', async () => {

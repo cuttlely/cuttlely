@@ -1,0 +1,84 @@
+{
+    "source": "https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20/",
+    "description": "Requests follow the published SCIM 2.0 provisioning examples.",
+    "requests": [
+        {
+            "name": "create user",
+            "method": "post",
+            "path": "/Users",
+            "capture": "userId",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                "userName": "test.user@okta.local",
+                "externalId": "00u1abcd2EFGH3ijk4l5",
+                "displayName": "Test User",
+                "name": { "givenName": "Test", "familyName": "User" },
+                "emails": [{ "value": "test.user@okta.local", "type": "work", "primary": true }],
+                "active": true
+            },
+            "status": 201
+        },
+        {
+            "name": "get user by filter",
+            "method": "get",
+            "path": "/Users?filter=userName%20eq%20%22test.user%40okta.local%22",
+            "status": 200
+        },
+        {
+            "name": "replace user inactive",
+            "method": "put",
+            "path": "/Users/{{userId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                "userName": "test.user@okta.local",
+                "displayName": "Test User",
+                "active": false
+            },
+            "status": 200
+        },
+        {
+            "name": "pathless patch inactive",
+            "method": "patch",
+            "path": "/Users/{{userId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "replace", "value": { "active": false } }]
+            },
+            "status": 200
+        },
+        {
+            "name": "create pushed group",
+            "method": "post",
+            "path": "/Groups",
+            "capture": "groupId",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                "displayName": "Test SCIMv20",
+                "externalId": "00g1abcd2EFGH3ijk4l5",
+                "members": []
+            },
+            "status": 201
+        },
+        {
+            "name": "add group member",
+            "method": "patch",
+            "path": "/Groups/{{groupId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "add", "path": "members", "value": [{ "value": "{{userId}}" }] }]
+            },
+            "status": 200
+        },
+        {
+            "name": "remove selected group member",
+            "method": "patch",
+            "path": "/Groups/{{groupId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "remove", "path": "members[value eq \"{{userId}}\"]" }]
+            },
+            "status": 200
+        },
+        { "name": "delete group", "method": "delete", "path": "/Groups/{{groupId}}", "status": 204 }
+    ]
+}

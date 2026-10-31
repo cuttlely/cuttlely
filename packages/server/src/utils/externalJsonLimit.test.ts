@@ -36,11 +36,12 @@ const productionParsers = () => {
 }
 
 describe('skipGlobalJsonParser', () => {
-    it('skips A2A, Orchestrate, and MCP Streamable HTTP, not mcp-server or prediction', () => {
+    it('skips A2A, Orchestrate, MCP Streamable HTTP, and SCIM, not mcp-server or prediction', () => {
         expect(skipGlobalJsonParser({ originalUrl: '/api/v1/a2a/flow-1' })).toBe(true)
         expect(skipGlobalJsonParser({ originalUrl: '/API/v1//A2A/flow-1' })).toBe(true)
         expect(skipGlobalJsonParser({ originalUrl: '/api/v1/orchestrate/flow-1/chat/completions' })).toBe(true)
         expect(skipGlobalJsonParser({ originalUrl: '/api/v1/mcp/flow-1' })).toBe(true)
+        expect(skipGlobalJsonParser({ originalUrl: '/api/v1/scim/v2/Users' })).toBe(true)
         expect(skipGlobalJsonParser({ originalUrl: '/api/v1/mcp-server/flow-1' })).toBe(false)
         expect(skipGlobalJsonParser({ originalUrl: '/api/v1/prediction/flow-1' })).toBe(false)
     })
