@@ -315,7 +315,7 @@ export class SqlIdentityStore implements IdentityStore {
     }
 
     async createOwner(input: CreateOwnerInput, options?: CreateOwnerOptions): Promise<UserRow> {
-        return this.transaction(async (runner) => {
+        const owner = await this.transaction(async (runner) => {
             const d = dialectOf(runner)
             await lockBootstrap(runner, d)
             if ((await count(runner)) !== 0) throw new NotEmptyError()
@@ -385,6 +385,10 @@ export class SqlIdentityStore implements IdentityStore {
                 )}, ${quote(d, 'status')}, ${quote(d, 'createdBy')}, ${quote(d, 'updatedBy')}) VALUES (?, ?, ?, ?, ?, ?)`,
                 [workspaceId, userId, roleId, 'active', userId, userId]
             )
+            if (options?.activateLocalAuthentication) {
+                const { activateFreshOwnerLocalAuthentication } = require('./authenticationState') as typeof import('./authenticationState')
+                await activateFreshOwnerLocalAuthentication(runner, { organizationId, actorId: userId }, options.now)
+            }
             return {
                 id: userId,
                 email: input.email,
@@ -394,6 +398,11 @@ export class SqlIdentityStore implements IdentityStore {
                 credential: input.credential
             }
         })
+        if (options?.activateLocalAuthentication) {
+            const { refreshAuthenticationState } = require('./authenticationState') as typeof import('./authenticationState')
+            await refreshAuthenticationState(this.dataSource, true)
+        }
+        return owner
     }
 
     async sessionFor(userId: string, preferredWorkspaceId?: string | null): Promise<SessionUser | null> {

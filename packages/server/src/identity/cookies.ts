@@ -21,8 +21,6 @@ import {
     INVITE_COOKIE_PATH,
     LOCAL_SESSION_COOKIE,
     REAUTH_STATE_COOKIE,
-    REAUTH_STATE_COOKIE_MS,
-    RECENT_AUTH_COOKIE,
     WOS_EPOCH_COOKIE,
     WOS_SESSION_COOKIE
 } from './constants'
@@ -83,37 +81,6 @@ export function localCookie(value: string, secure: boolean, maxAge: number): Set
         value,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge }
     }
-}
-
-export function recentAuthenticationCookie(value: string, secure: boolean, maxAge: number): SetCookie {
-    return { name: RECENT_AUTH_COOKIE, value, options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge } }
-}
-
-export function reauthenticationStateCookie(value: string, secure: boolean): SetCookie {
-    return {
-        name: REAUTH_STATE_COOKIE,
-        value,
-        options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: REAUTH_STATE_COOKIE_MS }
-    }
-}
-
-function reauthenticationStateDigest(requestedAt: number, nonce: string, signingSecret: string): string {
-    return createHmac('sha256', signingSecret).update(`${requestedAt}\n${nonce}`).digest('base64url')
-}
-
-export function signedReauthenticationState(requestedAt: number, nonce: string, signingSecret: string): string {
-    return `${requestedAt}.${nonce}.${reauthenticationStateDigest(requestedAt, nonce, signingSecret)}`
-}
-
-export function reauthenticationRequestTime(value: string | undefined, signingSecret: string | undefined): number | null {
-    if (!value || !signingSecret) return null
-    const [requestedAtText, nonce, digest, extra] = value.split('.')
-    const requestedAt = Number(requestedAtText)
-    if (extra !== undefined || !Number.isSafeInteger(requestedAt) || requestedAt <= 0 || !nonce || !digest) return null
-    const expected = reauthenticationStateDigest(requestedAt, nonce, signingSecret)
-    const left = Buffer.from(digest)
-    const right = Buffer.from(expected)
-    return left.length === right.length && timingSafeEqual(left, right) ? requestedAt : null
 }
 
 export function expiredReauthenticationStateCookie(secure: boolean): SetCookie {

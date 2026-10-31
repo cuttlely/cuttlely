@@ -21,10 +21,7 @@ import {
     expiredReauthenticationStateCookie,
     inviteCookie,
     localCookie,
-    reauthenticationStateCookie,
-    reauthenticationRequestTime,
     sealedCookie,
-    signedReauthenticationState,
     workosEpochCookie,
     workosEpochCookieValid
 } from './cookies'
@@ -88,7 +85,6 @@ export interface AuthContext {
     cookiePasswordOk: boolean
     cookiePassword?: string
     epochBindingSecret?: string
-    reauthenticationStateSecret?: string
     /** False after the durable convergence cutoff. Sealed cookies are then cleared, never exchanged. */
     sealedWorkosSessionsAccepted?: boolean
     redirectUri?: string
@@ -99,7 +95,6 @@ export interface AuthContext {
     socketAddress: string
     internal: boolean
     code?: string
-    state?: string
     body: Record<string, unknown>
     cookies: Record<string, string | undefined>
     bootstrapEmail?: string
@@ -108,7 +103,6 @@ export interface AuthContext {
     rateLimit: LoginLimiter
     recoveryRateLimit?: LoginLimiter
     automaticWorkosLinkingAllowed?: () => Promise<boolean>
-    recordRecentAuthentication?: (userId: string) => Promise<SetCookie>
     noteRecoveryAttempt?: (outcome: 'success' | 'wrong_credential' | 'throttled', userId: string | null) => Promise<void>
     raiseRecoveryAlert?: (userId: string) => Promise<void>
     /** Optional. Production writes a redacted audit row. Tests leave it unset. */
@@ -392,21 +386,7 @@ export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
 
 export async function handleReauthenticationGet(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
-    if (!ctx.redirectUri) return textUnavailable()
-    const reauthorizationUrl = ctx.workos.reauthorizationUrl
-    if (!reauthorizationUrl) return textUnavailable()
-    try {
-        if (!ctx.reauthenticationStateSecret) return textUnavailable()
-        const state = signedReauthenticationState(ctx.now, randomUUID(), ctx.reauthenticationStateSecret)
-        return {
-            type: 'redirect',
-            status: 302,
-            url: reauthorizationUrl(ctx.redirectUri, state),
-            cookies: [reauthenticationStateCookie(state, ctx.secure)]
-        }
-    } catch {
-        return textUnavailable()
-    }
+    return { type: 'redirect', status: 302, url: '/owner-recovery' }
 }
 
 function inviteTokenFrom(ctx: AuthContext): string | undefined {
@@ -466,24 +446,11 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
         }
         await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
-        const reauthenticationRequestedAt =
-            ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE]
-                ? reauthenticationRequestTime(ctx.state, ctx.reauthenticationStateSecret)
-                : null
-        const reauthenticated = Boolean(
-            reauthenticationRequestedAt !== null &&
-                typeof authenticated.authTime === 'number' &&
-                Number.isFinite(authenticated.authTime) &&
-                authenticated.authTime * 1000 >= reauthenticationRequestedAt
-        )
         return {
             type: 'redirect',
             status: 302,
             url: '/',
-            cookies: [
-                localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs),
-                ...(reauthenticated && ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(linked.user.id)] : [])
-            ],
+            cookies: [localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs)],
             ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
         }
     } catch (error) {
@@ -551,10 +518,7 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
     }
     await noteSignIn(ctx, 'sign_in_success', owner.id, auditMethod)
     return json(200, issued.session, {
-        cookies: [
-            localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs),
-            ...(recovery && ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(owner.id)] : [])
-        ],
+        cookies: [localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs)],
         ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
     })
 }
@@ -715,8 +679,16 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
                 credential: await hashPassword(credential),
                 externalId: null
             },
-            { consumeSetupHmac: hmac, now: ctx.now }
+            { consumeSetupHmac: hmac, now: ctx.now, activateLocalAuthentication: true }
         )
+        if (ctx.dataSource) {
+            const { refreshAuthenticationState } = require('./authenticationState') as typeof import('./authenticationState')
+            const state = await refreshAuthenticationState(ctx.dataSource, true)
+            if (state?.activeMethod === 'local') {
+                ctx.activeAuthenticationMethod = 'local'
+                ctx.authenticationEpoch = state.authenticationEpoch
+            }
+        }
         // The same session cookie as a password sign-in, in this response, so the browser is already signed in.
         const issued = await issueLocalSession(ctx, created.id)
         const body = { message: 'Account created', id: created.id, ...(issued?.session ?? {}) }

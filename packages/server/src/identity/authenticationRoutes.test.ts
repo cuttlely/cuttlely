@@ -18,7 +18,6 @@ const stageAuthenticationMethodSwitch = jest.fn()
 const switchAuthenticationMethod = jest.fn()
 const acknowledgeAuthenticationWarning = jest.fn()
 const usableLocalOwnerReady = jest.fn()
-const hasRecentAuthentication = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -27,7 +26,6 @@ jest.mock('./production', () => ({
 }))
 jest.mock('./authenticationState', () => ({
     acknowledgeAuthenticationWarning,
-    hasRecentAuthentication,
     initializeAuthenticationState: jest.fn(),
     readAuthenticationState,
     stageAuthenticationMethodSwitch,
@@ -38,7 +36,6 @@ jest.mock('./authenticationState', () => ({
 jest.mock('./constants', () => ({
     LOGIN_FAILURE_WINDOW_MS: 15 * 60 * 1000,
     LOCAL_SESSION_COOKIE: 'local-session',
-    RECENT_AUTH_COOKIE: 'recent-auth',
     localAdminEnabled: () => true,
     localUsersSetting: () => true,
     workosEnvironmentConfigured: () => true
@@ -49,7 +46,7 @@ jest.mock('./recovery', () => ({
     currentRecoveryAlert: jest.fn(async () => null)
 }))
 
-import { identityAuthenticationRouter } from './authenticationRoutes'
+import { databaseSessionRecentlyAuthenticated, identityAuthenticationRouter } from './authenticationRoutes'
 import { safeRecordAudit } from './auditLog'
 
 function app(cookies: Record<string, string> = {}) {
@@ -78,7 +75,6 @@ describe('authentication settings routes', () => {
         localAccountOpen.mockResolvedValue(true)
         usableLocalOwnerReady.mockResolvedValue(true)
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'local' })
-        hasRecentAuthentication.mockResolvedValue(false)
         stageAuthenticationMethodSwitch.mockResolvedValue({ id: 'stage-1', version: 1, expiresAt: new Date('2026-11-01T00:00:00Z') })
         switchAuthenticationMethod.mockResolvedValue({
             activeMethod: 'workos',
@@ -89,6 +85,19 @@ describe('authentication settings routes', () => {
     })
 
     afterAll(() => setTeamPermissionLookup(null))
+
+    it('counts only fresh local-password and owner-recovery sessions', async () => {
+        const now = Date.parse('2026-10-31T12:00:00.000Z')
+        const store = { findLocalSession }
+        for (const method of ['local', 'recovery'] as const) {
+            findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now), authenticationMethod: method })
+            await expect(databaseSessionRecentlyAuthenticated(store, `${method}-session`, now)).resolves.toBe(true)
+        }
+        findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now), authenticationMethod: 'workos' })
+        await expect(databaseSessionRecentlyAuthenticated(store, 'workos-session', now)).resolves.toBe(false)
+        findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now - 11 * 60 * 1000), authenticationMethod: 'local' })
+        await expect(databaseSessionRecentlyAuthenticated(store, 'old-local-session', now)).resolves.toBe(false)
+    })
 
     it('refuses callers without authentication:manage', async () => {
         setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: [] }) })
@@ -122,7 +131,6 @@ describe('authentication settings routes', () => {
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('REAUTH_REQUIRED')
-        expect(hasRecentAuthentication).not.toHaveBeenCalled()
     })
 
     it('treats a fresh owner recovery database session as recent authentication', async () => {
@@ -133,14 +141,13 @@ describe('authentication settings routes', () => {
         expect(response.status).toBe(200)
     })
 
-    it('accepts signed recent-auth evidence for a WorkOS session with proven auth_time', async () => {
+    it('does not let a separate recent-auth cookie make a WorkOS session recent', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'workos' })
-        hasRecentAuthentication.mockResolvedValue(true)
-        const response = await request(app({ 'local-session': 'workos-session', 'recent-auth': 'proven-auth-time' }))
+        const response = await request(app({ 'local-session': 'workos-session', 'recent-auth': 'old-cookie' }))
             .post('/api/v1/authentication/stage')
             .send({ method: 'workos', version: 4 })
-        expect(response.status).toBe(200)
-        expect(hasRecentAuthentication).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'proven-auth-time')
+        expect(response.status).toBe(409)
+        expect(response.body.code).toBe('REAUTH_REQUIRED')
     })
 
     it('refuses a WorkOS-to-Local stage without an active owner password', async () => {

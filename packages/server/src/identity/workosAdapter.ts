@@ -80,17 +80,6 @@ export const workosPort: WorkosPort = {
         })
     },
 
-    reauthorizationUrl(redirectUri: string, state: string): string {
-        return client().userManagement.getAuthorizationUrl({
-            provider: 'authkit',
-            redirectUri,
-            clientId: process.env.WORKOS_CLIENT_ID,
-            maxAge: 0,
-            prompt: 'login',
-            state
-        })
-    },
-
     async authenticate(code: string) {
         try {
             const response = await client().userManagement.authenticateWithCode({

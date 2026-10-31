@@ -111,6 +111,8 @@ export interface CreateOwnerInput {
 export interface CreateOwnerOptions {
     consumeSetupHmac?: string
     now?: number
+    /** Select Local login in the same transaction as first-owner setup. */
+    activateLocalAuthentication?: boolean
 }
 
 export interface WorkosIdentity {
@@ -145,9 +147,7 @@ export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { 
 
 export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
-    reauthorizationUrl?(redirectUri: string, state: string): string
-    /** authTime is the provider's auth_time claim, in Unix seconds, when the provider supplies a verified value. */
-    authenticate(code: string): Promise<{ user: WorkosIdentity; authTime?: number; sessionId?: string }>
+    authenticate(code: string): Promise<{ user: WorkosIdentity; sessionId?: string }>
     authenticateSession(
         sealed: string
     ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>

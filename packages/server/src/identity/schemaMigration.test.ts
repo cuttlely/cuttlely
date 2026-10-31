@@ -39,7 +39,6 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
             calls.push({ sql, params })
             if (sql.includes('information_schema.tables')) return present.has(String(params?.[0])) ? [{ name: params?.[0] }] : []
             if (sql.startsWith('CREATE TABLE "identity_authentication_state"')) present.add('identity_authentication_state')
-            if (sql.startsWith('CREATE TABLE "identity_recent_authentication"')) present.add('identity_recent_authentication')
             if (sql.startsWith('CREATE TABLE "identity_authentication_switch_stage"')) present.add('identity_authentication_switch_stage')
             if (sql.includes('information_schema.columns')) return []
             if (sql.includes('FROM "role"') && sql.includes('SELECT')) {
@@ -92,7 +91,6 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"authenticationEpoch" integer NOT NULL')
         expect(creates[0].sql).toContain('"authenticationBaselineEpoch" integer NOT NULL')
         expect(creates[0].sql).toContain('"activeMethod" varchar(32) NULL')
-        expect(calls.filter((call) => call.sql.startsWith('CREATE TABLE "identity_recent_authentication"'))).toHaveLength(1)
     })
 
     it('adds the durable switch stage with version, expiry, and single-use fields', async () => {

@@ -6,7 +6,7 @@ Install first: [Docker](./docker.md), [From source](./from-source.md), or [Rende
 
 ## Turn on the local account
 
-The owner password form shows when the durable active method is Local login, the server runs with `CUTTLELY_LOCAL_ADMIN=true`, and `CUTTLELY_LOCAL_USERS` is off. A local install has that owner-only combination by default. When Local login is active and `CUTTLELY_LOCAL_USERS=true`, `/signin` shows the shared local-user form instead; the owner uses that form like any other active local user.
+The owner password form shows when the durable active method is Local login, the server runs with `CUTTLELY_LOCAL_ADMIN=true`, and `CUTTLELY_LOCAL_USERS` is off. Creating the first owner with the setup link selects Local login in the same database transaction, so a fresh local install has that owner-only combination. Existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login. When Local login is active and `CUTTLELY_LOCAL_USERS=true`, `/signin` shows the shared local-user form instead; the owner uses that form like any other active local user.
 
 | Install     | Default                                                                                                                                                                                                     |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

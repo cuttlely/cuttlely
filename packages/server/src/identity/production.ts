@@ -18,7 +18,7 @@ import { Request } from 'express'
 import { DataSource } from 'typeorm'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
-import { cookieSecure, recentAuthenticationCookie } from './cookies'
+import { cookieSecure } from './cookies'
 import { organizationsForUser, recordAudit } from './auditLog'
 import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
@@ -27,14 +27,13 @@ import { bindSetupCodeStore } from './setupCode'
 import { SqlIdentityStore, SqlLoginRateLimit, SqlSetupCodeStore } from './sqlStore'
 import { workosPort } from './workosAdapter'
 import { workosProvider } from './provider'
-import { epochBindingSecret, reauthenticationStateSecret } from './authenticationSecrets'
+import { epochBindingSecret } from './authenticationSecrets'
 import { activateSessionConvergence, sessionConvergenceActive } from './sessionConvergence'
 import { createRecoveryAlert, notifyRecoverySuccess, recordRecoveryAttempt } from './recovery'
 import {
     automaticWorkosLinkingAllowed,
     initializeAuthenticationState,
     recordInferredWorkosActivation,
-    recordRecentAuthentication,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
     selectedAuthenticationMethod
@@ -102,7 +101,6 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
     await refreshAuthenticationState(getDataSource())
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
-    const state = req.query?.state
     return {
         dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
@@ -113,7 +111,6 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
         epochBindingSecret: epochBindingSecret(),
-        reauthenticationStateSecret: reauthenticationStateSecret(),
         sealedWorkosSessionsAccepted: !sessionConvergenceActive(),
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,
@@ -123,7 +120,6 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         socketAddress: socketAddress(req.socket?.remoteAddress),
         internal: req.headers['x-request-from'] === 'internal',
         code: typeof code === 'string' ? code : Array.isArray(code) ? String(code[0] || '') : undefined,
-        state: typeof state === 'string' ? state : Array.isArray(state) ? String(state[0] || '') : undefined,
         body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
         cookies: (req.cookies || {}) as Record<string, string | undefined>,
         store: identityStore(),
@@ -131,14 +127,6 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         rateLimit: loginLimiter(),
         recoveryRateLimit: ownerRecoveryLimiter(),
         automaticWorkosLinkingAllowed: () => automaticWorkosLinkingAllowed(getDataSource()),
-        recordRecentAuthentication: async (userId) => {
-            const recent = await recordRecentAuthentication(getDataSource(), userId)
-            return recentAuthenticationCookie(
-                recent.token,
-                cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
-                recent.expiresAt - Date.now()
-            )
-        },
         noteRecoveryAttempt: (outcome, userId) => recordRecoveryAttempt(applicationSql(), { outcome, userId, at: Date.now() }),
         raiseRecoveryAlert: async (userId) => {
             const alert = await createRecoveryAlert(getDataSource(), userId, Date.now())

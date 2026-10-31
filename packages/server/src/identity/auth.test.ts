@@ -82,7 +82,7 @@ import {
 import { createHmac } from 'crypto'
 import type { DataSource } from 'typeorm'
 import * as authenticationState from './authenticationState'
-import { signedReauthenticationState, workosEpochCookie } from './cookies'
+import { workosEpochCookie } from './cookies'
 import { sessionIdFromAccessToken, workosPort } from './workosAdapter'
 import fs from 'fs'
 import os from 'os'
@@ -100,6 +100,7 @@ class MemoryStore implements IdentityStore {
     local = new Map<string, LocalSession>()
     touched: string[] = []
     switchState: AuthKitSwitchState | null = null
+    lastCreateOwnerOptions: CreateOwnerOptions | undefined
 
     async countUsers(): Promise<number> {
         return this.users.length
@@ -185,6 +186,7 @@ class MemoryStore implements IdentityStore {
 
     private async insertOwner(input: CreateOwnerInput, options?: CreateOwnerOptions): Promise<UserRow> {
         if (this.users.length) throw new NotEmptyError()
+        this.lastCreateOwnerOptions = options
         if (options?.consumeSetupHmac) {
             const consumed = await consumeSetupCode(options.consumeSetupHmac, options.now ?? Date.now())
             if (!consumed) throw new SetupCodeRejected()
@@ -291,10 +293,6 @@ function workos(overrides: Partial<WorkosPort> = {}): WorkosPort & { externalIds
         externalIds,
         authorizationUrl: (redirectUri: string) =>
             `https://authkit.example/authorize?redirect=${encodeURIComponent(redirectUri)}&provider=authkit`,
-        reauthorizationUrl: (redirectUri: string, state: string) =>
-            `https://authkit.example/authorize?redirect=${encodeURIComponent(
-                redirectUri
-            )}&provider=authkit&max_age=0&prompt=login&state=${state}`,
         authenticate: async () => ({
             user: { id: 'wos-1', email: 'owner@example.com', emailVerified: true, name: 'Owner' },
             sessionId: 'session-1'
@@ -321,7 +319,6 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
         cookiePasswordOk: true,
         cookiePassword: 'p'.repeat(44),
         epochBindingSecret: 'e'.repeat(44),
-        reauthenticationStateSecret: 'p'.repeat(44),
         redirectUri: 'http://127.0.0.1:43117/api/v1/auth/callback',
         secure: false,
         now: NOW,
@@ -413,22 +410,12 @@ describe('identity auth', () => {
         if (result.type === 'redirect') expect(result.url).toContain('provider=authkit')
     })
 
-    it('GET /auth/reauthenticate requests active authentication and binds callback state in a cookie', async () => {
+    it('GET /auth/reauthenticate directs WorkOS sessions to owner recovery', async () => {
         const result = await handleReauthenticationGet(ctx({ workosConfigured: true }))
-        expect(result).toMatchObject({ type: 'redirect', status: 302 })
-        if (result.type !== 'redirect') return
-        expect(result.url).toContain('max_age=0')
-        expect(result.url).toContain('prompt=login')
-        const state = new URL(result.url).searchParams.get('state')
-        expect(state).toBeTruthy()
-        expect(result.cookies?.[0]).toMatchObject({
-            name: 'cuttlely-reauth-state',
-            value: state,
-            options: { httpOnly: true, sameSite: 'lax', path: '/api/v1/auth/callback', maxAge: 600000 }
-        })
+        expect(result).toMatchObject({ type: 'redirect', status: 302, url: '/owner-recovery' })
     })
 
-    it('WorkOS adapter adds fresh-authentication options only to reauthentication', () => {
+    it('WorkOS adapter ordinary authorization does not request an authentication-time claim', () => {
         const apiKey = process.env.WORKOS_API_KEY
         const clientId = process.env.WORKOS_CLIENT_ID
         process.env.WORKOS_API_KEY = 'test_value'
@@ -436,12 +423,8 @@ describe('identity auth', () => {
         try {
             const redirectUri = 'https://app.example/api/v1/auth/callback'
             const ordinary = new URL(workosPort.authorizationUrl(redirectUri))
-            const reauthentication = new URL(workosPort.reauthorizationUrl!(redirectUri, 'bound-state'))
             expect(ordinary.searchParams.has('max_age')).toBe(false)
             expect(ordinary.searchParams.has('prompt')).toBe(false)
-            expect(reauthentication.searchParams.get('max_age')).toBe('0')
-            expect(reauthentication.searchParams.get('prompt')).toBe('login')
-            expect(reauthentication.searchParams.get('state')).toBe('bound-state')
         } finally {
             if (apiKey === undefined) delete process.env.WORKOS_API_KEY
             else process.env.WORKOS_API_KEY = apiKey
@@ -558,46 +541,11 @@ describe('identity auth', () => {
         ]).toEqual(['local', 'workos', 'recovery'])
     })
 
-    it('ordinary callback records no recent-authentication evidence', async () => {
+    it('WorkOS callback records no recent-authentication evidence', async () => {
         const store = new MemoryStore()
         store.add({ id: 'user-9', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential: null }, true)
-        const recordRecentAuthentication = jest.fn()
-        await handleCallback(ctx({ workosConfigured: true, code: 'code', store, recordRecentAuthentication }))
-        expect(recordRecentAuthentication).not.toHaveBeenCalled()
-    })
-
-    it.each([
-        ['without auth_time', undefined, false],
-        ['with auth_time before the request', NOW / 1000 - 1, false],
-        ['with auth_time at the request', NOW / 1000, true]
-    ])('state-bound reauthentication callback %s', async (_name, authTime, expected) => {
-        const store = new MemoryStore()
-        store.add({ id: 'user-9', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential: null }, true)
-        const recordRecentAuthentication = jest.fn(async () => ({
-            name: 'cuttlely-recent-auth',
-            value: 'recent',
-            options: { httpOnly: true as const, sameSite: 'lax' as const, path: '/', secure: false }
-        }))
-        const state = signedReauthenticationState(NOW, 'reauth-state', 'p'.repeat(44))
-        const result = await handleCallback(
-            ctx({
-                workosConfigured: true,
-                code: 'code',
-                state,
-                cookies: { 'cuttlely-reauth-state': state },
-                store,
-                workos: workos({
-                    authenticate: async () => ({
-                        user: { id: 'wos-1', email: 'owner@example.com', emailVerified: true, name: 'Owner' },
-                        sealedSession: 'sealed-1',
-                        authTime
-                    })
-                }),
-                recordRecentAuthentication
-            })
-        )
-        expect(recordRecentAuthentication).toHaveBeenCalledTimes(expected ? 1 : 0)
-        if (result.type === 'redirect') expect(result.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(expected)
+        const result = await handleCallback(ctx({ workosConfigured: true, code: 'code', store }))
+        if (result.type === 'redirect') expect(result.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(false)
     })
 
     it('callback uses the existing external id and does not rebind a different one', async () => {
@@ -930,7 +878,6 @@ describe('identity auth', () => {
         store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
         const noteRecoveryAttempt = jest.fn(async () => undefined)
         const raiseRecoveryAlert = jest.fn(async () => undefined)
-        const recordRecentAuthentication = jest.fn()
         const noteAudit = jest.fn(async () => undefined)
 
         const result = json(
@@ -943,7 +890,6 @@ describe('identity auth', () => {
                     store,
                     noteRecoveryAttempt,
                     raiseRecoveryAlert,
-                    recordRecentAuthentication,
                     noteAudit,
                     body: { email: 'owner@example.com', password: GOOD }
                 })
@@ -956,7 +902,6 @@ describe('identity auth', () => {
         expect(noteAudit).toHaveBeenCalledWith({ type: 'sign_in_success', userId: 'owner', method: 'local' })
         expect(noteRecoveryAttempt).not.toHaveBeenCalled()
         expect(raiseRecoveryAlert).not.toHaveBeenCalled()
-        expect(recordRecentAuthentication).not.toHaveBeenCalled()
     })
 
     it('keeps recovery treatment on the owner route while WorkOS is active', async () => {
@@ -1053,13 +998,8 @@ describe('identity auth', () => {
         store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
         const noteRecoveryAttempt = jest.fn(async () => undefined)
         const raiseRecoveryAlert = jest.fn(async () => undefined)
-        const recordRecentAuthentication = jest.fn(async () => ({
-            name: 'cuttlely-recent-auth',
-            value: 'recent',
-            options: { httpOnly: true as const, sameSite: 'lax' as const, path: '/', secure: false }
-        }))
         const recoveryRateLimit = new LoginRateLimit(1)
-        const base = { internal: true, store, recoveryRateLimit, noteRecoveryAttempt, raiseRecoveryAlert, recordRecentAuthentication }
+        const base = { internal: true, store, recoveryRateLimit, noteRecoveryAttempt, raiseRecoveryAlert }
 
         expect(
             json(await handleRecoveryLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: 'Wrong-Pass1!' } }))).status
@@ -1082,8 +1022,7 @@ describe('identity auth', () => {
         expect(success.status).toBe(200)
         expect(noteRecoveryAttempt).toHaveBeenLastCalledWith('success', 'owner')
         expect(raiseRecoveryAlert).toHaveBeenCalledWith('owner')
-        expect(recordRecentAuthentication).toHaveBeenCalledWith('owner')
-        expect(success.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(true)
+        expect(success.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(false)
     })
 
     it('rate limits failed break-glass attempts without clearing the window on success', async () => {
@@ -1417,6 +1356,7 @@ describe('identity auth', () => {
         expect(created.cookies?.[0]).toMatchObject({ name: 'cuttlely-local-session', options: { httpOnly: true } })
         expect(JSON.stringify(created.body)).not.toContain(GOOD)
         expect(await store.findSuperUser()).toEqual(expect.objectContaining({ email: 'owner@example.com' }))
+        expect(store.lastCreateOwnerOptions?.activateLocalAuthentication).toBe(true)
         expect(
             json(
                 await handleRegister(

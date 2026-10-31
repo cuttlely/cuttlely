@@ -562,16 +562,6 @@ function authenticationStateSql(dialect: Dialect): string {
     )`
 }
 
-function recentAuthenticationSql(dialect: Dialect): string {
-    const time = timeType(dialect)
-    return `CREATE TABLE ${q(dialect, 'identity_recent_authentication')} (
-        ${q(dialect, 'token')} varchar(64) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'userId')} varchar(36) NOT NULL,
-        ${q(dialect, 'authenticatedAt')} ${time} NOT NULL,
-        ${q(dialect, 'expiresAt')} ${time} NOT NULL
-    )`
-}
-
 function authenticationSwitchStageSql(dialect: Dialect): string {
     const time = timeType(dialect)
     return `CREATE TABLE ${q(dialect, 'identity_authentication_switch_stage')} (
@@ -589,7 +579,6 @@ function authenticationSwitchStageSql(dialect: Dialect): string {
 export async function addAuthenticationState(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     if (!(await tableExists(runner, dialect, 'identity_authentication_state'))) await runner.query(authenticationStateSql(dialect))
-    if (!(await tableExists(runner, dialect, 'identity_recent_authentication'))) await runner.query(recentAuthenticationSql(dialect))
 }
 
 /** Durable, optimistic, single-use method-switch stages shared by every server process. */
@@ -607,7 +596,6 @@ export async function removeAuthenticationSwitchStage(runner: QueryRunner): Prom
 
 export async function removeAuthenticationState(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
-    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_recent_authentication')}`)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authentication_state')}`)
 }
 

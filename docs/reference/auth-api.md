@@ -83,6 +83,8 @@ A session is stored in `identity_local_session` for local login, WorkOS, and own
 
 `POST /api/v1/auth/recovery/login` requires `x-request-from: internal`, accepts any active owner with a usable local password, and returns the same generic 401 for an unknown address, a non-owner, a disabled owner, or a wrong password. It has a five-attempt source and account lockout. Every outcome is audited. Success creates a persistent administrator alert and recent-authentication evidence.
 
+A WorkOS sign-in never counts as recent authentication. On **Auth / SSO**, an administrator with a WorkOS session is directed to `/owner-recovery`; while Local login is active, **Sign in again** opens the local password form. Only a local password or owner recovery session issued in the last 10 minutes satisfies method staging and apply.
+
 ## Sign in
 
 `POST /api/v1/auth/local/login`
