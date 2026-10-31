@@ -22,6 +22,7 @@ jest.mock('@/api/authenticationSettings', () => ({
                         lastUsedAt: null,
                         operations: {
                             lastSuccessfulRequestAt: '2026-10-31T12:00:00.000Z',
+                            lastFailedRequestAt: '2026-10-31T12:01:00.000Z',
                             lastCompletedRequestAt: '2026-10-31T12:00:00.000Z',
                             lastFailedRequestCategory: 'mapping_conflict',
                             counts: { usersCreated: 2, groupOperations: 3, membershipOperations: 4 },
@@ -186,6 +187,7 @@ it('previews and confirms mapping creation, then confirms removal from a preview
         await Promise.resolve()
     })
     expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('Users created 2')
+    expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('Last failed request:')
     expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('mapping_conflict')
     expect(container.querySelector('[data-testid="scim-mappings-view"]')?.textContent).toContain('Engineering → Product')
 

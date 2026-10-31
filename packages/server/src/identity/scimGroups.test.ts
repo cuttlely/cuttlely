@@ -225,6 +225,85 @@ describe('SCIM groups', () => {
         db.close()
     })
 
+    it('applies membership operations in request order', async () => {
+        const { sql, db } = store()
+        const group = await createGroup(sql, tokenActor, { displayName: 'Ordered changes' }, start)
+        const addThenRemove = await mutateGroup(
+            sql,
+            tokenActor,
+            group.id,
+            groupPatchChanges({
+                Operations: [
+                    { op: 'Add', path: 'members', value: [{ value: 'scim-user-1' }] },
+                    { op: 'Remove', path: 'members[value eq "scim-user-1"]' }
+                ]
+            }),
+            start + 1
+        )
+        expect(addThenRemove.members).toEqual([])
+        const removeThenAdd = await mutateGroup(
+            sql,
+            tokenActor,
+            group.id,
+            groupPatchChanges({
+                Operations: [
+                    { op: 'Remove', path: 'members', value: [{ value: 'scim-user-1' }] },
+                    { op: 'Add', value: { members: [{ value: 'scim-user-1' }] } }
+                ]
+            }),
+            start + 2
+        )
+        expect(removeThenAdd.members.map((member) => member.value)).toEqual(['scim-user-1'])
+        const replaceThenAdd = await mutateGroup(
+            sql,
+            tokenActor,
+            group.id,
+            groupPatchChanges({
+                Operations: [
+                    { op: 'Replace', path: 'members', value: [{ value: 'scim-user-1' }] },
+                    { op: 'Add', path: 'members', value: [{ value: 'scim-user-2' }] }
+                ]
+            }),
+            start + 3
+        )
+        expect(replaceThenAdd.members.map((member) => member.value)).toEqual(['scim-user-1', 'scim-user-2'])
+        db.close()
+    })
+
+    it('restores a deleted group by name or external id with its stable id and requested members', async () => {
+        const { sql, db } = store()
+        const byName = await createGroup(
+            sql,
+            tokenActor,
+            { displayName: 'Engineering', externalId: 'old-engineering', members: [{ value: 'scim-user-1' }] },
+            start
+        )
+        await deleteGroup(sql, tokenActor, byName.id, start + 1)
+        const restoredByName = await createGroup(
+            sql,
+            tokenActor,
+            { displayName: ' engineering ', externalId: 'new-engineering', members: [{ value: 'scim-user-2' }] },
+            start + 2
+        )
+        expect(restoredByName).toMatchObject({ id: byName.id, displayName: 'engineering', externalId: 'new-engineering' })
+        expect(restoredByName.members.map((member) => member.value)).toEqual(['scim-user-2'])
+
+        const byExternalId = await createGroup(sql, tokenActor, { displayName: 'Support', externalId: 'support-id' }, start + 3)
+        await deleteGroup(sql, tokenActor, byExternalId.id, start + 4)
+        const restoredByExternalId = await createGroup(
+            sql,
+            tokenActor,
+            { displayName: 'Customer care', externalId: 'support-id', members: [{ value: 'scim-user-1' }] },
+            start + 5
+        )
+        expect(restoredByExternalId.id).toBe(byExternalId.id)
+        expect(restoredByExternalId.members.map((member) => member.value)).toEqual(['scim-user-1'])
+        expect(
+            db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_group' AND summary = 'SCIM group restored'").get()
+        ).toMatchObject({ count: 2 })
+        db.close()
+    })
+
     it('treats unknown and deleted member removals as no-ops while additions still require a current user', async () => {
         const { sql, db } = store()
         const group = await createGroup(sql, tokenActor, { displayName: 'Engineering', members: [{ value: 'scim-user-1' }] }, start)
@@ -421,7 +500,7 @@ describe('SCIM mapping reconciliation', () => {
 })
 
 describe('SCIM operations diagnostics', () => {
-    it('summarizes operations and removes records older than 30 days', async () => {
+    it('summarizes operations with bounded database queries and removes records older than 30 days', async () => {
         const { sql, db } = store()
         await recordScimOperation(sql, {
             organizationId: 'org-1',
@@ -440,8 +519,24 @@ describe('SCIM operations diagnostics', () => {
             '2026-09-01T00:00:00.000Z'
         )
         await sweepScimDiagnostics(sql, start)
-        const operations = await readScimOperations(sql, 'org-1')
-        expect(operations).toMatchObject({ counts: { usersCreated: 1 }, retentionDays: 30 })
+        for (let index = 0; index < 25; index += 1) {
+            await recordScimOperation(sql, {
+                organizationId: 'org-1',
+                category: 'request',
+                outcome: 'failed',
+                correlationId: `failed-${index}`,
+                detail: `Request ${index}`,
+                completedAt: start + index + 1
+            })
+        }
+        const operations = await readScimOperations(sql, 'org-1', start + 100)
+        expect(operations).toMatchObject({
+            counts: { usersCreated: 1 },
+            failedCounts: { request: 25 },
+            lastFailedRequestCategory: 'request',
+            retentionDays: 30
+        })
+        expect(operations.recentErrors as unknown[]).toHaveLength(20)
         expect(JSON.stringify(operations)).not.toContain('correlation-old')
         db.close()
     })

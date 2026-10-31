@@ -12,6 +12,7 @@ import {
     parseScimFilter,
     patchChanges,
     readScimTokenState,
+    recordScimAuthenticationFailureAudit,
     revokeScimTokens,
     rotateScimToken,
     ScimError,
@@ -118,6 +119,27 @@ describe('SCIM bearer lifecycle', () => {
         expect(await authenticateScimToken(sql, created.clear, started + 61 * 60 * 1000)).toBeNull()
         expect(await authenticateScimToken(sql, rotated.clear, started + 61 * 60 * 1000)).not.toBeNull()
         expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_token'").get()).toMatchObject({ count: 2 })
+        db.close()
+    })
+
+    it('aggregates authentication failures into persisted five-minute audit windows', async () => {
+        const { sql, db } = store()
+        await recordScimAuthenticationFailureAudit(sql, 'org-1', 'credential_missing', started)
+        await recordScimAuthenticationFailureAudit(sql, 'org-1', 'credential_refused', started + 1_000)
+        await recordScimAuthenticationFailureAudit(sql, 'org-1', 'credential_refused', started + 5 * 60 * 1_000 + 1)
+        const rows = db
+            .prepare("SELECT detail FROM audit_event WHERE type = 'scim_auth_failure' ORDER BY createdAt ASC")
+            .all()
+            .map((row) => JSON.parse(String(row.detail)) as Record<string, unknown>)
+        expect(rows).toHaveLength(2)
+        expect(rows[0]).toMatchObject({
+            count: 2,
+            firstOccurrenceAt: new Date(started).toISOString(),
+            lastOccurrenceAt: new Date(started + 1_000).toISOString(),
+            categories: ['credential_missing', 'credential_refused']
+        })
+        expect(rows[1]).toMatchObject({ count: 1, categories: ['credential_refused'] })
+        expect(rows.reduce((total, row) => total + Number(row.count), 0)).toBe(3)
         db.close()
     })
 

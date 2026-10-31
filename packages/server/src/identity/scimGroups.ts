@@ -339,25 +339,33 @@ export async function createGroup(sql: Sql, actor: TokenActor, body: unknown, no
     const members = memberIds(record.members)
     if (!displayName || displayName.length > 255) throw new ScimError(400, 'displayName is required.', 'invalidValue')
     let id = ''
+    let restored = false
     await sql.transaction(async (query) => {
         await validateMemberIds(query, sql, actor.organizationId, members)
-        const existing = (await groupsForOrganization(query, sql, actor.organizationId)).find(
+        const groups = await groupsForOrganization(query, sql, actor.organizationId, true)
+        const matches = groups.filter(
             (group) => (externalId && group.externalId === externalId) || normalizedDisplayName(group.displayName) === normalizedName
         )
-        if (existing) {
-            const sameMembers =
-                existing.members
-                    .map((member) => member.value)
-                    .sort()
-                    .join('|') === [...members].sort().join('|')
-            if (existing.displayName === displayName && existing.externalId === externalId && sameMembers) {
-                id = existing.id
-                return
-            }
+        if (matches.some((group) => !group.deletedAt) || matches.length > 1) {
             throw new ScimError(409, 'A matching SCIM group already exists.', 'uniqueness')
         }
-        id = randomUUID()
         const at = utcDbTime(sql.type, now)
+        const deleted = matches[0]
+        if (deleted) {
+            id = deleted.id
+            restored = true
+            await query(
+                `UPDATE ${q(sql, 'identity_scim_group')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'displayName')} = ?, ${q(
+                    sql,
+                    'normalizedDisplayName'
+                )} = ?, ${q(sql, 'deletedAt')} = NULL, ${q(sql, 'updatedAt')} = ? WHERE ${q(sql, 'id')} = ?`,
+                [externalId, displayName, normalizedName, at, id]
+            )
+            await replaceMembers(query, sql, id, members, now)
+            await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
+            return
+        }
+        id = randomUUID()
         await query(
             `INSERT INTO ${q(sql, 'identity_scim_group')} (${q(sql, 'id')}, ${q(sql, 'organizationId')}, ${q(sql, 'externalId')}, ${q(
                 sql,
@@ -370,8 +378,13 @@ export async function createGroup(sql: Sql, actor: TokenActor, body: unknown, no
     })
     const created = (await groupsForOrganization(sql.query, sql, actor.organizationId)).find((group) => group.id === id)
     if (!created) throw new Error('SCIM_GROUP_CREATE_FAILED')
-    await auditGroup(sql, actor, 'created', created)
+    await auditGroup(sql, actor, restored ? 'restored' : 'created', created)
     return created
+}
+
+export interface GroupMemberOperation {
+    operation: 'add' | 'remove' | 'replace'
+    ids: string[]
 }
 
 export interface GroupChanges {
@@ -380,12 +393,13 @@ export interface GroupChanges {
     replaceMembers?: string[]
     addMembers?: string[]
     removeMembers?: string[]
+    memberOperations?: GroupMemberOperation[]
 }
 
 export function groupPatchChanges(body: unknown): GroupChanges {
     const record = object(body)
     if (!Array.isArray(record.Operations)) throw new ScimError(400, 'Operations are required.', 'invalidSyntax')
-    const changes: GroupChanges = {}
+    const changes: GroupChanges = { memberOperations: [] }
     for (const raw of record.Operations) {
         const operation = object(raw)
         const op = text(operation.op).toLowerCase()
@@ -396,17 +410,19 @@ export function groupPatchChanges(body: unknown): GroupChanges {
             const value = object(operation.value)
             if ('displayName' in value) changes.displayName = text(value.displayName).trim()
             if ('externalId' in value) changes.externalId = nullable(value.externalId)
-            if ('members' in value) changes[op === 'add' ? 'addMembers' : 'replaceMembers'] = memberIds(value.members)
+            if ('members' in value) {
+                changes.memberOperations?.push({ operation: op === 'add' ? 'add' : 'replace', ids: memberIds(value.members) })
+            }
             continue
         }
         if (/^displayname$/i.test(path)) changes.displayName = op === 'remove' ? '' : text(operation.value).trim()
         else if (/^externalid$/i.test(path)) changes.externalId = op === 'remove' ? null : nullable(operation.value)
         else if (/^members$/i.test(path)) {
-            changes[op === 'add' ? 'addMembers' : op === 'remove' ? 'removeMembers' : 'replaceMembers'] = memberIds(operation.value)
+            changes.memberOperations?.push({ operation: op as GroupMemberOperation['operation'], ids: memberIds(operation.value) })
         } else {
             const selected = /^members\s*\[\s*value\s+eq\s+"([^"]+)"\s*\]$/i.exec(path)
             if (!selected || op !== 'remove') throw new ScimError(400, 'Unsupported PATCH path.', 'invalidSyntax')
-            changes.removeMembers = [...new Set([...(changes.removeMembers || []), selected[1]])]
+            changes.memberOperations?.push({ operation: 'remove', ids: [selected[1]] })
         }
     }
     return changes
@@ -433,12 +449,25 @@ export async function mutateGroup(
                 ((externalId && group.externalId === externalId) || normalizedDisplayName(group.displayName) === normalizedName)
         )
         if (conflict) throw new ScimError(409, 'A matching SCIM group already exists.', 'uniqueness')
-        await validateMemberIds(query, sql, actor.organizationId, [...(changes.replaceMembers || []), ...(changes.addMembers || [])])
-        let next = changes.replaceMembers || current.members.map((member) => member.value)
-        if (changes.addMembers) next = [...new Set([...next, ...changes.addMembers])]
-        if (changes.removeMembers) {
-            const removed = new Set(changes.removeMembers)
-            next = next.filter((id) => !removed.has(id))
+        const memberOperations = changes.memberOperations || [
+            ...(changes.replaceMembers ? [{ operation: 'replace' as const, ids: changes.replaceMembers }] : []),
+            ...(changes.addMembers ? [{ operation: 'add' as const, ids: changes.addMembers }] : []),
+            ...(changes.removeMembers ? [{ operation: 'remove' as const, ids: changes.removeMembers }] : [])
+        ]
+        await validateMemberIds(
+            query,
+            sql,
+            actor.organizationId,
+            memberOperations.filter((operation) => operation.operation !== 'remove').flatMap((operation) => operation.ids)
+        )
+        let next = current.members.map((member) => member.value)
+        for (const operation of memberOperations) {
+            if (operation.operation === 'replace') next = [...operation.ids]
+            else if (operation.operation === 'add') next = [...new Set([...next, ...operation.ids])]
+            else {
+                const removed = new Set(operation.ids)
+                next = next.filter((id) => !removed.has(id))
+            }
         }
         await query(
             `UPDATE ${q(sql, 'identity_scim_group')} SET ${q(sql, 'displayName')} = ?, ${q(sql, 'externalId')} = ?, ${q(
@@ -452,7 +481,9 @@ export async function mutateGroup(
     })
     const updated = (await groupsForOrganization(sql.query, sql, actor.organizationId)).find((group) => group.id === groupId)
     if (!updated) throw new ScimError(404, 'Group not found.', 'noTarget')
-    const membershipChanged = Boolean(changes.replaceMembers || changes.addMembers || changes.removeMembers)
+    const membershipChanged = Boolean(
+        changes.memberOperations?.length || changes.replaceMembers || changes.addMembers || changes.removeMembers
+    )
     await auditGroup(sql, actor, membershipChanged ? 'membership changed' : 'updated', updated)
     return updated
 }
@@ -1128,30 +1159,55 @@ export async function recordScimOperation(
     )
 }
 
-export async function readScimOperations(sql: Sql, organizationId: string): Promise<Record<string, unknown>> {
-    await sweepScimDiagnostics(sql)
-    const rows = await sql.query(
-        `SELECT ${q(sql, 'category')} AS category, ${q(sql, 'outcome')} AS outcome, ${q(sql, 'correlationId')} AS correlationId, ${q(
-            sql,
-            'detail'
-        )} AS detail, ${q(sql, 'completedAt')} AS completedAt
-         FROM ${q(sql, 'identity_scim_diagnostic')} WHERE ${q(sql, 'organizationId')} = ?
-         ORDER BY ${q(sql, 'completedAt')} DESC`,
-        [organizationId]
-    )
-    const successful = rows.filter((row) => text(cell(row, 'outcome')) === 'success')
-    const failed = rows.filter((row) => text(cell(row, 'outcome')) === 'failed')
+export async function readScimOperations(sql: Sql, organizationId: string, now = Date.now()): Promise<Record<string, unknown>> {
+    await sweepScimDiagnostics(sql, now)
+    const cutoff = utcDbTime(sql.type, now - DIAGNOSTIC_RETENTION_MS)
+    const scope = `WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'completedAt')} >= ?`
+    const [summaryRows, countRows, failedRows, recentErrors] = await Promise.all([
+        sql.query(
+            `SELECT MAX(${q(sql, 'completedAt')}) AS lastCompletedRequestAt,
+                    MAX(CASE WHEN ${q(sql, 'outcome')} = 'success' THEN ${q(sql, 'completedAt')} ELSE NULL END) AS lastSuccessfulRequestAt,
+                    MAX(CASE WHEN ${q(sql, 'outcome')} = 'failed' THEN ${q(sql, 'completedAt')} ELSE NULL END) AS lastFailedRequestAt
+             FROM ${q(sql, 'identity_scim_diagnostic')} ${scope}`,
+            [organizationId, cutoff]
+        ),
+        sql.query(
+            `SELECT ${q(sql, 'category')} AS category, ${q(sql, 'outcome')} AS outcome, COUNT(*) AS count
+             FROM ${q(sql, 'identity_scim_diagnostic')} ${scope}
+             GROUP BY ${q(sql, 'category')}, ${q(sql, 'outcome')}`,
+            [organizationId, cutoff]
+        ),
+        sql.query(
+            `SELECT ${q(sql, 'category')} AS category FROM ${q(sql, 'identity_scim_diagnostic')} ${scope}
+             AND ${q(sql, 'outcome')} = 'failed'
+             ORDER BY ${q(sql, 'completedAt')} DESC, ${q(sql, 'id')} DESC LIMIT 1`,
+            [organizationId, cutoff]
+        ),
+        sql.query(
+            `SELECT ${q(sql, 'category')} AS category, ${q(sql, 'correlationId')} AS correlationId, ${q(sql, 'detail')} AS detail,
+                    ${q(sql, 'completedAt')} AS completedAt
+             FROM ${q(sql, 'identity_scim_diagnostic')} ${scope}
+             AND ${q(sql, 'outcome')} = 'failed'
+             ORDER BY ${q(sql, 'completedAt')} DESC, ${q(sql, 'id')} DESC LIMIT 20`,
+            [organizationId, cutoff]
+        )
+    ])
     const counts: Record<string, number> = {}
-    for (const row of successful) {
+    const failedCounts: Record<string, number> = {}
+    for (const row of countRows) {
         const category = text(cell(row, 'category'))
-        counts[category] = (counts[category] || 0) + 1
+        const target = text(cell(row, 'outcome')) === 'success' ? counts : failedCounts
+        target[category] = Number(cell(row, 'count')) || 0
     }
+    const summary = summaryRows[0] || {}
     return {
-        lastSuccessfulRequestAt: iso(cell(successful[0] || {}, 'completedAt')),
-        lastFailedRequestCategory: failed.length ? text(cell(failed[0], 'category')) : null,
-        lastCompletedRequestAt: iso(cell(rows[0] || {}, 'completedAt')),
+        lastSuccessfulRequestAt: iso(cell(summary, 'lastSuccessfulRequestAt')),
+        lastFailedRequestAt: iso(cell(summary, 'lastFailedRequestAt')),
+        lastFailedRequestCategory: failedRows.length ? text(cell(failedRows[0], 'category')) : null,
+        lastCompletedRequestAt: iso(cell(summary, 'lastCompletedRequestAt')),
         counts,
-        recentErrors: failed.slice(0, 20).map((row) => ({
+        failedCounts,
+        recentErrors: recentErrors.map((row) => ({
             category: text(cell(row, 'category')),
             detail: nullable(cell(row, 'detail')),
             correlationId: text(cell(row, 'correlationId')),

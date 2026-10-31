@@ -872,6 +872,13 @@ export async function addScimGroups(runner: QueryRunner): Promise<void> {
         `${q(dialect, 'userId')}, ${q(dialect, 'workspaceId')}`
     )
     await createIndex(runner, dialect, 'identity_scim_diagnostic', 'IDX_identity_scim_diagnostic_completed', q(dialect, 'completedAt'))
+    await createIndex(
+        runner,
+        dialect,
+        'identity_scim_diagnostic',
+        'IDX_identity_scim_diagnostic_org_completed',
+        `${q(dialect, 'organizationId')}, ${q(dialect, 'completedAt')}`
+    )
 }
 
 export async function removeScimGroups(runner: QueryRunner): Promise<void> {

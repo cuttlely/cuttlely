@@ -30,11 +30,11 @@ SCIM deactivation also changes a linked pending account to disabled. Administrat
 
 ## Groups
 
--   `POST /Groups` creates a provider group with required `displayName`, optional `externalId`, and an optional `members` array. `displayName` is trimmed and unique per organization without regard to letter case.
+-   `POST /Groups` creates a provider group with required `displayName`, optional `externalId`, and an optional `members` array. `displayName` is trimmed and unique per organization without regard to letter case. If the name or external id matches a deleted group, the request restores that stable group id and replaces its members with the requested set. A match with a current group returns `409 uniqueness`.
 -   `GET /Groups/{id}` reads a stable group id. `GET /Groups` accepts `startIndex`, `count`, `attributes`, `excludedAttributes`, and `eq` filters joined by `and`, `or`, and parentheses on `displayName` and `externalId`. `displayName` comparison is case-insensitive.
 -   `excludedAttributes=members` omits the member list.
 -   `PUT /Groups/{id}` replaces the supported attributes and complete membership.
--   `PATCH /Groups/{id}` accepts case-insensitive Add, Replace, and Remove operations. Members may be added, removed, or replaced with value arrays. Remove also accepts `members[value eq "id"]`. Pathless replacement supports `displayName`, `externalId`, and `members`.
+-   `PATCH /Groups/{id}` accepts case-insensitive Add, Replace, and Remove operations. Members may be added, removed, or replaced with value arrays. Remove also accepts `members[value eq "id"]`. Pathless replacement supports `displayName`, `externalId`, and `members`. When one request contains several membership operations, they are applied sequentially in request order before one reconciliation.
 -   Member additions and full replacements require current SCIM User ids. An unknown or deleted id returns `400 invalidValue` and the request makes no partial change. Removing an unknown or already-deleted id succeeds as a no-op.
 -   `DELETE /Groups/{id}` returns 204, removes the group from later reads, and transactionally removes assignments owned by its mapping.
 
@@ -46,7 +46,9 @@ Group membership changes, group deletion, mapping confirmation, and user deactiv
 
 ## Operations
 
-The Auth / SSO page shows credential state, last successful and completed request times, the last failed category, operation counts, and recent sanitized errors. Each error response includes an `X-Correlation-ID` header and the same id in `detail`. Diagnostics contain no bearer value or provisioned profile attributes and are retained for 30 days.
+The Auth / SSO page shows credential state, last successful, failed, and completed request times, the last failed category, operation counts, and up to 20 recent sanitized errors. Counts and timestamps use database aggregates scoped to the organization and 30-day window; the error list is a separate bounded query. Each error response includes an `X-Correlation-ID` header and the same id in `detail`. Diagnostics contain no bearer value or provisioned profile attributes and are retained for 30 days.
+
+Refused authentication attempts are stored as audit windows per organization. The first attempt writes a row immediately. Further attempts during the fixed five-minute window update that row with the complete count, first and last occurrence times, and missing/refused categories after every request. An attempt after the window starts a new row.
 
 The fixture suites follow published Okta and Entra ID request examples. They do not represent certification by either provider.
 

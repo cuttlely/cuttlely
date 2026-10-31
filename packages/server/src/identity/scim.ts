@@ -2,7 +2,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto'
 import express, { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
-import { safeRecordAudit } from './auditLog'
+import { redactAudit, retentionDays, safeRecordAudit } from './auditLog'
 import { scimBearerSecret } from './authenticationSecrets'
 import { deactivateUserInTransaction, DirectoryError, QueryFn, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
@@ -1175,23 +1175,86 @@ export const groupSchema = {
     meta: { resourceType: 'Schema', location: `/api/v1/scim/v2/Schemas/${CORE_GROUP}` }
 }
 
-const failedAuditAt = new Map<string, number>()
 const FAILURE_AUDIT_WINDOW_MS = 5 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
 
-async function auditAuthenticationFailure(sql: Sql, organizationId: string): Promise<void> {
+function auditDetail(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+    if (typeof value !== 'string') return {}
+    try {
+        const parsed = JSON.parse(value) as unknown
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+    } catch {
+        return {}
+    }
+}
+
+export async function recordScimAuthenticationFailureAudit(
+    sql: Sql,
+    organizationId: string,
+    category: 'credential_missing' | 'credential_refused',
+    now = Date.now()
+): Promise<void> {
     if (!organizationId) return
-    const previous = failedAuditAt.get(organizationId) || 0
-    if (Date.now() - previous < FAILURE_AUDIT_WINDOW_MS) return
-    failedAuditAt.set(organizationId, Date.now())
-    await safeRecordAudit(sql, {
-        type: 'scim_auth_failure',
-        organizationId,
-        workspaceId: null,
-        userId: null,
-        actorId: 'scim',
-        summary: 'SCIM authentication failed',
-        detail: { outcome: 'failed' }
-    })
+    try {
+        await sql.transaction(async (query) => {
+            const lock = sql.type === 'sqlite' ? '' : ' FOR UPDATE'
+            const rows = await query(
+                `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'detail')} AS detail, ${q(sql, 'createdAt')} AS createdAt
+                 FROM ${q(sql, 'audit_event')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'type')} = 'scim_auth_failure'
+                   AND ${q(sql, 'createdAt')} >= ? ORDER BY ${q(sql, 'createdAt')} DESC LIMIT 1${lock}`,
+                [organizationId, now - FAILURE_AUDIT_WINDOW_MS]
+            )
+            const current = rows[0]
+            if (current) {
+                const previous = auditDetail(cell(current, 'detail'))
+                const categories = new Set(
+                    Array.isArray(previous.categories) ? previous.categories.filter((item): item is string => typeof item === 'string') : []
+                )
+                categories.add(category)
+                const detail = redactAudit({
+                    type: 'scim_auth_failure',
+                    summary: 'SCIM authentication failed',
+                    detail: {
+                        outcome: 'failed',
+                        count: Math.max(1, Number(previous.count) || 1) + 1,
+                        firstOccurrenceAt: text(previous.firstOccurrenceAt) || new Date(Number(cell(current, 'createdAt'))).toISOString(),
+                        lastOccurrenceAt: new Date(now).toISOString(),
+                        categories: [...categories].sort()
+                    }
+                }).detail
+                await query(`UPDATE ${q(sql, 'audit_event')} SET ${q(sql, 'detail')} = ? WHERE ${q(sql, 'id')} = ?`, [
+                    detail ? JSON.stringify(detail) : null,
+                    text(cell(current, 'id'))
+                ])
+                return
+            }
+            const detail = redactAudit({
+                type: 'scim_auth_failure',
+                summary: 'SCIM authentication failed',
+                detail: {
+                    outcome: 'failed',
+                    count: 1,
+                    firstOccurrenceAt: new Date(now).toISOString(),
+                    lastOccurrenceAt: new Date(now).toISOString(),
+                    categories: [category]
+                }
+            }).detail
+            await query(`DELETE FROM ${q(sql, 'audit_event')} WHERE ${q(sql, 'createdAt')} < ?`, [now - retentionDays() * DAY_MS])
+            await query(
+                `INSERT INTO ${q(sql, 'audit_event')} (${q(sql, 'id')}, ${q(sql, 'type')}, ${q(sql, 'organizationId')}, ${q(
+                    sql,
+                    'workspaceId'
+                )}, ${q(sql, 'userId')}, ${q(sql, 'actorId')}, ${q(sql, 'summary')}, ${q(sql, 'detail')}, ${q(
+                    sql,
+                    'createdAt'
+                )}) VALUES (?, 'scim_auth_failure', ?, NULL, NULL, 'scim', ?, ?, ?)`,
+                [randomUUID(), organizationId, 'SCIM authentication failed', detail ? JSON.stringify(detail) : null, now]
+            )
+        })
+    } catch {
+        console.warn('[server]: audit event was not saved')
+    }
 }
 
 function authorization(req: Request): string {
@@ -1226,7 +1289,8 @@ declare global {
 async function scimAuthentication(req: Request, res: Response, next: NextFunction): Promise<void> {
     const sql = applicationSql()
     try {
-        const actor = await authenticateScimToken(sql, authorization(req))
+        const bearer = authorization(req)
+        const actor = await authenticateScimToken(sql, bearer)
         if (!actor) {
             let organizationId = ''
             try {
@@ -1236,7 +1300,7 @@ async function scimAuthentication(req: Request, res: Response, next: NextFunctio
             }
             res.locals.scimOrganizationId = organizationId
             res.locals.scimFailureCategory = 'authentication'
-            await auditAuthenticationFailure(sql, organizationId)
+            await recordScimAuthenticationFailureAudit(sql, organizationId, bearer ? 'credential_refused' : 'credential_missing')
             sendScimError(res, 401, 'A valid SCIM bearer credential is required.')
             return
         }

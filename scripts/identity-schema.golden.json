@@ -4119,6 +4119,12 @@
                     "origin": "c"
                 },
                 {
+                    "name": "IDX_identity_scim_diagnostic_org_completed",
+                    "unique": false,
+                    "columns": ["organizationId", "completedAt"],
+                    "origin": "c"
+                },
+                {
                     "name": "sqlite_autoindex_identity_scim_diagnostic_1",
                     "unique": true,
                     "columns": ["id"],
@@ -8266,6 +8272,11 @@
                     "name": "IDX_identity_scim_diagnostic_completed",
                     "unique": false,
                     "columns": ["completedAt"]
+                },
+                {
+                    "name": "IDX_identity_scim_diagnostic_org_completed",
+                    "unique": false,
+                    "columns": ["organizationId", "completedAt"]
                 }
             ]
         },
@@ -13330,6 +13341,11 @@
                     "name": "IDX_identity_scim_diagnostic_completed",
                     "unique": false,
                     "columns": ["completedAt"]
+                },
+                {
+                    "name": "IDX_identity_scim_diagnostic_org_completed",
+                    "unique": false,
+                    "columns": ["organizationId", "completedAt"]
                 },
                 {
                     "name": "PRIMARY",
@@ -18497,6 +18513,11 @@
                     "name": "IDX_identity_scim_diagnostic_completed",
                     "unique": false,
                     "columns": ["completedAt"]
+                },
+                {
+                    "name": "IDX_identity_scim_diagnostic_org_completed",
+                    "unique": false,
+                    "columns": ["organizationId", "completedAt"]
                 },
                 {
                     "name": "PRIMARY",

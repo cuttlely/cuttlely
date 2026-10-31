@@ -182,6 +182,9 @@ describe('SCIM schema on sqlite', () => {
         expect(calls).toContain(
             'CREATE UNIQUE INDEX IF NOT EXISTS "IDX_identity_scim_group_name" ON "identity_scim_group" ("organizationId", "normalizedDisplayName")'
         )
+        expect(calls).toContain(
+            'CREATE INDEX IF NOT EXISTS "IDX_identity_scim_diagnostic_org_completed" ON "identity_scim_diagnostic" ("organizationId", "completedAt")'
+        )
 
         await removeScimGroups(runner)
         await removeScimProvisioning(runner)

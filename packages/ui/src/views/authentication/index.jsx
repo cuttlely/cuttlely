@@ -350,7 +350,11 @@ export default function AuthenticationSettings() {
                                     : 'None'}
                             </Typography>
                             <Typography color='text.secondary'>
-                                Last failed category: {data?.scim?.operations?.lastFailedRequestCategory || 'None'}
+                                Last failed request:{' '}
+                                {data?.scim?.operations?.lastFailedRequestAt
+                                    ? new Date(data.scim.operations.lastFailedRequestAt).toLocaleString()
+                                    : 'None'}
+                                ; category: {data?.scim?.operations?.lastFailedRequestCategory || 'None'}
                             </Typography>
                             <Typography color='text.secondary'>
                                 Users created {data?.scim?.operations?.counts?.usersCreated || 0}; updated{' '}

@@ -397,7 +397,7 @@ describe('RFC 7644 route conformance', () => {
             .set('Authorization', `Bearer ${bearer}`)
             .type('application/scim+json')
             .send({ displayName: 'Conformance Group', externalId: 'group-id', members: [{ value: first.body.id }] })
-        expect(repeated.body.id).toBe(group.body.id)
+        expect(repeated.status).toBe(409)
         const replace = await authorized()
             .patch(`/api/v1/scim/v2/Groups/${group.body.id}`)
             .set('Authorization', `Bearer ${bearer}`)
