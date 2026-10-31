@@ -181,10 +181,12 @@ function checkedUrl(raw: string, config: Pick<OidcConfiguration, 'privateIssuerH
 async function boundedJson(
     url: string,
     config: OidcConfiguration,
-    init: Record<string, unknown> = {}
+    init: Record<string, unknown> = {},
+    options: { readErrorBody?: boolean } = {}
 ): Promise<{
     value: Record<string, unknown>
     headers: { get(name: string): string | null }
+    status: number
 }> {
     checkedUrl(url, config, 'OIDC endpoint')
     const controller = new AbortController()
@@ -194,7 +196,10 @@ async function boundedJson(
             allowedPrivateHostnames: exactHostList(config.privateIssuerHosts)
         } as any)
         if (response.status >= 300 && response.status < 400) throw new OidcError('upstream', 'The OIDC endpoint returned a redirect.')
-        if (!response.ok) throw new OidcError('upstream', `The OIDC endpoint returned status ${response.status}.`)
+        const readableError = options.readErrorBody && (response.status === 400 || response.status === 401)
+        if (!response.ok && !readableError) {
+            throw new OidcError('upstream', `The OIDC endpoint returned status ${response.status}.`)
+        }
         const chunks: Buffer[] = []
         let size = 0
         for await (const chunk of response.body as any) {
@@ -207,10 +212,14 @@ async function boundedJson(
         try {
             value = JSON.parse(Buffer.concat(chunks).toString('utf8'))
         } catch {
+            if (!response.ok) throw new OidcError('upstream', `The OIDC endpoint returned status ${response.status}.`)
             throw new OidcError('response', 'The OIDC endpoint returned malformed JSON.')
         }
-        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OidcError('response', 'The OIDC response is malformed.')
-        return { value: value as Record<string, unknown>, headers: response.headers }
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            if (!response.ok) throw new OidcError('upstream', `The OIDC endpoint returned status ${response.status}.`)
+            throw new OidcError('response', 'The OIDC response is malformed.')
+        }
+        return { value: value as Record<string, unknown>, headers: response.headers, status: response.status }
     } catch (error) {
         if (error instanceof OidcError) throw error
         throw new OidcError('upstream', 'The OIDC endpoint could not be reached.')
@@ -364,8 +373,10 @@ export async function beginOidcAuthorization(input: {
     url.searchParams.set('nonce', nonce)
     url.searchParams.set('code_challenge', sha256(verifier))
     url.searchParams.set('code_challenge_method', 'S256')
-    if (input.purpose === 'reauth') {
+    if (input.purpose === 'reauth' || input.purpose === 'invite') {
         url.searchParams.set('prompt', 'login')
+    }
+    if (input.purpose === 'reauth') {
         url.searchParams.set('max_age', '0')
     }
     return { url: url.toString(), state, config, browserNonce, callbackUrl: redirectUri }
@@ -383,22 +394,41 @@ async function consumeEnvelope(dataSource: DataSource, state: string, now: numbe
 async function exchangeCode(config: OidcConfiguration, discovery: OidcDiscovery, code: string, verifier: string, callbackUrl: string) {
     const secret = process.env[config.clientSecretEnvVar]
     if (!secret) throw new OidcError('configuration', 'The OIDC client secret is not set.', 'configuration_unavailable')
-    const methods = discovery.token_endpoint_auth_methods_supported || ['client_secret_basic']
-    const method = methods.includes('client_secret_post') ? 'client_secret_post' : 'client_secret_basic'
-    const body = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: callbackUrl,
-        client_id: config.clientId,
-        code_verifier: verifier
-    })
-    const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }
-    if (method === 'client_secret_post') body.set('client_secret', secret)
-    else {
-        const encode = (value: string) => new URLSearchParams([['value', value]]).toString().slice('value='.length)
-        headers.authorization = `Basic ${Buffer.from(`${encode(config.clientId)}:${encode(secret)}`).toString('base64')}`
+    const advertisedMethods = discovery.token_endpoint_auth_methods_supported
+    const supportsBasic = !advertisedMethods || advertisedMethods.includes('client_secret_basic')
+    const supportsPost = advertisedMethods?.includes('client_secret_post') === true
+    const firstMethod = supportsBasic ? 'client_secret_basic' : 'client_secret_post'
+
+    const request = async (method: 'client_secret_basic' | 'client_secret_post') => {
+        const body = new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: callbackUrl,
+            client_id: config.clientId,
+            code_verifier: verifier
+        })
+        const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }
+        if (method === 'client_secret_post') body.set('client_secret', secret)
+        else {
+            const encode = (value: string) => new URLSearchParams([['value', value]]).toString().slice('value='.length)
+            headers.authorization = `Basic ${Buffer.from(`${encode(config.clientId)}:${encode(secret)}`).toString('base64')}`
+        }
+        return boundedJson(discovery.token_endpoint, config, { method: 'POST', headers, body: body.toString() }, { readErrorBody: true })
     }
-    return boundedJson(discovery.token_endpoint, config, { method: 'POST', headers, body: body.toString() })
+
+    const first = await request(firstMethod)
+    if (
+        firstMethod === 'client_secret_basic' &&
+        supportsPost &&
+        (first.status === 400 || first.status === 401) &&
+        first.value.error === 'invalid_client'
+    ) {
+        const retried = await request('client_secret_post')
+        if (retried.status < 400) return retried
+        throw new OidcError('upstream', `The OIDC endpoint returned status ${retried.status}.`)
+    }
+    if (first.status >= 400) throw new OidcError('upstream', `The OIDC endpoint returned status ${first.status}.`)
+    return first
 }
 
 interface JwksCacheEntry {

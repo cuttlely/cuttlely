@@ -87,6 +87,8 @@ class TestIdp {
     lastTokenAuthorization = ''
     lastUserInfoAuthorization = ''
     lastAccessToken = ''
+    tokenErrors: Array<{ status: number; error: string }> = []
+    tokenRequests: Array<{ authorization: string; body: string }> = []
     jwksEntries: TestJwksEntry[] | null = null
     jwksRequests = 0
 
@@ -151,8 +153,8 @@ class TestIdp {
         return `${input}.${sign('RSA-SHA256', Buffer.from(input), pair.privateKey).toString('base64url')}`
     }
 
-    private json(response: ServerResponse, body: unknown, headers: Record<string, string> = {}): void {
-        response.writeHead(200, { 'content-type': 'application/json', ...headers })
+    private json(response: ServerResponse, body: unknown, headers: Record<string, string> = {}, status = 200): void {
+        response.writeHead(status, { 'content-type': 'application/json', ...headers })
         response.end(JSON.stringify(body))
     }
 
@@ -183,6 +185,9 @@ class TestIdp {
                 request.on('data', (part) => (body += part))
                 request.on('end', () => resolve(body))
             })
+            this.tokenRequests.push({ authorization: this.lastTokenAuthorization, body: this.lastTokenBody })
+            const tokenError = this.tokenErrors.shift()
+            if (tokenError) return this.json(response, { error: tokenError.error }, {}, tokenError.status)
             this.lastAccessToken = randomBytes(32).toString('base64url')
             return this.json(response, {
                 id_token: this.token(),
@@ -220,6 +225,53 @@ function configuration(idp: TestIdp, privateIssuerHosts = ['127.0.0.1']): OidcCo
         testResult: null,
         version: 1
     }
+}
+
+async function activateOidc(idp: TestIdp): Promise<ReturnType<typeof database>> {
+    const db = database()
+    await addOidcProvider(db.source.createQueryRunner())
+    const config = configuration(idp)
+    const discovery = await checkOidcConfiguration(config)
+    await saveOidcDraft(
+        db.source,
+        {
+            issuer: config.issuer,
+            clientId: config.clientId,
+            clientSecretEnvVar: config.clientSecretEnvVar,
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: config.privateIssuerHosts,
+            fingerprint: config.fingerprint,
+            discovery: discovery as unknown as Record<string, unknown>,
+            health: 'ready',
+            healthError: null,
+            checkedAt: new Date().toISOString()
+        },
+        0
+    )
+    await db.source.query('UPDATE identity_oidc_configuration SET slot = ? WHERE slot = ?', ['active', 'draft'])
+    return db
+}
+
+async function completeCodeExchange(db: ReturnType<typeof database>, idp: TestIdp): Promise<void> {
+    const begun = await beginOidcAuthorization({
+        dataSource: db.source,
+        slot: 'active',
+        installationId: 'installation',
+        authenticationEpoch: 1,
+        callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+        redirectTarget: '/',
+        purpose: 'signin'
+    })
+    idp.nonce = new URL(begun.url).searchParams.get('nonce') || ''
+    await completeOidcAuthorization({
+        dataSource: db.source,
+        state: begun.state,
+        code: 'code',
+        responseIssuer: idp.issuer,
+        callbackUrl: begun.callbackUrl,
+        browserNonce: begun.browserNonce,
+        currentEpoch: 1
+    })
 }
 
 function identityStore(users: UserRow[]): IdentityStore {
@@ -332,6 +384,84 @@ describe('generic OIDC provider', () => {
         expect(idp.lastTokenAuthorization).toBe(`Basic ${Buffer.from(`${encodedId}:${encodedSecret}`).toString('base64')}`)
         expect(new URLSearchParams(idp.lastTokenBody).get('redirect_uri')).toBe(begun.callbackUrl)
         db.close()
+    })
+
+    it('prefers client_secret_basic when both client authentication methods are advertised', async () => {
+        idp.tokenAuthMethods = ['client_secret_post', 'client_secret_basic']
+        const db = await activateOidc(idp)
+        try {
+            await completeCodeExchange(db, idp)
+            expect(idp.tokenRequests).toHaveLength(1)
+            expect(idp.tokenRequests[0].authorization).toMatch(/^Basic /)
+            expect(new URLSearchParams(idp.tokenRequests[0].body).has('client_secret')).toBe(false)
+        } finally {
+            db.close()
+        }
+    })
+
+    it('uses client_secret_post when it is the only advertised client authentication method', async () => {
+        idp.tokenAuthMethods = ['client_secret_post']
+        const db = await activateOidc(idp)
+        try {
+            await completeCodeExchange(db, idp)
+            expect(idp.tokenRequests).toHaveLength(1)
+            expect(idp.tokenRequests[0].authorization).toBe('')
+            expect(new URLSearchParams(idp.tokenRequests[0].body).get('client_secret')).toBe(idp.clientSecret)
+        } finally {
+            db.close()
+        }
+    })
+
+    it('retries once with client_secret_post after client_secret_basic receives invalid_client', async () => {
+        idp.tokenAuthMethods = ['client_secret_basic', 'client_secret_post']
+        idp.tokenErrors = [{ status: 401, error: 'invalid_client' }]
+        const db = await activateOidc(idp)
+        try {
+            await completeCodeExchange(db, idp)
+            expect(idp.tokenRequests).toHaveLength(2)
+            expect(idp.tokenRequests[0].authorization).toMatch(/^Basic /)
+            expect(new URLSearchParams(idp.tokenRequests[0].body).has('client_secret')).toBe(false)
+            expect(idp.tokenRequests[1].authorization).toBe('')
+            expect(new URLSearchParams(idp.tokenRequests[1].body).get('client_secret')).toBe(idp.clientSecret)
+        } finally {
+            db.close()
+        }
+    })
+
+    it('does not retry another token endpoint error', async () => {
+        idp.tokenAuthMethods = ['client_secret_basic', 'client_secret_post']
+        idp.tokenErrors = [{ status: 400, error: 'invalid_grant' }]
+        const db = await activateOidc(idp)
+        try {
+            await expect(completeCodeExchange(db, idp)).rejects.toMatchObject({
+                category: 'upstream',
+                message: 'The OIDC endpoint returned status 400.'
+            })
+            expect(idp.tokenRequests).toHaveLength(1)
+            expect(idp.tokenRequests[0].authorization).toMatch(/^Basic /)
+        } finally {
+            db.close()
+        }
+    })
+
+    it('asks the provider for a new login during invitation authorization without setting max_age', async () => {
+        const db = await activateOidc(idp)
+        try {
+            const begun = await beginOidcAuthorization({
+                dataSource: db.source,
+                slot: 'active',
+                installationId: 'installation',
+                authenticationEpoch: 1,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                redirectTarget: '/',
+                purpose: 'invite'
+            })
+            const authorizationUrl = new URL(begun.url)
+            expect(authorizationUrl.searchParams.get('prompt')).toBe('login')
+            expect(authorizationUrl.searchParams.has('max_age')).toBe(false)
+        } finally {
+            db.close()
+        }
     })
 
     it('refuses an unreachable issuer with a normalized upstream error', async () => {

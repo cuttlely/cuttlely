@@ -163,6 +163,8 @@ An invited person joins only through their own invite link. Signing in through t
 
 That first sign-in through the link makes the person active and creates their provider link in the same transaction that consumes the invitation. After that they use the active remote sign-in method like everyone else. If AuthKit public sign-up is off, also create them in the WorkOS Users directory.
 
+For an OIDC invitation, the provider asks the person to sign in again even when another account already has a provider session. They can then sign in with the account whose email received the invitation.
+
 Until they accept, the person is a pending invite: the Users list shows them as `invited`, and they have no access to any team. Signing in through WorkOS or generic OIDC without the link shows `You have a pending invite. Open the invite link from your email to join.` and leaves them pending.
 
 An invite link:

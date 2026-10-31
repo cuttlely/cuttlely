@@ -27,6 +27,8 @@ If the issuer and client id stay the same but discovery changes an endpoint, JWK
 
 Each configured provider has a distinct callback URL whose final path segment is the provider marker. The URL has no query parameters. The callback must match the sign-in transaction before Cuttlely sends the authorization code to the token endpoint. When an authorization response contains `iss`, Cuttlely requires it to match the transaction issuer. When provider metadata advertises the authorization-response issuer parameter, a response without `iss` is refused.
 
+For token endpoint client authentication, Cuttlely uses `client_secret_basic` when provider metadata advertises it or omits the supported-method list. It uses `client_secret_post` when that is the only supported secret method. When both are advertised and the first request returns `invalid_client` with HTTP 400 or 401, Cuttlely retries once with `client_secret_post`. Other errors are not retried.
+
 Set `APP_URL` to the public origin before testing or activating OIDC. It must use HTTPS. For local development, HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`. When the origin uses HTTPS, the OIDC browser cookie and the application session cookie are both Secure.
 
 The shipped Compose files pass `APP_URL` and `CUTTLELY_OIDC_CLIENT_SECRET` into the server. If the setup card names a different environment variable, add that exact name to the Compose service's `environment` section as well.

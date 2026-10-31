@@ -12,6 +12,8 @@ The final review corrections make OIDC Test sign-in apply the ordinary subject-l
 
 The latest review corrections omit the provider subject from an OIDC refusal audit when no user matched, and show the shared pending or invalid invitation guidance on the sign-in page.
 
+The latest OIDC review corrections prefer `client_secret_basic` when provider metadata advertises it or omits the supported-method list. A provider that advertises both methods gets one `client_secret_post` attempt only after a basic request returns `invalid_client` with HTTP 400 or 401; other errors are not retried. Invitation authorization now sends `prompt=login` without `max_age`, so a person can choose the invited account even when the provider already has another account session.
+
 The current review batch uses a query-free provider path for each OIDC callback, validates invitation links before starting provider transactions, gives invitation starts their own request limit, and counts callback failures only after browser binding. Reauthentication resolves without writing and creates a provider link only after the initiating user matches. OIDC invitations are handled before ordinary account resolution, and invitation audit details record WorkOS or OIDC explicitly. Bulk invitations request Local links and retain successful links beside item-level failures. The audit page shows bounded OIDC configuration and sign-in details, draft-save audit delivery is documented as best effort, and setup no longer presents a provider sign-out callback.
 
 Bulk invitations now keep returned links visible and copyable until dismissed. Add User reads the active sign-in options and names OIDC, WorkOS, or Local in its new-user guidance.
