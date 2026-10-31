@@ -26,8 +26,7 @@ import * as production from './production'
 import { activateSessionConvergence, resetSessionConvergenceForTests, sessionConvergenceActive } from './sessionConvergence'
 import { currentAuthOptionsBody } from './http'
 import { signInOptionsBody } from './signInOptions'
-import { runUserCli } from './cli'
-import { SqlIdentityStore } from './sqlStore'
+import { runUserCommand } from './cli'
 
 const GOOD_PASSWORD = 'Sup3r-Secret!'
 
@@ -303,6 +302,59 @@ describe('authentication provider foundation', () => {
         })
     })
 
+    it('requires local users when changing from WorkOS to Local', async () => {
+        await withEnvironment(
+            {
+                WORKOS_API_KEY: 'set',
+                WORKOS_CLIENT_ID: 'client',
+                CUTTLELY_LOCAL_ADMIN: 'true',
+                CUTTLELY_LOCAL_USERS: undefined
+            },
+            async () => {
+                const db = await database()
+                const before = await initializeAuthenticationState(db)
+                await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+                await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+                await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+                const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'local', before.version)
+                await expect(
+                    switchAuthenticationMethod(db, 'local', before.version, undefined, {
+                        id: staged.id,
+                        actorId: 'owner',
+                        version: staged.version
+                    })
+                ).rejects.toThrow('METHOD_NOT_READY')
+                await db.destroy()
+            }
+        )
+    })
+
+    it('changes from WorkOS to Local when local users are enabled', async () => {
+        await withEnvironment(
+            {
+                WORKOS_API_KEY: 'set',
+                WORKOS_CLIENT_ID: 'client',
+                CUTTLELY_LOCAL_ADMIN: 'true',
+                CUTTLELY_LOCAL_USERS: 'true'
+            },
+            async () => {
+                const db = await database()
+                const before = await initializeAuthenticationState(db)
+                await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+                await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+                await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+                const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'local', before.version)
+                const after = await switchAuthenticationMethod(db, 'local', before.version, undefined, {
+                    id: staged.id,
+                    actorId: 'owner',
+                    version: staged.version
+                })
+                expect(after.activeMethod).toBe('local')
+                await db.destroy()
+            }
+        )
+    })
+
     it('records first-boot WorkOS inference in the durable compatibility view', async () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client' }, async () => {
             const db = await database()
@@ -563,35 +615,54 @@ describe('authentication provider foundation', () => {
         await db.destroy()
     })
 
-    it('selects durable Local login when the operator command creates the first owner', async () => {
-        const db = await database('sqlite', '', true)
-        await initializeAuthenticationState(db, { CUTTLELY_LOCAL_ADMIN: 'true' })
-        const result = await runUserCli(new SqlIdentityStore(db), {
-            email: 'owner@example.com',
-            password: GOOD_PASSWORD,
-            localAdmin: true
-        })
-        expect(result.ok).toBe(true)
-        expect(await readAuthenticationState(db)).toMatchObject({ activeMethod: 'local', authenticationEpoch: 1, sessionsEnded: 0 })
-        const [audit] = await db.query('SELECT "type", "detail" FROM "audit_event"')
-        expect(audit.type).toBe('auth_method_change')
-        expect(JSON.parse(audit.detail)).toMatchObject({ oldMethod: 'none', newMethod: 'local', sessionsEnded: 0 })
-        await db.destroy()
+    it('initializes durable Local login before the operator command creates the first owner', async () => {
+        await withEnvironment(
+            {
+                CUTTLELY_LOCAL_ADMIN: 'true',
+                CUTTLELY_LOCAL_USERS: undefined,
+                WORKOS_API_KEY: undefined,
+                WORKOS_CLIENT_ID: undefined
+            },
+            async () => {
+                const db = await database('sqlite', '', true)
+                expect(await readAuthenticationState(db)).toBeNull()
+                const result = await runUserCommand(db, {
+                    email: 'owner@example.com',
+                    password: GOOD_PASSWORD,
+                    localAdmin: true
+                })
+                expect(result.ok).toBe(true)
+                const afterCommand = await readAuthenticationState(db)
+                expect(afterCommand).toMatchObject({ activeMethod: 'local', authenticationEpoch: 1, sessionsEnded: 0 })
+                await db.query('INSERT INTO "identity_local_session" ("id", "userId", "token") VALUES (?, ?, ?)', [
+                    'later-session',
+                    'owner',
+                    'token'
+                ])
+                expect(await applyAuthKitSwitchOnBoot(db)).toBeNull()
+                expect(await readAuthenticationState(db)).toEqual(afterCommand)
+                expect(await db.query('SELECT "id" FROM "identity_local_session"')).toEqual([{ id: 'later-session' }])
+                expect(await db.query('SELECT "id" FROM "audit_event"')).toHaveLength(1)
+                await db.destroy()
+            }
+        )
     }, 20000)
 
     it('keeps a durable WorkOS selection when the operator command creates the first owner', async () => {
-        const db = await database('sqlite', '', true)
-        await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client-existing' })
-        const before = await readAuthenticationState(db)
-        const result = await runUserCli(new SqlIdentityStore(db), {
-            email: 'owner@example.com',
-            password: GOOD_PASSWORD,
-            localAdmin: true
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client-existing' }, async () => {
+            const db = await database('sqlite', '', true)
+            await initializeAuthenticationState(db)
+            const before = await readAuthenticationState(db)
+            const result = await runUserCommand(db, {
+                email: 'owner@example.com',
+                password: GOOD_PASSWORD,
+                localAdmin: true
+            })
+            expect(result.ok).toBe(true)
+            expect(await readAuthenticationState(db)).toEqual(before)
+            expect(await db.query('SELECT "id" FROM "audit_event"')).toEqual([])
+            await db.destroy()
         })
-        expect(result.ok).toBe(true)
-        expect(await readAuthenticationState(db)).toEqual(before)
-        expect(await db.query('SELECT "id" FROM "audit_event"')).toEqual([])
-        await db.destroy()
     }, 20000)
 })
 

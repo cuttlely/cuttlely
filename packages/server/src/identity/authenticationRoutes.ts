@@ -113,6 +113,8 @@ identityAuthenticationRouter.get('/', async (req: Request, res: Response) => {
         const who = actor(req)
         const state =
             (await readAuthenticationState(applicationDataSource())) || (await initializeAuthenticationState(applicationDataSource()))
+        const localUsersConfigured = localUsersSetting()
+        const localOwnerConfigured = localAdminEnabled()
         res.set('Cache-Control', 'no-store')
             .status(200)
             .json({
@@ -120,7 +122,12 @@ identityAuthenticationRouter.get('/', async (req: Request, res: Response) => {
                 installationId: undefined,
                 providerKey: state.providerKey ? state.providerKey.slice(0, 12) : null,
                 methods: {
-                    local: { configured: localUsersSetting(), label: 'Local login' },
+                    local: {
+                        configured: localUsersConfigured || localOwnerConfigured,
+                        selectable: localUsersConfigured,
+                        scope: localUsersConfigured ? 'local-users' : localOwnerConfigured ? 'owner-only' : null,
+                        label: 'Local login'
+                    },
                     workos: { configured: workosEnvironmentConfigured(), label: 'WorkOS' },
                     oidc: { configured: false, available: false, label: 'Generic OIDC' }
                 },
@@ -263,7 +270,12 @@ identityAuthenticationRouter.post('/stage', switchStageLimit, async (req: Reques
         const version = Number((req.body as { version?: unknown })?.version)
         if (method !== 'local' && method !== 'workos')
             return void res.status(400).json({ message: 'That sign-in method is not available.' })
-        if ((method === 'local' && !localUsersSetting()) || (method === 'workos' && !workosEnvironmentConfigured()))
+        if (method === 'local' && !localUsersSetting())
+            return void res.status(409).json({
+                code: 'METHOD_NOT_READY',
+                message: 'Set CUTTLELY_LOCAL_USERS=true before switching to Local.'
+            })
+        if (method === 'workos' && !workosEnvironmentConfigured())
             return void res.status(409).json({ message: 'Configure this method before selecting it.' })
         if (method === 'workos' && !(await ownerRecoveryReady())) {
             await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'owner_recovery_unavailable' })
@@ -358,6 +370,8 @@ identityAuthenticationRouter.post('/apply', switchApplyLimit, async (req: Reques
                     ? 'Local login requires an active owner with a usable local password.'
                     : code === 'RECOVERY_REQUIRED'
                     ? 'WorkOS cannot be activated until an active owner has a usable local password.'
+                    : code === 'METHOD_NOT_READY' && body.method === 'local'
+                    ? 'Set CUTTLELY_LOCAL_USERS=true before switching to Local.'
                     : 'The sign-in method was not changed.'
         })
     }

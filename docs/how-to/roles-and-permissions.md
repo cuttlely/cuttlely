@@ -26,7 +26,7 @@ Three roles are stored with no organization, so every install has them. The Role
 
 The owner's own role row, the one tied to the organization, stores an empty permission list. The role name `owner` is what makes the account the organization owner. A second owner row, with no organization, stores the tokens `organization` and `workspace`. Those tokens are not keys in the table below. The Roles page shows the organization's Super User. The API returns the fixed catalog set for Owner, Admin, Builder, and Viewer. Saving a change to any of those names is refused.
 
-When local password sign-in is on (`CUTTLELY_LOCAL_USERS=true` and AuthKit is unset), three more roles are seeded. They are fixed. A custom role stays editable.
+When the durable selected method is Local login and `CUTTLELY_LOCAL_USERS=true`, three more roles are seeded. They are fixed. A custom role stays editable. `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` may be present while Local remains selected. Changing from another method to Local requires `CUTTLELY_LOCAL_USERS=true`; `CUTTLELY_LOCAL_ADMIN` alone is not sufficient.
 
 | Role    | What it grants                                                                                                                                                                 |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

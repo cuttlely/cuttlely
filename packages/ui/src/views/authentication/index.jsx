@@ -212,8 +212,16 @@ export default function AuthenticationSettings() {
                         <FormControlLabel
                             value='local'
                             control={<Radio />}
-                            disabled={!data?.methods.local.configured}
-                            label={`Local login${data?.methods.local.configured ? '' : ' — not configured'}`}
+                            disabled={!data?.methods.local.selectable}
+                            label={`Local login${
+                                !data?.methods.local.configured
+                                    ? ' — not configured'
+                                    : data?.methods.local.scope === 'owner-only'
+                                    ? ' — owner only'
+                                    : data?.methods.local.scope === 'local-users'
+                                    ? ' — local users'
+                                    : ''
+                            }`}
                         />
                         <FormControlLabel
                             value='workos'

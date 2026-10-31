@@ -38,8 +38,8 @@ jest.mock('./authenticationState', () => ({
 jest.mock('./constants', () => ({
     LOGIN_FAILURE_WINDOW_MS: 15 * 60 * 1000,
     LOCAL_SESSION_COOKIE: 'local-session',
-    localAdminEnabled: () => true,
-    localUsersSetting: () => true,
+    localAdminEnabled: jest.fn(),
+    localUsersSetting: jest.fn(),
     workosEnvironmentConfigured: () => true
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
@@ -58,6 +58,10 @@ jest.mock('./recovery', () => ({
 
 import { databaseSessionRecentlyAuthenticated, identityAuthenticationRouter } from './authenticationRoutes'
 import { safeRecordAudit } from './auditLog'
+import { localAdminEnabled, localUsersSetting } from './constants'
+
+const mockLocalAdminEnabled = localAdminEnabled as jest.Mock
+const mockLocalUsersSetting = localUsersSetting as jest.Mock
 
 function app(cookies: Record<string, string> = {}) {
     const server = express()
@@ -84,6 +88,8 @@ describe('authentication settings routes', () => {
         findSuperUser.mockResolvedValue({ id: 'owner-1', credential: 'bcrypt' })
         localAccountOpen.mockResolvedValue(true)
         usableLocalOwnerReady.mockResolvedValue(true)
+        mockLocalAdminEnabled.mockReturnValue(true)
+        mockLocalUsersSetting.mockReturnValue(true)
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'local' })
         stageAuthenticationMethodSwitch.mockResolvedValue({ id: 'stage-1', version: 1, expiresAt: new Date('2026-11-01T00:00:00Z') })
         switchAuthenticationMethod.mockResolvedValue({
@@ -120,6 +126,38 @@ describe('authentication settings routes', () => {
         setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: [] }) })
         expect((await request(app({ 'local-session': 'fresh' })).get('/api/v1/authentication-settings')).status).toBe(403)
         expect(readAuthenticationState).not.toHaveBeenCalled()
+    })
+
+    it('reports owner-only Local login as configured but unavailable for switching', async () => {
+        mockLocalUsersSetting.mockReturnValue(false)
+        const response = await request(app({ 'local-session': 'fresh' })).get('/api/v1/authentication')
+        expect(response.status).toBe(200)
+        expect(response.body.methods.local).toEqual({ configured: true, selectable: false, scope: 'owner-only', label: 'Local login' })
+    })
+
+    it('refuses an owner-only WorkOS-to-Local stage', async () => {
+        mockLocalUsersSetting.mockReturnValue(false)
+        readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
+        findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'recovery' })
+        const response = await request(app({ 'local-session': 'fresh' }))
+            .post('/api/v1/authentication/stage')
+            .send({ method: 'local', version: 4 })
+        expect(response.status).toBe(409)
+        expect(response.body).toEqual({
+            code: 'METHOD_NOT_READY',
+            message: 'Set CUTTLELY_LOCAL_USERS=true before switching to Local.'
+        })
+        expect(stageAuthenticationMethodSwitch).not.toHaveBeenCalled()
+    })
+
+    it('stages a WorkOS-to-Local change with local users enabled', async () => {
+        readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
+        findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'recovery' })
+        const response = await request(app({ 'local-session': 'fresh' }))
+            .post('/api/v1/authentication/stage')
+            .send({ method: 'local', version: 4 })
+        expect(response.status).toBe(200)
+        expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'local', 4)
     })
 
     it('requires a fresh authentication before staging', async () => {
@@ -325,6 +363,7 @@ describe('authentication settings routes', () => {
             expect.anything(),
             expect.objectContaining({ summary: 'Sign-in method change failed', detail: expect.objectContaining({ outcome: 'failed' }) })
         )
+        expect(response.body.message).toBe('Set CUTTLELY_LOCAL_USERS=true before switching to Local.')
     })
 
     it('reports the session-ending warning acknowledgment transition', async () => {
