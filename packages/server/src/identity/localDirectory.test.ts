@@ -101,6 +101,10 @@ function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof Datab
             id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
             userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
         );
+        CREATE TABLE identity_provider_link (
+            providerKey text, subject text, userId text, emailAtLink text, assuranceBasis text, createdAt text,
+            primary key (providerKey, subject)
+        );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Cuttlely');
         INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
             ('${OWNER}', 'Owner', 'owner@example.com', 'active', 0),

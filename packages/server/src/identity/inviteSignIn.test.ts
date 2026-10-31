@@ -24,7 +24,7 @@ import { randomUUID } from 'crypto'
 import express from 'express'
 import request from 'supertest'
 import type { DataSource, QueryRunner } from 'typeorm'
-import { INVITE_NEEDS_AUTHKIT, LinkDeps, acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
+import { INVITE_NEEDS_AUTHKIT, LinkDeps, acceptLocalPassword, inviteAccount, liveInviteUser, resetLocalLink } from './actionLink'
 import {
     DirectoryActor,
     Sql,
@@ -39,10 +39,12 @@ import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
 import { utcEpoch } from './dbTime'
-import { addAuthenticationState, addIdentityActionLinks } from './schemaMigration'
+import { addAuditLog, addAuthenticationState, addIdentityActionLinks, addOidcProvider } from './schemaMigration'
 import { automaticWorkosLinkingAllowed, initializeAuthenticationState } from './authenticationState'
+import type { AuthenticationMethod } from './authenticationState'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
+import { createProviderLink, resolveOidcUser } from './oidcStore'
 
 const { DatabaseSync } = require('node:sqlite') as {
     DatabaseSync: new (path: string) => {
@@ -165,6 +167,8 @@ async function sqliteBackend(): Promise<Backend> {
     const setup = runner()
     await addIdentityActionLinks(setup)
     await addAuthenticationState(setup)
+    await addOidcProvider(setup)
+    await addAuditLog(setup)
     const dataSource = fakeDataSource('sqlite', runner, run)
     return {
         dataSource,
@@ -231,6 +235,8 @@ async function postgresBackend(): Promise<Backend> {
     await setup.connect()
     await addIdentityActionLinks(setup)
     await addAuthenticationState(setup)
+    await addOidcProvider(setup)
+    await addAuditLog(setup)
     await setup.release()
     const dataSource = fakeDataSource('postgres', runner, async (statement, params = []) => (await pool.query(statement, params)).rows)
     const sql = sqlFromDataSource(dataSource)
@@ -249,14 +255,19 @@ async function postgresBackend(): Promise<Backend> {
     }
 }
 
-function deps(now = NOW, env: NodeJS.ProcessEnv = { ...AUTHKIT_ENV }): LinkDeps {
+function deps(
+    now = NOW,
+    env: NodeJS.ProcessEnv = { ...AUTHKIT_ENV },
+    activeMethod: AuthenticationMethod | null | undefined = undefined
+): LinkDeps {
     return {
         now: () => now,
         env,
         origin: () => 'https://bakery.example',
         mailReady: () => false,
         send: async () => undefined,
-        rateLimit: new LoginRateLimit()
+        rateLimit: new LoginRateLimit(),
+        activeMethod: () => activeMethod
     }
 }
 
@@ -367,6 +378,27 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         return linkWorkosUser(db.store, identity(email, id), { inviteToken: token, now })
     }
 
+    maybe('accepts two new-email invitation payloads without names', async () => {
+        const first = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { email: 'ada.lovelace@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps()
+        )
+        const second = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { email: 'grace@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps()
+        )
+
+        expect(first.id).not.toBe(second.id)
+        expect(await db.rows(`SELECT name, email FROM "user" WHERE id IN (?, ?) ORDER BY email`, [first.id, second.id])).toEqual([
+            { name: 'ada.lovelace', email: 'ada.lovelace@example.com' },
+            { name: 'grace', email: 'grace@example.com' }
+        ])
+    })
+
     maybe('email-match sign-in without a token leaves the user pending and grants no workspace access', async () => {
         const ada = await invite('ada@example.com')
         expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
@@ -394,12 +426,20 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(links[0].usedAt).not.toBeNull()
         expect(links[0].consumeId).toEqual(expect.any(String))
         expect(
-            await db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-ada', now: NOW })
+            await db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'wos-ada',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ).toBe('invalid')
     })
 
     maybe('valid token plus matching sign-in activates the user and binds that sign-in once', async () => {
         const ada = await invite('ada@example.com')
+        expect(await liveInviteUser(db.sql, ada.token, NOW)).toBe(ada.id)
         const result = await signIn('ada@example.com', ada.token, NOW + HOUR)
         expect(result).toMatchObject({ ok: true, bootstrapped: false, user: { id: ada.id, status: 'active', externalId: 'wos-ada' } })
         expect(await user(ada.id)).toEqual({ status: 'active', externalId: 'wos-ada' })
@@ -408,10 +448,157 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(used).toHaveLength(1)
         expect(used[0].consumeId).toEqual(expect.any(String))
         const consumed = await db.rows(`SELECT reason FROM identity_action_audit WHERE action = ?`, ['token_consumed'])
-        expect(consumed).toEqual([{ reason: 'authkit' }])
+        expect(consumed).toEqual([{ reason: 'workos' }])
+        const acceptedAudit = await db.rows(`SELECT detail FROM audit_event WHERE summary = ?`, ['Invite accepted'])
+        expect(acceptedAudit.map((row) => JSON.parse(String(row.detail)))).toContainEqual({ action: 'completed', method: 'workos' })
+        expect(await liveInviteUser(db.sql, ada.token, NOW + HOUR)).toBeNull()
 
         expect(await signIn('ada@example.com', undefined, NOW + 2 * HOUR)).toMatchObject({ ok: true, user: { id: ada.id } })
         expect(await signIn('ada@example.com', undefined, NOW, 'wos-someone-else')).toEqual({ ok: false, reason: 'rebind' })
+    })
+
+    maybe('an OIDC invitation consumes its token and creates its provider link in one transaction', async () => {
+        const ada = await invite('ada@example.com')
+        await expect(
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ADA@example.com',
+                externalId: 'subject-1',
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                assuranceBasis: 'invitation',
+                authenticationMethod: 'oidc',
+                now: NOW
+            })
+        ).resolves.toBe('accepted')
+        expect(await user(ada.id)).toEqual({ status: 'active', externalId: null })
+        expect(
+            await db.rows(
+                `SELECT "providerKey" AS "providerKey", subject, "userId" AS "userId", "emailAtLink" AS "emailAtLink", "assuranceBasis" AS "assuranceBasis" FROM identity_provider_link`
+            )
+        ).toEqual([
+            {
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                userId: ada.id,
+                emailAtLink: 'ada@example.com',
+                assuranceBasis: 'invitation'
+            }
+        ])
+        const consumed = await db.rows(`SELECT reason FROM identity_action_audit WHERE action = ?`, ['token_consumed'])
+        expect(consumed).toEqual([{ reason: 'oidc' }])
+        const acceptedAudit = await db.rows(`SELECT detail FROM audit_event WHERE summary = ?`, ['Invite accepted'])
+        expect(acceptedAudit.map((row) => JSON.parse(String(row.detail)))).toContainEqual({ action: 'completed', method: 'oidc' })
+        await expect(
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'subject-1',
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                assuranceBasis: 'invitation',
+                authenticationMethod: 'oidc',
+                now: NOW
+            })
+        ).resolves.toBe('invalid')
+    })
+
+    maybe('handles an OIDC invitation before an existing subject or mailbox sign-in', async () => {
+        const ada = await invite('ada@example.com')
+        await createProviderLink(db.dataSource, {
+            providerKey: 'provider-1',
+            subject: 'other-account-subject',
+            userId: OWNER,
+            emailAtLink: 'rosa@example.com',
+            assuranceBasis: 'email_verified'
+        })
+        const base = {
+            providerKey: 'provider-1',
+            issuer: 'https://issuer.example',
+            emailVerified: true,
+            emailVerificationPresent: true
+        }
+
+        await expect(
+            resolveOidcUser(
+                db.dataSource,
+                db.store,
+                { ...base, subject: 'other-account-subject', email: 'ada@example.com' },
+                { trustMissing: false, invitationToken: ada.token, now: NOW }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'invite_invalid', matchedUserId: ada.id })
+        await expect(
+            resolveOidcUser(
+                db.dataSource,
+                db.store,
+                { ...base, subject: 'unlinked-other-account', email: 'rosa@example.com' },
+                { trustMissing: false, invitationToken: ada.token, now: NOW }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'invite_invalid' })
+        expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
+        expect(await liveInviteUser(db.sql, ada.token, NOW)).toBe(ada.id)
+
+        await expect(
+            resolveOidcUser(
+                db.dataSource,
+                db.store,
+                { ...base, subject: 'ada-subject', email: 'ada@example.com' },
+                { trustMissing: false, invitationToken: ada.token, now: NOW }
+            )
+        ).resolves.toMatchObject({ ok: true, user: { id: ada.id, status: 'active' } })
+    })
+
+    maybe('an OIDC subject can accept a new invitation after its former user is removed', async () => {
+        const first = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { name: 'Ada Lovelace', email: 'ada@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps(NOW, {}, 'oidc')
+        )
+        const firstToken = tokenOf(first.link)
+        const oidcIdentity = {
+            providerKey: 'provider-1',
+            subject: 'subject-1',
+            issuer: 'https://issuer.example',
+            email: 'ada@example.com',
+            emailVerified: true,
+            emailVerificationPresent: true
+        }
+        await expect(
+            resolveOidcUser(db.dataSource, db.store, oidcIdentity, {
+                trustMissing: false,
+                invitationToken: firstToken,
+                now: NOW
+            })
+        ).resolves.toMatchObject({ ok: true, user: { id: first.id } })
+        await expect(
+            resolveOidcUser(db.dataSource, db.store, { ...oidcIdentity, email: undefined }, { trustMissing: false })
+        ).resolves.toMatchObject({ ok: true, user: { id: first.id } })
+
+        await deleteOrganizationUser(db.sql, owner, ORG, first.id)
+        expect(await db.rows(`SELECT * FROM identity_provider_link WHERE "userId" = ?`, [first.id])).toEqual([])
+        expect(await user(first.id)).toEqual({ status: 'deleted', externalId: null })
+
+        const second = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { name: 'Ada Lovelace', email: 'ada@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps(NOW + HOUR, {}, 'oidc')
+        )
+        expect(second.id).not.toBe(first.id)
+        const secondToken = tokenOf(second.link)
+        await expect(
+            resolveOidcUser(db.dataSource, db.store, oidcIdentity, {
+                trustMissing: false,
+                invitationToken: secondToken,
+                now: NOW + HOUR
+            })
+        ).resolves.toMatchObject({ ok: true, user: { id: second.id, status: 'active' } })
+        await expect(
+            resolveOidcUser(db.dataSource, db.store, { ...oidcIdentity, email: undefined }, { trustMissing: false })
+        ).resolves.toMatchObject({ ok: true, user: { id: second.id } })
     })
 
     maybe('a mixed local-user and WorkOS upgrade keeps invitation sign-in working', async () => {
@@ -447,8 +634,22 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
     maybe('lets only one of two sign-ins racing with the same token through', async () => {
         const ada = await invite('ada@example.com')
         const results = await Promise.all([
-            db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-ada', now: NOW }),
-            db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-other', now: NOW })
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'wos-ada',
+                authenticationMethod: 'workos',
+                now: NOW
+            }),
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'wos-other',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ])
         expect(results.filter((item) => item === 'accepted')).toHaveLength(1)
         expect((await user(ada.id)).status).toBe('active')
@@ -500,7 +701,14 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         await deleteOrganizationUser(db.sql, owner, ORG, grace.id)
         expect(await signIn('grace@example.com', grace.token)).toEqual({ ok: false, reason: 'unknown' })
         expect(
-            await db.store.acceptInvite({ token: grace.token, userId: grace.id, email: 'grace@example.com', externalId: 'g', now: NOW })
+            await db.store.acceptInvite({
+                token: grace.token,
+                userId: grace.id,
+                email: 'grace@example.com',
+                externalId: 'g',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ).toBe('invalid')
     })
 
@@ -511,7 +719,14 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await user(bob.id)).toEqual({ status: 'invited', externalId: null })
         expect(await signIn('mallory@example.com', ada.token)).toEqual({ ok: false, reason: 'unknown' })
         expect(
-            await db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'mallory@example.com', externalId: 'm', now: NOW })
+            await db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'mallory@example.com',
+                externalId: 'm',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
         ).toBe('invalid')
         expect(await rejections()).toEqual(['other-user', 'other-email'])
         expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true })
@@ -546,7 +761,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(rows).toEqual([{ status: 'invited', credential: null, externalId: null }])
         const links = await db.rows(`SELECT "usedAt" AS "usedAt" FROM identity_action_link WHERE "userId" = ?`, [ada.id])
         expect(links).toEqual([{ usedAt: null }])
-        expect(await rejections()).toEqual(['authkit-only'])
+        expect(await rejections()).toEqual(['remote-only'])
         expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true, user: { id: ada.id, externalId: 'wos-ada' } })
     })
 
@@ -569,7 +784,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await accept('not-a-real-token', NOW)).toEqual(invalid)
         const live = await invite('live@example.com', 'Lia Moreau')
         expect(await accept(live.token, NOW)).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
-        expect((await rejections()).sort()).toEqual(['authkit-only', 'expired', 'reused', 'reused', 'unknown'])
+        expect((await rejections()).sort()).toEqual(['expired', 'remote-only', 'reused', 'reused', 'unknown'])
     })
 
     maybe('without AuthKit, a password accepts an invite once and makes the pending user active', async () => {
@@ -617,6 +832,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
     })
 
     maybe('the real accept route without AuthKit sets the password and activates the invite', async () => {
+        await initializeAuthenticationState(db.dataSource, { CUTTLELY_LOCAL_USERS: 'true' })
         const created = await inviteAccount(
             db.sql,
             owner,
@@ -689,7 +905,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         )
         expect(refused).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
         expect(await state(withAuthKit.id)).toEqual(unchanged)
-        expect(await rejections()).toEqual(['authkit-only'])
+        expect(await rejections()).toEqual(['remote-only'])
         expect(await signIn('pat@example.com', withAuthKit.token)).toMatchObject({
             ok: true,
             user: { id: withAuthKit.id, status: 'active' }
@@ -703,7 +919,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         )
         expect(localResult).toEqual({ type: 'json', status: 400, body: { message: 'This link is not valid.' } })
         expect(await state(local.id)).toEqual(unchanged)
-        expect((await rejections()).sort()).toEqual(['authkit-only', 'owner'])
+        expect((await rejections()).sort()).toEqual(['owner', 'remote-only'])
     })
 
     maybe('an owner can send a new link for a pending owner invite; anyone else cannot', async () => {

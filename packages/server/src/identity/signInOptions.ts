@@ -19,6 +19,7 @@ export interface SignInOptions {
     localAdmin: boolean
     /** True only when CUTTLELY_LOCAL_USERS is exactly true and AuthKit is not configured. */
     localUsers: boolean
+    oidc: boolean
     mail: boolean
     /** The separate owner recovery page is always present. */
     ownerRecovery: true
@@ -28,6 +29,7 @@ export const SIGN_IN_METHOD = {
     authKit: 'authKit',
     localAdmin: 'localAdmin',
     localUsers: 'localUsers',
+    oidc: 'oidc',
     mail: 'mail'
 } as const
 
@@ -52,6 +54,7 @@ export function signInOptionsBody(
         authKit,
         localAdmin: localAdminEnabled(env) && (durable ? activeMethod === 'local' : !authKit) && !localUsers,
         localUsers,
+        oidc: durable && activeMethod === 'oidc',
         mail: mailConfigured(env),
         ownerRecovery: true
     }
@@ -67,6 +70,7 @@ export function enabledSignInMethods(
     if (options.authKit) methods.push(SIGN_IN_METHOD.authKit)
     if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
     if (options.localUsers) methods.push(SIGN_IN_METHOD.localUsers)
+    if (options.oidc) methods.push(SIGN_IN_METHOD.oidc)
     if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return { methods }
 }
@@ -102,16 +106,18 @@ export function authOptionsBody(
 ): { methods: string[]; status: AuthOptionsStatus } {
     const durable = state && isDurableState(state) ? state : null
     const legacy = state && !isDurableState(state) ? state : null
-    const options = signInOptionsBody(env)
+    const options = signInOptionsBody(env, durable?.activeMethod)
     const authKit = durable ? durable.activeMethod === 'workos' && workosEnvironmentConfigured(env) : options.authKit
+    const oidc = durable?.activeMethod === 'oidc'
     const localPasswordSignIn = durable ? durable.activeMethod === 'local' && localUsersSetting(env) : options.localUsers
     let localSessions: LocalSessionSwitchStatus = 'open'
-    if (durable) localSessions = durable.activeMethod === 'workos' ? 'ended' : 'open'
+    if (durable) localSessions = durable.activeMethod === 'workos' || durable.activeMethod === 'oidc' ? 'ended' : 'open'
     else if (options.authKit) localSessions = legacy?.configured ? 'ended' : 'pending'
     const methods: string[] = []
     if (authKit) methods.push(SIGN_IN_METHOD.authKit)
     if (localAdminEnabled(env)) methods.push(SIGN_IN_METHOD.localAdmin)
     if (localPasswordSignIn) methods.push(SIGN_IN_METHOD.localUsers)
+    if (oidc) methods.push(SIGN_IN_METHOD.oidc)
     if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return {
         methods,

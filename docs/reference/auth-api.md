@@ -1,14 +1,14 @@
 # Auth API
 
-How a browser signs in and how the server reports which methods are on. Owner recovery is always available at `/owner-recovery` and `POST /api/v1/auth/recovery/login`. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
+How a browser signs in with a local account, AuthKit, generic OIDC, or owner recovery, and how the server reports which methods are on. Owner recovery is always available at `/owner-recovery` and `POST /api/v1/auth/recovery/login`. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
 
-An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with AuthKit on, to sign in with WorkOS and join. A pending user is never activated by an AuthKit email match alone. See [One-time links](#one-time-links) and the summary in [Security](../../SECURITY.md#invites).
+An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with a remote method active, to sign in and join. A pending user is never activated by an email match alone. See [One-time links](#one-time-links) and the summary in [Security](../../SECURITY.md#invites).
 
 ## Which methods are on
 
 `GET /api/v1/auth/options`
 
-Public. No session and no `x-request-from` header. The body lists only methods that are on:
+Public. No session and no `x-request-from` header. The durable active-method selector stored in the database decides the ordinary method. Method configuration remains in the environment or the OIDC configuration rows, but it does not override that selector after initialization. The owner break-glass flag remains independent. The body lists only methods that are on:
 
 ```json
 {
@@ -26,6 +26,7 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 | Method       | Present when                                                                                                                  |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | `authKit`    | The durable active method is WorkOS and `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                  |
+| `oidc`       | The durable active method is generic OIDC                                                                                     |
 | `localAdmin` | `CUTTLELY_LOCAL_ADMIN` is exactly `true`; this is the older compatibility route, not the ordinary method or the recovery page |
 | `localUsers` | The durable active method is Local login and `CUTTLELY_LOCAL_USERS` is exactly `true`                                         |
 | `mail`       | Omitted. Admin links can email a URL when SMTP is set. The sign-in page has no Forgot password form                           |
@@ -34,19 +35,45 @@ The active ordinary method is stored in `identity_authentication_state`; environ
 
 | Field                 | Meaning                                                                                                                                                     |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `authKit`             | The durable active method is WorkOS and `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                |
-| `localPasswordSignIn` | The durable active method is Local login and `CUTTLELY_LOCAL_USERS` is exactly `true`                                                                       |
+| `authKit`             | WorkOS is active and `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                                   |
+| `localPasswordSignIn` | Local is active and `CUTTLELY_LOCAL_USERS` is exactly `true`                                                                                                |
 | `breakGlassOwner`     | `CUTTLELY_LOCAL_ADMIN` is exactly `true`. The owner password route stays on its own flag                                                                    |
-| `localSessions`       | `open` while Local login is selected and `ended` while WorkOS is selected. `pending` is limited to the older view before durable state is available         |
+| `localSessions`       | `open` while Local login is selected and `ended` while WorkOS or OIDC is selected. `pending` is limited to the older view before durable state is available |
 | `sessionsEnded`       | How many interactive sessions ended during the last method change, or during first-boot inference. Turning a method back on does not restore those sessions |
 
 The body has no emails, cookies, or session ids. A missing session is still 200. `POST /api/v1/auth/options` is 404 and does not end sessions.
 
-`GET /api/v1/auth/signin-options` returns booleans (`authKit`, `localAdmin`, `localUsers`, `mail`, `ownerRecovery`) for the sign-in page. `ownerRecovery` is always true. `localAdmin` is true only for owner-only Local sign-in: Local is the durable active method, `CUTTLELY_LOCAL_ADMIN=true`, and local users are off. A false boolean is still returned for the other fields. It does not include `status`. `/auth/options` lists enabled ordinary and compatibility methods in `methods`; owner recovery stays available separately and is not a member of that array.
+`GET /api/v1/auth/signin-options` returns booleans (`authKit`, `oidc`, `localAdmin`, `localUsers`, `mail`, `ownerRecovery`) for the sign-in page. `ownerRecovery` is always true. `localAdmin` is true only for owner-only Local sign-in: Local is the durable active method, `CUTTLELY_LOCAL_ADMIN=true`, and local users are off. A false boolean is still returned for the other fields. It does not include `status`. `/auth/options` lists enabled ordinary and compatibility methods in `methods`; owner recovery stays available separately and is not a member of that array.
+
+## OIDC sign in
+
+`GET /api/v1/auth/oidc/login` and `GET /api/v1/auth/oidc/callback/:provider` are public and need no existing session. The login route starts ordinary OIDC sign-in when generic OIDC is active and returns `302` to the provider. The query-free callback path completes only in the browser that started the request, consumes the single-use transaction, and returns `302` to the application or to `/signin` with a short error message.
+
+The registered callback URL includes a provider marker derived for that configured issuer and client id. It stays the same when a tested draft becomes active. The callback requires the transaction's URL before sending the authorization code to the token endpoint. A returned `iss` must match the transaction issuer, and `iss` is required when provider metadata advertises it.
+
+The token exchange uses `client_secret_basic` when it is advertised or when the supported-method list is absent. It uses `client_secret_post` when that is the only advertised secret method. If both are advertised, an `invalid_client` response with HTTP 400 or 401 to the basic request causes one retry with the post method. No other token endpoint error is retried.
+
+For first-time identity linking, the email and its assurance come from the same response. An ID token with an email and an `email_verified` claim remains authoritative, including when that claim is false. A qualifying `xms_edov=true` claim on a recognized authority host also keeps the ID-token email authoritative. Otherwise, when the provider advertises UserInfo, Cuttlely uses it only after its `sub` matches the ID token, and evaluates its email and verification status together. An explicit false for the selected email is not overridden.
+
+`GET /api/v1/auth/oidc/reauthenticate` requires an existing session and starts the fresh-authentication path for that signed-in user. The provider request includes `prompt=login` and `max_age=0`. Completion counts as recent authentication only when the ID token includes `auth_time` no earlier than 60 seconds before the request began. A missing or older value can still complete sign-in, but sensitive authentication settings continue to require a qualifying time on the database session.
+
+Both OIDC start routes require the derived callback to use HTTPS. HTTP is accepted only for a callback host of `localhost`, `127.0.0.1`, or `::1` during local development. Configure the origin with `APP_URL`.
+
+These OIDC limits are per client address and per server process, over 15 minutes: 600 ordinary starts, 300 reauthentication starts, 120 invitation starts, and 1,200 callbacks. Ordinary, reauthentication, and invalid invitation starts share one 20-failure limit. The separate 20-failure callback limit is charged only after the transaction and browser binding match, and only for invalid authorization-response binding (a callback or issuer mismatch, or a missing code), ID-token validation failure, UserInfo subject mismatch, or a token endpoint `invalid_grant` response. Provider-returned errors, provider or token-endpoint outages, network or other upstream errors, discovery or JWKS fetch failures, unavailable or changed configuration, session creation failures, a reauthentication account mismatch, unexpected errors, and identity-link policy refusals of a validly signed-in identity, such as an unprovisioned user or a domain that is not allowed, do not count. An unknown or expired state and a browser-binding failure remain under the 1,200-callback route limit only. Administrator test starts have their own 10-request limit and do not use the shared start-failure limit. A restart clears the counts. With several replicas, each replica has its own complete limits, so the effective total can be multiplied by the replica count. `TRUST_PROXY` controls which address the server counts behind a proxy.
+
+## OIDC administrator settings
+
+`GET /api/v1/authentication-settings/oidc` requires **Authentication: Manage** and returns the saved `draft` and `active` configuration summaries. `callbackUrl` is the exact callback URL derived for the draft, or `null` when no draft exists. `activeCallbackUrl` is the exact callback URL derived for the active configuration, or `null` when no active configuration exists. During provider rotation both can be present and can differ. The response also includes the fixed `scopes`, callback-origin status, provider-link migration status, and `testedDraftDiffersFromActive`. That last field is true only when the ready, tested draft has runtime provider settings that differ from the active snapshot.
+
+`PUT /api/v1/authentication-settings/oidc` requires the same permission and recent authentication. A successful save returns the saved `draft`, `callbackUrl`, and `activeCallbackUrl` with the same meanings as the GET response. Saving a draft does not replace the active configuration or its callback URL. It attempts an `auth_config_change` row with outcome `saved` or `saved_with_error`, including when the provider check returns an error. An audit write problem does not undo the draft save.
+
+When OIDC is already active and the tested draft keeps the same configuration fingerprint, `POST /api/v1/authentication-settings/stage` can stage an `oidc_refresh`. The usual management permission, recent-authentication, request-origin, request-limit, recovery, provider-link migration, draft health, and test checks still apply. `POST /api/v1/authentication-settings/apply` accepts `APPLY SETTINGS` for that stage. It copies the tested draft, including its discovery snapshot, into the active slot in one transaction and records `auth_config_change` with outcome `applied_to_active`. The response has `refreshed: true`, `redirectTo: null`, and `sessionsEnded: 0`; existing sessions and the authentication epoch are unchanged. A draft edit after staging makes the stage stale, and applying the current active snapshot again is a no-op.
 
 ## Active method and compatibility flags
 
 `POST /api/v1/auth/local/login` is available only while the durable active method is Local login and `CUTTLELY_LOCAL_USERS=true`. The sign-in page then shows the ordinary local-user form, which the owner also uses. When Local is active, local users are off, and `CUTTLELY_LOCAL_ADMIN=true`, the page shows the owner password form and posts it to `POST /api/v1/auth/login`. When the durable method is WorkOS and its two settings are present, the page shows **Sign in with WorkOS** instead. Configure both candidates first, then change the durable selection under **Admin** > **Auth / SSO**; setting both candidates no longer makes WorkOS win on every start.
+
+When generic OIDC is active, the sign-in page shows **Sign in with OIDC** and suppresses the other ordinary methods. The separate owner recovery link remains present.
 
 The older owner route `POST /api/v1/auth/login` remains controlled by `CUTTLELY_LOCAL_ADMIN` and accepts only an active owner. While Local is the durable active method, it creates an ordinary `local` session, records the ordinary local sign-in audit, and has no recovery-use marker or recovery notification. This stays true when local users are on, although `/signin` uses the ordinary local-user form and `POST /api/v1/auth/local/login` in that mode. While the active method is not Local, the compatibility route uses recovery treatment.
 
@@ -79,13 +106,13 @@ The first verified AuthKit sign-in links an existing user when the mailbox match
 
 `localAdmin` is omitted when the owner flag is off. `sessionsEnded` is how many sessions the method change ended. The how-to is [Users without AuthKit](../how-to/users-without-authkit.md#turn-authkit-on).
 
-A session is stored in `identity_local_session` for local login, WorkOS, and owner recovery. It does not change the user's role. Every later request checks the current user and membership status, permission version, authentication epoch, idle limit, and absolute limit. A disabled user is refused on the next request. Logout deletes the row and clears every session cookie before optional WorkOS sign-out.
+A session is stored in `identity_local_session` for local login, generic OIDC, WorkOS, and owner recovery. It does not change the user's role. Every later request checks the current user and membership status, permission version, authentication epoch, idle limit, and absolute limit. A disabled user is refused on the next request. Logout deletes the row and clears every session cookie before optional WorkOS sign-out.
 
 Every route under `/api/v1/authentication-settings` requires a signed-in session. API credentials cannot be created or updated with an `authentication:` permission. A previously stored credential that already contains `authentication:manage` receives 401 at the API gate before the route permission check runs.
 
 `POST /api/v1/auth/recovery/login` requires `x-request-from: internal`, accepts any active owner with a usable local password, and returns the same generic 401 for an unknown address, a non-owner, a disabled owner, or a wrong password. It has a five-attempt source and account lockout. Every outcome is audited. Success creates a persistent administrator alert and recent-authentication evidence.
 
-A WorkOS sign-in never counts as recent authentication. On **Auth / SSO**, an administrator with a WorkOS session is directed to `/owner-recovery`; while Local login is active, **Sign in again** opens the local password form. Only a local password or owner recovery session issued in the last 10 minutes satisfies method staging and apply. Staging or applying a change to Local also requires `CUTTLELY_LOCAL_USERS=true`; `CUTTLELY_LOCAL_ADMIN` alone does not satisfy that requirement.
+A WorkOS sign-in never counts as recent authentication. On **Auth / SSO**, an administrator with a WorkOS session is directed to `/owner-recovery`; while Local login is active, **Sign in again** opens the local password form. A local password or owner recovery session issued in the last 10 minutes satisfies method staging and apply, including while OIDC is active. A recent OIDC reauthentication also satisfies it only when the ID token proves a qualifying `auth_time`. Future-issued timestamps and sessions older than 10 minutes are refused. Staging or applying a change to Local also requires `CUTTLELY_LOCAL_USERS=true`; `CUTTLELY_LOCAL_ADMIN` alone does not satisfy that requirement.
 
 ## Sign in
 
@@ -154,26 +181,28 @@ The current session is replaced. Every other session for that user is deleted. A
 
 ## One-time links
 
-These routes set a password, or accept an invite through AuthKit, without an admin typing one. The URL is a secret. It is returned once. Examples below use the fake token `exampletokenexampletokenexampletoken12`. That value is not a real token. Do not log the URL, put it in a query string, or send it to a channel you do not control.
+These routes set a password, or accept an invite through the active remote sign-in method, without an admin typing one. The URL is a secret. It is returned once. Examples below use the fake token `exampletokenexampletokenexampletoken12`. That value is not a real token. Do not log the URL, put it in a query string, or send it to a channel you do not control.
 
 The token is 32 random bytes, encoded so it can sit in a fragment. The database stores SHA-256 of it, plus the purpose (`invite` or `reset`), organization, team, user, expiry, and the time it was used. A newer token for the same user, purpose, and team marks the older one used. The raw value is not stored and cannot be fetched again.
 
 `POST /api/v1/account/invite`
 
-Requires `users:manage` or `workspace:add-user`. Returning or emailing a link requires `users:manage` or the organization owner, or `workspace:add-user` when the invite is into the caller's own active team. A `workspace:add-user` caller asking for a link for another team gets 403 `{ "message": "Forbidden" }`, and an invite into another team without a link is 404 `{ "message": "Team not found" }`. With AuthKit on an invite always carries a link, so this is the rule for every AuthKit invite. The body is the same user, team, and role object the invite already accepts, plus optional `link`.
+Requires `users:manage` or `workspace:add-user`. Returning or emailing a link requires `users:manage` or the organization owner, or `workspace:add-user` when the invite is into the caller's own active team. A `workspace:add-user` caller asking for a link for another team gets 403 `{ "message": "Forbidden" }`, and an invite into another team without a link is 404 `{ "message": "Team not found" }`. With WorkOS or generic OIDC active an invite always carries a link, so this is the rule for every remote-method invite. The body is the same user, team, and role object the invite already accepts, plus optional `link`.
 
-| `link`  | Mail configured | Status | Body                                                                                                                              |
-| ------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| omitted | either          | 200    | `{ "id" }` only, when invite delivery is follow the request (the default) and AuthKit is off. No token and no email.              |
-| `true`  | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                               |
-| `true`  | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                            |
-| `false` | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                          |
-| `false` | no              | 400    | `{ "message": "Mail is not configured. Set link to true to receive a one-time link, or configure mail first." }` Nothing is saved |
-| other   | either          | 400    | `{ "message": "link must be true or false" }`                                                                                     |
+| `link`                                | Mail configured | Status | Body                                                                                                                                                               |
+| ------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| omitted, delivery `request` or `link` | either          | 200    | With Local active and `request`, `{ "id" }` only. With WorkOS or OIDC active, `request` returns a usable invite link. Delivery `link` returns it for every method. |
+| omitted, delivery `email`             | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email.                                                                                                          |
+| omitted, delivery `email`             | no              | 400    | The mail-not-configured response below. Nothing is saved.                                                                                                          |
+| `true`                                | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                                                                |
+| `true`                                | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                                                             |
+| `false`                               | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                                                           |
+| `false`                               | no              | 400    | `{ "message": "Mail is not configured. Set link to true to receive a one-time link, or configure mail first." }` Nothing is saved                                  |
+| other                                 | either          | 400    | `{ "message": "link must be true or false" }`                                                                                                                      |
 
 A caller cannot grant a role that contains a permission they do not hold, unless they are the organization owner. The owner role cannot be granted. A password field on the user is ignored.
 
-Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response while AuthKit is off. With AuthKit on they behave like `link`, because the invite link is the only way a pending user can join. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
+Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response with Local active. With WorkOS or OIDC active they behave like `link`, because the invite link is the only way a pending user can join. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
 
 `POST /api/v1/users/:id/reset-link`
 
@@ -195,13 +224,13 @@ Requires `users:manage`. `:id` must be a user in the caller's current team. Anot
 
 Public. No session. Send `{ "token", "password" }` in the JSON body. A `token` query parameter is ignored. The route is rate limited: 10 failures from one client address in 15 minutes, then 429 `{ "message": "Too many attempts. Try again later." }`.
 
-| Status | When                                                                                                                                                        | Body                                                                                                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules                                | `{ "message": "Password saved." }`                                                                                                                                            |
-| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible (without AuthKit, an owner invite is not eligible here) | `{ "message": "This link is not valid." }`                                                                                                                                    |
-| 400    | A token is present and the password fails a strength rule                                                                                                   | `{ "message": "<the rule>" }` The token stays unused                                                                                                                          |
-| 400    | AuthKit is configured and the token is a live invite, including an owner invite (a used, expired, or revoked one gets `This link is not valid.`)            | `{ "message": "This invite is accepted by signing in with WorkOS, not with a password. Open your invite link and select Accept invite with WorkOS." }` The token stays unused |
-| 429    | Too many failures from this client address                                                                                                                  | `{ "message": "Too many attempts. Try again later." }`                                                                                                                        |
+| Status | When                                                                                                                                                               | Body                                                                                                                                                                   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules                                       | `{ "message": "Password saved." }`                                                                                                                                     |
+| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible (with Local active, an owner invite is not eligible here)      | `{ "message": "This link is not valid." }`                                                                                                                             |
+| 400    | A token is present and the password fails a strength rule                                                                                                          | `{ "message": "<the rule>" }` The token stays unused                                                                                                                   |
+| 400    | The active ordinary method is not Local and the token is a live invite, including an owner invite (a used, expired, or revoked one gets `This link is not valid.`) | `{ "message": "This invite is accepted with the active sign-in method, not with a password. Open your invite link and select Accept invite." }` The token stays unused |
+| 429    | Too many failures from this client address                                                                                                                         | `{ "message": "Too many attempts. Try again later." }`                                                                                                                 |
 
 An empty or missing token always returns `{ "message": "This link is not valid." }`, including when the password is also weak. When a token is present and the password fails a strength rule, the response is that rule. The token is not read and is not consumed, so a valid token stays unused and the response does not show that the token is live.
 
@@ -211,7 +240,9 @@ Invite links last 72 hours (`INVITE_TOKEN_EXPIRY_IN_HOURS`, 1 to 168). Reset lin
 
 `POST /api/v1/auth/invite/start`
 
-Public. No session. Answers 404 unless AuthKit is configured, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. Otherwise the answer is 200 `{ "url": "/api/v1/auth/login" }` with an httpOnly, `SameSite=Lax` cookie `cuttlely-invite`, scoped to `Path=/api/v1/auth/callback`, that holds the token for 15 minutes. Starting does not use the token and does not say whether it is valid. `/local-accept` calls this route and then opens the URL.
+Public. No session. It requires `x-request-from: internal`; without it the response is 401 `{ "message": "Unauthorized" }`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. With AuthKit active, starting does not use the token and does not say whether it is valid. With generic OIDC active, the server checks that the token belongs to a pending, unexpired invitation before it creates the provider transaction; an expired, used, or unknown token returns the same 400 response, and repeated invalid starts from one address share the OIDC failure limit. `/local-accept` calls this route and then opens the returned URL.
+
+With AuthKit active, the response is 200 `{ "url": "/api/v1/auth/login" }` with the 15-minute `cuttlely-invite` cookie scoped to `Path=/api/v1/auth/callback`. With generic OIDC active, the response is 200 with the provider authorization URL and the callback-path browser-binding cookie; the invitation value stays in the server transaction and no application session is created until the OIDC callback succeeds. The authorization URL includes `prompt=login` and omits `max_age`, so the person can choose the account whose email received the invitation. When neither remote method is active, the route answers 404. An OIDC start that cannot use the configured callback answers 409 `{ "message": "OIDC sign-in could not start." }`.
 
 The AuthKit callback reads that cookie, expires it on that same path on every outcome, and decides:
 

@@ -12,5 +12,8 @@ export default {
             confirm
         }),
     acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version }),
+    getOidc: () => client.get('/authentication-settings/oidc'),
+    saveOidc: (value) => client.put('/authentication-settings/oidc', value),
+    testOidc: () => client.post('/authentication-settings/oidc/test'),
     acknowledgeRecoveryAlert: (id) => client.post('/authentication-settings/acknowledge-recovery-alert', { id })
 }

@@ -21,7 +21,7 @@ import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
 import { runtimeNumber } from '../settings/runtime'
 import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
-import { utcEpoch } from './dbTime'
+import { utcDbTime, utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { isBcryptHash } from './password'
 import { IdentityStore } from './store'
@@ -345,6 +345,23 @@ export class SqlIdentityStore implements IdentityStore {
                 )}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [userId, input.name, input.email, input.credential, 'active', input.externalId, userId, userId]
             )
+            if (options?.providerLink) {
+                await query(
+                    runner,
+                    `INSERT INTO ${quote(d, 'identity_provider_link')} (${quote(d, 'providerKey')}, ${quote(d, 'subject')}, ${quote(
+                        d,
+                        'userId'
+                    )}, ${quote(d, 'emailAtLink')}, ${quote(d, 'assuranceBasis')}, ${quote(d, 'createdAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [
+                        options.providerLink.providerKey,
+                        options.providerLink.subject,
+                        userId,
+                        options.providerLink.emailAtLink,
+                        options.providerLink.assuranceBasis,
+                        utcDbTime(d, options.now ?? Date.now())
+                    ]
+                )
+            }
             await query(
                 runner,
                 `INSERT INTO ${quote(d, 'organization')} (${quote(d, 'id')}, ${quote(d, 'name')}, ${quote(d, 'createdBy')}, ${quote(
@@ -535,8 +552,8 @@ export class SqlIdentityStore implements IdentityStore {
             )}, ${quote(d, 'lastSeenAt')}, ${quote(d, 'permissionVersion')}, ${quote(d, 'authenticationMethod')}, ${quote(
                 d,
                 'authenticationEpoch'
-            )}, ${quote(d, 'recoveryUse')}, ${quote(d, 'workosSessionId')}`
-            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0), ?, ?, ?, ? FROM ${quote(
+            )}, ${quote(d, 'recoveryUse')}, ${quote(d, 'recentAuthenticationAt')}, ${quote(d, 'workosSessionId')}`
+            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0), ?, ?, ?, ?, ? FROM ${quote(
                 d,
                 'user'
             )} u WHERE u.${quote(d, 'id')} = ?`
@@ -560,6 +577,7 @@ export class SqlIdentityStore implements IdentityStore {
                     row.authenticationMethod ?? null,
                     row.authenticationEpoch ?? null,
                     row.recoveryUse ? 1 : 0,
+                    row.recentAuthenticationAt ?? null,
                     row.workosSessionId ?? null,
                     row.userId
                 ])
@@ -588,6 +606,7 @@ export class SqlIdentityStore implements IdentityStore {
                 s.${quote(d, 'authenticationMethod')} AS ${quote(d, 'authenticationMethod')},
                 s.${quote(d, 'authenticationEpoch')} AS ${quote(d, 'authenticationEpoch')},
                 s.${quote(d, 'recoveryUse')} AS ${quote(d, 'recoveryUse')},
+                s.${quote(d, 'recentAuthenticationAt')} AS ${quote(d, 'recentAuthenticationAt')},
                 s.${quote(d, 'workosSessionId')} AS ${quote(d, 'workosSessionId')},
                 u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
                 FROM ${quote(d, 'identity_local_session')} s
@@ -615,6 +634,8 @@ export class SqlIdentityStore implements IdentityStore {
                         ? undefined
                         : Number(cell(row, 'authenticationEpoch')),
                 recoveryUse: Number(cell(row, 'recoveryUse') || 0) === 1,
+                recentAuthenticationAt:
+                    epoch(cell(row, 'recentAuthenticationAt')) > 0 ? new Date(epoch(cell(row, 'recentAuthenticationAt'))) : undefined,
                 workosSessionId: text(cell(row, 'workosSessionId')) || undefined
             }
         })

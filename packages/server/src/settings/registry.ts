@@ -368,6 +368,17 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium',
         hostHint: RENDER_DASHBOARD
     },
+    {
+        key: 'CUTTLELY_OIDC_CLIENT_SECRET',
+        section: 'signin',
+        group: 'Generic OIDC',
+        label: 'CUTTLELY_OIDC_CLIENT_SECRET',
+        help: 'The default host variable used by the Generic OIDC setup card. This page only shows whether it is set.',
+        type: 'secret',
+        defaultLabel: 'Not set',
+        envOnly: true,
+        risk: 'high'
+    },
 
     // Database
     {

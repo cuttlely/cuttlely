@@ -60,6 +60,32 @@ describe('shorter lifetimes apply to sessions already issued', () => {
 })
 
 describe('authenticated requests enforce the current lifetime', () => {
+    it('accepts the database session cookie while OIDC is active', async () => {
+        const raw = 'oidc-session-cookie'
+        const digest = hashSessionToken(raw)
+        const sessions = new Map<string, LocalSession>([
+            [
+                digest,
+                row({
+                    token: digest,
+                    issuedAt: new Date(NOW),
+                    lastSeenAt: new Date(NOW),
+                    authenticationMethod: 'oidc'
+                })
+            ]
+        ])
+        const store = fakeStore(sessions)
+        store.localAccountOpen = jest.fn(async () => true)
+        const established = await establishSession({
+            ...ctx(store, { 'cuttlely-local-session': raw }),
+            localAdmin: false,
+            localUsers: false,
+            oidcActive: true
+        })
+        expect(established.user?.id).toBe('user-a')
+        expect(store.localAccountOpen).toHaveBeenCalledWith('user-a')
+    })
+
     it('drops an existing cookie after the idle limit is reduced', async () => {
         const raw = 'cookie-value-made-up'
         const digest = hashSessionToken(raw)

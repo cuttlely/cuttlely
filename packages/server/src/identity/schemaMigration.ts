@@ -245,12 +245,24 @@ async function tableExists(runner: QueryRunner, dialect: Dialect, table: string)
 }
 
 async function indexExists(runner: QueryRunner, dialect: Dialect, table: string, index: string): Promise<boolean> {
+    if (dialect === 'sqlite') {
+        const list = await rows(runner, `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name = ?`, [table, index])
+        return list.length > 0
+    }
+    if (dialect === 'postgres') {
+        const list = await rows(
+            runner,
+            `SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ? AND indexname = ?`,
+            [table, index]
+        )
+        return list.length > 0
+    }
     const list = await rows(
         runner,
         `SELECT INDEX_NAME AS name FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
         [table, index]
     )
-    return list.length > 0 && dialect !== 'postgres' && dialect !== 'sqlite'
+    return list.length > 0
 }
 
 async function columnExists(runner: QueryRunner, dialect: Dialect, table: string, column: string): Promise<boolean> {
@@ -571,7 +583,8 @@ function authenticationSwitchStageSql(dialect: Dialect): string {
         ${q(dialect, 'stateVersion')} integer NOT NULL,
         ${q(dialect, 'expiresAt')} ${time} NOT NULL,
         ${q(dialect, 'consumedAt')} ${time} NULL,
-        ${q(dialect, 'version')} integer NOT NULL
+        ${q(dialect, 'version')} integer NOT NULL,
+        ${q(dialect, 'configurationFingerprint')} varchar(64) NULL
     )`
 }
 
@@ -596,6 +609,7 @@ export async function removeAuthenticationSwitchStage(runner: QueryRunner): Prom
 
 export async function removeAuthenticationState(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_recent_authentication')}`)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authentication_state')}`)
 }
 
@@ -714,5 +728,164 @@ export async function removeSetupCodePrevious(runner: QueryRunner): Promise<void
     }
     if (await columnExists(runner, dialect, 'identity_setup_code', 'previousCodeHmac')) {
         await runner.query(`ALTER TABLE ${table} DROP COLUMN ${q(dialect, 'previousCodeHmac')}`)
+    }
+}
+
+function oidcBoolean(dialect: Dialect): string {
+    return dialect === 'postgres' ? 'boolean' : dialect === 'sqlite' ? 'integer' : 'tinyint(1)'
+}
+
+/** Provider-scoped durable links, OIDC configuration, and cross-process sign-in transactions. */
+export async function addOidcProvider(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    const userId = dialect === 'mysql' || dialect === 'mariadb' ? 'varchar(36)' : 'uuid'
+    const timestamp = timeType(dialect)
+
+    if (
+        (await tableExists(runner, dialect, 'identity_local_session')) &&
+        !(await columnExists(runner, dialect, 'identity_local_session', 'recentAuthenticationAt'))
+    ) {
+        await runner.query(
+            `ALTER TABLE ${q(dialect, 'identity_local_session')} ADD COLUMN ${q(dialect, 'recentAuthenticationAt')} ${timestamp} NULL`
+        )
+    }
+
+    if (await tableExists(runner, dialect, 'identity_authentication_switch_stage')) {
+        if (!(await columnExists(runner, dialect, 'identity_authentication_switch_stage', 'configurationFingerprint'))) {
+            await runner.query(
+                `ALTER TABLE ${q(dialect, 'identity_authentication_switch_stage')} ADD COLUMN ${q(
+                    dialect,
+                    'configurationFingerprint'
+                )} varchar(64) NULL`
+            )
+        }
+    }
+
+    if (!(await tableExists(runner, dialect, 'identity_provider_link'))) {
+        const providerKey =
+            dialect === 'mysql' || dialect === 'mariadb'
+                ? `${q(dialect, 'providerKey')} varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL`
+                : `${q(dialect, 'providerKey')} varchar(64) NOT NULL`
+        const subject =
+            dialect === 'mysql' || dialect === 'mariadb'
+                ? `${q(dialect, 'subject')} varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL`
+                : `${q(dialect, 'subject')} varchar(512) NOT NULL`
+        await runner.query(
+            `CREATE TABLE ${q(dialect, 'identity_provider_link')} (` +
+                `${providerKey}, ` +
+                `${subject}, ` +
+                `${q(dialect, 'userId')} ${userId} NOT NULL, ` +
+                `${q(dialect, 'emailAtLink')} varchar(254) NULL, ` +
+                `${q(dialect, 'assuranceBasis')} varchar(64) NOT NULL, ` +
+                `${q(dialect, 'createdAt')} ${timestamp} NOT NULL, ` +
+                `CONSTRAINT ${q(dialect, 'uq_identity_provider_subject')} UNIQUE (${q(dialect, 'providerKey')}, ${q(
+                    dialect,
+                    'subject'
+                )}), ` +
+                `CONSTRAINT ${q(dialect, 'uq_identity_provider_user')} UNIQUE (${q(dialect, 'providerKey')}, ${q(dialect, 'userId')})` +
+                `)${dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci' : ''}${
+                    dialect === 'mariadb' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci' : ''
+                }`
+        )
+    }
+    if (!(await indexExists(runner, dialect, 'identity_provider_link', 'idx_identity_provider_link_user'))) {
+        await runner.query(
+            `CREATE INDEX ${q(dialect, 'idx_identity_provider_link_user')} ON ${q(dialect, 'identity_provider_link')} (${q(
+                dialect,
+                'userId'
+            )})`
+        )
+    }
+
+    if (!(await tableExists(runner, dialect, 'identity_oidc_configuration'))) {
+        await runner.query(
+            `CREATE TABLE ${q(dialect, 'identity_oidc_configuration')} (` +
+                `${q(dialect, 'slot')} varchar(16) PRIMARY KEY, ` +
+                `${q(dialect, 'issuer')} text NOT NULL, ` +
+                `${q(dialect, 'clientId')} text NOT NULL, ` +
+                `${q(dialect, 'clientSecretEnvVar')} varchar(128) NOT NULL, ` +
+                `${q(dialect, 'trustMissingEmailVerification')} ${oidcBoolean(dialect)} NOT NULL, ` +
+                `${q(dialect, 'privateIssuerHosts')} text NOT NULL, ` +
+                `${q(dialect, 'fingerprint')} varchar(64) NOT NULL, ` +
+                `${q(dialect, 'discovery')} text NULL, ` +
+                `${q(dialect, 'health')} varchar(32) NOT NULL, ` +
+                `${q(dialect, 'healthError')} varchar(255) NULL, ` +
+                `${q(dialect, 'checkedAt')} ${timestamp} NULL, ` +
+                `${q(dialect, 'testedFingerprint')} varchar(64) NULL, ` +
+                `${q(dialect, 'testedAt')} ${timestamp} NULL, ` +
+                `${q(dialect, 'testResult')} text NULL, ` +
+                `${q(dialect, 'version')} integer NOT NULL` +
+                `)${dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci' : ''}${
+                    dialect === 'mariadb' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci' : ''
+                }`
+        )
+    }
+
+    if (!(await tableExists(runner, dialect, 'identity_oidc_transaction'))) {
+        await runner.query(
+            `CREATE TABLE ${q(dialect, 'identity_oidc_transaction')} (` +
+                `${q(dialect, 'stateHash')} varchar(64) PRIMARY KEY, ` +
+                `${q(dialect, 'envelope')} text NOT NULL, ` +
+                `${q(dialect, 'createdAt')} ${timestamp} NOT NULL, ` +
+                `${q(dialect, 'expiresAt')} ${timestamp} NOT NULL, ` +
+                `${q(dialect, 'consumedAt')} ${timestamp} NULL` +
+                `)${dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci' : ''}${
+                    dialect === 'mariadb' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci' : ''
+                }`
+        )
+    }
+    if (!(await indexExists(runner, dialect, 'identity_oidc_transaction', 'idx_identity_oidc_transaction_expiry'))) {
+        await runner.query(
+            `CREATE INDEX ${q(dialect, 'idx_identity_oidc_transaction_expiry')} ON ${q(dialect, 'identity_oidc_transaction')} (${q(
+                dialect,
+                'expiresAt'
+            )})`
+        )
+    }
+
+    const providerLinkMigrationExists = await tableExists(runner, dialect, 'identity_provider_link_migration')
+    if (!providerLinkMigrationExists) {
+        await runner.query(
+            `CREATE TABLE ${q(dialect, 'identity_provider_link_migration')} (` +
+                `${q(dialect, 'id')} integer PRIMARY KEY, ` +
+                `${q(dialect, 'providerKey')} varchar(64) NULL, ` +
+                `${q(dialect, 'migratedCount')} integer NOT NULL, ` +
+                `${q(dialect, 'inertCount')} integer NOT NULL DEFAULT 0, ` +
+                `${q(dialect, 'completedAt')} ${timestamp} NULL, ` +
+                `${q(dialect, 'error')} varchar(255) NULL` +
+                `)${dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci' : ''}${
+                    dialect === 'mariadb' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci' : ''
+                }`
+        )
+    }
+    if (providerLinkMigrationExists && !(await columnExists(runner, dialect, 'identity_provider_link_migration', 'inertCount'))) {
+        await runner.query(
+            `ALTER TABLE ${q(dialect, 'identity_provider_link_migration')} ADD COLUMN ${q(
+                dialect,
+                'inertCount'
+            )} integer NOT NULL DEFAULT 0`
+        )
+    }
+}
+
+export async function removeOidcProvider(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_provider_link_migration')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_oidc_transaction')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_oidc_configuration')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_provider_link')}`)
+    if (
+        (await tableExists(runner, dialect, 'identity_local_session')) &&
+        (await columnExists(runner, dialect, 'identity_local_session', 'recentAuthenticationAt'))
+    ) {
+        await runner.query(`ALTER TABLE ${q(dialect, 'identity_local_session')} DROP COLUMN ${q(dialect, 'recentAuthenticationAt')}`)
+    }
+    if (
+        (await tableExists(runner, dialect, 'identity_authentication_switch_stage')) &&
+        (await columnExists(runner, dialect, 'identity_authentication_switch_stage', 'configurationFingerprint'))
+    ) {
+        await runner.query(
+            `ALTER TABLE ${q(dialect, 'identity_authentication_switch_stage')} DROP COLUMN ${q(dialect, 'configurationFingerprint')}`
+        )
     }
 }

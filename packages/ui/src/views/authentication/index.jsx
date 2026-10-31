@@ -3,6 +3,7 @@ import {
     Alert,
     Box,
     Button,
+    Checkbox,
     Chip,
     Dialog,
     DialogActions,
@@ -20,8 +21,10 @@ import MainCard from '@/ui-component/cards/MainCard'
 import api from '@/api/authenticationSettings'
 import { RECOVERY_FIX } from './RecoveryWarningBanner'
 
-const label = (method) => (method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : 'No ordinary method')
-export const reauthenticationTarget = (method) => (method === 'workos' ? '/owner-recovery' : '/signin?reauth=1')
+const label = (method) =>
+    method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : method === 'oidc' ? 'Generic OIDC' : 'No ordinary method'
+export const reauthenticationTarget = (method) =>
+    method === 'workos' ? '/owner-recovery' : method === 'oidc' ? '/api/v1/auth/oidc/reauthenticate' : '/signin?reauth=1'
 
 export default function AuthenticationSettings() {
     const [data, setData] = useState(null)
@@ -29,6 +32,14 @@ export default function AuthenticationSettings() {
     const [choice, setChoice] = useState('')
     const [stage, setStage] = useState(null)
     const [confirm, setConfirm] = useState('')
+    const [oidc, setOidc] = useState(null)
+    const [oidcForm, setOidcForm] = useState({
+        issuer: '',
+        clientId: '',
+        clientSecretEnvVar: 'CUTTLELY_OIDC_CLIENT_SECRET',
+        trustMissingEmailVerification: false,
+        privateIssuerHosts: ''
+    })
     const [warningConfirmationOpen, setWarningConfirmationOpen] = useState(false)
     const load = () =>
         api
@@ -38,8 +49,25 @@ export default function AuthenticationSettings() {
                 setChoice(value.activeMethod || '')
             })
             .catch(() => setError('Authentication settings could not be loaded.'))
+    const loadOidc = () =>
+        api
+            .getOidc()
+            .then(({ data: value }) => {
+                setOidc(value)
+                if (value.draft?.configured) {
+                    setOidcForm({
+                        issuer: value.draft.issuer || '',
+                        clientId: value.draft.clientId || '',
+                        clientSecretEnvVar: value.draft.clientSecretEnvVar || '',
+                        trustMissingEmailVerification: value.draft.trustMissingEmailVerification === true,
+                        privateIssuerHosts: (value.draft.privateIssuerHosts || []).join(', ')
+                    })
+                }
+            })
+            .catch(() => setError('OIDC settings could not be loaded.'))
     useEffect(() => {
         load()
+        loadOidc()
     }, [])
     const prepare = async () => {
         setError('')
@@ -51,8 +79,14 @@ export default function AuthenticationSettings() {
     }
     const apply = async () => {
         try {
-            const result = (await api.apply(stage, confirm)).data
-            window.location.assign(result.redirectTo)
+            const result = (await api.apply(stage, stage?.sessionsWillEnd ? confirm : 'APPLY SETTINGS')).data
+            if (result.redirectTo) {
+                window.location.assign(result.redirectTo)
+                return
+            }
+            setStage(null)
+            setConfirm('')
+            await Promise.all([load(), loadOidc()])
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The sign-in method was not changed.')
             setStage(null)
@@ -71,6 +105,46 @@ export default function AuthenticationSettings() {
             setError(cause?.response?.data?.message || 'The warning could not be acknowledged.')
         }
     }
+    const saveOidc = async () => {
+        setError('')
+        try {
+            const result = await api.saveOidc({
+                ...oidcForm,
+                privateIssuerHosts: oidcForm.privateIssuerHosts
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean),
+                version: oidc?.draft?.version || 0
+            })
+            setOidc((current) => ({
+                ...current,
+                draft: result.data.draft,
+                callbackUrl: result.data.callbackUrl,
+                activeCallbackUrl: result.data.activeCallbackUrl,
+                testedDraftDiffersFromActive: result.data.testedDraftDiffersFromActive
+            }))
+            await load()
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'OIDC settings could not be saved.')
+        }
+    }
+    const testOidc = async () => {
+        setError('')
+        try {
+            window.location.assign((await api.testOidc()).data.url)
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'OIDC test sign-in could not start.')
+        }
+    }
+    const activateOidc = async () => {
+        setError('')
+        try {
+            setChoice('oidc')
+            setStage({ ...(await api.stage('oidc', data.version)).data, stateVersion: data.version })
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'OIDC could not be activated.')
+        }
+    }
     const acknowledgeRecoveryAlert = async () => {
         setError('')
         try {
@@ -82,6 +156,10 @@ export default function AuthenticationSettings() {
         }
     }
     const workosBlockedByRecovery = Boolean(data?.methods.workos.configured && !data?.recovery.available)
+    const oidcMatchesActive = Boolean(
+        data?.activeMethod === 'oidc' && oidc?.draft?.fingerprint && oidc.draft.fingerprint === oidc?.active?.fingerprint
+    )
+    const oidcRefreshAvailable = Boolean(oidcMatchesActive && oidc?.testedDraftDiffersFromActive)
     return (
         <MainCard title='Auth / SSO'>
             <Stack spacing={3} sx={{ maxWidth: 820 }}>
@@ -164,7 +242,12 @@ export default function AuthenticationSettings() {
                                     : ''
                             }`}
                         />
-                        <FormControlLabel value='oidc' control={<Radio />} disabled label='Generic OIDC — not yet available' />
+                        <FormControlLabel
+                            value='oidc'
+                            control={<Radio />}
+                            disabled={!data?.methods.oidc.configured}
+                            label={`Generic OIDC${data?.methods.oidc.configured ? '' : ' — not configured'}`}
+                        />
                     </RadioGroup>
                     <Button variant='contained' disabled={!choice || choice === data?.activeMethod} onClick={prepare}>
                         Review change
@@ -182,6 +265,124 @@ export default function AuthenticationSettings() {
                             Sign in with the local password again, or use <strong>Owner recovery</strong>.
                         </Typography>
                     )}
+                </Paper>
+                <Paper variant='outlined' sx={{ p: 2.5 }}>
+                    <Stack spacing={2}>
+                        <Typography variant='h4'>Generic OIDC setup</Typography>
+                        <TextField
+                            label='Issuer URL'
+                            value={oidcForm.issuer}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, issuer: event.target.value }))}
+                        />
+                        <TextField
+                            label='Client id'
+                            value={oidcForm.clientId}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, clientId: event.target.value }))}
+                        />
+                        <TextField
+                            label='Client secret environment variable name'
+                            value={oidcForm.clientSecretEnvVar}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, clientSecretEnvVar: event.target.value }))}
+                            helperText={
+                                oidc?.draft?.clientSecretPresent ? 'Value is set on this server.' : 'Value is not set on this server.'
+                            }
+                        />
+                        <TextField
+                            label='Draft callback URL'
+                            value={oidc?.callbackUrl || ''}
+                            InputProps={{ readOnly: true }}
+                            helperText='Save the draft, then register this exact URL before Test sign-in.'
+                        />
+                        <TextField
+                            label='Active callback URL'
+                            value={oidc?.activeCallbackUrl || ''}
+                            InputProps={{ readOnly: true }}
+                            helperText='Keep this exact URL registered while this provider is active.'
+                        />
+                        {oidc?.callbackError && <Alert severity='error'>{oidc.callbackError}</Alert>}
+                        <TextField label='Scopes' value='openid email profile' InputProps={{ readOnly: true }} />
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={oidcForm.trustMissingEmailVerification}
+                                    onChange={(event) =>
+                                        setOidcForm((value) => ({ ...value, trustMissingEmailVerification: event.target.checked }))
+                                    }
+                                />
+                            }
+                            label='Trust issuer email when the verification claim is missing'
+                        />
+                        <Alert severity='warning'>
+                            This option permits first linking when the issuer omits email verification. An explicit false value is always
+                            refused.
+                        </Alert>
+                        <TextField
+                            label='Private issuer hosts'
+                            value={oidcForm.privateIssuerHosts}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, privateIssuerHosts: event.target.value }))}
+                            helperText='Comma-separated exact host names. HTTP is accepted only for an allowlisted loopback host.'
+                        />
+                        <Stack direction='row' spacing={1} alignItems='center'>
+                            <Chip
+                                label={
+                                    oidc?.draft?.health === 'ready' ? 'Discovery and keys ready' : oidc?.draft?.healthError || 'Not checked'
+                                }
+                                color={oidc?.draft?.health === 'ready' ? 'success' : 'warning'}
+                            />
+                            {oidc?.draft?.checkedAt && <Typography color='text.secondary'>Last check: {oidc.draft.checkedAt}</Typography>}
+                        </Stack>
+                        {oidc?.draft?.testResult?.passed === false && (
+                            <Alert severity='error'>Test failed. {oidc.draft.testResult.reason || 'This identity cannot sign in.'}</Alert>
+                        )}
+                        {oidc?.draft?.tested && oidc?.draft?.testResult && (
+                            <Alert severity='success'>
+                                Test passed. Steps: {(oidc.draft.testResult.steps || []).join(', ')}. Returned email:{' '}
+                                {oidc.draft.testResult.email || 'not returned'}. Assurance: {oidc.draft.testResult.assuranceBasis}.
+                            </Alert>
+                        )}
+                        {oidc?.linkMigration?.inert > 0 && (
+                            <Alert severity='info' data-testid='inert-workos-links'>
+                                {oidc.linkMigration.inert} legacy WorkOS subject link
+                                {oidc.linkMigration.inert === 1 ? '' : 's'} could not be attributed to a stable WorkOS provider identity.{' '}
+                                {oidc.linkMigration.inert === 1 ? 'It remains' : 'They remain'} inert and will not match this OIDC provider.
+                            </Alert>
+                        )}
+                        <Stack direction='row' spacing={1}>
+                            <Button variant='outlined' onClick={saveOidc}>
+                                Save draft
+                            </Button>
+                            <Button
+                                variant='outlined'
+                                onClick={testOidc}
+                                disabled={oidc?.draft?.health !== 'ready' || Boolean(oidc?.callbackError)}
+                            >
+                                Test sign-in
+                            </Button>
+                            {oidcRefreshAvailable ? (
+                                <Button
+                                    variant='contained'
+                                    onClick={activateOidc}
+                                    disabled={!oidc?.linkMigrationComplete || !data?.recovery.available || Boolean(oidc?.callbackError)}
+                                >
+                                    Apply refreshed provider settings
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant='contained'
+                                    onClick={activateOidc}
+                                    disabled={
+                                        !oidc?.draft?.tested ||
+                                        !oidc?.linkMigrationComplete ||
+                                        !data?.recovery.available ||
+                                        Boolean(oidc?.callbackError) ||
+                                        oidcMatchesActive
+                                    }
+                                >
+                                    {oidcMatchesActive ? 'Already active' : 'Activate'}
+                                </Button>
+                            )}
+                        </Stack>
+                    </Stack>
                 </Paper>
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack direction='row' justifyContent='space-between'>
@@ -204,17 +405,30 @@ export default function AuthenticationSettings() {
                 </Paper>
             </Stack>
             <Dialog open={Boolean(stage)} onClose={() => setStage(null)}>
-                <DialogTitle>End all interactive sessions?</DialogTitle>
+                <DialogTitle>{stage?.sessionsWillEnd ? 'End all interactive sessions?' : 'Apply refreshed provider settings?'}</DialogTitle>
                 <DialogContent>
                     <Stack spacing={2} sx={{ mt: 1 }}>
-                        <Alert severity='warning'>Everyone, including you, must sign in again. API keys remain enabled.</Alert>
-                        <TextField label='Type END SESSIONS' value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                        {stage?.sessionsWillEnd ? (
+                            <>
+                                <Alert severity='warning'>Everyone, including you, must sign in again. API keys remain enabled.</Alert>
+                                <TextField label='Type END SESSIONS' value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                            </>
+                        ) : (
+                            <Alert severity='info'>
+                                New sign-ins will use the refreshed provider settings. Existing sessions stay signed in.
+                            </Alert>
+                        )}
                     </Stack>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setStage(null)}>Cancel</Button>
-                    <Button color='error' variant='contained' disabled={confirm !== 'END SESSIONS'} onClick={apply}>
-                        Change method
+                    <Button
+                        color={stage?.sessionsWillEnd ? 'error' : 'primary'}
+                        variant='contained'
+                        disabled={Boolean(stage?.sessionsWillEnd) && confirm !== 'END SESSIONS'}
+                        onClick={apply}
+                    >
+                        {stage?.sessionsWillEnd ? 'Change method' : 'Apply settings'}
                     </Button>
                 </DialogActions>
             </Dialog>

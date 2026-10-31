@@ -647,7 +647,14 @@ describe('identity auth', () => {
         }
         expect(store.users[0]).toMatchObject({ status: 'active', externalId: 'wos-1', credential: null })
         expect(store.inviteCalls).toEqual([
-            { token: 'invite-token', userId: 'user-2', email: 'owner@example.com', externalId: 'wos-1', now: NOW }
+            {
+                token: 'invite-token',
+                userId: 'user-2',
+                email: 'owner@example.com',
+                externalId: 'wos-1',
+                authenticationMethod: 'workos',
+                now: NOW
+            }
         ])
         expect(port.externalIds).toEqual([{ workosUserId: 'wos-1', ourUserId: 'user-2' }])
 
@@ -2550,6 +2557,14 @@ describe('identity auth', () => {
         if (result.type === 'redirect') expect(decodeURIComponent(result.url)).toContain('not verified')
         expect(store.users[0].externalId).toBeNull()
         expect(store.users[0].credential).toBe('hash')
+    })
+
+    it('uses a durable WorkOS subject link before current email profile data', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-9', email: 'ada@example.com', name: 'Ada', status: 'active', externalId: 'wos-ada', credential: 'hash' })
+        await expect(
+            linkWorkosUser(store, { id: 'wos-ada', email: '', emailVerified: false, name: 'Ada' }, { providerLinkedUser: store.users[0] })
+        ).resolves.toMatchObject({ ok: true, user: { id: 'user-9' } })
     })
 
     it('refuses a duplicate mailbox instead of choosing one team', async () => {

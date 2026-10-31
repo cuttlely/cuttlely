@@ -1,6 +1,6 @@
 # Audit API
 
-One list of sign-in, lockout, invite, reset, role change, user disable, settings changes, harness runs started with the API, changes to an API key's harness list, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
+One list of sign-in, lockout, invite, reset, role change, user disable, authentication and settings changes, harness runs started with the API, changes to an API credential's harness list, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
 
 `POST /api/v1/audit/login-activity` stays **404** `{ "message": "Not Found" }`.
 
@@ -16,6 +16,10 @@ Settings changes are the settings history rows. They are included only for the o
 
 A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the server owner (the earliest active organization owner). An organization owner of another organization does not receive it.
 
+An OIDC refusal that resolves a durable subject link or one pending or inactive account is stored for that user and their organizations. Its detail may include the provider subject because the Cuttlely user is known. A refusal with no matched user follows the unmatched rule above.
+
+An OIDC success through an existing provider link has summary `OIDC sign-in succeeded` and detail outcome `signed_in`. A success that creates the provider link has summary `OIDC identity linked` and detail outcome `linked`.
+
 The response sends `Cache-Control: no-store`.
 
 ## Query
@@ -27,13 +31,15 @@ The response sends `Cache-Control: no-store`.
 | `user`   | User id. At most 255 characters. A longer value is **400** `{ "code": "INVALID_USER" }`.                                                                       |
 | `limit`  | Page size. Default 50. Maximum 100. `0` or a non-number is **400** `{ "code": "INVALID_LIMIT" }`.                                                              |
 
-Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `harness_schedule`, `pinned_query_change`.
+Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `harness_schedule`, `pinned_query_change`, `auth_method_change`, `auth_config_warning_ack`, `auth_config_change`, `owner_recovery`.
 
 `user_disable` includes an enable. `detail.disabled` is true or false.
 
 `harness_run` is a run started through `POST /api/v1/harnesses/:name/runs/async`, or a harness run an API key was refused because the harness is not on its list. `detail` has `harness`, `outcome` (`started` or `refused`), `via` (`api_key` or `session`), the key's id as `keyId` for an API key, and `runId` for a start. The question is not stored. `harness_access` is a change to the harnesses an API key may run: `detail` has `keyId`, `keyName`, `harnesses`, and `previous`. `harness_schedule` is a schedule saved, paused, resumed, or deleted (`detail.action` is `saved`, `paused`, `resumed`, or `deleted`, with `cron`, `timezone`, and `status`), a scheduled run started (`detail.action` is `run_started`, with the `runId`), or a scheduled run refused because the owner can no longer run the harness (`detail.action` is `run_refused`). For a scheduled run, `userId` is the owner. All three name the team.
 
 `pinned_query_change` is written best-effort when a new, changed, or removed pin is stored on Live, including by Publish, or after a successful test of a pin; an audit failure does not block the save. A draft save does not write a `create`, `edit`, or `delete` row. The test row is best-effort: it is attempted only after a successful test, a refused or failed test writes none, and an audit failure does not block the test result. `detail.kind` is `create`, `edit`, `delete`, or `test`. `detail` also has `flow`, `node`, `pin` (the tool name), `version`, `hash` (the statement hash, when the pin compiles), `user`, and may have `cred` (the credential id) and `paramNames`. It does not include SQL text or parameter values. [Pinned queries](../how-to/pinned-queries.md).
+
+`auth_config_change` is attempted when an administrator saves a generic OIDC draft, including a draft whose provider check reports an error, and when tested settings are copied to the active OIDC configuration without changing the selected method. A failed audit write does not undo a draft save. `detail.outcome` is `saved`, `saved_with_error`, or `applied_to_active`; `detail.configurationFingerprint` is the saved or applied configuration fingerprint, or null when one was not produced.
 
 A bad cursor is **400** `{ "message": "Cursor is not valid", "code": "INVALID_CURSOR" }`.
 

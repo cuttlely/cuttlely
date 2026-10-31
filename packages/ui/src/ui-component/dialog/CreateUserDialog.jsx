@@ -20,6 +20,8 @@ import {
 
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import { invitationPayload } from '@/ui-component/dialog/invitePayload'
+import { inviteLinkRequested, inviteMethodFromOptions, newUserInviteNote } from '@/ui-component/dialog/inviteDialogState'
 import { IconX, IconUserPlus } from '@tabler/icons-react'
 
 import accountApi from '@/api/account.api'
@@ -58,6 +60,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
     const [formError, setFormError] = useState('')
     const [inviteLink, setInviteLink] = useState('')
     const [copied, setCopied] = useState(false)
+    const [inviteMethod, setInviteMethod] = useState('Local')
 
     useEffect(() => {
         if (show) dispatch({ type: SHOW_CANVAS_DIALOG })
@@ -74,15 +77,18 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
         setTeamId(workspace?.id || '')
         setRoleId('')
         setExistingId('')
+        setInviteMethod('Local')
         setLoadingChoices(true)
         Promise.all([
             workspaceApi.getAllWorkspacesByOrganizationId(currentUser.activeOrganizationId),
             roleApi.getAllRolesByOrganizationId(currentUser.activeOrganizationId),
             // Best effort: a caller without users:manage can still add someone by email.
-            accountApi.listOrganizationUsers(currentUser.activeOrganizationId).catch(() => ({ data: [] }))
+            accountApi.listOrganizationUsers(currentUser.activeOrganizationId).catch(() => ({ data: [] })),
+            accountApi.getSignInOptions().catch(() => ({ data: {} }))
         ])
-            .then(([workspaceResponse, roleResponse, peopleResponse]) => {
+            .then(([workspaceResponse, roleResponse, peopleResponse, signInResponse]) => {
                 if (cancelled) return
+                setInviteMethod(inviteMethodFromOptions(signInResponse.data))
                 setPeople(
                     (Array.isArray(peopleResponse.data) ? peopleResponse.data : [])
                         .filter((item) => item.user && item.status?.toLowerCase() !== 'deleted')
@@ -149,15 +155,16 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                 }
             } else {
                 try {
-                    response = await accountApi.inviteAccount({
-                        user: {
+                    response = await accountApi.inviteAccount(
+                        invitationPayload({
                             name: name.trim(),
                             email: email.trim(),
-                            createdBy: currentUser.id
-                        },
-                        workspace: { id: teamId },
-                        role: { id: roleId }
-                    })
+                            createdBy: currentUser.id,
+                            workspaceId: teamId,
+                            roleId,
+                            link: inviteLinkRequested(inviteMethod)
+                        })
+                    )
                 } catch (error) {
                     // The account exists but was not in the list this caller can see: add it to the team instead.
                     if (error.response?.status !== 409) throw error
@@ -318,8 +325,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                                 </Box>
                                 <Box sx={{ p: 1 }}>
                                     <Typography variant='caption' color='text.secondary'>
-                                        They join from a one-time invite link and sign in with WorkOS. No password is stored here. If the
-                                        email already has an account, that person is added to the team instead.
+                                        {newUserInviteNote(inviteMethod)}
                                     </Typography>
                                 </Box>
                             </>

@@ -119,6 +119,10 @@ INCLUDE_BROWSER=0 INCLUDE_NODE_PACKS=0 CUTTLELY_OMIT_GEOIP=true docker compose u
 
 `docker build --build-arg INCLUDE_BROWSER=0 --build-arg INCLUDE_NODE_PACKS=0 --build-arg CUTTLELY_OMIT_GEOIP=true -t cuttlely:local .` is the same build.
 
+## Generic OIDC
+
+The shipped Compose files pass `APP_URL` and `CUTTLELY_OIDC_CLIENT_SECRET` from `.env`. Set `APP_URL` to the public HTTPS origin and leave the setup card on `CUTTLELY_OIDC_CLIENT_SECRET` for the default path. Local development may use HTTP only with `localhost`, `127.0.0.1`, or `::1`. If the card names a different environment variable, add that exact name to the Compose service's `environment` section; `.env` entries that are not passed there do not reach the container. [Choose the sign-in method](./auth-sso.md#set-up-generic-oidc).
+
 ## Run traces
 
 Traces are off until you turn them on. The root `docker-compose.yml` and `docker/docker-compose.yml` pass only the variables they list. They do not use `env_file`, so a name that exists only in `.env` and is not in that list never reaches the container, and traces stay off with no error. Both files pass these from `.env` with `${VAR:-}`:

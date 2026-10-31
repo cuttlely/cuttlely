@@ -19,13 +19,17 @@ import {
     Tooltip,
     styled,
     Popper,
-    CircularProgress
+    CircularProgress,
+    Alert,
+    OutlinedInput
 } from '@mui/material'
 import { autocompleteClasses } from '@mui/material/Autocomplete'
 
 // Project imports
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import { invitationResults, submitInvitations } from '@/ui-component/dialog/invitePayload'
+import { inviteLinkRequested, inviteMethodFromOptions } from '@/ui-component/dialog/inviteDialogState'
 
 // Icons
 import { IconX, IconCircleCheck, IconUser } from '@tabler/icons-react'
@@ -90,6 +94,73 @@ const StyledPopper = styled(Popper)({
     }
 })
 
+export const InviteLinksStep = ({ links, failures, onDone }) => {
+    const [copiedLink, setCopiedLink] = useState('')
+
+    const copyLink = async (link) => {
+        try {
+            await window['nav' + 'igator'].clipboard.writeText(link)
+            setCopiedLink(link)
+        } catch {
+            setCopiedLink('')
+        }
+    }
+
+    return (
+        <>
+            <DialogContent>
+                {links.length ? (
+                    <Alert severity='success' sx={{ mb: 2 }}>
+                        Send each one-time invite link to the matching person. Each link is shown only once and works once.
+                    </Alert>
+                ) : null}
+                <Stack spacing={2}>
+                    {links.map((item, index) => (
+                        <Box key={`${item.email}-${index}`}>
+                            <Typography sx={{ mb: 0.5 }}>{item.email}</Typography>
+                            <Stack direction='row' spacing={1}>
+                                <OutlinedInput
+                                    id={`invite-link-${index}`}
+                                    size='small'
+                                    fullWidth
+                                    readOnly
+                                    value={item.link}
+                                    onFocus={(event) => event.target.select()}
+                                />
+                                <Button data-testid={`copy-invite-link-${index}`} onClick={() => copyLink(item.link)}>
+                                    {copiedLink === item.link ? 'Copied' : 'Copy link'}
+                                </Button>
+                            </Stack>
+                        </Box>
+                    ))}
+                </Stack>
+                {failures.length ? (
+                    <Alert severity='error' sx={{ mt: 2 }}>
+                        <Stack spacing={0.5}>
+                            {failures.map((item, index) => (
+                                <Typography key={`${item.email}-${index}`}>
+                                    {item.email}: {item.message}
+                                </Typography>
+                            ))}
+                        </Stack>
+                    </Alert>
+                ) : null}
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+                <StyledButton id='btn_invites_done' variant='contained' onClick={onDone}>
+                    Done
+                </StyledButton>
+            </DialogActions>
+        </>
+    )
+}
+
+InviteLinksStep.propTypes = {
+    links: PropTypes.array.isRequired,
+    failures: PropTypes.array.isRequired,
+    onDone: PropTypes.func.isRequired
+}
+
 const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const portalElement = document.getElementById('portal')
 
@@ -114,6 +185,9 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const [availableRoles, setAvailableRoles] = useState([])
     const [selectedRole, setSelectedRole] = useState('')
     const [isSaving, setIsSaving] = useState(false)
+    const [inviteLinks, setInviteLinks] = useState([])
+    const [inviteFailures, setInviteFailures] = useState([])
+    const [inviteMethod, setInviteMethod] = useState('Local')
 
     const getAllRolesApi = useApi(roleApi.getAllRolesByOrganizationId)
     const getAllWorkspacesByOrganizationIdApi = useApi(workspaceApi.getAllWorkspacesByOrganizationId)
@@ -196,6 +270,9 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         setSearchString('')
         setUserSearchResults([])
         setSelectedUsers([])
+        setInviteLinks([])
+        setInviteFailures([])
+        setInviteMethod('Local')
         fetchInitialData()
         if (dialogProps.type === 'ADD' && dialogProps.data) {
             // when clicking on add user in workspace page
@@ -218,6 +295,8 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             setOrgUsers([])
             setUserSearchResults([])
             setSelectedUsers([])
+            setInviteLinks([])
+            setInviteFailures([])
             setWorkspaces([])
             setSelectedRole(null)
             setSelectedWorkspace(null)
@@ -249,7 +328,11 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
 
     const fetchInitialData = async () => {
         try {
-            const response = await userApi.getAllUsersByOrganizationId(currentUser.activeOrganizationId)
+            const [response, signInResponse] = await Promise.all([
+                userApi.getAllUsersByOrganizationId(currentUser.activeOrganizationId),
+                accountApi.getSignInOptions().catch(() => ({ data: {} }))
+            ])
+            setInviteMethod(inviteMethodFromOptions(signInResponse.data))
             if (response.data) {
                 let existingUserIds = []
 
@@ -309,59 +392,35 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         }
         setIsSaving(true)
         try {
-            const responses = await Promise.all(
-                selectedUsers.map(async (item) => {
-                    const saveObj = item.isNewUser
-                        ? {
-                              user: {
-                                  email: item.email,
-                                  createdBy: currentUser.id
-                              },
-                              workspace: {
-                                  id: selectedWorkspace.id
-                              },
-                              role: {
-                                  id: selectedRole.id
-                              }
-                          }
-                        : {
-                              user: {
-                                  email: item.user.email,
-                                  createdBy: currentUser.id
-                              },
-                              workspace: {
-                                  id: selectedWorkspace.id
-                              },
-                              role: {
-                                  id: selectedRole.id
-                              }
-                          }
-
-                    // An existing account is linked to the team. Only a new email gets an invite.
-                    const response = item.isNewUser
-                        ? await accountApi.inviteAccount(saveObj)
-                        : await accountApi.addWorkspaceUser({
-                              userId: item.user.id,
-                              workspaceId: selectedWorkspace.id,
-                              roleId: selectedRole.id
-                          })
-                    return response.data
-                })
-            )
+            const responses = await submitInvitations({
+                selectedUsers,
+                currentUserId: currentUser.id,
+                workspaceId: selectedWorkspace.id,
+                roleId: selectedRole.id,
+                link: inviteLinkRequested(inviteMethod),
+                inviteAccount: accountApi.inviteAccount,
+                addWorkspaceUser: accountApi.addWorkspaceUser
+            })
             if (responses.length > 0) {
-                enqueueSnackbar({
-                    message: 'Users invited to workspace',
-                    options: {
-                        key: new Date().getTime() + Math.random(),
-                        variant: 'success',
-                        action: (key) => (
-                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                                <IconX />
-                            </Button>
-                        )
-                    }
-                })
-                onConfirm() // Pass the first ID or modify as needed
+                const result = invitationResults(selectedUsers, responses)
+                if (result.successCount > 0) {
+                    enqueueSnackbar({
+                        message: 'Users invited to workspace',
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'success',
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                }
+                if (result.keepOpen) {
+                    setInviteLinks(result.links)
+                    setInviteFailures(result.failures)
+                } else onConfirm()
             } else {
                 throw new Error('No data received from the server')
             }
@@ -631,12 +690,20 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         return false
     }
 
+    const finishInvites = () => {
+        setInviteLinks([])
+        setInviteFailures([])
+        onConfirm()
+    }
+
+    const showInviteResults = inviteLinks.length > 0 || inviteFailures.length > 0
+
     const component = show ? (
         <Dialog
             fullWidth
             maxWidth='md'
             open={show}
-            onClose={onCancel}
+            onClose={showInviteResults ? finishInvites : onCancel}
             aria-labelledby='alert-dialog-title'
             aria-describedby='alert-dialog-description'
         >
@@ -646,7 +713,8 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                     Invite Users
                 </div>
             </DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {showInviteResults ? <InviteLinksStep links={inviteLinks} failures={inviteFailures} onDone={finishInvites} /> : null}
+            <DialogContent sx={{ display: showInviteResults ? 'none' : 'flex', flexDirection: 'column', gap: 2 }}>
                 <Box>
                     <Typography>
                         Select Users<span style={{ color: 'red' }}>&nbsp;*</span>
@@ -709,7 +777,7 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                     </Box>
                 </Box>
             </DialogContent>
-            <DialogActions sx={{ px: 3, pb: 2 }}>
+            <DialogActions sx={{ px: 3, pb: 2, display: showInviteResults ? 'none' : 'flex' }}>
                 <Button onClick={() => onCancel()} disabled={isSaving}>
                     {dialogProps.cancelButtonName}
                 </Button>

@@ -13,6 +13,16 @@ import { mariadbMigrations } from '../database/migrations/mariadb'
 import { SqlIdentityStore, SqlSetupCodeStore } from './sqlStore'
 import { SetupCodeRow } from './setupCode'
 import { SetupCodeRejected } from './types'
+import {
+    consumeOidcTransaction,
+    createOidcTransaction,
+    createProviderLink,
+    findProviderLink,
+    migrateLegacyProviderLinks,
+    oidcConfigurationFingerprint,
+    readOidcConfiguration,
+    saveOidcDraft
+} from './oidcStore'
 
 const SCRATCH = 'cuttlely_setup_code_live'
 const HOUR = 60 * 60 * 1000
@@ -107,6 +117,67 @@ async function exercise(kind: 'mysql' | 'mariadb', url: string): Promise<void> {
             [SCRATCH]
         )
         expect(tables.length).toBe(1)
+
+        const oidcTables: { name?: string }[] = await ds.query(
+            `SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (?, ?, ?, ?)`,
+            [
+                SCRATCH,
+                'identity_provider_link',
+                'identity_oidc_configuration',
+                'identity_oidc_transaction',
+                'identity_provider_link_migration'
+            ]
+        )
+        expect(oidcTables.map((table) => table.name).sort()).toEqual(
+            [
+                'identity_oidc_configuration',
+                'identity_oidc_transaction',
+                'identity_provider_link',
+                'identity_provider_link_migration'
+            ].sort()
+        )
+
+        const oidcInput = {
+            issuer: 'https://id.example',
+            clientId: 'mysql-family-client',
+            clientSecretEnvVar: 'CUTTLELY_TEST_OIDC_CLIENT_SECRET',
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: ['100.64.0.1'],
+            fingerprint: '',
+            discovery: null,
+            health: 'unchecked' as const,
+            healthError: null,
+            checkedAt: null
+        }
+        oidcInput.fingerprint = oidcConfigurationFingerprint(oidcInput)
+        await expect(saveOidcDraft(ds, oidcInput, 0)).resolves.toMatchObject({ version: 1, fingerprint: oidcInput.fingerprint })
+        await expect(readOidcConfiguration(ds, 'draft')).resolves.toMatchObject({ privateIssuerHosts: ['100.64.0.1'] })
+
+        await createOidcTransaction(ds, 'mysql-family-state', 'sealed-envelope', 1_000, 11_000)
+        await expect(consumeOidcTransaction(ds, 'mysql-family-state', 2_000)).resolves.toBe('sealed-envelope')
+        await expect(consumeOidcTransaction(ds, 'mysql-family-state', 2_001)).resolves.toBeNull()
+
+        const providerLink = {
+            providerKey: 'mysql-family-provider',
+            subject: 'subject-1',
+            userId: '00000000-0000-4000-8000-000000000099',
+            emailAtLink: 'ada@example.com',
+            assuranceBasis: 'email_verified'
+        }
+        await expect(createProviderLink(ds, providerLink, 3_000)).resolves.toBe('linked')
+        await expect(findProviderLink(ds, providerLink.providerKey, providerLink.subject)).resolves.toMatchObject(providerLink)
+        await expect(migrateLegacyProviderLinks(ds, { activeMethod: 'local', providerKey: null, warningKind: null })).resolves.toEqual({
+            complete: true,
+            migrated: 0,
+            inert: 0,
+            error: null
+        })
+        await expect(migrateLegacyProviderLinks(ds, { activeMethod: 'local', providerKey: null, warningKind: null })).resolves.toEqual({
+            complete: true,
+            migrated: 0,
+            inert: 0,
+            error: null
+        })
 
         const store = new SqlSetupCodeStore(ds)
         const issuedAt = Date.parse('2026-10-20T12:00:00.000Z')
