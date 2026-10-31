@@ -42,7 +42,14 @@ const SignInPage = () => {
     }
     const [usernameVal, setUsernameVal] = useState('')
     const [passwordVal, setPasswordVal] = useState('')
-    const [options, setOptions] = useState({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false })
+    const [options, setOptions] = useState({
+        authKit: false,
+        localAdmin: false,
+        localUsers: false,
+        oidc: false,
+        mail: false,
+        ownerRecovery: true
+    })
     const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
     const currentUser = useSelector((state) => state.auth.user)
     const [authError, setAuthError] = useState(undefined)
@@ -78,11 +85,13 @@ const SignInPage = () => {
                     localAdmin: response.data?.localAdmin === true,
                     localUsers: response.data?.localUsers === true,
                     oidc: response.data?.oidc === true,
-                    mail: response.data?.mail === true
+                    mail: response.data?.mail === true,
+                    ownerRecovery: true
                 })
             })
             .catch(() => {
-                if (!cancelled) setOptions({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false })
+                if (!cancelled)
+                    setOptions({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false, ownerRecovery: true })
             })
         return () => {
             cancelled = true
@@ -155,8 +164,8 @@ const SignInPage = () => {
                                 Sign in with OIDC
                             </Button>
                         )}
-                        {options.localUsers && (
-                            <form id='local-users-form' onSubmit={doLogin}>
+                        {(options.localUsers || options.localAdmin) && (
+                            <form id={options.localUsers ? 'local-users-form' : 'owner-password-form'} onSubmit={doLogin}>
                                 <Stack sx={{ width: '100%', flexDirection: 'column', gap: 2 }}>
                                     <Box sx={{ p: 0 }}>
                                         <Typography>
@@ -190,46 +199,6 @@ const SignInPage = () => {
                                 </Stack>
                             </form>
                         )}
-                        {options.localAdmin && !options.localUsers && (
-                            <form id='break-glass-form' onSubmit={doLogin}>
-                                <Stack sx={{ width: '100%', flexDirection: 'column', gap: 2 }}>
-                                    <Box sx={{ p: 0 }}>
-                                        <Typography>
-                                            Email<span style={{ color: 'red' }}>&nbsp;*</span>
-                                        </Typography>
-                                        <Input
-                                            inputParam={usernameInput}
-                                            onChange={(newValue) => setUsernameVal(newValue)}
-                                            value={usernameVal}
-                                            showDialog={false}
-                                        />
-                                    </Box>
-                                    <Box sx={{ p: 0 }}>
-                                        <Typography>
-                                            Password<span style={{ color: 'red' }}>&nbsp;*</span>
-                                        </Typography>
-                                        <Input
-                                            inputParam={passwordInput}
-                                            onChange={(newValue) => setPasswordVal(newValue)}
-                                            value={passwordVal}
-                                        />
-                                    </Box>
-                                    <LoadingButton
-                                        loading={loading}
-                                        variant={options.authKit ? 'outlined' : 'contained'}
-                                        style={{ borderRadius: 12, height: 40 }}
-                                        type='submit'
-                                    >
-                                        {options.authKit ? 'Sign in with password' : 'Sign in'}
-                                    </LoadingButton>
-                                    {options.mail && (
-                                        <Typography variant='body2'>
-                                            <Link to='/forgot-password'>Forgot password</Link>
-                                        </Typography>
-                                    )}
-                                </Stack>
-                            </form>
-                        )}
                         {!options.authKit && !options.oidc && !options.localAdmin && !options.localUsers && (
                             <Stack gap={1.25} alignItems='flex-start'>
                                 <Typography variant='body2' sx={{ color: theme.palette.grey[600] }}>
@@ -242,6 +211,11 @@ const SignInPage = () => {
                                     {t('signIn.openSetup')}
                                 </Button>
                             </Stack>
+                        )}
+                        {options.ownerRecovery && (
+                            <Typography variant='body2' sx={{ alignSelf: 'center' }}>
+                                <Link to='/owner-recovery'>Owner recovery</Link>
+                            </Typography>
                         )}
                     </Stack>
                 </Stack>

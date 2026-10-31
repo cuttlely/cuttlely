@@ -191,6 +191,36 @@ describe('API key gate on the real API router', () => {
         expect(res.body.user.apiKeyId).toBe('key-1')
     })
 
+    it('refuses a stored credential from the authentication settings route family', async () => {
+        const validateAPIKey = jest.fn(async () => ({
+            isValid: true,
+            apiKey: { id: 'key-2', workspaceId: 'ws-1', permissions: ['authentication:manage'] }
+        }))
+        const gate = apiV1Auth({
+            whitelistURLs: WHITELIST_URLS,
+            readOnlyWhitelistURLs: READ_ONLY_WHITELIST_URLS,
+            apiKeyBlacklistURLs: API_KEY_BLACKLIST_URLS,
+            licenseRequired: () => false,
+            dataSource: dataSource(),
+            validateAPIKey,
+            attachIdentitySession: async () => null
+        })
+        for (const [method, path] of [
+            ['GET', '/api/v1/authentication-settings'],
+            ['POST', '/api/v1/authentication-settings/stage']
+        ]) {
+            const req = { method, path, headers: { authorization: 'Bearer stored-authentication-credential' } } as Request
+            const json = jest.fn()
+            const status = jest.fn(() => ({ json }))
+            const next = jest.fn()
+            await gate(req, { status } as unknown as Response, next)
+            expect(status).toHaveBeenCalledWith(401)
+            expect(json).toHaveBeenCalledWith({ error: 'Unauthorized Access' })
+            expect(next).not.toHaveBeenCalled()
+        }
+        expect(validateAPIKey).not.toHaveBeenCalled()
+    })
+
     it('still refuses an unknown API key', async () => {
         const res = await app().get('/api/v1/nodes').set('Authorization', 'Bearer wrong-key')
         expect(res.status).toBe(401)

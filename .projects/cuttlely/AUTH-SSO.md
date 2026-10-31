@@ -2,7 +2,7 @@
 
 ## Status and intent
 
-This note proposes a provider-neutral authentication and provisioning design for Cuttlely. It is a design artifact only. The goals are to add an Admin Panel **Auth / SSO** section, support one selected interactive sign-in method, add a permanent owner recovery path in phase B, and add optional SCIM v2 provisioning without changing authorization ownership.
+This note records the provider-neutral authentication and provisioning design for Cuttlely. Phase B2 implements the shared database session, one selected interactive sign-in method, the **Auth / SSO** section, and permanent owner recovery. Generic OIDC and SCIM v2 remain separate work.
 
 The selectable methods are:
 
@@ -16,9 +16,9 @@ Only one method is active for ordinary users at a time. Phase A preserves existi
 
 The present identity module already owns users, memberships, teams, roles, permission snapshots, local credentials, and local session rows. Local session tokens are random values whose hashes are stored in the database; browser cookies are HTTP-only, use `SameSite=Lax`, cover `/`, and use the request or configured redirect scheme to choose the secure flag. Idle and absolute expiry are enforced, permission changes can invalidate the cached session snapshot, password reset ends that user's sessions, and state-changing cookie requests require an internal-request header.
 
-The current WorkOS path is expressed through `WorkosPort` in `identity/types.ts`. It supplies an authorization URL, code exchange, sealed-session authentication and refresh, logout URL creation, and external-id update. Its adapter places a sealed value in `wos-session`; Cuttlely then loads a local user and permission snapshot. Activity limits for that path are recorded in the local session table, keyed by a provider session id when one is available. Existing linking accepts only a confirmed mailbox, refuses rebinding, protects pending invitations, and permits first-owner bootstrap only for an empty database and the configured bootstrap address.
+The current WorkOS path is expressed through `WorkosPort` in `identity/types.ts`. The callback exchanges a code for an identity and provider session id, then creates the same `identity_local_session` row and `cuttlely-local-session` cookie as the other sign-in methods. Refresh reads and renews that database session. Sign-out deletes the row first, then uses the stored provider session id to create a hosted logout URL. The adapter retains inert compatibility readers for the retired browser value, while Server settings uses `WORKOS_COOKIE_PASSWORD` only to seal and open the temporary AuthKit setup-test value. Existing linking accepts only a confirmed mailbox, refuses rebinding, protects pending invitations, and permits first-owner bootstrap only for an empty database and the configured bootstrap address.
 
-The current startup switch records a transition into AuthKit and deletes local sessions once. Local-user password sign-in is suppressed while AuthKit is configured, but the independently flagged owner route remains available. The Server settings AuthKit setup already keeps draft secrets out of browser responses, binds a real test sign-in to the initiating browser session, expires the test after ten minutes, and saves only after a successful test and explicit apply.
+The durable authentication state records the selected method and authentication epoch. A method change ends interactive sessions in its transaction. Local-user password sign-in is available only while Local is selected, while owner recovery remains available under every method. The Server settings AuthKit setup keeps draft secrets out of browser responses, binds a real test sign-in to the initiating browser session, expires the test after ten minutes, and saves only after a successful test and explicit apply.
 
 These are compatibility requirements, not merely implementation details.
 

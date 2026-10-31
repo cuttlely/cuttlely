@@ -228,8 +228,8 @@ export async function hasRecentAuthentication(dataSource: DataSource, userId: st
             [digest, userId]
         )
         if (!rows[0]) return false
-        const authenticatedAt = new Date(value(rows[0], 'authenticatedAt') as string | Date).getTime()
-        const expiresAt = new Date(value(rows[0], 'expiresAt') as string | Date).getTime()
+        const authenticatedAt = new Date(value(rows[0], 'authenticatedAt') as string | number | Date).getTime()
+        const expiresAt = new Date(value(rows[0], 'expiresAt') as string | number | Date).getTime()
         return authenticatedAt <= now && now - authenticatedAt <= 10 * 60 * 1000 && expiresAt > now
     } finally {
         await runner.release()
@@ -350,6 +350,92 @@ export async function readAuthenticationState(dataSource: DataSource): Promise<A
     }
 }
 
+/**
+ * Selects Local login while the first owner is being inserted. The caller owns the transaction and has already
+ * proved that the user table was empty, so there are no interactive sessions to end.
+ */
+export async function activateFreshOwnerLocalAuthentication(
+    runner: QueryRunner,
+    audit: { organizationId: string; actorId: string },
+    at = Date.now()
+): Promise<boolean> {
+    const current = await selectState(runner, true)
+    if (!current) throw new Error('AUTH_STATE_MISSING')
+    if (current.activeMethod !== null) return false
+    const d = dialect(runner)
+    const now = new Date(at)
+    await query(
+        runner,
+        `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'activeMethod')} = 'local', ${q(d, 'authenticationEpoch')} = ${q(
+            d,
+            'authenticationEpoch'
+        )} + 1, ${q(d, 'configurationFingerprint')} = NULL, ${q(d, 'providerKey')} = NULL, ${q(d, 'warning')} = NULL, ${q(
+            d,
+            'sessionsEnded'
+        )} = 0, ${q(d, 'changedAt')} = ?, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+        [databaseDate(runner, now)]
+    )
+    await query(
+        runner,
+        `INSERT INTO ${q(d, 'audit_event')} (${q(d, 'id')}, ${q(d, 'type')}, ${q(d, 'organizationId')}, ${q(d, 'workspaceId')}, ${q(
+            d,
+            'userId'
+        )}, ${q(d, 'actorId')}, ${q(d, 'summary')}, ${q(d, 'detail')}, ${q(d, 'createdAt')}) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+        [
+            randomUUID(),
+            'auth_method_change',
+            audit.organizationId,
+            audit.actorId,
+            audit.actorId,
+            'Sign-in method changed',
+            JSON.stringify({
+                oldMethod: 'none',
+                newMethod: 'local',
+                configurationFingerprint: null,
+                authenticationEpoch: current.authenticationEpoch + 1,
+                sessionsEnded: 0,
+                outcome: 'applied',
+                reason: 'first_owner_setup'
+            }),
+            now.getTime()
+        ]
+    )
+    return true
+}
+
+/** Records the session result of the one-time environment inference in durable method state. */
+export async function recordInferredWorkosActivation(
+    dataSource: DataSource,
+    sessionsEnded: number,
+    switchedAt: string
+): Promise<AuthenticationState> {
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    await runner.startTransaction()
+    try {
+        const current = await selectState(runner, true)
+        if (!current) throw new Error('AUTH_STATE_MISSING')
+        if (!current.changedAt && current.activeMethod === 'workos') {
+            const d = dialect(runner)
+            await query(
+                runner,
+                `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'sessionsEnded')} = ?, ${q(d, 'changedAt')} = ?, ${q(
+                    d,
+                    'version'
+                )} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+                [sessionsEnded, databaseDate(runner, new Date(switchedAt))]
+            )
+        }
+        await runner.commitTransaction()
+        return publishState((await readAuthenticationState(dataSource)) as AuthenticationState)
+    } catch (error) {
+        if (runner.isTransactionActive) await runner.rollbackTransaction()
+        throw error
+    } finally {
+        await runner.release()
+    }
+}
+
 /** Refreshes the process view from durable state. The bounded cache limits request-path database reads. */
 export async function refreshAuthenticationState(dataSource: DataSource, force = false): Promise<AuthenticationState | null> {
     if (!force && effectiveMethod !== undefined && Date.now() - stateRefreshedAt < STATE_CACHE_MS) return null
@@ -376,14 +462,24 @@ export async function acknowledgeAuthenticationWarning(
         if (current.warningKind !== 'workos-client-mismatch') throw new Error('AUTH_WARNING_NOT_ACTIONABLE')
         const fingerprint = workosConfigurationFingerprint()
         const d = dialect(runner)
-        const now = new Date()
+        const changedAt = Date.now()
+        const ended = await endInteractiveSessions(runner, changedAt)
+        const now = new Date(changedAt)
         await query(
             runner,
-            `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'configurationFingerprint')} = ?, ${q(d, 'providerKey')} = ?, ${q(
+            `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'authenticationEpoch')} = ${q(d, 'authenticationEpoch')} + 1, ${q(
                 d,
-                'warning'
-            )} = NULL, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
-            [fingerprint, fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null]
+                'configurationFingerprint'
+            )} = ?, ${q(d, 'providerKey')} = ?, ${q(d, 'warning')} = NULL, ${q(d, 'sessionsEnded')} = ?, ${q(d, 'changedAt')} = ?, ${q(
+                d,
+                'version'
+            )} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+            [
+                fingerprint,
+                fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null,
+                ended,
+                databaseDate(runner, now)
+            ]
         )
         await query(
             runner,
@@ -398,7 +494,12 @@ export async function acknowledgeAuthenticationWarning(
                 audit.actorId,
                 audit.actorId,
                 'Authentication configuration warning acknowledged',
-                JSON.stringify({ configurationFingerprint: fingerprint, outcome: 'acknowledged' }),
+                JSON.stringify({
+                    configurationFingerprint: fingerprint,
+                    authenticationEpoch: current.authenticationEpoch + 1,
+                    sessionsEnded: ended,
+                    outcome: 'acknowledged'
+                }),
                 now.getTime()
             ]
         )
@@ -542,6 +643,34 @@ async function copyOidcDraftToActive(runner: QueryRunner): Promise<void> {
 export type AuthenticationSwitchChange = 'method' | 'oidc_refresh' | 'none'
 export type AuthenticationSwitchResult = AuthenticationState & { change: AuthenticationSwitchChange }
 
+async function endInteractiveSessions(runner: QueryRunner, endedAt: number): Promise<number> {
+    const d = dialect(runner)
+    const cutoff = await query(
+        runner,
+        `SELECT ${q(d, 'cutoffAt')} AS ${q(d, 'cutoffAt')} FROM ${q(d, 'identity_session_convergence')} WHERE ${q(d, 'id')} = 1`
+    )
+    const cutoffAt = cutoff[0] ? value(cutoff[0], 'cutoffAt') : null
+    const sessions = q(d, 'identity_local_session')
+    const authenticationMethod = q(d, 'authenticationMethod')
+    const cutoffFilter =
+        cutoffAt === null
+            ? ''
+            : ` AND (${authenticationMethod} IS NULL OR NOT (${authenticationMethod} = 'workos' AND ${q(d, 'createdDate')} <= ?))`
+    const params: unknown[] = [databaseDate(runner, new Date(endedAt)), databaseDate(runner, new Date(endedAt))]
+    if (cutoffAt !== null) params.push(cutoffAt)
+    const counted = await query(
+        runner,
+        `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${sessions} WHERE ${q(d, 'expiresAt')} > ? AND ${q(
+            d,
+            'absoluteExpiresAt'
+        )} > ?${cutoffFilter}`,
+        params
+    )
+    const ended = Number(value(counted[0] || {}, 'count') || 0)
+    await query(runner, `DELETE FROM ${sessions}`)
+    return ended
+}
+
 export async function switchAuthenticationMethod(
     dataSource: DataSource,
     method: AuthenticationMethod,
@@ -615,7 +744,7 @@ export async function switchAuthenticationMethod(
         )
             throw new Error('OIDC_TEST_REQUIRED')
         if (method === 'local' && !localUsersSetting()) throw new Error('METHOD_NOT_READY')
-        if (stage && (method === 'workos' || method === 'oidc') && !(localAdminEnabled() && (await usableLocalOwnerExists(runner)))) {
+        if (stage && (method === 'workos' || method === 'oidc') && !(await usableLocalOwnerExists(runner))) {
             throw new Error('RECOVERY_REQUIRED')
         }
         if (method === 'oidc') {
@@ -674,9 +803,8 @@ export async function switchAuthenticationMethod(
             return { ...current, change: refresh ? 'oidc_refresh' : 'none' }
         }
         if (stage) await consumeAuthenticationStage(runner, stage)
-        const counted = await query(runner, `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${q(d, 'identity_local_session')}`)
-        const ended = Number(value(counted[0] || {}, 'count') || 0)
-        await query(runner, `DELETE FROM ${q(d, 'identity_local_session')}`)
+        const switchAt = stage?.now ?? Date.now()
+        const ended = await endInteractiveSessions(runner, switchAt)
         if (method === 'oidc') await copyOidcDraftToActive(runner)
         const now = new Date()
         await query(

@@ -69,12 +69,13 @@ describe('authenticated requests enforce the current lifetime', () => {
                 row({
                     token: digest,
                     issuedAt: new Date(NOW),
-                    lastSeenAt: new Date(NOW)
+                    lastSeenAt: new Date(NOW),
+                    authenticationMethod: 'oidc'
                 })
             ]
         ])
         const store = fakeStore(sessions)
-        store.localAccountOpen = jest.fn(async () => false)
+        store.localAccountOpen = jest.fn(async () => true)
         const established = await establishSession({
             ...ctx(store, { 'cuttlely-local-session': raw }),
             localAdmin: false,
@@ -82,7 +83,7 @@ describe('authenticated requests enforce the current lifetime', () => {
             oidcActive: true
         })
         expect(established.user?.id).toBe('user-a')
-        expect(store.localAccountOpen).not.toHaveBeenCalled()
+        expect(store.localAccountOpen).toHaveBeenCalledWith('user-a')
     })
 
     it('drops an existing cookie after the idle limit is reduced', async () => {

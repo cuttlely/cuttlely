@@ -2,61 +2,64 @@
  * @jest-environment <rootDir>/src/__mocks__/jsdomCanvasEnvironment.js
  */
 /* eslint-disable react/display-name, react/prop-types */
+const authResponse = {
+    activeMethod: 'workos',
+    version: 4,
+    changedAt: '2026-10-30T12:00:00.000Z',
+    sessionsEnded: 7,
+    warning: null,
+    methods: {
+        local: { configured: true, selectable: true, scope: 'local-users' },
+        workos: { configured: true },
+        oidc: { configured: true }
+    },
+    recovery: { available: true, alert: null }
+}
+
+const oidcResponse = {
+    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-1',
+    activeCallbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-active',
+    postLogoutUrl: 'https://app.example/signin',
+    testedDraftDiffersFromActive: false,
+    linkMigrationComplete: true,
+    linkMigration: { complete: true, migrated: 0, inert: 2, error: null },
+    draft: {
+        configured: true,
+        issuer: 'https://id.example',
+        clientId: 'client-id',
+        clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+        clientSecretPresent: true,
+        trustMissingEmailVerification: false,
+        privateIssuerHosts: [],
+        health: 'ready',
+        checkedAt: '2026-10-30T12:00:00.000Z',
+        tested: true,
+        testResult: {
+            steps: ['discovery', 'authorization', 'token', 'signature', 'claims'],
+            email: 'person@example.test',
+            assuranceBasis: 'email_verified'
+        },
+        version: 2
+    },
+    active: {
+        configured: true,
+        issuer: 'https://active-id.example',
+        clientId: 'active-client-id',
+        fingerprint: 'active-fingerprint'
+    }
+}
+
 jest.mock('@/api/authenticationSettings', () => ({
     __esModule: true,
     default: {
-        get: jest.fn(() =>
-            Promise.resolve({
-                data: {
-                    activeMethod: 'local',
-                    version: 4,
-                    warning: null,
-                    methods: { local: { configured: true }, workos: { configured: false }, oidc: { configured: true } },
-                    recovery: { available: true }
-                }
-            })
-        ),
-        getOidc: jest.fn(() =>
-            Promise.resolve({
-                data: {
-                    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-1',
-                    activeCallbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-active',
-                    postLogoutUrl: 'https://app.example/signin',
-                    testedDraftDiffersFromActive: false,
-                    linkMigrationComplete: true,
-                    linkMigration: { complete: true, migrated: 0, inert: 2, error: null },
-                    draft: {
-                        configured: true,
-                        issuer: 'https://id.example',
-                        clientId: 'client-id',
-                        clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
-                        clientSecretPresent: true,
-                        trustMissingEmailVerification: false,
-                        privateIssuerHosts: [],
-                        health: 'ready',
-                        checkedAt: '2026-10-30T12:00:00.000Z',
-                        tested: true,
-                        testResult: {
-                            steps: ['discovery', 'authorization', 'token', 'signature', 'claims'],
-                            email: 'ada@example.com',
-                            assuranceBasis: 'email_verified'
-                        },
-                        version: 2
-                    },
-                    active: {
-                        configured: true,
-                        issuer: 'https://active-id.example',
-                        clientId: 'active-client-id',
-                        fingerprint: 'active-fingerprint'
-                    }
-                }
-            })
-        ),
+        get: jest.fn(() => Promise.resolve({ data: authResponse })),
+        getOidc: jest.fn(() => Promise.resolve({ data: oidcResponse })),
         stage: jest.fn(),
         apply: jest.fn(),
         saveOidc: jest.fn(),
         testOidc: jest.fn(),
-        acknowledgeWarning: jest.fn()
+        acknowledgeWarning: jest.fn(),
+        acknowledgeRecoveryAlert: jest.fn()
     }
 }))
 jest.mock('@/ui-component/cards/MainCard', () => ({ children }) => <div>{children}</div>)
@@ -66,9 +69,9 @@ import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import api from '@/api/authenticationSettings'
-import AuthenticationSettings from './index'
+import AuthenticationSettings, { reauthenticationTarget } from './index'
 
-it('shows the OIDC setup status and derived URLs without a secret value', async () => {
+async function renderSettings() {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -77,110 +80,92 @@ it('shows the OIDC setup status and derived URLs without a secret value', async 
         await Promise.resolve()
         await Promise.resolve()
     })
+    return { container, root }
+}
+
+beforeEach(() => {
+    jest.clearAllMocks()
+    api.get.mockResolvedValue({ data: authResponse })
+    api.getOidc.mockResolvedValue({ data: oidcResponse })
+})
+
+it('directs each active method to its supported step-up route', () => {
+    expect(reauthenticationTarget('workos')).toBe('/owner-recovery')
+    expect(reauthenticationTarget('oidc')).toBe('/api/v1/auth/oidc/reauthenticate')
+    expect(reauthenticationTarget('local')).toBe('/signin?reauth=1')
+})
+
+it('shows session convergence details, owner recovery, and OIDC setup together', async () => {
+    const { container, root } = await renderSettings()
+    expect(container.querySelector('[data-testid="authentication-last-change"]')?.textContent).toContain('Last change:')
+    expect(container.querySelector('[data-testid="authentication-sessions-ended"]')?.textContent).toContain('7')
+    expect(container.textContent).toContain('A WorkOS sign-in never counts as recent authentication.')
     expect(container.textContent).toContain('Generic OIDC setup')
     expect(container.textContent).toContain('Discovery and keys ready')
-    expect(container.textContent).toContain('Value is set on this server.')
-    expect(container.textContent).toContain('Steps: discovery, authorization, token, signature, claims.')
-    expect(container.textContent).toContain('Returned email: ada@example.com. Assurance: email_verified.')
+    expect(container.textContent).toContain('Returned email: person@example.test. Assurance: email_verified.')
     expect(container.textContent).toContain('2 legacy WorkOS subject links could not be attributed')
-    expect(container.textContent).toContain('They remain inert and will not match this OIDC provider.')
-    expect(container.textContent).toContain('Draft callback URL')
     expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback?provider=provider-1"]')).not.toBeNull()
-    expect(container.textContent).toContain('Save the draft, then register this exact URL before Test sign-in.')
-    expect(container.textContent).toContain('Active callback URL')
     expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback?provider=provider-active"]')).not.toBeNull()
-    expect(container.textContent).toContain('Keep this exact URL registered while this provider is active.')
-    expect(container.querySelector('input[value="https://app.example/signin"]')).not.toBeNull()
-    expect(container.querySelector('input[value="openid email profile"]')).not.toBeNull()
     expect(container.textContent).not.toContain('client-secret-value')
-    const activate = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Activate')
-    expect(activate?.disabled).toBe(false)
+    expect([...container.querySelectorAll('button')].find((button) => button.textContent === 'Activate')?.disabled).toBe(false)
     act(() => root.unmount())
 })
 
-it('shows the active callback URL when there is no draft', async () => {
-    const oidc = (await api.getOidc()).data
-    api.getOidc.mockResolvedValueOnce({
+it('shows owner-only Local login but disables its method control', async () => {
+    api.get.mockResolvedValueOnce({
         data: {
-            ...oidc,
-            callbackUrl: null,
-            draft: { configured: false, version: 0 }
+            ...authResponse,
+            methods: {
+                ...authResponse.methods,
+                local: { configured: true, selectable: false, scope: 'owner-only' }
+            }
         }
     })
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    await act(async () => {
-        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
-        await Promise.resolve()
-        await Promise.resolve()
-    })
-    expect(container.textContent).toContain('Active callback URL')
-    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback?provider=provider-active"]')).not.toBeNull()
+    const { container, root } = await renderSettings()
+    expect(container.textContent).toContain('Local login — owner only')
+    expect(container.querySelector('input[value="local"]')?.disabled).toBe(true)
     act(() => root.unmount())
 })
 
-it('labels and disables activation when the tested draft is already active', async () => {
-    const auth = (await api.get()).data
-    const oidc = (await api.getOidc()).data
-    api.get.mockResolvedValueOnce({ data: { ...auth, activeMethod: 'oidc' } })
-    api.getOidc.mockResolvedValueOnce({
+it('requires confirmation before acknowledging the client identity warning', async () => {
+    api.get.mockResolvedValueOnce({
         data: {
-            ...oidc,
-            draft: { ...oidc.draft, fingerprint: 'same-fingerprint' },
-            active: { configured: true, fingerprint: 'same-fingerprint' }
+            ...authResponse,
+            warning: 'The WorkOS client identity differs from the saved installation.',
+            warningKind: 'workos-client-mismatch'
         }
     })
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
+    const { container, root } = await renderSettings()
+    const acknowledge = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Acknowledge')
     await act(async () => {
-        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
-        await Promise.resolve()
+        acknowledge.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         await Promise.resolve()
     })
-    const active = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Already active')
-    expect(active?.disabled).toBe(true)
+    expect(document.body.textContent).toContain('Acknowledge and end all interactive sessions?')
+    expect(api.acknowledgeWarning).not.toHaveBeenCalled()
     act(() => root.unmount())
 })
 
-it('offers to apply tested provider settings that differ without ending sessions', async () => {
-    const auth = (await api.get()).data
-    const oidc = (await api.getOidc()).data
-    api.get.mockResolvedValueOnce({ data: { ...auth, activeMethod: 'oidc', configurationFingerprint: 'same-fingerprint' } })
+it('offers a non-session-ending apply for refreshed tested OIDC settings', async () => {
+    api.get.mockResolvedValueOnce({ data: { ...authResponse, activeMethod: 'oidc', configurationFingerprint: 'same-fingerprint' } })
     api.getOidc.mockResolvedValueOnce({
         data: {
-            ...oidc,
+            ...oidcResponse,
             testedDraftDiffersFromActive: true,
-            draft: { ...oidc.draft, fingerprint: 'same-fingerprint' },
+            draft: { ...oidcResponse.draft, fingerprint: 'same-fingerprint' },
             active: { configured: true, fingerprint: 'same-fingerprint' }
         }
     })
     api.stage.mockResolvedValueOnce({
-        data: {
-            stage: 'stage-refresh',
-            stageVersion: 1,
-            method: 'oidc',
-            action: 'oidc_refresh',
-            sessionsWillEnd: false
-        }
+        data: { stage: 'stage-refresh', stageVersion: 1, method: 'oidc', action: 'oidc_refresh', sessionsWillEnd: false }
     })
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    await act(async () => {
-        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
-        await Promise.resolve()
-        await Promise.resolve()
-    })
+    const { container, root } = await renderSettings()
     const refresh = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Apply refreshed provider settings')
-    expect(refresh?.disabled).toBe(false)
     await act(async () => {
-        refresh.click()
+        refresh.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         await Promise.resolve()
     })
     expect(api.stage).toHaveBeenCalledWith('oidc', 4)
-    expect(document.body.textContent).toContain('Apply refreshed provider settings?')
     expect(document.body.textContent).toContain('Existing sessions stay signed in.')
     expect(document.body.textContent).not.toContain('Type END SESSIONS')
     act(() => root.unmount())

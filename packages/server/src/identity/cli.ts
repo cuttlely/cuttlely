@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
+import type { DataSource } from 'typeorm'
+import { initializeAuthenticationState } from './authenticationState'
 import { hashPassword, passwordErrors } from './password'
+import { SqlIdentityStore } from './sqlStore'
 import { IdentityStore } from './store'
 
 export interface UserCliInput {
@@ -26,6 +29,11 @@ export interface UserCliInput {
 export interface UserCliResult {
     ok: boolean
     lines: string[]
+}
+
+export async function runUserCommand(dataSource: DataSource, input: UserCliInput): Promise<UserCliResult> {
+    await initializeAuthenticationState(dataSource)
+    return runUserCli(new SqlIdentityStore(dataSource), input)
 }
 
 export async function runUserCli(store: IdentityStore, input: UserCliInput): Promise<UserCliResult> {
@@ -60,6 +68,6 @@ export async function runUserCli(store: IdentityStore, input: UserCliInput): Pro
     if ((await store.countUsers()) !== 0) return { ok: false, lines: [`No account exists for ${email}.`] }
     const name = email.split('@')[0]?.trim().slice(0, 100) || 'Super User'
     // An open first-run code is retired in this same createOwner transaction.
-    const created = await store.createOwner({ email, name, credential: hash, externalId: null })
+    const created = await store.createOwner({ email, name, credential: hash, externalId: null }, { activateLocalAuthentication: true })
     return { ok: true, lines: [`Super User created for ${created.email}.`] }
 }

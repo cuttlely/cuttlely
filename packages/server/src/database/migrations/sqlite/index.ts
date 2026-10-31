@@ -67,6 +67,8 @@ import { AddSetupCodePrevious1800700000000 } from './1800700000000-AddSetupCodeP
 import { AddAuthenticationState1800800000000 } from './1800800000000-AddAuthenticationState'
 import { AddAuthenticationSwitchStage1800900000000 } from './1800900000000-AddAuthenticationSwitchStage'
 import { AddOidcProvider1801000000000 } from './1801000000000-AddOidcProvider'
+import { AddSessionConvergence1801100000000 } from './1801100000000-AddSessionConvergence'
+import { AddWorkosSessionId1801150000000 } from './1801150000000-AddWorkosSessionId'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -160,5 +162,7 @@ export const sqliteMigrations = [
     AddSetupCodePrevious1800700000000,
     AddAuthenticationState1800800000000,
     AddAuthenticationSwitchStage1800900000000,
-    AddOidcProvider1801000000000
+    AddOidcProvider1801000000000,
+    AddSessionConvergence1801100000000,
+    AddWorkosSessionId1801150000000
 ]

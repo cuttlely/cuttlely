@@ -1,6 +1,7 @@
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
 import { ApiKey } from '../../database/entities/ApiKey'
+import { User } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { Platform } from '../../Interface'
@@ -20,6 +21,11 @@ interface ApiKeyActor {
     activeOrganizationSubscriptionId?: string
     activeOrganizationCustomerId?: string
     activeWorkspaceId: string
+    apiKeyOwnerUserId?: string
+}
+
+export function ownerForCreatedApiKey(user: Pick<ApiKeyActor, 'id' | 'apiKeyOwnerUserId'>): string | null {
+    return user.id || user.apiKeyOwnerUserId || null
 }
 
 /**
@@ -181,7 +187,7 @@ const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefine
     const lookup = storedApiKeyLookup(suppliedKey)
     const hashed = await repo.findOneBy({ apiKey: lookup })
     const hashedDecision = decideStoredApiKeyAuth(hashed ?? undefined, suppliedKey, 'lookup')
-    if (hashedDecision.status === 'accept') return hashed ?? undefined
+    if (hashedDecision.status === 'accept') return hashed && (await apiKeyOwnerActive(hashed)) ? hashed : undefined
     if (hashedDecision.status !== 'absent') return undefined
 
     const legacy = await repo.findOneBy({ apiKey: suppliedKey })
@@ -190,8 +196,15 @@ const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefine
         await repo.update({ id: legacy.id, apiKey: suppliedKey }, { apiKey: legacyDecision.lookup })
         legacy.apiKey = legacyDecision.lookup
     }
-    if (legacyDecision.status === 'accept-rewrite') return legacy ?? undefined
+    if (legacyDecision.status === 'accept-rewrite') return legacy && (await apiKeyOwnerActive(legacy)) ? legacy : undefined
     return undefined
+}
+
+async function apiKeyOwnerActive(row: ApiKey): Promise<boolean> {
+    if (!row.ownerUserId) return true
+    const appServer = getRunningExpressApp()
+    const user = await appServer.AppDataSource.getRepository(User).findOneBy({ id: row.ownerUserId })
+    return Boolean(user && user.status.toLowerCase() === 'active')
 }
 
 const getApiKey = async (apiKey: string) => {
@@ -211,7 +224,7 @@ const getApiKeyById = async (apiKeyId: string) => {
         if (!currentKey) {
             return undefined
         }
-        return currentKey
+        return (await apiKeyOwnerActive(currentKey)) ? currentKey : undefined
     } catch (error) {
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: apikeyService.getApiKeyById - ${getErrorMessage(error)}`)
     }
@@ -232,6 +245,7 @@ const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: str
     newKey.permissions = permissions
     newKey.harnesses = harnesses
     newKey.workspaceId = user.activeWorkspaceId
+    newKey.ownerUserId = ownerForCreatedApiKey(user)
     const key = appServer.AppDataSource.getRepository(ApiKey).create(newKey)
     await appServer.AppDataSource.getRepository(ApiKey).save(key)
     const listed = await getAllApiKeys(user)

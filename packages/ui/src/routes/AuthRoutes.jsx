@@ -7,6 +7,7 @@ import { GITHUB_STEP_PATH } from '@/utils/firstRun'
 
 const ResolveLoginPage = Loadable(lazy(() => import('@/views/auth/login')))
 const SignInPage = Loadable(lazy(() => import('@/views/auth/signIn')))
+const OwnerRecoveryPage = Loadable(lazy(() => import('@/views/auth/ownerRecovery')))
 const RegisterPage = Loadable(lazy(() => import('@/views/auth/register')))
 const VerifyEmailPage = Loadable(lazy(() => import('@/views/auth/verify-email')))
 const ConfirmEmailChangePage = Loadable(lazy(() => import('@/views/auth/confirm-email-change')))
@@ -31,6 +32,10 @@ const AuthRoutes = {
         {
             path: '/signin',
             element: <SignInPage />
+        },
+        {
+            path: '/owner-recovery',
+            element: <OwnerRecoveryPage />
         },
         {
             path: '/register',

@@ -56,23 +56,23 @@ export function sealedCookie(value: string, secure: boolean): SetCookie {
     }
 }
 
-function epochDigest(sealed: string, epoch: number, password: string): string {
-    return createHmac('sha256', password).update(`${epoch}\n${sealed}`).digest('base64url')
+function epochDigest(sealed: string, epoch: number, bindingSecret: string): string {
+    return createHmac('sha256', bindingSecret).update(`${epoch}\n${sealed}`).digest('base64url')
 }
 
-export function workosEpochCookie(sealed: string, epoch: number, password: string, secure: boolean): SetCookie {
+export function workosEpochCookie(sealed: string, epoch: number, bindingSecret: string, secure: boolean): SetCookie {
     return {
         name: WOS_EPOCH_COOKIE,
-        value: `${epoch}.${epochDigest(sealed, epoch, password)}`,
+        value: `${epoch}.${epochDigest(sealed, epoch, bindingSecret)}`,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure }
     }
 }
 
-export function workosEpochCookieValid(value: string | undefined, sealed: string, epoch: number, password: string): boolean {
+export function workosEpochCookieValid(value: string | undefined, sealed: string, epoch: number, bindingSecret: string): boolean {
     if (!value) return false
     const [stored, digest] = value.split('.')
     if (Number(stored) !== epoch || !digest) return false
-    const expected = epochDigest(sealed, epoch, password)
+    const expected = epochDigest(sealed, epoch, bindingSecret)
     const left = Buffer.from(digest)
     const right = Buffer.from(expected)
     return left.length === right.length && timingSafeEqual(left, right)

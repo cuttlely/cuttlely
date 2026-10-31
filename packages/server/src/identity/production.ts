@@ -18,7 +18,7 @@ import { Request } from 'express'
 import { DataSource } from 'typeorm'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
-import { cookieSecure, oidcSessionCookieSecure, recentAuthenticationCookie } from './cookies'
+import { cookieSecure, oidcSessionCookieSecure } from './cookies'
 import { organizationsForUser, recordAudit } from './auditLog'
 import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
@@ -27,11 +27,14 @@ import { bindSetupCodeStore } from './setupCode'
 import { SqlIdentityStore, SqlLoginRateLimit, SqlSetupCodeStore } from './sqlStore'
 import { workosPort } from './workosAdapter'
 import { workosProvider } from './provider'
+import { epochBindingSecret } from './authenticationSecrets'
+import { activateSessionConvergence, sessionConvergenceActive } from './sessionConvergence'
+import { createRecoveryAlert, notifyRecoverySuccess, recordRecoveryAttempt } from './recovery'
 import {
     automaticWorkosLinkingAllowed,
     initializeAuthenticationState,
     readAuthenticationState,
-    recordRecentAuthentication,
+    recordInferredWorkosActivation,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
     selectedAuthenticationMethod
@@ -40,6 +43,7 @@ import { createProviderLink, findProviderLink, migrateLegacyProviderLinks } from
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
+let recoveryLimiter: SqlLoginRateLimit | undefined
 
 export function applicationSql(): Sql {
     return sqlFromDataSource(getDataSource())
@@ -57,6 +61,7 @@ export function applicationDataSource(): DataSource {
 export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
     const durable = await initializeAuthenticationState(dataSource)
     await migrateLegacyProviderLinks(dataSource, durable)
+    await activateSessionConvergence(dataSource)
     const switchStore = new SqlIdentityStore(dataSource)
     const before = await switchStore.readAuthKitSwitch()
     // A panel transition already ended sessions in its own transaction. The compatibility cutoff must never repeat it.
@@ -64,6 +69,9 @@ export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<
     const configured = durable.activeMethod === 'workos' && workosConfigured()
     // recordOff is this process: the web server. A queue worker does not call this.
     const after = await switchStore.applyAuthKitSwitch(configured, new Date(), { recordOff: !configured })
+    if (after.configured && after.switchedAt) {
+        await recordInferredWorkosActivation(dataSource, after.sessionsEnded, after.switchedAt)
+    }
     if (after.configured && !before?.configured) return { ended: after.sessionsEnded }
     return null
 }
@@ -80,6 +88,11 @@ export function identityStore(): SqlIdentityStore {
 function loginLimiter(): SqlLoginRateLimit {
     if (!limiter) limiter = new SqlLoginRateLimit(getDataSource())
     return limiter
+}
+
+function ownerRecoveryLimiter(): SqlLoginRateLimit {
+    if (!recoveryLimiter) recoveryLimiter = new SqlLoginRateLimit(getDataSource(), 5)
+    return recoveryLimiter
 }
 
 /** Brings this process's view of the sign-in method up to date within the shared state cache window. */
@@ -100,6 +113,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
     return {
         dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
+        activeAuthenticationMethod: selectedAuthenticationMethod() ?? null,
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
@@ -107,6 +121,8 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         oidcSessionSecure: oidcSecure,
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
+        epochBindingSecret: epochBindingSecret(),
+        sealedWorkosSessionsAccepted: !sessionConvergenceActive(),
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,
         secure,
@@ -121,6 +137,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         store: identityStore(),
         workos: workosProvider(workosPort, () => workosConfigured()).compatibility,
         rateLimit: loginLimiter(),
+        recoveryRateLimit: ownerRecoveryLimiter(),
         automaticWorkosLinkingAllowed: () => automaticWorkosLinkingAllowed(getDataSource()),
         workosProviderKey: authenticationState?.activeMethod === 'workos' ? authenticationState.providerKey || undefined : undefined,
         findWorkosProviderLinkedUser: async (subject) => {
@@ -143,9 +160,10 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
             })
             return result === 'linked' || Boolean(await findProviderLink(getDataSource(), authenticationState.providerKey, subject))
         },
-        recordRecentAuthentication: async (userId) => {
-            const recent = await recordRecentAuthentication(getDataSource(), userId)
-            return recentAuthenticationCookie(recent.token, activeMethod === 'oidc' ? oidcSecure : secure, recent.expiresAt - Date.now())
+        noteRecoveryAttempt: (outcome, userId) => recordRecoveryAttempt(applicationSql(), { outcome, userId, at: Date.now() }),
+        raiseRecoveryAlert: async (userId) => {
+            const alert = await createRecoveryAlert(getDataSource(), userId, Date.now())
+            void notifyRecoverySuccess(applicationSql(), alert).catch(() => undefined)
         },
         noteAudit: noteSignIn
     }

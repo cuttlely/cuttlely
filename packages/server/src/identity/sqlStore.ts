@@ -208,6 +208,44 @@ export class SqlIdentityStore implements IdentityStore {
         })
     }
 
+    async findActiveOwnerByEmail(email: string): Promise<UserRow | null> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            const rows = await query(
+                runner,
+                `SELECT ${selectUser(d, 'u')} FROM ${quote(d, 'user')} u
+                 INNER JOIN ${quote(d, 'organization_user')} ou ON ou.${quote(d, 'userId')} = u.${quote(d, 'id')}
+                 INNER JOIN ${quote(d, 'role')} r ON r.${quote(d, 'id')} = ou.${quote(d, 'roleId')}
+                 WHERE LOWER(u.${quote(d, 'email')}) = LOWER(?)
+                   AND LOWER(u.${quote(d, 'status')}) = 'active'
+                   AND LOWER(ou.${quote(d, 'status')}) = 'active'
+                   AND LOWER(r.${quote(d, 'name')}) = 'owner'
+                 ORDER BY u.${quote(d, 'createdDate')} ASC LIMIT 1`,
+                [email]
+            )
+            return rows[0] ? userFrom(rows[0]) : null
+        })
+    }
+
+    async isActiveOwner(userId: string): Promise<boolean> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            const rows = await query(
+                runner,
+                `SELECT u.${quote(d, 'id')} AS ${quote(d, 'id')} FROM ${quote(d, 'user')} u
+                 INNER JOIN ${quote(d, 'organization_user')} ou ON ou.${quote(d, 'userId')} = u.${quote(d, 'id')}
+                 INNER JOIN ${quote(d, 'role')} r ON r.${quote(d, 'id')} = ou.${quote(d, 'roleId')}
+                 WHERE u.${quote(d, 'id')} = ?
+                   AND LOWER(u.${quote(d, 'status')}) = 'active'
+                   AND LOWER(ou.${quote(d, 'status')}) = 'active'
+                   AND LOWER(r.${quote(d, 'name')}) = 'owner'
+                 LIMIT 1`,
+                [userId]
+            )
+            return rows.length > 0
+        })
+    }
+
     async setCredential(userId: string, credential: string): Promise<void> {
         await this.withRunner(async (runner) => {
             const d = dialectOf(runner)
@@ -277,7 +315,7 @@ export class SqlIdentityStore implements IdentityStore {
     }
 
     async createOwner(input: CreateOwnerInput, options?: CreateOwnerOptions): Promise<UserRow> {
-        return this.transaction(async (runner) => {
+        const owner = await this.transaction(async (runner) => {
             const d = dialectOf(runner)
             await lockBootstrap(runner, d)
             if ((await count(runner)) !== 0) throw new NotEmptyError()
@@ -364,6 +402,10 @@ export class SqlIdentityStore implements IdentityStore {
                 )}, ${quote(d, 'status')}, ${quote(d, 'createdBy')}, ${quote(d, 'updatedBy')}) VALUES (?, ?, ?, ?, ?, ?)`,
                 [workspaceId, userId, roleId, 'active', userId, userId]
             )
+            if (options?.activateLocalAuthentication) {
+                const { activateFreshOwnerLocalAuthentication } = require('./authenticationState') as typeof import('./authenticationState')
+                await activateFreshOwnerLocalAuthentication(runner, { organizationId, actorId: userId }, options.now)
+            }
             return {
                 id: userId,
                 email: input.email,
@@ -373,6 +415,11 @@ export class SqlIdentityStore implements IdentityStore {
                 credential: input.credential
             }
         })
+        if (options?.activateLocalAuthentication) {
+            const { refreshAuthenticationState } = require('./authenticationState') as typeof import('./authenticationState')
+            await refreshAuthenticationState(this.dataSource, true)
+        }
+        return owner
     }
 
     async sessionFor(userId: string, preferredWorkspaceId?: string | null): Promise<SessionUser | null> {
@@ -502,8 +549,11 @@ export class SqlIdentityStore implements IdentityStore {
             const columns = `${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(d, 'expiresAt')}, ${quote(
                 d,
                 'absoluteExpiresAt'
-            )}, ${quote(d, 'lastSeenAt')}, ${quote(d, 'permissionVersion')}`
-            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0) FROM ${quote(
+            )}, ${quote(d, 'lastSeenAt')}, ${quote(d, 'permissionVersion')}, ${quote(d, 'authenticationMethod')}, ${quote(
+                d,
+                'authenticationEpoch'
+            )}, ${quote(d, 'recoveryUse')}, ${quote(d, 'workosSessionId')}`
+            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0), ?, ?, ?, ? FROM ${quote(
                 d,
                 'user'
             )} u WHERE u.${quote(d, 'id')} = ?`
@@ -517,7 +567,19 @@ export class SqlIdentityStore implements IdentityStore {
                       )}) DO NOTHING`
                     : `INSERT IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) ${select}`
             try {
-                await query(runner, insert, [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen, row.userId])
+                await query(runner, insert, [
+                    row.id,
+                    row.userId,
+                    row.token,
+                    row.idleExpires,
+                    row.absoluteExpires,
+                    seen,
+                    row.authenticationMethod ?? null,
+                    row.authenticationEpoch ?? null,
+                    row.recoveryUse ? 1 : 0,
+                    row.workosSessionId ?? null,
+                    row.userId
+                ])
             } catch (error) {
                 if (!isUniqueViolation(error)) throw error
             }
@@ -540,6 +602,10 @@ export class SqlIdentityStore implements IdentityStore {
                     d,
                     'lastSeenAt'
                 )} AS ${quote(d, 'lastSeenAt')}, s.${quote(d, 'permissionVersion')} AS ${quote(d, 'permissionVersion')},
+                s.${quote(d, 'authenticationMethod')} AS ${quote(d, 'authenticationMethod')},
+                s.${quote(d, 'authenticationEpoch')} AS ${quote(d, 'authenticationEpoch')},
+                s.${quote(d, 'recoveryUse')} AS ${quote(d, 'recoveryUse')},
+                s.${quote(d, 'workosSessionId')} AS ${quote(d, 'workosSessionId')},
                 u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
                 FROM ${quote(d, 'identity_local_session')} s
                 INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')}${d === 'postgres' ? '::text' : ''} = s.${quote(d, 'userId')}
@@ -559,7 +625,14 @@ export class SqlIdentityStore implements IdentityStore {
                 issuedAt: created > 0 ? new Date(created) : undefined,
                 lastSeenAt: seen > 0 ? new Date(seen) : undefined,
                 permissionVersion: Number(cell(row, 'permissionVersion') || 0),
-                currentPermissionVersion: Number(cell(row, 'currentPermissionVersion') || 0)
+                currentPermissionVersion: Number(cell(row, 'currentPermissionVersion') || 0),
+                authenticationMethod: text(cell(row, 'authenticationMethod')) as LocalSession['authenticationMethod'],
+                authenticationEpoch:
+                    cell(row, 'authenticationEpoch') === null || cell(row, 'authenticationEpoch') === undefined
+                        ? undefined
+                        : Number(cell(row, 'authenticationEpoch')),
+                recoveryUse: Number(cell(row, 'recoveryUse') || 0) === 1,
+                workosSessionId: text(cell(row, 'workosSessionId')) || undefined
             }
         })
     }
