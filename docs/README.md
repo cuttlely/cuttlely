@@ -48,6 +48,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Local users, roles, and sessions](./reference/local-directory-api.md). People, fixed roles, and sign-in sessions when local password sign-in is on.
 -   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links (and the invite rule for AuthKit sign-in), which sign-in methods are on, and the status when AuthKit is turned on.
+-   [SCIM API](./reference/scim-api.md). SCIM v2 discovery, User provisioning, filters, credential rotation, and deactivation behavior.
 -   [Audit API](./reference/audit-api.md). `GET /api/v1/audit` for an owner or `audit:view`, with type, user, and cursor filters. Login activity stays closed.
 -   [Datasets API](./reference/datasets-api.md). Save the questions ticked in Choose questions as a dataset with empty expected answers. A hand-picked check does not unblock Publish.
 -   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.

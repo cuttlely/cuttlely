@@ -69,6 +69,7 @@ import { AddSetupCodePrevious1800700000000 } from './1800700000000-AddSetupCodeP
 import { AddAuthenticationState1800800000000 } from './1800800000000-AddAuthenticationState'
 import { AddAuthenticationSwitchStage1800900000000 } from './1800900000000-AddAuthenticationSwitchStage'
 import { AddSessionConvergence1801100000000 } from './1801100000000-AddSessionConvergence'
+import { AddScimProvisioning1801200000000 } from './1801200000000-AddScimProvisioning'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -164,5 +165,6 @@ export const postgresMigrations = [
     AddSetupCodePrevious1800700000000,
     AddAuthenticationState1800800000000,
     AddAuthenticationSwitchStage1800900000000,
-    AddSessionConvergence1801100000000
+    AddSessionConvergence1801100000000,
+    AddScimProvisioning1801200000000
 ]

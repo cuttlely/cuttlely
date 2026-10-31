@@ -175,6 +175,22 @@ export async function revokeInviteLinks(
     )
 }
 
+/** Close every open invite and password-reset link for a deactivated account. */
+async function revokeAuthenticationLinks(
+    query: QueryFn,
+    sql: Sql,
+    userId: string,
+    organizationId: string,
+    now = Date.now()
+): Promise<void> {
+    await query(
+        `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} IN (?, ?) AND ${q(sql, 'usedAt')} IS NULL
+           AND (${q(sql, 'organizationId')} = ? OR ${q(sql, 'organizationId')} IS NULL)`,
+        [utcDbTime(sql.type, now), 'revoked', userId, 'invite', 'reset', organizationId]
+    )
+}
+
 function storedPermissions(value: unknown): string[] {
     const raw = text(value)
     if (!raw) return []
@@ -244,6 +260,53 @@ async function refuseLastOwnerDisable(query: QueryFn, sql: Sql, organizationId: 
         [organizationId, userId]
     )
     return text(cell(rows[0] || {}, 'status')).toLowerCase() === 'disable' ? 'ok' : 'last'
+}
+
+/**
+ * Deactivate one account and every local credential in the caller's transaction.
+ * The owner rows are locked first so concurrent requests cannot remove all owners.
+ */
+export async function deactivateUserInTransaction(
+    query: QueryFn,
+    sql: Sql,
+    organizationId: string,
+    userId: string,
+    now = Date.now(),
+    options: { preservePendingStatus?: boolean } = {}
+): Promise<void> {
+    await lockOrgOwners(query, sql, organizationId, userId)
+    const membership = await query(
+        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
+         WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+        [organizationId, userId]
+    )
+    if (!membership.length) throw new DirectoryError(404, 'User not found')
+    if ((await refuseLastOwnerDisable(query, sql, organizationId, userId)) === 'last') {
+        throw new DirectoryError(409, 'The last owner cannot be removed')
+    }
+    await query(
+        `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'disable', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+         WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) ${
+            options.preservePendingStatus ? "= 'active'" : "IN ('active', 'invited')"
+        }`,
+        [userId]
+    )
+    await revokeAuthenticationLinks(query, sql, userId, organizationId, now)
+    await endLocalSessions(query, sql, userId)
+    const at = utcDbTime(sql.type, now)
+    for (const table of ['apikey', 'identity_personal_token']) {
+        try {
+            await query(
+                `UPDATE ${q(sql, table)} SET ${q(sql, 'disabledAt')} = ?
+                 WHERE ${q(sql, 'ownerUserId')} = ? AND ${q(sql, 'disabledAt')} IS NULL`,
+                [at, userId]
+            )
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            // Supports an application copy completing this transaction while its schema migration is still pending.
+            if (!/no such table|does not exist|doesn't exist|unknown column|no column named/i.test(message)) throw error
+        }
+    }
 }
 
 async function actorGrant(query: QueryFn, sql: Sql, actor: DirectoryActor): Promise<{ owner: boolean; permissions: string[] }> {
@@ -685,7 +748,6 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
     if (!status) throw new DirectoryError(400, 'Status must be active or inactive')
     return sql.transaction(async (query) => {
         await assertSharedActiveTeam(query, sql, actor, userId)
-        await lockOrgOwners(query, sql, organizationId, userId)
         const still = await query(
             `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
@@ -706,24 +768,10 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
             return { id: userId }
         }
         if (status === 'disable') {
-            const kept = await refuseLastOwnerDisable(query, sql, organizationId, userId)
-            if (kept === 'last') throw new DirectoryError(409, 'The last owner cannot be removed')
-            await query(
-                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'active'`,
-                ['disable', userId]
-            )
-            // A pending invite stays pending. Disabling it closes the membership and its open invite links.
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
-                   AND EXISTS (SELECT 1 FROM ${q(sql, 'user')} u WHERE u.${q(sql, 'id')} = ? AND LOWER(u.${q(sql, 'status')}) = 'invited')`,
-                ['disable', organizationId, userId, userId]
-            )
-            await revokeInviteLinks(query, sql, userId, { organizationId })
-            await endLocalSessions(query, sql, userId)
+            await deactivateUserInTransaction(query, sql, organizationId, userId, Date.now(), { preservePendingStatus: true })
             return { id: userId }
         }
+        await lockOrgOwners(query, sql, organizationId, userId)
         await query(
             `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
@@ -1478,11 +1526,26 @@ export async function setUserDisabled(
     disabled: boolean
 ): Promise<{ id: string; disabled: boolean }> {
     await requireActiveMember(sql, actor, userId)
-    await updateOrganizationUser(sql, actor, {
-        userId,
-        organizationId: actor.organizationId,
-        status: disabled ? 'disable' : 'active'
-    })
+    try {
+        await updateOrganizationUser(sql, actor, {
+            userId,
+            organizationId: actor.organizationId,
+            status: disabled ? 'disable' : 'active'
+        })
+    } catch (error) {
+        if (disabled && error instanceof DirectoryError && error.status === 409) {
+            await safeRecordAudit(sql, {
+                type: 'user_disable',
+                organizationId: actor.organizationId,
+                workspaceId: null,
+                userId,
+                actorId: actor.id,
+                summary: 'User disable refused',
+                detail: { disabled, outcome: 'refused' }
+            })
+        }
+        throw error
+    }
     await safeRecordAudit(sql, {
         type: 'user_disable',
         organizationId: actor.organizationId,

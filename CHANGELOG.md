@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   SCIM v2 User provisioning is available at `/api/v1/scim/v2`, with discovery, filtered and paged User operations, provider-compatible PATCH forms, stable resource ids, and standards-shaped errors. **Auth / SSO** manages a one-time-display bearer credential with bounded rotation overlap and immediate revocation. SCIM deactivation and delete atomically end sessions, close invite and reset links, and disable owned API keys and personal tokens while preserving the last active owner. See [Configure SCIM](./docs/how-to/auth-sso.md#scim-provisioning) and the [SCIM API](./docs/reference/scim-api.md).
+
 -   **Owner recovery** is always available from the sign-in page for any active owner with a usable local password. It creates a normal Cuttlely session marked as recovery use, uses stricter source and account throttling, and records every outcome as a high-severity audit event. A successful recovery also creates an administrator banner until audited acknowledgment and writes a structured warning. When SMTP is configured, owner alert email is best effort and an email delivery problem does not undo recovery. `CUTTLELY_LOCAL_ADMIN` continues to control the older compatibility route but is no longer required for recovery readiness.
 
 -   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.

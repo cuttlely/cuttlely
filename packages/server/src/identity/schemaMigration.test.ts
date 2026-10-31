@@ -15,7 +15,14 @@
  */
 
 import type { QueryRunner } from 'typeorm'
-import { addAuthenticationState, addAuthenticationSwitchStage, addLocalDirectory, removeLocalDirectory } from './schemaMigration'
+import {
+    addAuthenticationState,
+    addAuthenticationSwitchStage,
+    addLocalDirectory,
+    addScimProvisioning,
+    removeLocalDirectory,
+    removeScimProvisioning
+} from './schemaMigration'
 
 interface Call {
     sql: string
@@ -97,5 +104,58 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"expiresAt" TIMESTAMP NOT NULL')
         expect(creates[0].sql).toContain('"consumedAt" TIMESTAMP NULL')
         expect(creates[0].sql).toContain('"version" integer NOT NULL')
+    })
+})
+
+describe('SCIM schema on sqlite', () => {
+    it('is idempotent and its down path removes every added object', async () => {
+        const tables = new Set(['apikey'])
+        const columns = new Map([['apikey', new Set(['id'])]])
+        const indexes = new Map<string, Set<string>>()
+        const calls: string[] = []
+        const runner = {
+            connection: { options: { type: 'sqlite' } },
+            async hasColumn(table: string, column: string) {
+                return columns.get(table)?.has(column) || false
+            },
+            async dropColumn(table: string, column: string) {
+                columns.get(table)?.delete(column)
+            },
+            async query(sql: string, params: unknown[] = []) {
+                calls.push(sql)
+                if (sql.includes('sqlite_master')) return tables.has(String(params[0])) ? [{ name: params[0] }] : []
+                if (sql.startsWith('PRAGMA index_list')) {
+                    const table = /\("([^"]+)"\)/.exec(sql)?.[1] || ''
+                    return [...(indexes.get(table) || [])].map((name) => ({ name }))
+                }
+                const createTable = /^CREATE TABLE "([^"]+)"/.exec(sql)
+                if (createTable) {
+                    tables.add(createTable[1])
+                    columns.set(createTable[1], new Set([...sql.matchAll(/"([A-Za-z][A-Za-z0-9]+)"/g)].map((match) => match[1])))
+                }
+                const addColumn = /^ALTER TABLE "([^"]+)" ADD COLUMN "([^"]+)"/.exec(sql)
+                if (addColumn) columns.get(addColumn[1])?.add(addColumn[2])
+                const createIndex = /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS "([^"]+)" ON "([^"]+)"/.exec(sql)
+                if (createIndex) {
+                    if (!indexes.has(createIndex[2])) indexes.set(createIndex[2], new Set())
+                    indexes.get(createIndex[2])?.add(createIndex[1])
+                }
+                const dropTable = /^DROP TABLE IF EXISTS "([^"]+)"/.exec(sql)
+                if (dropTable) tables.delete(dropTable[1])
+                return []
+            }
+        } as unknown as QueryRunner
+
+        await addScimProvisioning(runner)
+        await addScimProvisioning(runner)
+        for (const table of ['identity_scim_configuration', 'identity_scim_token', 'identity_scim_user', 'identity_personal_token']) {
+            expect(tables.has(table)).toBe(true)
+            expect(calls.filter((sql) => sql.startsWith(`CREATE TABLE "${table}"`))).toHaveLength(1)
+        }
+        expect(columns.get('apikey')?.has('disabledAt')).toBe(true)
+
+        await removeScimProvisioning(runner)
+        expect([...tables].filter((table) => table.startsWith('identity_scim') || table === 'identity_personal_token')).toEqual([])
+        expect(columns.get('apikey')?.has('disabledAt')).toBe(false)
     })
 })

@@ -12,6 +12,8 @@ import {
     Paper,
     Radio,
     RadioGroup,
+    MenuItem,
+    Select,
     Stack,
     TextField,
     Typography
@@ -22,6 +24,18 @@ import { RECOVERY_FIX } from './RecoveryWarningBanner'
 
 const label = (method) => (method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : 'No ordinary method')
 
+const copyText = (value) => {
+    const field = document.createElement('textarea')
+    field.value = value
+    field.setAttribute('readonly', '')
+    field.style.position = 'fixed'
+    field.style.opacity = '0'
+    document.body.appendChild(field)
+    field.select()
+    document.execCommand('copy')
+    field.remove()
+}
+
 export default function AuthenticationSettings() {
     const [data, setData] = useState(null)
     const [error, setError] = useState('')
@@ -29,6 +43,8 @@ export default function AuthenticationSettings() {
     const [stage, setStage] = useState(null)
     const [confirm, setConfirm] = useState('')
     const [warningConfirmationOpen, setWarningConfirmationOpen] = useState(false)
+    const [scimClear, setScimClear] = useState('')
+    const [overlapHours, setOverlapHours] = useState(1)
     const load = () =>
         api
             .get()
@@ -80,6 +96,17 @@ export default function AuthenticationSettings() {
             setError(cause?.response?.data?.message || 'The recovery alert could not be acknowledged.')
         }
     }
+    const changeScim = async (request) => {
+        setError('')
+        try {
+            const result = (await request()).data
+            setData((current) => ({ ...current, scim: { ...current.scim, ...result.state } }))
+            setScimClear(result.clear || '')
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'The SCIM credential could not be changed.')
+        }
+    }
+    const scimBaseUrl = data?.scim?.basePath ? `${window.location.origin}${data.scim.basePath}` : ''
     const workosBlockedByRecovery = Boolean(data?.methods.workos.configured && !data?.recovery.available)
     return (
         <MainCard title='Auth / SSO'>
@@ -186,8 +213,81 @@ export default function AuthenticationSettings() {
                     </Stack>
                 </Paper>
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
-                    <Typography variant='h4'>Provisioning</Typography>
-                    <Typography color='text.secondary'>SCIM provisioning is not available in this release.</Typography>
+                    <Stack spacing={1.5} data-testid='scim-settings-card'>
+                        <Stack direction='row' justifyContent='space-between' alignItems='center'>
+                            <Typography variant='h4'>SCIM provisioning</Typography>
+                            <Chip
+                                label={
+                                    data?.scim?.status === 'overlap'
+                                        ? `Rotation overlap until ${new Date(data.scim.overlapEndsAt).toLocaleString()}`
+                                        : data?.scim?.status === 'active'
+                                        ? 'Active'
+                                        : data?.scim?.status === 'revoked'
+                                        ? 'Revoked'
+                                        : 'No credential'
+                                }
+                                color={data?.scim?.status === 'active' || data?.scim?.status === 'overlap' ? 'success' : 'default'}
+                            />
+                        </Stack>
+                        <TextField
+                            label='SCIM base URL'
+                            value={scimBaseUrl}
+                            InputProps={{ readOnly: true }}
+                            helperText='Use this URL in the identity provider.'
+                        />
+                        {scimBaseUrl && (
+                            <Button sx={{ alignSelf: 'flex-start' }} onClick={() => copyText(scimBaseUrl)}>
+                                Copy base URL
+                            </Button>
+                        )}
+                        {data?.scim?.displayPrefix && <Typography>Credential: {data.scim.displayPrefix}</Typography>}
+                        {data?.scim?.createdAt && (
+                            <Typography color='text.secondary'>
+                                Created by {data.scim.createdBy || 'unknown'} at {new Date(data.scim.createdAt).toLocaleString()}
+                            </Typography>
+                        )}
+                        <Typography color='text.secondary'>
+                            Last used: {data?.scim?.lastUsedAt ? new Date(data.scim.lastUsedAt).toLocaleString() : 'Never'}
+                        </Typography>
+                        {scimClear && (
+                            <Alert severity='warning' data-testid='scim-clear-value'>
+                                Save this value now. It will not be shown again.
+                                <TextField fullWidth sx={{ mt: 1 }} value={scimClear} InputProps={{ readOnly: true }} />
+                            </Alert>
+                        )}
+                        <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' alignItems='center'>
+                            {data?.scim?.status === 'none' || data?.scim?.status === 'revoked' ? (
+                                <Button variant='contained' onClick={() => changeScim(api.createScimToken)}>
+                                    Create
+                                </Button>
+                            ) : (
+                                <>
+                                    <Select
+                                        size='small'
+                                        aria-label='Rotation overlap window'
+                                        value={overlapHours}
+                                        onChange={(event) => setOverlapHours(Number(event.target.value))}
+                                    >
+                                        <MenuItem value={0}>No overlap</MenuItem>
+                                        <MenuItem value={1}>1 hour overlap</MenuItem>
+                                        <MenuItem value={4}>4 hour overlap</MenuItem>
+                                        <MenuItem value={24}>24 hour overlap</MenuItem>
+                                    </Select>
+                                    <Button variant='contained' onClick={() => changeScim(() => api.rotateScimToken(overlapHours))}>
+                                        Rotate
+                                    </Button>
+                                    {data?.scim?.status === 'overlap' && (
+                                        <Button onClick={() => changeScim(api.endScimOverlap)}>End previous now</Button>
+                                    )}
+                                    <Button color='error' onClick={() => changeScim(api.revokeScimToken)}>
+                                        Revoke
+                                    </Button>
+                                </>
+                            )}
+                            <Button onClick={reauthenticate}>Sign in again</Button>
+                        </Stack>
+                        <Typography color='text.secondary'>Groups are not available yet.</Typography>
+                    </Stack>
                 </Paper>
             </Stack>
             <Dialog open={Boolean(stage)} onClose={() => setStage(null)}>

@@ -24,6 +24,7 @@ import { applicationDataSource, applicationSql, identityStore } from './producti
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
 import { acknowledgeRecoveryAlert, currentRecoveryAlert } from './recovery'
+import { createScimToken, endScimOverlap, readScimTokenState, revokeScimTokens, rotateScimToken, ScimError } from './scim'
 
 const RECENT_MS = 10 * 60 * 1000
 export const identityAuthenticationRouter = Router()
@@ -90,6 +91,13 @@ const switchApplyLimit = rateLimit({
     legacyHeaders: false,
     message: { type: 'authentication_rate_limit', message: 'Too many authentication changes. Try again later.' }
 })
+const scimChangeLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: 10,
+    standardHeaders: false,
+    legacyHeaders: false,
+    message: { type: 'authentication_rate_limit', message: 'Too many SCIM credential changes. Try again later.' }
+})
 
 identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
     try {
@@ -112,10 +120,74 @@ identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
                     compatibilityRouteEnabled: localAdminEnabled(),
                     alert: await currentRecoveryAlert(applicationDataSource())
                 },
-                scim: { available: false }
+                scim: { available: true, basePath: '/api/v1/scim/v2', ...(await readScimTokenState(applicationSql())) }
             })
     } catch {
         res.status(500).json({ message: 'Authentication settings could not be read.' })
+    }
+})
+
+async function requireRecentScimAuthentication(req: Request, res: Response): Promise<boolean> {
+    if (await recentlyAuthenticated(req)) return true
+    res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the SCIM credential.' })
+    return false
+}
+
+function sendScimAdminError(res: Response, error: unknown): void {
+    if (error instanceof ScimError) {
+        res.status(error.status).json({ message: error.message })
+        return
+    }
+    res.status(500).json({ message: 'The SCIM credential could not be changed.' })
+}
+
+identityAuthenticationRouter.post('/scim-token', scimChangeLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (!(await requireRecentScimAuthentication(req, res))) return
+    try {
+        res.status(201).json(await createScimToken(applicationSql(), who))
+    } catch (error) {
+        sendScimAdminError(res, error)
+    }
+})
+
+identityAuthenticationRouter.post('/scim-token/rotate', scimChangeLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (!(await requireRecentScimAuthentication(req, res))) return
+    try {
+        const supplied = (req.body as { overlapHours?: unknown })?.overlapHours
+        const overlapHours = supplied === undefined ? 1 : Number(supplied)
+        res.status(200).json(await rotateScimToken(applicationSql(), who, overlapHours))
+    } catch (error) {
+        sendScimAdminError(res, error)
+    }
+})
+
+identityAuthenticationRouter.post('/scim-token/end-previous', scimChangeLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (!(await requireRecentScimAuthentication(req, res))) return
+    try {
+        res.status(200).json({ state: await endScimOverlap(applicationSql(), who) })
+    } catch (error) {
+        sendScimAdminError(res, error)
+    }
+})
+
+identityAuthenticationRouter.delete('/scim-token', scimChangeLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (!(await requireRecentScimAuthentication(req, res))) return
+    try {
+        res.status(200).json({ state: await revokeScimTokens(applicationSql(), who) })
+    } catch (error) {
+        sendScimAdminError(res, error)
     }
 })
 

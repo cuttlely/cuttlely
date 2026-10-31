@@ -668,6 +668,109 @@ export async function removeSessionConvergence(runner: QueryRunner): Promise<voi
     await dropColumn(runner, dialect, 'identity_local_session', 'authenticationMethod')
 }
 
+function scimConfigurationSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_configuration')} (
+        ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} varchar(36) NULL,
+        ${q(dialect, 'activeTokenId')} varchar(36) NULL,
+        ${q(dialect, 'previousTokenId')} varchar(36) NULL
+    )`
+}
+
+function scimTokenSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_token')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'tokenHmac')} varchar(64) NOT NULL,
+        ${q(dialect, 'displayPrefix')} varchar(32) NOT NULL,
+        ${q(dialect, 'status')} varchar(16) NOT NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
+        ${q(dialect, 'createdBy')} varchar(36) NOT NULL,
+        ${q(dialect, 'lastUsedAt')} ${timeType(dialect)} NULL,
+        ${q(dialect, 'overlapEndsAt')} ${timeType(dialect)} NULL,
+        ${q(dialect, 'revokedAt')} ${timeType(dialect)} NULL
+    )`
+}
+
+function scimUserSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_user')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'userId')} varchar(36) NOT NULL,
+        ${q(dialect, 'externalId')} varchar(255) NULL,
+        ${q(dialect, 'userName')} varchar(255) NOT NULL,
+        ${q(dialect, 'normalizedUserName')} varchar(255) NOT NULL,
+        ${q(dialect, 'displayName')} varchar(255) NOT NULL,
+        ${q(dialect, 'givenName')} varchar(100) NULL,
+        ${q(dialect, 'familyName')} varchar(100) NULL,
+        ${q(dialect, 'workEmail')} varchar(255) NULL,
+        ${q(dialect, 'deletedAt')} ${timeType(dialect)} NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
+        ${q(dialect, 'updatedAt')} ${timeType(dialect)} NOT NULL
+    )`
+}
+
+function personalTokenSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_personal_token')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'ownerUserId')} varchar(36) NOT NULL,
+        ${q(dialect, 'tokenHash')} varchar(64) NOT NULL,
+        ${q(dialect, 'disabledAt')} ${timeType(dialect)} NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL
+    )`
+}
+
+async function createIndex(runner: QueryRunner, dialect: Dialect, table: string, name: string, columns: string, unique = false) {
+    if (dialect === 'mysql' || dialect === 'mariadb') {
+        if (await indexExists(runner, dialect, table, name)) return
+        await runner.query(`CREATE ${unique ? 'UNIQUE ' : ''}INDEX ${q(dialect, name)} ON ${q(dialect, table)} (${columns})`)
+        return
+    }
+    await runner.query(`CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${q(dialect, name)} ON ${q(dialect, table)} (${columns})`)
+}
+
+/** SCIM credential state, user links, and persisted credential deactivation. */
+export async function addScimProvisioning(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await addColumn(runner, dialect, 'apikey', 'disabledAt', `${timeType(dialect)} NULL`)
+    if (!(await tableExists(runner, dialect, 'identity_scim_configuration'))) await runner.query(scimConfigurationSql(dialect))
+    if (!(await tableExists(runner, dialect, 'identity_scim_token'))) await runner.query(scimTokenSql(dialect))
+    if (!(await tableExists(runner, dialect, 'identity_scim_user'))) await runner.query(scimUserSql(dialect))
+    if (!(await tableExists(runner, dialect, 'identity_personal_token'))) await runner.query(personalTokenSql(dialect))
+    const config = q(dialect, 'identity_scim_configuration')
+    await runner.query(
+        `INSERT INTO ${config} (${q(dialect, 'id')}) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM ${config} WHERE ${q(dialect, 'id')} = 1)`
+    )
+    await createIndex(runner, dialect, 'identity_scim_token', 'IDX_identity_scim_token_hmac', q(dialect, 'tokenHmac'), true)
+    await createIndex(runner, dialect, 'identity_scim_user', 'IDX_identity_scim_user_user', q(dialect, 'userId'), true)
+    await createIndex(
+        runner,
+        dialect,
+        'identity_scim_user',
+        'IDX_identity_scim_user_name',
+        `${q(dialect, 'organizationId')}, ${q(dialect, 'normalizedUserName')}`,
+        true
+    )
+    await createIndex(
+        runner,
+        dialect,
+        'identity_scim_user',
+        'IDX_identity_scim_user_external',
+        `${q(dialect, 'organizationId')}, ${q(dialect, 'externalId')}`,
+        true
+    )
+    await createIndex(runner, dialect, 'identity_personal_token', 'IDX_identity_personal_token_owner', q(dialect, 'ownerUserId'))
+}
+
+export async function removeScimProvisioning(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_personal_token')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_scim_user')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_scim_token')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_scim_configuration')}`)
+    await dropColumn(runner, dialect, 'apikey', 'disabledAt')
+}
+
 function setupCodeTableSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_setup_code')} (
         ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,

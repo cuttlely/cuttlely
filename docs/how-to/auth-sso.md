@@ -9,7 +9,7 @@ you may not use this file except in compliance with the License.
 
 Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The page is available to an owner or a role with **Authentication: Manage**.
 
-This release supports **Local login** and **WorkOS**. Their existing environment settings remain authoritative. Generic OIDC and SCIM are shown as unavailable and cannot be configured yet.
+This release supports **Local login** and **WorkOS**. Their existing environment settings remain authoritative. Generic OIDC is not available yet. SCIM user provisioning is configured separately on this page.
 
 ## Change the method
 
@@ -30,7 +30,7 @@ WorkOS activation returns `409 Conflict` until at least one active owner has a u
 
 Every recovery attempt creates a high-severity audit entry for success, wrong credentials, or throttling. A success also writes a structured warning and creates an administrator alert shown on **Auth / SSO** and in the application banner. When SMTP is configured, the server makes a best-effort attempt to email every active owner; an email delivery problem does not undo the recovery sign-in or alert. A user with **Authentication: Manage** must acknowledge the alert; that acknowledgment is audited.
 
-To offboard an owner manually, open **Admin** > **Users** while signed in as another owner and either disable the account or change its role. Disabling it ends its interactive sessions and refuses its owned API credentials on the next request. Keys created before 1.5.0 without a recorded owner are not tied to a user; the API Keys page marks them for review or rotation. Confirm that another active owner has a tested local password before removing the last recovery-ready owner. SCIM cannot perform this owner offboarding in this release.
+To offboard an owner manually, open **Admin** > **Users** while signed in as another owner and either disable the account or change its role. Disabling it ends its interactive sessions and disables its owned API credentials. Keys created before 1.5.0 without a recorded owner are not tied to a user; the API Keys page marks them for review or rotation. Confirm that another active owner has a tested local password before removing the last recovery-ready owner. SCIM can deactivate an owner only while another active owner remains.
 
 ## Sessions and account status
 
@@ -38,7 +38,17 @@ Local login, WorkOS, and owner recovery all create a Cuttlely database session a
 
 The switch transaction increments the authentication epoch and ends every interactive database session while leaving API keys enabled. Each process refreshes the durable method and epoch at most two seconds after its cached read, and session issuance checks the database epoch again before completion. A request that began under an older epoch cannot finish by creating a new session on another process.
 
-Every database-session request and every owned API credential request reads the current user status. A disabled user is refused on the next call. WorkOS deactivation by itself does not immediately change the Cuttlely user row: automatic IdP deactivation requires SCIM, planned for Phase C. Until then, disable the user in Cuttlely or wait for the session to expire.
+Every database-session request and every owned API credential request reads the current user status. A disabled user is refused on the next call. A SCIM deactivation also deletes every interactive session and disables every owned API key and personal token in the same database transaction. Enabling the user again does not restore those credentials.
+
+## SCIM provisioning
+
+On **Admin** > **Auth / SSO**, the **SCIM provisioning** card shows the base URL, credential status, display prefix, creator, creation time, and last-used time. Choose **Create** after a fresh sign-in, then copy the clear credential from the one-time display. Cuttlely stores only a keyed digest and never shows that clear value again.
+
+Use **Rotate** to create a replacement. Choose no overlap or an overlap of 1, 4, or 24 hours. During overlap either value works; **End previous now** closes the overlap immediately. **Revoke** ends all SCIM access. Create, rotate, overlap end, and revoke require a fresh sign-in and are request-limited.
+
+Configure the identity provider with the displayed base URL, ending in `/api/v1/scim/v2`, and bearer authentication. The service supports User create, read, list, replace, patch, deactivate, and delete. List filters support `eq` with `and`, `or`, and parentheses for `userName`, `externalId`, and `displayName`. A connection probe for an unknown `userName` or `externalId` returns an empty list.
+
+`DELETE /Users/{id}` keeps the internal account disabled for audit and ownership records but removes the SCIM resource from reads and lists. A later create with the same `userName` restores that resource id and account; its old sessions, API keys, and personal tokens remain disabled. Deactivating or deleting the last active owner returns `409 Conflict` without changing the account or its credentials. See the [SCIM API](../reference/scim-api.md).
 
 The staged confirmation is stored in the database with a version, ten-minute expiry, and single-use marker. It can be applied by another application process; an expired, consumed, or stale-version stage is refused. Staging and applying each allow 10 requests per client address in 15 minutes; more return 429 with `{ "type": "authentication_rate_limit" }`. These request limits are counted in each server process: with several replicas behind a load balancer, each replica keeps its own count, and a restart resets it. The durable stage record, not the request limit, is what keeps a switch single-use.
 

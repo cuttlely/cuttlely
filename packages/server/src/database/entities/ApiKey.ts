@@ -28,6 +28,10 @@ export class ApiKey {
     @Column({ nullable: true, type: 'varchar', length: 36 })
     ownerUserId?: string | null
 
+    /** Set when account deactivation permanently disables this credential. */
+    @Column({ nullable: true, type: Date })
+    disabledAt?: Date | null
+
     // Harness names this key may run. Null or empty runs none.
     @Column({ nullable: true, type: 'simple-json' })
     harnesses?: string[] | null

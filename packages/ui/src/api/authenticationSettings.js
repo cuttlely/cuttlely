@@ -12,5 +12,9 @@ export default {
             confirm
         }),
     acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version }),
-    acknowledgeRecoveryAlert: (id) => client.post('/authentication-settings/acknowledge-recovery-alert', { id })
+    acknowledgeRecoveryAlert: (id) => client.post('/authentication-settings/acknowledge-recovery-alert', { id }),
+    createScimToken: () => client.post('/authentication-settings/scim-token'),
+    rotateScimToken: (overlapHours) => client.post('/authentication-settings/scim-token/rotate', { overlapHours }),
+    endScimOverlap: () => client.post('/authentication-settings/scim-token/end-previous'),
+    revokeScimToken: () => client.delete('/authentication-settings/scim-token')
 }

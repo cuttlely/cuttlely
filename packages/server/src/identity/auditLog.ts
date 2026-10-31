@@ -34,7 +34,10 @@ export const AUDIT_TYPES = [
     'pinned_query_change',
     'auth_method_change',
     'auth_config_warning_ack',
-    'owner_recovery'
+    'owner_recovery',
+    'scim_token',
+    'scim_user',
+    'scim_auth_failure'
 ] as const
 
 export type AuditType = (typeof AUDIT_TYPES)[number]
@@ -195,6 +198,9 @@ export function auditSummary(type: AuditType): string {
     if (type === 'auth_method_change') return 'Sign-in method changed'
     if (type === 'auth_config_warning_ack') return 'Authentication warning acknowledged'
     if (type === 'owner_recovery') return 'Owner recovery sign-in'
+    if (type === 'scim_token') return 'SCIM credential changed'
+    if (type === 'scim_user') return 'SCIM user changed'
+    if (type === 'scim_auth_failure') return 'SCIM authentication failed'
     return 'Settings changed'
 }
 

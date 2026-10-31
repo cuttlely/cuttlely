@@ -412,7 +412,8 @@ describe('identity postgres schema', () => {
                     'AddSetupCodePrevious1800700000000',
                     'AddAuthenticationState1800800000000',
                     'AddAuthenticationSwitchStage1800900000000',
-                    'AddSessionConvergence1801100000000'
+                    'AddSessionConvergence1801100000000',
+                    'AddScimProvisioning1801200000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -527,7 +528,8 @@ describe('identity mariadb schema', () => {
                     'AddSetupCodePrevious1800700000000',
                     'AddAuthenticationState1800800000000',
                     'AddAuthenticationSwitchStage1800900000000',
-                    'AddSessionConvergence1801100000000'
+                    'AddSessionConvergence1801100000000',
+                    'AddScimProvisioning1801200000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -721,7 +723,8 @@ describe('identity mysql 8 schema', () => {
                     'AddSetupCodePrevious1800700000000',
                     'AddAuthenticationState1800800000000',
                     'AddAuthenticationSwitchStage1800900000000',
-                    'AddSessionConvergence1801100000000'
+                    'AddSessionConvergence1801100000000',
+                    'AddScimProvisioning1801200000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -782,7 +785,8 @@ describe('identity sqlite upgrade', () => {
                     'AddSetupCodePrevious1800700000000',
                     'AddAuthenticationState1800800000000',
                     'AddAuthenticationSwitchStage1800900000000',
-                    'AddSessionConvergence1801100000000'
+                    'AddSessionConvergence1801100000000',
+                    'AddScimProvisioning1801200000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

@@ -49,7 +49,8 @@ export const WHITELIST_URLS = [
     '/api/v1/oauth2-credential/callback',
     '/api/v1/mcp/',
     '/api/v1/text-to-speech/generate',
-    '/api/v1/text-to-speech/abort'
+    '/api/v1/text-to-speech/abort',
+    '/api/v1/scim/v2/'
 ]
 
 // Public only for GET and HEAD: the API-key lookups take the key from the Authorization header.
