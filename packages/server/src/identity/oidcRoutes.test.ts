@@ -48,6 +48,7 @@ import { oidcAuthRouter } from './oidcRoutes'
 
 function app() {
     const server = express()
+    server.set('trust proxy', true)
     server.use((req, _res, next) => {
         req.cookies = { 'cuttlely-oidc-browser': 'browser-value' }
         next()
@@ -136,5 +137,40 @@ describe('OIDC callback audit outcomes', () => {
                 detail: expect.objectContaining({ method: 'oidc', outcome })
             })
         )
+        if (outcome === 'reauthentication_account_mismatch') {
+            expect(safeRecordAudit).toHaveBeenCalledTimes(1)
+            expect(safeRecordAudit).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type: 'sign_in_success' }))
+        }
+    })
+
+    it('throttles the callback after repeated identity link refusals', async () => {
+        completeOidcAuthorization.mockResolvedValue({
+            envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/' },
+            config: { trustMissingEmailVerification: false },
+            identity: {
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                issuer: 'https://issuer.example',
+                email: 'ada@example.com',
+                emailVerified: true,
+                emailVerificationPresent: true
+            }
+        })
+        resolveOidcUser.mockResolvedValue({ ok: false, reason: 'unlinked', basis: null })
+        const client = request(app())
+        const callback = () =>
+            client.get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code').set('x-forwarded-for', '192.0.2.88')
+
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const response = await callback()
+            const error = new URL(response.headers.location, 'http://localhost').searchParams.get('error')
+            expect(JSON.parse(error || '{}')).toEqual({ message: 'This identity cannot sign in.' })
+        }
+
+        const throttled = await callback()
+        expect(throttled.status).toBe(302)
+        const error = new URL(throttled.headers.location, 'http://localhost').searchParams.get('error')
+        expect(JSON.parse(error || '{}')).toEqual({ message: 'Too many attempts. Try again later.' })
+        expect(completeOidcAuthorization).toHaveBeenCalledTimes(20)
     })
 })

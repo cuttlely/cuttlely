@@ -427,24 +427,27 @@ oidcAuthRouter.get(
             })
             const matchedUser = linked.ok ? linked.user.id : null
             const orgs = matchedUser ? await organizationsForUser(applicationSql(), matchedUser) : ['']
-            for (const organizationId of orgs.length ? orgs : ['']) {
-                await safeRecordAudit(applicationSql(), {
-                    type: linked.ok ? 'sign_in_success' : 'sign_in_failure',
-                    organizationId,
-                    workspaceId: null,
-                    userId: matchedUser,
-                    actorId: matchedUser,
-                    summary: linked.ok ? 'OIDC identity linked' : 'OIDC identity link refused',
-                    detail: oidcLinkAuditDetail({
-                        issuer: completed.identity.issuer,
-                        subject: completed.identity.subject,
-                        matchedUser,
-                        basis: linked.basis || null,
-                        outcome: linked.ok ? 'linked' : linked.reason
+            if (!linked.ok) {
+                for (const organizationId of orgs.length ? orgs : ['']) {
+                    await safeRecordAudit(applicationSql(), {
+                        type: 'sign_in_failure',
+                        organizationId,
+                        workspaceId: null,
+                        userId: matchedUser,
+                        actorId: matchedUser,
+                        summary: 'OIDC identity link refused',
+                        detail: oidcLinkAuditDetail({
+                            issuer: completed.identity.issuer,
+                            subject: completed.identity.subject,
+                            matchedUser,
+                            basis: linked.basis || null,
+                            outcome: linked.reason
+                        })
                     })
-                })
+                }
+                callbackFailures.recordFailure(clientAddress)
+                return void res.redirect(302, signinErrorUrl('This identity cannot sign in.'))
             }
-            if (!linked.ok) return void res.redirect(302, signinErrorUrl('This identity cannot sign in.'))
             if (completed.envelope.purpose === 'reauth' && linked.user.id !== completed.envelope.initiatingUserId) {
                 throw new OidcError(
                     'transaction',
@@ -468,6 +471,23 @@ oidcAuthRouter.get(
                 res.cookie(cookie.name, cookie.value, cookie.options)
             } else if (completed.envelope.purpose === 'reauth') {
                 res.clearCookie(RECENT_AUTH_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax', secure: ctx.secure })
+            }
+            for (const organizationId of orgs.length ? orgs : ['']) {
+                await safeRecordAudit(applicationSql(), {
+                    type: 'sign_in_success',
+                    organizationId,
+                    workspaceId: null,
+                    userId: matchedUser,
+                    actorId: matchedUser,
+                    summary: 'OIDC identity linked',
+                    detail: oidcLinkAuditDetail({
+                        issuer: completed.identity.issuer,
+                        subject: completed.identity.subject,
+                        matchedUser,
+                        basis: linked.basis || null,
+                        outcome: 'linked'
+                    })
+                })
             }
             res.redirect(302, completed.envelope.redirectTarget)
         } catch (error) {
