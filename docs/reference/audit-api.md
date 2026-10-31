@@ -1,6 +1,6 @@
 # Audit API
 
-One list of sign-in, lockout, invite, reset, role change, user disable, settings changes, harness runs started with the API, changes to an API key's harness list, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
+One list of sign-in, lockout, invite, reset, role change, user disable, authentication and settings changes, harness runs started with the API, changes to an API credential's harness list, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
 
 `POST /api/v1/audit/login-activity` stays **404** `{ "message": "Not Found" }`.
 

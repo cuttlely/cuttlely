@@ -5,6 +5,7 @@ import { getBaseClasses, getCredentialData, getCredentialParam, isReasoningModel
 import { ChatOpenAI } from './FlowiseChatOpenAI'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { OpenAI as OpenAIClient } from 'openai'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatOpenAI_ChatModels implements INode {
     label: string
@@ -251,8 +252,9 @@ class ChatOpenAI_ChatModels implements INode {
 
         const cache = nodeData.inputs?.cache as BaseCache
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             openAIApiKey,
             apiKey: openAIApiKey,

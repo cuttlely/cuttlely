@@ -15,13 +15,13 @@ The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The
 
 1. Open **Admin** > **Auth / SSO**. Enter the exact issuer URL, client id, and the environment variable name. The card starts with `CUTTLELY_OIDC_CLIENT_SECRET`. Set that variable on every server, then save the draft.
 2. Register the exact **Draft callback URL** and post-logout URL shown after the draft is saved. If a provider is already active, keep the separate **Active callback URL** registered until the new draft is activated. The two URLs differ when the draft changes the issuer or client id; after activation, the draft URL becomes the active URL. When there is no draft, the card still shows the active URL. The requested scopes are fixed to `openid email profile`.
-3. The save reads provider metadata through the guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time.
+3. The save reads provider metadata through the guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time. Every saved draft records `auth_config_change`, including when the provider check returns an error.
 4. Choose **Test sign-in** in the same administrator browser. The test expires after ten minutes, is single use, creates no application session, and does not change the active method. A successful result shows the returned email and assurance basis.
 5. Choose **Activate**, review the session impact, type `END SESSIONS`, and apply.
 
 Activation returns `409 Conflict` until the current configuration fingerprint has passed a test, owner recovery is ready, and the provider-link migration has completed. The callback URL comes from trusted server configuration, not request forwarding headers.
 
-If the issuer and client id stay the same but discovery changes an endpoint, JWKS location, or signing algorithm, save and test the draft again. **Apply refreshed provider settings** then copies the tested provider snapshot into the active configuration. Existing sessions stay signed in, and the authentication epoch does not change. The action appears only when the tested draft differs from the active configuration; applying the same snapshot again makes no change.
+If the issuer and client id stay the same but discovery changes an endpoint, JWKS location, or signing algorithm, save and test the draft again. **Apply refreshed provider settings** then copies the tested provider snapshot into the active configuration and records `auth_config_change` with outcome `applied_to_active`. Existing sessions stay signed in, and the authentication epoch does not change. The action appears only when the tested draft differs from the active configuration; applying the same snapshot again makes no change.
 
 Each configured provider has a distinct callback URL with a provider marker. The callback must match the sign-in transaction before Cuttlely sends the authorization code to the token endpoint. When an authorization response contains `iss`, Cuttlely requires it to match the transaction issuer. When provider metadata advertises the authorization-response issuer parameter, a response without `iss` is refused.
 
@@ -58,7 +58,7 @@ Applying a different method ends every interactive session, including yours. API
 
 ## Owner recovery
 
-The separate `/owner-recovery` page is always available, regardless of the selected ordinary sign-in method or WorkOS health. It accepts only an active owner's local password and creates the same Cuttlely database session used by every other sign-in method. `CUTTLELY_LOCAL_ADMIN` is not required for this page. The older owner route continues to follow that setting for compatibility: it is an ordinary Local sign-in while Local is active, and uses recovery treatment under another active method.
+The separate `/owner-recovery` page is always available, regardless of the selected ordinary sign-in method or remote provider health. It accepts only an active owner's local password and creates the same Cuttlely database session used by every other sign-in method. `CUTTLELY_LOCAL_ADMIN` is not required for this page. The older owner route continues to follow that setting for compatibility: it is an ordinary Local sign-in while Local is active, and uses recovery treatment under another active method.
 
 Recovery currently uses a password only; it does not add a second factor. Treat the password as an emergency credential, store it with the same care as other operator credentials, and test it periodically. To create or replace it, run `pnpm user --email owner@example.com` on the server and enter the password at the prompt.
 

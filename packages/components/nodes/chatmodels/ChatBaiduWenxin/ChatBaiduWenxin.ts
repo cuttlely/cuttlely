@@ -3,6 +3,7 @@ import { ChatBaiduQianfan } from '@langchain/baidu-qianfan'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { MODEL_TYPE, getModels } from '../../../src/modelLoader'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatBaiduWenxin_ChatModels implements INode {
     label: string
@@ -119,13 +120,14 @@ class ChatBaiduWenxin_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const qianfanAccessKey = getCredentialParam('qianfanAccessKey', credentialData, nodeData)
         const qianfanSecretKey = getCredentialParam('qianfanSecretKey', credentialData, nodeData)
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         const obj: Partial<ChatBaiduQianfan> = {
             streaming: streaming ?? true,
             qianfanAccessKey,
             qianfanSecretKey,
             modelName: customModelName || modelName,
-            temperature: temperature ? parseFloat(temperature) : undefined
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {})
         }
         if (topP) obj.topP = parseFloat(topP)
         if (penaltyScore) obj.penaltyScore = parseFloat(penaltyScore)

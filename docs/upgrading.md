@@ -144,7 +144,7 @@ Check the people who had not joined yet when you upgraded:
 -   **Listed as `invited`.** They are pending. An invite link they already have still works until it expires. Otherwise make a new one with `POST /api/v1/users/:id/reset-link` from their team and send it to them.
 -   **Added with Add User before 1.3.0 and never signed in.** Those were stored as `active`, so they are not pending and can still join by email match. To make them use a link, remove them and add them again. The new invite shows the link.
 
-An invite link issued before the upgrade keeps working until it expires (at most 168 hours). With Local sign-in active it still sets a password. With a remote sign-in method active, open the link and select **Accept invite**; it cannot set a local password.
+An invite link issued before the upgrade keeps working until it expires (at most 168 hours). With Local sign-in active it still sets a password. With a remote sign-in method active, open the link and select **Accept invite with _provider_**; the button names the selected provider, and the link cannot set a local password.
 
 The full rules are in [Invite people](./how-to/sign-in.md#invite-people) and [Security](../SECURITY.md#invites).
 

@@ -5,6 +5,7 @@ import { ICommonObject, IMultiModalOption, INode, INodeData, INodeParams } from 
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { ChatOpenAI } from '../ChatOpenAI/FlowiseChatOpenAI'
 import { checkDenyList } from '../../../src/httpSecurity'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatLitellm_ChatModels implements INode {
     label: string
@@ -119,9 +120,10 @@ class ChatLitellm_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const apiKey = getCredentialParam('litellmApiKey', credentialData, nodeData)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: Partial<OpenAIChatInput> &
             BaseLLMParams & { openAIApiKey?: string } & { configuration?: { baseURL?: string; defaultHeaders?: ICommonObject } } = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             streaming: streaming ?? true
         }

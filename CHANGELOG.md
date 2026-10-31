@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Generic OIDC can be configured, tested, and activated from **Admin** > **Auth / SSO**. It uses guarded discovery and signing-material retrieval, PKCE, one-time database transactions, provider-scoped identity links, and the existing Cuttlely database session. Public callbacks require HTTPS except on the three local development hosts. Email and its assurance come from the same response: complete ID-token claims stay authoritative, including a qualifying `xms_edov` claim, while matching-subject UserInfo supplies both when the ID token is incomplete. Invitation delivery and password acceptance follow the durable active method, and removing a person's final organization membership permits a later invitation to establish a new provider link.
+-   Generic OIDC can be configured, tested, and activated from **Admin** > **Auth / SSO**. It uses guarded discovery and signing-material retrieval, PKCE, one-time database transactions, provider-scoped identity links, and the existing Cuttlely database session. Public callbacks require HTTPS except on the three local development hosts. Email and its assurance come from the same response: complete ID-token claims stay authoritative, including a qualifying `xms_edov` claim, while matching-subject UserInfo supplies both when the ID token is incomplete. Invitation delivery and password acceptance follow the durable active method, and removing a person's final organization membership permits a later invitation to establish a new provider link. Saving a draft records `auth_config_change` with `saved` or `saved_with_error`; applying tested provider settings to the active OIDC configuration records `applied_to_active`.
 
 -   **Owner recovery** is always available from the sign-in page for any active owner with a usable local password. It creates a normal Cuttlely session marked as recovery use, uses stricter source and account throttling, and records every outcome as a high-severity audit event. A successful recovery also creates an administrator banner until audited acknowledgment and writes a structured warning. When SMTP is configured, owner alert email is best effort and an email delivery problem does not undo recovery. `CUTTLELY_LOCAL_ADMIN` continues to control the older compatibility route but is no longer required for recovery readiness.
 
@@ -27,11 +27,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Every sign-in method switch increments the authentication epoch and ends all interactive database sessions. Staged switches are durable, expiring, single-use database records that can be applied by another server process. The stage and apply routes now have request limits (10 per client address in 15 minutes, counted in each server process).
 
--   A WorkOS sign-in never counts as recent authentication. **Auth / SSO** directs a WorkOS administrator to **Owner recovery** for a method change; while Local login is active, **Sign in again** opens the local password form. A local password or owner recovery session satisfies the check for ten minutes. Authentication epoch binding is derived from `TOKEN_HASH_SECRET`.
+-   A WorkOS sign-in never counts as recent authentication. **Auth / SSO** directs a WorkOS administrator to **Owner recovery** for a method change; while Local login is active, **Sign in again** opens the local password form. A local password or owner recovery session satisfies the check for ten minutes, including while generic OIDC is active. OIDC reauthentication counts only with a qualifying `auth_time`. Authentication epoch binding is derived from `TOKEN_HASH_SECRET`.
 
 -   **Auth / SSO** now shows when the sign-in method last changed and how many sessions that change ended. A changed saved WorkOS client identity pauses automatic email and invitation linking until an administrator signs in again and acknowledges the warning; acknowledgment ends interactive sessions, records the outcome, and restores linking. A mixed Local login and WorkOS configuration remains informational and does not pause linking.
 
 ### Fixed
+
+-   Chat model nodes no longer send `NaN` as the temperature when the field is empty or not a number. ChatOpenAI and 26 other chat models leave it out, so the model library's default applies (Part of [#362](https://github.com/cuttlely/cuttlely/issues/362)).
 
 -   API credentials can no longer be created or updated with `authentication:` permissions. The complete `/api/v1/authentication-settings` route family now requires a signed-in session, so a previously stored credential with `authentication:manage` receives 401 before route permissions are evaluated.
 

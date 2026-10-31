@@ -3,6 +3,7 @@ import { ChatDeepSeek, ChatDeepSeekInput } from '@langchain/deepseek'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class Deepseek_ChatModels implements INode {
     label: string
@@ -160,8 +161,9 @@ class Deepseek_ChatModels implements INode {
 
         const cache = nodeData.inputs?.cache as BaseCache
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatDeepSeekInput = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             openAIApiKey,
             apiKey: openAIApiKey,
