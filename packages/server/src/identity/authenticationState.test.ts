@@ -12,6 +12,7 @@ import {
     automaticWorkosLinkingAllowed,
     acknowledgeAuthenticationWarning,
     initializeAuthenticationState,
+    readAuthenticationState,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
     stageAuthenticationMethodSwitch,
@@ -25,8 +26,12 @@ import * as production from './production'
 import { activateSessionConvergence, resetSessionConvergenceForTests, sessionConvergenceActive } from './sessionConvergence'
 import { currentAuthOptionsBody } from './http'
 import { signInOptionsBody } from './signInOptions'
+import { runUserCli } from './cli'
+import { SqlIdentityStore } from './sqlStore'
 
-async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Promise<DataSource> {
+const GOOD_PASSWORD = 'Sup3r-Secret!'
+
+async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = '', ownerSchema = false): Promise<DataSource> {
     const candidates = [
         path.join(__dirname, '../../node_modules/typeorm/package.json'),
         path.join(__dirname, '../../../../node_modules/typeorm/package.json')
@@ -70,9 +75,31 @@ async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Prom
          "createdDate" ${type === 'postgres' ? 'timestamp' : 'datetime'} NULL,
          "authenticationMethod" varchar(32) NULL)`
     )
-    await runner.query('CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "credential" text, "status" varchar(20))')
-    await runner.query('CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(100))')
-    await runner.query('CREATE TABLE "organization_user" ("userId" varchar(36), "roleId" varchar(36), "status" varchar(20))')
+    if (ownerSchema) {
+        await runner.query('CREATE TABLE "identity_bootstrap" ("id" integer PRIMARY KEY)')
+        await runner.query(
+            'CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "name" varchar(100), "email" varchar(255), "credential" text, "status" varchar(20), "externalId" varchar(255), "createdBy" varchar(36), "updatedBy" varchar(36))'
+        )
+        await runner.query(
+            'CREATE TABLE "organization" ("id" varchar(36) PRIMARY KEY, "name" varchar(100), "createdBy" varchar(36), "updatedBy" varchar(36))'
+        )
+        await runner.query(
+            'CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "organizationId" varchar(36), "name" varchar(100), "permissions" text, "createdBy" varchar(36), "updatedBy" varchar(36))'
+        )
+        await runner.query(
+            'CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "name" varchar(100), "organizationId" varchar(36), "createdBy" varchar(36), "updatedBy" varchar(36))'
+        )
+        await runner.query(
+            'CREATE TABLE "organization_user" ("organizationId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20), "createdBy" varchar(36), "updatedBy" varchar(36))'
+        )
+        await runner.query(
+            'CREATE TABLE "workspace_user" ("workspaceId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20), "createdBy" varchar(36), "updatedBy" varchar(36))'
+        )
+    } else {
+        await runner.query('CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "credential" text, "status" varchar(20))')
+        await runner.query('CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(100))')
+        await runner.query('CREATE TABLE "organization_user" ("userId" varchar(36), "roleId" varchar(36), "status" varchar(20))')
+    }
     await runner.query('CREATE TABLE "api_key" ("id" varchar(36) PRIMARY KEY)')
     await runner.query(
         'CREATE TABLE "audit_event" ("id" varchar(36) PRIMARY KEY, "type" varchar(80), "organizationId" varchar(36), "workspaceId" varchar(36), "userId" varchar(36), "actorId" varchar(36), "summary" varchar(255), "detail" text, "createdAt" bigint)'
@@ -535,6 +562,37 @@ describe('authentication provider foundation', () => {
         })
         await db.destroy()
     })
+
+    it('selects durable Local login when the operator command creates the first owner', async () => {
+        const db = await database('sqlite', '', true)
+        await initializeAuthenticationState(db, { CUTTLELY_LOCAL_ADMIN: 'true' })
+        const result = await runUserCli(new SqlIdentityStore(db), {
+            email: 'owner@example.com',
+            password: GOOD_PASSWORD,
+            localAdmin: true
+        })
+        expect(result.ok).toBe(true)
+        expect(await readAuthenticationState(db)).toMatchObject({ activeMethod: 'local', authenticationEpoch: 1, sessionsEnded: 0 })
+        const [audit] = await db.query('SELECT "type", "detail" FROM "audit_event"')
+        expect(audit.type).toBe('auth_method_change')
+        expect(JSON.parse(audit.detail)).toMatchObject({ oldMethod: 'none', newMethod: 'local', sessionsEnded: 0 })
+        await db.destroy()
+    }, 20000)
+
+    it('keeps a durable WorkOS selection when the operator command creates the first owner', async () => {
+        const db = await database('sqlite', '', true)
+        await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client-existing' })
+        const before = await readAuthenticationState(db)
+        const result = await runUserCli(new SqlIdentityStore(db), {
+            email: 'owner@example.com',
+            password: GOOD_PASSWORD,
+            localAdmin: true
+        })
+        expect(result.ok).toBe(true)
+        expect(await readAuthenticationState(db)).toEqual(before)
+        expect(await db.query('SELECT "id" FROM "audit_event"')).toEqual([])
+        await db.destroy()
+    }, 20000)
 })
 
 const livePg = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD ? it : it.skip

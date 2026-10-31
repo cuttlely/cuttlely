@@ -11,6 +11,8 @@ Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The
 
 This release supports **Local login** and **WorkOS**. Their existing environment settings remain authoritative. Generic OIDC is not available yet. SCIM user provisioning is configured separately on this page.
 
+On a fresh owner-only install, creating the first owner through browser setup or `pnpm user` selects Local login in the owner-creation transaction. A durable method that is already selected is left unchanged, including WorkOS.
+
 ## Change the method
 
 1. Configure the candidate method through the existing server settings.

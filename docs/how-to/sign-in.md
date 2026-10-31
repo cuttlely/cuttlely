@@ -6,7 +6,7 @@ Install first: [Docker](./docker.md), [From source](./from-source.md), or [Rende
 
 ## Turn on the local account
 
-The owner password form shows when the durable active method is Local login, the server runs with `CUTTLELY_LOCAL_ADMIN=true`, and `CUTTLELY_LOCAL_USERS` is off. Creating the first owner with the setup link selects Local login in the same database transaction, so a fresh local install has that owner-only combination. Existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login. When Local login is active and `CUTTLELY_LOCAL_USERS=true`, `/signin` shows the shared local-user form instead; the owner uses that form like any other active local user.
+The owner password form shows when the durable active method is Local login, the server runs with `CUTTLELY_LOCAL_ADMIN=true`, and `CUTTLELY_LOCAL_USERS` is off. Creating the first owner with the setup link or `pnpm user` selects Local login in the same database transaction, so a fresh local install has that owner-only combination. An already-selected durable method is left unchanged. Existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login. When Local login is active and `CUTTLELY_LOCAL_USERS=true`, `/signin` shows the shared local-user form instead; the owner uses that form like any other active local user.
 
 | Install     | Default                                                                                                                                                                                                     |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -93,6 +93,8 @@ It ends with:
 ```text
 [INFO]: Super User created for you@example.com.
 ```
+
+On a fresh owner-only install, this command selects Local login in the same transaction that creates the owner, just like browser setup. It does not replace a durable method that is already selected.
 
 The password needs 8 to 128 characters, with a lowercase letter, an uppercase letter, a digit, and a special character. A password that misses a rule is refused, with one line for each rule it misses:
 
