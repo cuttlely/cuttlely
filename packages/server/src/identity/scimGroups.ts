@@ -1,7 +1,7 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { createHash, randomUUID } from 'crypto'
 import { safeRecordAudit } from './auditLog'
-import { builtInPermissionKeys } from './builtInRoles'
+import { builtInPermissionKeys, scimMappingRoleAllowed } from './builtInRoles'
 import { QueryFn, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
 import { ScimError, TokenActor } from './scim'
@@ -522,7 +522,7 @@ async function safeRole(query: QueryFn, sql: Sql, organizationId: string, roleId
     if (!role) return false
     const roleOrganization = nullable(cell(role, 'organizationId'))
     if (roleOrganization && roleOrganization !== organizationId) return false
-    return text(cell(role, 'name')).toLowerCase() !== 'owner' && !rolePermissions(role).includes('authentication:manage')
+    return scimMappingRoleAllowed(text(cell(role, 'name')), rolePermissions(role))
 }
 
 async function diagnostic(
@@ -800,10 +800,7 @@ export async function mappingOptions(sql: Sql, actor: MappingAdminActor): Promis
         [actor.organizationId]
     )
     const allowedRoles = roles
-        .filter((role) => {
-            const name = text(cell(role, 'name')).toLowerCase()
-            return name !== 'owner' && !rolePermissions(role).includes('authentication:manage')
-        })
+        .filter((role) => scimMappingRoleAllowed(text(cell(role, 'name')), rolePermissions(role)))
         .map((role) => ({ id: text(cell(role, 'id')), name: text(cell(role, 'name')) }))
     return {
         mappings: await mappingRows(sql, actor.organizationId),

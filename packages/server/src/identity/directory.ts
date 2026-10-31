@@ -12,7 +12,14 @@
 
 import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
-import { builtInPermissionJson, builtInPermissionKeys, builtInRoleName, isReservedRoleName, permissionsLowered } from './builtInRoles'
+import {
+    builtInPermissionJson,
+    builtInPermissionKeys,
+    builtInRoleName,
+    isReservedRoleName,
+    permissionsLowered,
+    scimMappingRoleAllowed
+} from './builtInRoles'
 import { DEFAULT_WORKSPACE, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { utcDbTime } from './dbTime'
 import { likeEscapeClause } from './likeEscape'
@@ -687,6 +694,65 @@ async function auditLastOwnerRefusal(
     })
 }
 
+async function auditScimReferenceRefusal(
+    sql: Sql,
+    actor: DirectoryActor,
+    type: 'role_change' | 'user_disable',
+    operation: string,
+    options: { userId?: string | null; workspaceId?: string | null; roleId?: string | null } = {}
+): Promise<void> {
+    await safeRecordAudit(sql, {
+        type,
+        organizationId: actor.organizationId,
+        workspaceId: options.workspaceId || null,
+        userId: options.userId || null,
+        actorId: actor.id,
+        summary: 'SCIM-managed change refused',
+        detail: { operation, outcome: 'refused', roleId: options.roleId || null, rule: 'scim_reference' }
+    })
+}
+
+function missingOptionalIdentityTable(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    return /no such table|does not exist|doesn't exist|unknown table/i.test(message)
+}
+
+async function scimMappingCount(
+    query: QueryFn,
+    sql: Sql,
+    organizationId: string,
+    column: 'roleId' | 'workspaceId',
+    id: string
+): Promise<number> {
+    try {
+        const rows = await query(
+            `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(
+                sql,
+                column
+            )} = ?`,
+            [organizationId, id]
+        )
+        return num(cell(rows[0] || {}, 'count'))
+    } catch (error) {
+        if (missingOptionalIdentityTable(error)) return 0
+        throw error
+    }
+}
+
+async function hasCurrentScimLink(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<boolean> {
+    try {
+        const rows = await query(
+            `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_user')} WHERE ${q(sql, 'organizationId')} = ?
+             AND ${q(sql, 'userId')} = ? AND ${q(sql, 'deletedAt')} IS NULL`,
+            [organizationId, userId]
+        )
+        return num(cell(rows[0] || {}, 'count')) > 0
+    } catch (error) {
+        if (missingOptionalIdentityTable(error)) return false
+        throw error
+    }
+}
+
 export async function deleteOrganizationUser(
     sql: Sql,
     actor: DirectoryActor,
@@ -695,6 +761,7 @@ export async function deleteOrganizationUser(
 ): Promise<{ id: string }> {
     sameOrg(actor, organizationId)
     if (!userId) throw new DirectoryError(400, 'User is required')
+    let scimLinkRefused = false
     try {
         return await sql.transaction(async (query) => {
             await assertSharedActiveTeam(query, sql, actor, userId)
@@ -710,6 +777,13 @@ export async function deleteOrganizationUser(
             if (!membership.length) throw new DirectoryError(404, 'User not found')
             const owners = await enabledOwnerIds(query, sql, organizationId)
             if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
+            if (await hasCurrentScimLink(query, sql, organizationId, userId)) {
+                scimLinkRefused = true
+                throw new DirectoryError(
+                    409,
+                    'Delete this person in the identity provider, or remove the SCIM link, before removing them from the organization'
+                )
+            }
             await query(
                 `DELETE FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
@@ -743,7 +817,11 @@ export async function deleteOrganizationUser(
         })
     } catch (error) {
         if (error instanceof DirectoryError && error.status === 409) {
-            await auditLastOwnerRefusal(sql, actor, userId, 'organization membership removal', 'user_disable')
+            if (scimLinkRefused) {
+                await auditScimReferenceRefusal(sql, actor, 'user_disable', 'organization membership removal', { userId })
+            } else {
+                await auditLastOwnerRefusal(sql, actor, userId, 'organization membership removal', 'user_disable')
+            }
         }
         throw error
     }
@@ -1182,8 +1260,14 @@ async function chatflowCount(query: QueryFn, sql: Sql, workspaceId: string): Pro
     return workspaceRowCount(query, sql, 'chat_flow', workspaceId)
 }
 
-/** Tables with a workspace foreign key, besides chat_flow, that block deleting the team. */
-const TEAM_OWNED_ROWS: { table: string; label: string }[] = [
+/** Workspace-owned records, besides chat_flow, that block deleting the team. */
+const TEAM_OWNED_ROWS: { table: string; label: string; message?: string; status?: number }[] = [
+    {
+        table: 'identity_scim_mapping',
+        label: 'SCIM mappings',
+        message: 'Remove the SCIM mapping first',
+        status: 409
+    },
     { table: 'credential', label: 'credentials' },
     { table: 'variable', label: 'variables' },
     { table: 'apikey', label: 'API keys' },
@@ -1206,6 +1290,7 @@ function teamOwnedMessage(labels: string[]): string {
 
 export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: string): Promise<{ id: string }> {
     let refusedOwnerId = actor.id
+    let scimMappingRefused = false
     try {
         return await sql.transaction(async (query) => {
             await assertSameWorkspace(query, sql, actor, id)
@@ -1219,7 +1304,13 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
             if ((await chatflowCount(query, sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
             const owned: string[] = []
             for (const item of TEAM_OWNED_ROWS) {
-                if ((await workspaceRowCount(query, sql, item.table, id)) > 0) owned.push(item.label)
+                if ((await workspaceRowCount(query, sql, item.table, id)) > 0) {
+                    if (item.message) {
+                        scimMappingRefused = true
+                        throw new DirectoryError(item.status || 409, item.message)
+                    }
+                    owned.push(item.label)
+                }
             }
             if (owned.length) throw new DirectoryError(400, teamOwnedMessage(owned))
             const owners = `(${enabledOwnersSql(sql)})`
@@ -1254,7 +1345,11 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
         })
     } catch (error) {
         if (error instanceof DirectoryError && error.status === 409) {
-            await auditLastOwnerRefusal(sql, actor, refusedOwnerId, 'team deletion', 'role_change', id)
+            if (scimMappingRefused) {
+                await auditScimReferenceRefusal(sql, actor, 'role_change', 'mapped team deletion', { workspaceId: id })
+            } else {
+                await auditLastOwnerRefusal(sql, actor, refusedOwnerId, 'team deletion', 'role_change', id)
+            }
         }
         throw error
     }
@@ -1414,6 +1509,10 @@ export async function updateRole(sql: Sql, actor: DirectoryActor, body: unknown)
     const description = text(record.description).trim()
     const keys = permissionList(record.permissions)
     assertCovers(await actorGrant(sql.query, sql, actor), keys)
+    if ((await scimMappingCount(sql.query, sql, actor.organizationId, 'roleId', id)) > 0 && !scimMappingRoleAllowed(name, keys)) {
+        await auditScimReferenceRefusal(sql, actor, 'role_change', 'mapped role update', { roleId: id })
+        throw new DirectoryError(409, 'This role is used by a SCIM mapping and cannot become an Owner or Auth / SSO administration role')
+    }
     const permissions = JSON.stringify(keys)
     const before = permissionsOn(role)
     await sql.query(
@@ -1451,6 +1550,10 @@ export async function deleteRole(sql: Sql, actor: DirectoryActor, id: string, or
         throw new DirectoryError(403, 'Built-in roles cannot be changed')
     }
     if (text(cell(role, 'organizationId')) !== organizationId) throw new DirectoryError(404, 'Role not found')
+    if ((await scimMappingCount(sql.query, sql, organizationId, 'roleId', id)) > 0) {
+        await auditScimReferenceRefusal(sql, actor, 'role_change', 'mapped role deletion', { roleId: id })
+        throw new DirectoryError(409, 'Remove the SCIM mapping before deleting this role')
+    }
     const count = await roleAssignmentCount(sql, id)
     if (count > 0) throw new DirectoryError(400, 'Remove users with this role first')
     await sql.query(`DELETE FROM ${q(sql, 'role')} WHERE ${q(sql, 'id')} = ?`, [id])
