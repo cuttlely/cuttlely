@@ -30,10 +30,13 @@ import { workosProvider } from './provider'
 import {
     automaticWorkosLinkingAllowed,
     initializeAuthenticationState,
+    readAuthenticationState,
     recordRecentAuthentication,
     refreshAuthenticationState,
-    selectedAuthenticationEpoch
+    selectedAuthenticationEpoch,
+    selectedAuthenticationMethod
 } from './authenticationState'
+import { createProviderLink, findProviderLink, migrateLegacyProviderLinks } from './oidcStore'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
@@ -53,6 +56,7 @@ export function applicationDataSource(): DataSource {
  */
 export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
     const durable = await initializeAuthenticationState(dataSource)
+    await migrateLegacyProviderLinks(dataSource, durable)
     const switchStore = new SqlIdentityStore(dataSource)
     const before = await switchStore.readAuthKitSwitch()
     // A panel transition already ended sessions in its own transaction. The compatibility cutoff must never repeat it.
@@ -85,6 +89,7 @@ export async function refreshAuthenticationView(): Promise<void> {
 
 export async function buildAuthContext(req: Request): Promise<AuthContext> {
     await refreshAuthenticationState(getDataSource())
+    const authenticationState = await readAuthenticationState(getDataSource())
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
     const state = req.query?.state
@@ -94,6 +99,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
+        oidcActive: selectedAuthenticationMethod() === 'oidc',
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
@@ -111,6 +117,27 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         workos: workosProvider(workosPort, () => workosConfigured()).compatibility,
         rateLimit: loginLimiter(),
         automaticWorkosLinkingAllowed: () => automaticWorkosLinkingAllowed(getDataSource()),
+        workosProviderKey: authenticationState?.activeMethod === 'workos' ? authenticationState.providerKey || undefined : undefined,
+        findWorkosProviderLinkedUser: async (subject) => {
+            if (!authenticationState?.providerKey || authenticationState.activeMethod !== 'workos') return null
+            const link = await findProviderLink(getDataSource(), authenticationState.providerKey, subject)
+            if (!link) return null
+            const session = await identityStore().sessionFor(link.userId)
+            if (!session) return null
+            const users = await identityStore().findUsersByEmail(session.email)
+            return users.find((user) => user.id === link.userId) || null
+        },
+        recordWorkosProviderLink: async (user, subject, basis) => {
+            if (!authenticationState?.providerKey || authenticationState.activeMethod !== 'workos') return false
+            const result = await createProviderLink(getDataSource(), {
+                providerKey: authenticationState.providerKey,
+                subject,
+                userId: user.id,
+                emailAtLink: user.email.trim().toLowerCase(),
+                assuranceBasis: basis
+            })
+            return result === 'linked' || Boolean(await findProviderLink(getDataSource(), authenticationState.providerKey, subject))
+        },
         recordRecentAuthentication: async (userId) => {
             const recent = await recordRecentAuthentication(getDataSource(), userId)
             return recentAuthenticationCookie(

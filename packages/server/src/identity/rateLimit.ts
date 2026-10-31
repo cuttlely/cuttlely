@@ -18,6 +18,7 @@ import { createHmac } from 'crypto'
 import { LOGIN_FAILURE_WINDOW_MS } from './constants'
 import { runtimeNumber } from '../settings/runtime'
 import { authSecret } from './authSecrets'
+import { rateLimit as expressRateLimit } from 'express-rate-limit'
 
 /**
  * 10 failed sign-ins per client address and per email per 15 minutes.
@@ -111,4 +112,15 @@ export class LoginRateLimit implements LoginLimiter {
         const drop = new Set(oldest.slice(0, extra))
         this.rows = this.rows.filter((row) => row.scope !== 'account' || !drop.has(row.key))
     }
+}
+
+/** Small per-route process limit for browser OIDC and configuration endpoints. */
+export function identityRouteLimit(max: number, windowMs = LOGIN_FAILURE_WINDOW_MS) {
+    return expressRateLimit({
+        windowMs,
+        max,
+        standardHeaders: false,
+        legacyHeaders: false,
+        message: { message: 'Too many attempts. Try again later.' }
+    })
 }

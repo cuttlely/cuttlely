@@ -1,0 +1,412 @@
+/** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
+jest.mock('@cuttlely/components', () => jest.requireActual('../../../components/src/httpSecurity'))
+
+import { createHmac, generateKeyPairSync, randomBytes, sign } from 'crypto'
+import { createServer, IncomingMessage, ServerResponse } from 'http'
+import type { AddressInfo } from 'net'
+import type { DataSource, QueryRunner } from 'typeorm'
+import { addOidcProvider } from './schemaMigration'
+import { oidcConfigurationFingerprint, OidcConfiguration, saveOidcDraft } from './oidcStore'
+import {
+    beginOidcAuthorization,
+    checkOidcConfiguration,
+    clearOidcCachesForTest,
+    completeOidcAuthorization,
+    discoverOidc,
+    OIDC_TRANSACTION_SECRET,
+    validateIdToken
+} from './oidcProvider'
+
+const { DatabaseSync } = require('node:sqlite') as {
+    DatabaseSync: new (path: string) => {
+        exec(sql: string): void
+        close(): void
+        prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+    }
+}
+
+function database(): { source: DataSource; close(): void } {
+    const db = new DatabaseSync(':memory:')
+    db.exec('CREATE TABLE identity_authentication_switch_stage (id text PRIMARY KEY)')
+    let active = false
+    const run = async (sql: string, params: unknown[] = []) => {
+        const statement = db.prepare(sql)
+        if (/^\s*(select|pragma|with)\b/i.test(sql)) return statement.all(...params)
+        statement.run(...params)
+        return []
+    }
+    const runner = {
+        connection: { options: { type: 'sqlite' } },
+        connect: async () => undefined,
+        release: async () => undefined,
+        query: run,
+        startTransaction: async () => {
+            db.exec('BEGIN IMMEDIATE')
+            active = true
+        },
+        commitTransaction: async () => {
+            db.exec('COMMIT')
+            active = false
+        },
+        rollbackTransaction: async () => {
+            db.exec('ROLLBACK')
+            active = false
+        },
+        get isTransactionActive() {
+            return active
+        }
+    } as unknown as QueryRunner
+    return {
+        source: { options: { type: 'sqlite' }, createQueryRunner: () => runner, query: run } as unknown as DataSource,
+        close: () => db.close()
+    }
+}
+
+type Claims = Record<string, unknown>
+
+class TestIdp {
+    private readonly first = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    private readonly second = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    readonly clientSecret = randomBytes(32).toString('base64url')
+    readonly server = createServer((request, response) => void this.handle(request, response))
+    issuer = ''
+    discoveryMode: 'normal' | 'malformed' | 'redirect' = 'normal'
+    key: 'first' | 'second' = 'first'
+    nonce = ''
+    claims: Partial<Claims> = {}
+    lastTokenBody = ''
+
+    async start(): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            const failed = (error: Error) => reject(error)
+            this.server.once('error', failed)
+            this.server.listen(0, '127.0.0.1', () => {
+                this.server.off('error', failed)
+                resolve()
+            })
+        })
+        this.issuer = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`
+    }
+
+    async stop(): Promise<void> {
+        if (!this.server.listening) return
+        await new Promise<void>((resolve, reject) => this.server.close((error) => (error ? reject(error) : resolve())))
+    }
+
+    discovery(): Record<string, unknown> {
+        return {
+            issuer: this.issuer,
+            authorization_endpoint: `${this.issuer}/authorize`,
+            token_endpoint: `${this.issuer}/token`,
+            jwks_uri: `${this.issuer}/jwks`,
+            response_types_supported: ['code'],
+            id_token_signing_alg_values_supported: ['RS256'],
+            token_endpoint_auth_methods_supported: ['client_secret_post'],
+            authorization_response_iss_parameter_supported: true
+        }
+    }
+
+    token(overrides: Partial<Claims> = {}, algorithm = 'RS256', kid = this.key): string {
+        const now = Math.floor(Date.now() / 1000)
+        const header = Buffer.from(JSON.stringify({ alg: algorithm, typ: 'JWT', kid })).toString('base64url')
+        const payload = Buffer.from(
+            JSON.stringify({
+                iss: this.issuer,
+                aud: 'test-client',
+                sub: 'subject-1',
+                email: 'ada@example.com',
+                email_verified: true,
+                nonce: this.nonce,
+                iat: now,
+                exp: now + 300,
+                ...this.claims,
+                ...overrides
+            })
+        ).toString('base64url')
+        const input = `${header}.${payload}`
+        if (algorithm === 'none') return `${input}.unsigned`
+        if (algorithm === 'HS256') return `${input}.${createHmac('sha256', 'not-a-provider-key').update(input).digest('base64url')}`
+        const pair = kid === 'second' ? this.second : this.first
+        return `${input}.${sign('RSA-SHA256', Buffer.from(input), pair.privateKey).toString('base64url')}`
+    }
+
+    private json(response: ServerResponse, body: unknown, headers: Record<string, string> = {}): void {
+        response.writeHead(200, { 'content-type': 'application/json', ...headers })
+        response.end(JSON.stringify(body))
+    }
+
+    private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+        const path = new URL(request.url || '/', this.issuer).pathname
+        if (path === '/.well-known/openid-configuration') {
+            if (this.discoveryMode === 'redirect') {
+                response.writeHead(302, { location: `${this.issuer}/discovery-copy` })
+                return void response.end()
+            }
+            return this.json(response, this.discoveryMode === 'malformed' ? { issuer: this.issuer } : this.discovery())
+        }
+        if (path === '/jwks') {
+            const pair = this.key === 'first' ? this.first : this.second
+            const key = pair.publicKey.export({ format: 'jwk' }) as Record<string, unknown>
+            return this.json(response, { keys: [{ ...key, kid: this.key, use: 'sig', alg: 'RS256' }] }, { 'cache-control': 'max-age=3600' })
+        }
+        if (path === '/token') {
+            this.lastTokenBody = await new Promise<string>((resolve) => {
+                let body = ''
+                request.setEncoding('utf8')
+                request.on('data', (part) => (body += part))
+                request.on('end', () => resolve(body))
+            })
+            return this.json(response, {
+                id_token: this.token(),
+                access_token: randomBytes(32).toString('base64url'),
+                refresh_token: randomBytes(32).toString('base64url')
+            })
+        }
+        response.writeHead(404)
+        response.end()
+    }
+}
+
+function configuration(idp: TestIdp, privateIssuerHosts = ['127.0.0.1']): OidcConfiguration {
+    const safe = {
+        issuer: idp.issuer,
+        clientId: 'test-client',
+        clientSecretEnvVar: 'CUTTLELY_TEST_OIDC_CLIENT_SECRET',
+        trustMissingEmailVerification: false
+    }
+    return {
+        slot: 'active',
+        ...safe,
+        privateIssuerHosts,
+        fingerprint: oidcConfigurationFingerprint(safe),
+        discovery: null,
+        health: 'ready',
+        healthError: null,
+        checkedAt: null,
+        testedFingerprint: null,
+        testedAt: null,
+        testResult: null,
+        version: 1
+    }
+}
+
+describe('generic OIDC provider', () => {
+    let idp: TestIdp
+    const savedEnvironment: Record<string, string | undefined> = {}
+
+    beforeEach(async () => {
+        clearOidcCachesForTest()
+        idp = new TestIdp()
+        await idp.start()
+        for (const name of [OIDC_TRANSACTION_SECRET, 'CUTTLELY_TEST_OIDC_CLIENT_SECRET']) savedEnvironment[name] = process.env[name]
+        process.env[OIDC_TRANSACTION_SECRET] = randomBytes(48).toString('base64url')
+        process.env.CUTTLELY_TEST_OIDC_CLIENT_SECRET = idp.clientSecret
+    })
+
+    afterEach(async () => {
+        await idp.stop()
+        for (const [name, value] of Object.entries(savedEnvironment)) {
+            if (value === undefined) delete process.env[name]
+            else process.env[name] = value
+        }
+    })
+
+    it('validates discovery only through an explicitly allowed private issuer host', async () => {
+        await expect(checkOidcConfiguration(configuration(idp))).resolves.toMatchObject({ issuer: idp.issuer })
+        await expect(discoverOidc(configuration(idp, []))).rejects.toThrow('must use https')
+        idp.discoveryMode = 'malformed'
+        await expect(discoverOidc(configuration(idp))).rejects.toThrow('required endpoint')
+        idp.discoveryMode = 'redirect'
+        await expect(discoverOidc(configuration(idp))).rejects.toMatchObject({ category: 'upstream' })
+    })
+
+    it('refuses an unreachable issuer with a normalized upstream error', async () => {
+        const config = configuration(idp)
+        await idp.stop()
+        await expect(discoverOidc(config)).rejects.toMatchObject({ category: 'upstream' })
+    })
+
+    it('validates claims and rejects issuer, audience, azp, time, nonce, and unsafe algorithms', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.nonce = 'expected-nonce'
+        await expect(validateIdToken(idp.token(), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
+            subject: 'subject-1',
+            email: 'ada@example.com'
+        })
+        const now = Math.floor(Date.now() / 1000)
+        const cases: Array<[string, Partial<Claims>, string]> = [
+            ['issuer', { iss: 'https://other.example' }, 'issuer'],
+            ['audience', { aud: 'other-client' }, 'audience'],
+            ['azp', { aud: ['test-client', 'other-client'], azp: 'other-client' }, 'authorized party'],
+            ['stale', { exp: now - 61 }, 'time claims'],
+            ['future', { iat: now + 61 }, 'time claims'],
+            ['nonce', { nonce: 'wrong' }, 'nonce']
+        ]
+        for (const [, claims, message] of cases) {
+            await expect(validateIdToken(idp.token(claims), config, discovery, idp.nonce, 'provider')).rejects.toThrow(message)
+        }
+        await expect(validateIdToken(idp.token({}, 'none'), config, discovery, idp.nonce, 'provider')).rejects.toThrow('algorithm')
+        await expect(validateIdToken(idp.token({}, 'HS256'), config, discovery, idp.nonce, 'provider')).rejects.toThrow('algorithm')
+    })
+
+    it('refreshes JWKS once when a new key id appears', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.nonce = 'nonce'
+        idp.key = 'second'
+        await expect(validateIdToken(idp.token(), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
+            subject: 'subject-1'
+        })
+    })
+
+    it('uses a single-use encrypted transaction and rejects state, epoch, denial, and response issuer errors', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        const draft = await saveOidcDraft(
+            db.source,
+            {
+                issuer: config.issuer,
+                clientId: config.clientId,
+                clientSecretEnvVar: config.clientSecretEnvVar,
+                trustMissingEmailVerification: false,
+                privateIssuerHosts: config.privateIssuerHosts,
+                fingerprint: config.fingerprint,
+                discovery: discovery as unknown as Record<string, unknown>,
+                health: 'ready',
+                healthError: null,
+                checkedAt: new Date().toISOString()
+            },
+            0
+        )
+        await db.source.query('UPDATE identity_oidc_configuration SET slot = ? WHERE slot = ?', ['active', 'draft'])
+
+        const start = async (purpose: 'signin' | 'test' | 'reauth' = 'signin', initiatingSession: string | null = null) => {
+            const begun = await beginOidcAuthorization({
+                dataSource: db.source,
+                slot: 'active',
+                installationId: 'installation',
+                authenticationEpoch: 7,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                redirectTarget: '/',
+                purpose,
+                initiatingSession
+            })
+            const url = new URL(begun.url)
+            idp.nonce = url.searchParams.get('nonce') || ''
+            expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+            expect(url.searchParams.get('scope')).toBe('openid email profile')
+            return begun
+        }
+
+        const reauthentication = await start('reauth', 'browser')
+        expect(new URL(reauthentication.url).searchParams.get('prompt')).toBe('login')
+        expect(new URL(reauthentication.url).searchParams.get('max_age')).toBe('0')
+        const ordinary = await start()
+        expect(new URL(ordinary.url).searchParams.has('prompt')).toBe(false)
+        expect(new URL(ordinary.url).searchParams.has('max_age')).toBe(false)
+
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: 'wrong-state',
+                code: 'code',
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 7
+            })
+        ).rejects.toMatchObject({ category: 'transaction' })
+
+        const denied = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: denied.state,
+                error: 'access_denied',
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 7
+            })
+        ).rejects.toMatchObject({ category: 'denied' })
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: denied.state,
+                code: 'replay-code',
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 7
+            })
+        ).rejects.toMatchObject({ category: 'transaction' })
+
+        const oldEpoch = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: oldEpoch.state,
+                code: 'code',
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 8
+            })
+        ).rejects.toThrow('settings changed')
+
+        const browserBound = await start('test', 'expected-browser')
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: browserBound.state,
+                code: 'code',
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: 'other-browser',
+                currentEpoch: 7
+            })
+        ).rejects.toThrow('browser that started')
+
+        const wrongIssuer = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: wrongIssuer.state,
+                code: 'code',
+                responseIssuer: 'https://other.example',
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 7
+            })
+        ).rejects.toThrow('response issuer')
+
+        const changedConfig = await start()
+        await db.source.query('UPDATE identity_oidc_configuration SET fingerprint = ? WHERE slot = ?', ['changed', 'active'])
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: changedConfig.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 7
+            })
+        ).rejects.toThrow('configuration changed')
+        await db.source.query('UPDATE identity_oidc_configuration SET fingerprint = ? WHERE slot = ?', [config.fingerprint, 'active'])
+
+        const success = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: success.state,
+                code: 'one-time-code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserSession: null,
+                currentEpoch: 7
+            })
+        ).resolves.toMatchObject({ config: { fingerprint: draft.fingerprint }, identity: { subject: 'subject-1' } })
+        expect(idp.lastTokenBody).toContain('code=one-time-code')
+        expect(idp.lastTokenBody).toContain('code_verifier=')
+        db.close()
+    })
+})

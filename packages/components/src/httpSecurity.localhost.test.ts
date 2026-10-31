@@ -249,6 +249,15 @@ describe('HTTP_ALLOW_LOCALHOST: requests and redirects', () => {
         expect(viaAxios.data).toBe('ok')
     })
 
+    it('opens private ranges only for an exact per-call host and keeps the custom deny list authoritative', async () => {
+        noDns()
+        const fetched = await secureFetch(`${base()}/ok`, undefined, 0, { allowedPrivateHostnames: ['127.0.0.1'] })
+        expect(await fetched.text()).toBe('ok')
+        await expect(secureFetch(`${base()}/ok`, undefined, 0, { allowedPrivateHostnames: ['other.example.test'] })).rejects.toThrow(DENIED)
+        process.env.HTTP_DENY_LIST = '127.0.0.0/8'
+        await expect(secureFetch(`${base()}/ok`, undefined, 0, { allowedPrivateHostnames: ['127.0.0.1'] })).rejects.toThrow(DENIED)
+    })
+
     it('follows a redirect that stays on localhost when on', async () => {
         noDns()
         allowLocalhost = true

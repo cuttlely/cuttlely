@@ -39,7 +39,7 @@ import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
 import { utcEpoch } from './dbTime'
-import { addAuthenticationState, addIdentityActionLinks } from './schemaMigration'
+import { addAuthenticationState, addIdentityActionLinks, addOidcProvider } from './schemaMigration'
 import { automaticWorkosLinkingAllowed, initializeAuthenticationState } from './authenticationState'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
@@ -165,6 +165,7 @@ async function sqliteBackend(): Promise<Backend> {
     const setup = runner()
     await addIdentityActionLinks(setup)
     await addAuthenticationState(setup)
+    await addOidcProvider(setup)
     const dataSource = fakeDataSource('sqlite', runner, run)
     return {
         dataSource,
@@ -231,6 +232,7 @@ async function postgresBackend(): Promise<Backend> {
     await setup.connect()
     await addIdentityActionLinks(setup)
     await addAuthenticationState(setup)
+    await addOidcProvider(setup)
     await setup.release()
     const dataSource = fakeDataSource('postgres', runner, async (statement, params = []) => (await pool.query(statement, params)).rows)
     const sql = sqlFromDataSource(dataSource)
@@ -412,6 +414,48 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
 
         expect(await signIn('ada@example.com', undefined, NOW + 2 * HOUR)).toMatchObject({ ok: true, user: { id: ada.id } })
         expect(await signIn('ada@example.com', undefined, NOW, 'wos-someone-else')).toEqual({ ok: false, reason: 'rebind' })
+    })
+
+    maybe('an OIDC invitation consumes its token and creates its provider link in one transaction', async () => {
+        const ada = await invite('ada@example.com')
+        await expect(
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ADA@example.com',
+                externalId: 'subject-1',
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                assuranceBasis: 'invitation',
+                now: NOW
+            })
+        ).resolves.toBe('accepted')
+        expect(await user(ada.id)).toEqual({ status: 'active', externalId: null })
+        expect(
+            await db.rows(
+                `SELECT "providerKey" AS "providerKey", subject, "userId" AS "userId", "emailAtLink" AS "emailAtLink", "assuranceBasis" AS "assuranceBasis" FROM identity_provider_link`
+            )
+        ).toEqual([
+            {
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                userId: ada.id,
+                emailAtLink: 'ada@example.com',
+                assuranceBasis: 'invitation'
+            }
+        ])
+        await expect(
+            db.store.acceptInvite({
+                token: ada.token,
+                userId: ada.id,
+                email: 'ada@example.com',
+                externalId: 'subject-1',
+                providerKey: 'provider-1',
+                subject: 'subject-1',
+                assuranceBasis: 'invitation',
+                now: NOW
+            })
+        ).resolves.toBe('invalid')
     })
 
     maybe('a mixed local-user and WorkOS upgrade keeps invitation sign-in working', async () => {

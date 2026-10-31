@@ -206,6 +206,11 @@ export async function checkDenyList(url: string): Promise<void> {
  */
 export interface SecureRequestAgentOptions {
     ca?: string | string[] | Buffer
+    /**
+     * Exact host names that may resolve to loopback or private-range addresses for this request.
+     * Custom HTTP_DENY_LIST entries and every other denied address class still apply.
+     */
+    allowedPrivateHostnames?: readonly string[]
 }
 
 /**
@@ -236,7 +241,7 @@ export async function secureAxiosRequest(
     } // Disable automatic redirects; agents set per-request below
 
     while (redirects <= maxRedirects) {
-        const target = await resolveAndValidate(currentUrl)
+        const target = await resolveAndValidate(currentUrl, agentOptions?.allowedPrivateHostnames)
         const agent = createPinnedAgent(target, agentOptions)
 
         currentConfig = {
@@ -306,7 +311,7 @@ export async function secureFetch(
     let currentInit = { ...init, redirect: 'manual' as const } // Disable automatic redirects
 
     while (redirectCount <= maxRedirects) {
-        const resolved = await resolveAndValidate(currentUrl)
+        const resolved = await resolveAndValidate(currentUrl, agentOptions?.allowedPrivateHostnames)
         const agent = createPinnedAgent(resolved, agentOptions)
 
         const response = await fetch(currentUrl, { ...currentInit, agent: () => agent })
@@ -355,15 +360,38 @@ type ResolvedTarget = {
     protocol: 'http' | 'https'
 }
 
-async function resolveAndValidate(url: string): Promise<ResolvedTarget> {
-    const denyList = getHttpDenyList()
+const PRIVATE_ISSUER_ENTRIES = new Set([
+    '10.0.0.0/8',
+    '127.0.0.0/8',
+    '172.16.0.0/12',
+    '192.168.0.0/16',
+    '::1',
+    'fc00::/7',
+    'localhost',
+    'ip6-localhost'
+])
 
+function requestDenyList(hostname: string, allowedPrivateHostnames: readonly string[] | undefined): string[] {
+    const allowed = new Set((allowedPrivateHostnames || []).map(normalizeHostname).filter(Boolean))
+    if (!allowed.has(normalizeHostname(hostname))) return getHttpDenyList()
+
+    const custom = new Set(
+        (process.env.HTTP_DENY_LIST || '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+    )
+    return getHttpDenyList().filter((entry) => !PRIVATE_ISSUER_ENTRIES.has(entry) || custom.has(entry))
+}
+
+async function resolveAndValidate(url: string, allowedPrivateHostnames?: readonly string[]): Promise<ResolvedTarget> {
     const u = new URL(url)
     let hostname = u.hostname
     // Strip IPv6 brackets if present
     if (hostname.startsWith('[') && hostname.endsWith(']')) {
         hostname = hostname.slice(1, -1)
     }
+    const denyList = requestDenyList(hostname, allowedPrivateHostnames)
     const protocol: 'http' | 'https' = u.protocol === 'https:' ? 'https' : 'http'
 
     if (ipaddr.isValid(hostname)) {
@@ -409,6 +437,6 @@ function createPinnedAgent(target: ResolvedTarget, options?: { ca?: string | str
 
     return new Agent({
         lookup: lookup as any,
-        ...options
+        ...(options?.ca === undefined ? {} : { ca: options.ca })
     })
 }

@@ -409,7 +409,10 @@ describe('identity postgres schema', () => {
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
                     'AddSetupCode1800600000000',
-                    'AddSetupCodePrevious1800700000000'
+                    'AddSetupCodePrevious1800700000000',
+                    'AddAuthenticationState1800800000000',
+                    'AddAuthenticationSwitchStage1800900000000',
+                    'AddOidcProvider1801000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -521,7 +524,10 @@ describe('identity mariadb schema', () => {
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
                     'AddSetupCode1800600000000',
-                    'AddSetupCodePrevious1800700000000'
+                    'AddSetupCodePrevious1800700000000',
+                    'AddAuthenticationState1800800000000',
+                    'AddAuthenticationSwitchStage1800900000000',
+                    'AddOidcProvider1801000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -712,7 +718,10 @@ describe('identity mysql 8 schema', () => {
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
                     'AddSetupCode1800600000000',
-                    'AddSetupCodePrevious1800700000000'
+                    'AddSetupCodePrevious1800700000000',
+                    'AddAuthenticationState1800800000000',
+                    'AddAuthenticationSwitchStage1800900000000',
+                    'AddOidcProvider1801000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -770,7 +779,10 @@ describe('identity sqlite upgrade', () => {
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
                     'AddSetupCode1800600000000',
-                    'AddSetupCodePrevious1800700000000'
+                    'AddSetupCodePrevious1800700000000',
+                    'AddAuthenticationState1800800000000',
+                    'AddAuthenticationSwitchStage1800900000000',
+                    'AddOidcProvider1801000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

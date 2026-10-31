@@ -11,5 +11,8 @@ export default {
             stateVersion: staged.stateVersion,
             confirm
         }),
-    acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version })
+    acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version }),
+    getOidc: () => client.get('/authentication-settings/oidc'),
+    saveOidc: (value) => client.put('/authentication-settings/oidc', value),
+    testOidc: () => client.post('/authentication-settings/oidc/test')
 }

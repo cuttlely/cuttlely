@@ -17,6 +17,8 @@ const readAuthenticationState = jest.fn()
 const stageAuthenticationMethodSwitch = jest.fn()
 const switchAuthenticationMethod = jest.fn()
 const usableLocalOwnerReady = jest.fn()
+const readOidcConfiguration = jest.fn()
+const providerLinkMigrationComplete = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -41,6 +43,7 @@ jest.mock('./constants', () => ({
     workosEnvironmentConfigured: () => true
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
+jest.mock('./oidcStore', () => ({ readOidcConfiguration, providerLinkMigrationComplete }))
 
 import { identityAuthenticationRouter } from './authenticationRoutes'
 
@@ -69,6 +72,8 @@ describe('authentication settings routes', () => {
         findSuperUser.mockResolvedValue({ id: 'owner-1', credential: 'bcrypt' })
         localAccountOpen.mockResolvedValue(true)
         usableLocalOwnerReady.mockResolvedValue(true)
+        readOidcConfiguration.mockResolvedValue(null)
+        providerLinkMigrationComplete.mockResolvedValue(true)
         findLocalSession.mockResolvedValue({ issuedAt: new Date() })
         stageAuthenticationMethodSwitch.mockResolvedValue({ id: 'stage-1', version: 1, expiresAt: new Date('2026-11-01T00:00:00Z') })
         switchAuthenticationMethod.mockResolvedValue({
@@ -119,8 +124,30 @@ describe('authentication settings routes', () => {
         expect(stageAuthenticationMethodSwitch).not.toHaveBeenCalled()
     })
 
+    it('requires a matching OIDC test and completed link migration before staging', async () => {
+        readOidcConfiguration.mockResolvedValue({ health: 'ready', fingerprint: 'oidc-fingerprint', testedFingerprint: null })
+        const untested = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(untested.status).toBe(409)
+        expect(untested.body.code).toBe('OIDC_TEST_REQUIRED')
+
+        readOidcConfiguration.mockResolvedValue({
+            health: 'ready',
+            fingerprint: 'oidc-fingerprint',
+            testedFingerprint: 'oidc-fingerprint'
+        })
+        providerLinkMigrationComplete.mockResolvedValue(false)
+        const migrating = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(migrating.status).toBe(409)
+        expect(migrating.body.code).toBe('LINK_MIGRATION_REQUIRED')
+
+        providerLinkMigrationComplete.mockResolvedValue(true)
+        const ready = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(ready.status).toBe(200)
+        expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'oidc', 4, 'oidc-fingerprint')
+    })
+
     it('validates stage and apply requests', async () => {
-        expect((await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })).status).toBe(400)
+        expect((await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })).status).toBe(409)
         expect(
             (
                 await request(app('fresh')).post('/api/v1/authentication/apply').send({

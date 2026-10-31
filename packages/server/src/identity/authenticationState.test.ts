@@ -19,7 +19,7 @@ import {
     switchAuthenticationMethod,
     usableLocalOwnerReady
 } from './authenticationState'
-import { addAuthenticationState, addAuthenticationSwitchStage } from './schemaMigration'
+import { addAuthenticationState, addAuthenticationSwitchStage, addOidcProvider } from './schemaMigration'
 import { workosEpochCookie, workosEpochCookieValid } from './cookies'
 import { applyAuthKitSwitchOnBoot } from './production'
 
@@ -50,6 +50,7 @@ async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Prom
     const runner = db.createQueryRunner()
     await addAuthenticationState(runner)
     await addAuthenticationSwitchStage(runner)
+    await addOidcProvider(runner)
     await runner.query(
         `CREATE TABLE "identity_authkit_switch" ("id" integer PRIMARY KEY, "configured" integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" ${
             type === 'postgres' ? 'timestamp' : 'datetime'

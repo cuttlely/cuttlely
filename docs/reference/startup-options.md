@@ -33,6 +33,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `WORKOS_CLIENT_ID`                           | Not set: AuthKit is off                     | —                 | —             | Host, then Server settings     | Yes     |
 | `WORKOS_REDIRECT_URI`                        | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `WORKOS_COOKIE_PASSWORD`                     | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_OIDC_TRANSACTION_SECRET`           | not shown                                   | 32 bytes minimum  | —             | Host only                      | Yes     |
 | `CUTTLELY_BOOTSTRAP_EMAIL`                   | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_TYPE`                              | sqlite                                      | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_HOST`                              | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |

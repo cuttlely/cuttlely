@@ -1,0 +1,353 @@
+/** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
+import type { DataSource, QueryRunner } from 'typeorm'
+import type { IdentityStore } from './store'
+import type { UserRow } from './types'
+import { addOidcProvider } from './schemaMigration'
+import { oidcFailureLogDetail, oidcLinkAuditDetail } from './auditLog'
+import {
+    consumeOidcTransaction,
+    createOidcTransaction,
+    createProviderLink,
+    findProviderLink,
+    migrateLegacyProviderLinks,
+    oidcConfigurationFingerprint,
+    oidcProviderKey,
+    providerLinkMigrationComplete,
+    readOidcConfiguration,
+    resolveOidcUser,
+    saveOidcDraft
+} from './oidcStore'
+
+const { DatabaseSync } = require('node:sqlite') as {
+    DatabaseSync: new (path: string) => {
+        exec(sql: string): void
+        close(): void
+        prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+    }
+}
+
+function database(): { source: DataSource; rows(sql: string, params?: unknown[]): Promise<Record<string, unknown>[]>; close(): void } {
+    const db = new DatabaseSync(':memory:')
+    db.exec(`
+        CREATE TABLE "user" (id text PRIMARY KEY, email text, "externalId" text, status text);
+        CREATE TABLE identity_authentication_switch_stage (id text PRIMARY KEY);
+    `)
+    let active = false
+    const run = async (sql: string, params: unknown[] = []) => {
+        const statement = db.prepare(sql)
+        if (/^\s*(select|pragma|with)\b/i.test(sql)) return statement.all(...params)
+        statement.run(...params)
+        return []
+    }
+    const runner = {
+        connection: { options: { type: 'sqlite' } },
+        connect: async () => undefined,
+        release: async () => undefined,
+        query: run,
+        startTransaction: async () => {
+            db.exec('BEGIN IMMEDIATE')
+            active = true
+        },
+        commitTransaction: async () => {
+            db.exec('COMMIT')
+            active = false
+        },
+        rollbackTransaction: async () => {
+            db.exec('ROLLBACK')
+            active = false
+        },
+        get isTransactionActive() {
+            return active
+        }
+    } as unknown as QueryRunner
+    const source = { options: { type: 'sqlite' }, createQueryRunner: () => runner, query: run } as unknown as DataSource
+    return { source, rows: run, close: () => db.close() }
+}
+
+function user(id: string, email: string, status = 'active'): UserRow {
+    return { id, email, name: email.split('@')[0], externalId: null, credential: null, status }
+}
+
+function store(users: UserRow[], accepted: 'accepted' | 'invalid' = 'invalid'): IdentityStore {
+    return {
+        countUsers: async () => users.length,
+        findUsersByEmail: async (email: string) => users.filter((candidate) => candidate.email.toLowerCase() === email.toLowerCase()),
+        sessionFor: async (id: string) => {
+            const found = users.find((candidate) => candidate.id === id)
+            return found ? ({ id: found.id, email: found.email, name: found.name, status: found.status, workspaceId: null } as never) : null
+        },
+        acceptInvite: async () => accepted,
+        createOwner: async () => {
+            throw new Error('not used')
+        }
+    } as unknown as IdentityStore
+}
+
+describe('provider-scoped identity links', () => {
+    it('consumes a cross-process sign-in transaction once', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        await createOidcTransaction(db.source, 'state-hash', 'encrypted-envelope', 1_000, 11_000)
+        await expect(consumeOidcTransaction(db.source, 'state-hash', 2_000)).resolves.toBe('encrypted-envelope')
+        await expect(consumeOidcTransaction(db.source, 'state-hash', 2_001)).resolves.toBeNull()
+        db.close()
+    })
+
+    it('stores only the client-secret environment variable name and enforces optimistic concurrency', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const input = {
+            issuer: 'https://id.example',
+            clientId: 'client',
+            clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: [],
+            fingerprint: oidcConfigurationFingerprint({
+                issuer: 'https://id.example',
+                clientId: 'client',
+                clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+                trustMissingEmailVerification: false
+            }),
+            discovery: null,
+            health: 'unchecked' as const,
+            healthError: null,
+            checkedAt: null
+        }
+        const saved = await saveOidcDraft(db.source, input, 0)
+        expect(saved).toMatchObject({ version: 1, clientSecretEnvVar: 'OIDC_CLIENT_SECRET' })
+        await expect(saveOidcDraft(db.source, input, 0)).rejects.toThrow('OIDC_CONFIG_CHANGED')
+        expect(await readOidcConfiguration(db.source, 'draft')).toMatchObject({ fingerprint: input.fingerprint, version: 1 })
+        expect(JSON.stringify(await db.rows('SELECT * FROM identity_oidc_configuration'))).not.toContain('client-secret-value')
+        db.close()
+    })
+
+    it('migrates legacy subjects once and preserves their original field', async () => {
+        const db = database()
+        const runner = db.source.createQueryRunner()
+        await addOidcProvider(runner)
+        await runner.query('INSERT INTO "user" (id, email, "externalId", status) VALUES (?, ?, ?, ?)', [
+            'user-1',
+            'Ada@Example.com',
+            'subject-1',
+            'active'
+        ])
+        const first = await migrateLegacyProviderLinks(db.source, { providerKey: 'workos-provider', warningKind: null })
+        const second = await migrateLegacyProviderLinks(db.source, { providerKey: 'workos-provider', warningKind: null })
+        expect(first).toEqual({ complete: true, migrated: 1, error: null })
+        expect(second).toEqual({ complete: true, migrated: 0, error: null })
+        expect(await findProviderLink(db.source, 'workos-provider', 'subject-1')).toMatchObject({
+            userId: 'user-1',
+            emailAtLink: 'ada@example.com',
+            assuranceBasis: 'workos_legacy'
+        })
+        expect(await db.rows('SELECT "externalId" AS value FROM "user"')).toEqual([{ value: 'subject-1' }])
+        expect(await providerLinkMigrationComplete(db.source)).toBe(true)
+        db.close()
+    })
+
+    it('pauses legacy migration when the provider fingerprint requires review', async () => {
+        const db = database()
+        const runner = db.source.createQueryRunner()
+        await addOidcProvider(runner)
+        await runner.query('INSERT INTO "user" (id, email, "externalId", status) VALUES (?, ?, ?, ?)', [
+            'user-1',
+            'ada@example.com',
+            'subject-1',
+            'active'
+        ])
+        const result = await migrateLegacyProviderLinks(db.source, {
+            providerKey: 'workos-provider',
+            warningKind: 'workos-client-mismatch'
+        })
+        expect(result.complete).toBe(false)
+        expect(await findProviderLink(db.source, 'workos-provider', 'subject-1')).toBeNull()
+        expect(await providerLinkMigrationComplete(db.source)).toBe(false)
+        db.close()
+    })
+
+    it('uses a durable subject link before profile email and refuses duplicate subjects', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const users = [user('user-1', 'ada@example.com')]
+        expect(
+            await createProviderLink(db.source, {
+                providerKey: 'provider',
+                subject: 'subject',
+                userId: 'user-1',
+                emailAtLink: 'ada@example.com',
+                assuranceBasis: 'email_verified'
+            })
+        ).toBe('linked')
+        expect(
+            await createProviderLink(db.source, {
+                providerKey: 'provider',
+                subject: 'subject',
+                userId: 'other',
+                emailAtLink: 'other@example.com',
+                assuranceBasis: 'email_verified'
+            })
+        ).toBe('conflict')
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store(users),
+                { providerKey: 'provider', subject: 'subject', issuer: 'https://id.example' },
+                { trustMissing: false }
+            )
+        ).resolves.toMatchObject({ ok: true, user: { id: 'user-1' }, basis: 'email_verified' })
+        db.close()
+    })
+
+    it.each([
+        ['verified email', { emailVerified: true }, false, 'email_verified'],
+        ['Entra domain ownership', { xmsEdov: true }, false, 'xms_edov'],
+        ['trusted absent claim', {}, true, 'issuer_trusted']
+    ])('links one active mailbox using %s', async (_name, claims, trustMissing, basis) => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const issuer = basis === 'xms_edov' ? 'https://login.microsoftonline.com/tenant/v2.0' : 'https://id.example'
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store([user('user-1', 'ada@example.com')]),
+                { providerKey: 'provider', subject: `subject-${basis}`, issuer, email: 'Ada@Example.com', ...claims },
+                { trustMissing }
+            )
+        ).resolves.toMatchObject({ ok: true, basis })
+        db.close()
+    })
+
+    it.each([
+        ['explicit false', [user('user-1', 'ada@example.com')], { emailVerified: false }, true, 'email_not_assured'],
+        [
+            'a present malformed assurance claim',
+            [user('user-1', 'ada@example.com')],
+            { emailVerificationPresent: true },
+            true,
+            'email_not_assured'
+        ],
+        ['missing assurance', [user('user-1', 'ada@example.com')], {}, false, 'email_not_assured'],
+        [
+            'ambiguous mailbox',
+            [user('user-1', 'ada@example.com'), user('user-2', 'ada@example.com')],
+            { emailVerified: true },
+            false,
+            'ambiguous'
+        ],
+        ['inactive user', [user('user-1', 'ada@example.com', 'disabled')], { emailVerified: true }, false, 'inactive']
+    ])('refuses %s', async (_name, users, claims, trustMissing, reason) => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store(users),
+                { providerKey: 'provider', subject: 'subject', issuer: 'https://id.example', email: 'ada@example.com', ...claims },
+                { trustMissing }
+            )
+        ).resolves.toMatchObject({ ok: false, reason })
+        db.close()
+    })
+
+    it('refuses an invitation with an explicit false verification claim before consuming it', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const acceptInvite = jest.fn(async () => 'accepted' as const)
+        const pending = store([user('user-1', 'ada@example.com', 'invited')]) as IdentityStore
+        pending.acceptInvite = acceptInvite
+        await expect(
+            resolveOidcUser(
+                db.source,
+                pending,
+                {
+                    providerKey: 'provider',
+                    subject: 'subject',
+                    issuer: 'https://id.example',
+                    email: 'ada@example.com',
+                    emailVerified: false
+                },
+                { trustMissing: true, invitationToken: 'one-time-token' }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'email_not_assured' })
+        expect(acceptInvite).not.toHaveBeenCalled()
+        db.close()
+    })
+
+    it('passes the first-owner provider link into the owner transaction', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const created = user('owner-1', 'owner@example.com')
+        const createOwner = jest.fn(async () => created)
+        const empty = store([]) as IdentityStore
+        empty.createOwner = createOwner
+        await expect(
+            resolveOidcUser(
+                db.source,
+                empty,
+                {
+                    providerKey: 'provider',
+                    subject: 'subject',
+                    issuer: 'https://id.example',
+                    email: 'owner@example.com',
+                    emailVerified: true
+                },
+                { trustMissing: false, bootstrapEmail: 'OWNER@example.com', now: 42 }
+            )
+        ).resolves.toMatchObject({ ok: true, user: { id: 'owner-1' }, basis: 'email_verified' })
+        expect(createOwner).toHaveBeenCalledWith(expect.objectContaining({ email: 'owner@example.com', externalId: null }), {
+            now: 42,
+            providerLink: {
+                providerKey: 'provider',
+                subject: 'subject',
+                emailAtLink: 'owner@example.com',
+                assuranceBasis: 'email_verified'
+            }
+        })
+        db.close()
+    })
+
+    it('derives stable identities and includes only specified configuration fields in its fingerprint', () => {
+        const base = {
+            issuer: 'https://id.example',
+            clientId: 'client',
+            clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+            trustMissingEmailVerification: false
+        }
+        expect(oidcConfigurationFingerprint(base)).not.toBe(
+            oidcConfigurationFingerprint({ ...base, clientSecretEnvVar: 'OTHER_CLIENT_SECRET' })
+        )
+        expect(oidcProviderKey('installation-a', base.issuer, base.clientId)).not.toBe(
+            oidcProviderKey('installation-b', base.issuer, base.clientId)
+        )
+    })
+
+    it('keeps authorization and token material out of logs and audit detail', () => {
+        const detail = oidcLinkAuditDetail({
+            issuer: 'https://id.example',
+            subject: 'subject',
+            matchedUser: 'user-1',
+            basis: 'email_verified',
+            outcome: 'linked'
+        })
+        const serialized = JSON.stringify(detail)
+        for (const value of ['authorization-code', 'pkce-verifier', 'client-secret-value', 'bearer-access-token']) {
+            expect(serialized).not.toContain(value)
+        }
+        expect(detail).toEqual({
+            issuer: 'https://id.example',
+            subject: 'subject',
+            matchedUser: 'user-1',
+            basis: 'email_verified',
+            outcome: 'linked'
+        })
+
+        const failure = Object.assign(new Error('authorization-code pkce-verifier client-secret-value bearer-access-token'), {
+            name: 'OidcError',
+            category: 'response',
+            code: 'authorization-code',
+            verifier: 'pkce-verifier',
+            accessToken: 'bearer-access-token'
+        })
+        expect(JSON.stringify(oidcFailureLogDetail(failure))).toBe('{"category":"response","kind":"OidcError"}')
+    })
+})

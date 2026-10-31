@@ -19,7 +19,7 @@
 import { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
-import { LOGIN_FAILURE_WINDOW_MS, localAdminEnabled, localUsersMode } from './constants'
+import { INVITE_TOKEN_MAX_LENGTH, LOGIN_FAILURE_WINDOW_MS, localAdminEnabled, localUsersMode } from './constants'
 import { runtimeNumber } from '../settings/runtime'
 import {
     TOO_MANY,
@@ -44,6 +44,8 @@ import { authOptionsBody, signInOptionsBody } from './signInOptions'
 import { buildAuthContext } from './production'
 import { applySetupHeaders } from './sessionGuard'
 import { HandlerResult } from './types'
+import { selectedAuthenticationMethod } from './authenticationState'
+import { oidcInviteStartUrl } from './oidcRoutes'
 
 function apply(res: Response, result: Exclude<HandlerResult, { type: 'next' }>): void {
     const secure = result.secure ?? result.cookies?.[0]?.options.secure ?? false
@@ -230,7 +232,17 @@ identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
             if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })
         })
 })
-identityAuthRouter.post('/invite/start', (req, res, next) => void dispatch(req, res, next, handleInviteStart))
+identityAuthRouter.post('/invite/start', (req, res, next) => {
+    if (selectedAuthenticationMethod() !== 'oidc') return void dispatch(req, res, next, handleInviteStart)
+    if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Unauthorized' })
+    const token = typeof req.body?.token === 'string' ? req.body.token : ''
+    if (!token || token.length > INVITE_TOKEN_MAX_LENGTH) {
+        return void res.status(400).json({ message: 'This invite link is not valid. Ask for a new invite.' })
+    }
+    void oidcInviteStartUrl(req, token)
+        .then((url) => res.status(200).json({ url }))
+        .catch(() => res.status(409).json({ message: 'OIDC sign-in could not start.' }))
+})
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))
 identityAuthRouter.post('/resolve', (req, res, next) => void dispatch(req, res, next, handleResolve))
 

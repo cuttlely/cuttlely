@@ -529,6 +529,11 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/identity/oidcProvider.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "OIDC discovery, token, and signing-key retrieval must use the existing guarded request implementation."
+        },
+        {
             "from": "packages/server/src/identity/ossPlatform.ts",
             "to": "packages/server/src/Interface.ts"
         },

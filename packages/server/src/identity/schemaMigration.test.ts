@@ -15,7 +15,13 @@
  */
 
 import type { QueryRunner } from 'typeorm'
-import { addAuthenticationState, addAuthenticationSwitchStage, addLocalDirectory, removeLocalDirectory } from './schemaMigration'
+import {
+    addAuthenticationState,
+    addAuthenticationSwitchStage,
+    addLocalDirectory,
+    addOidcProvider,
+    removeLocalDirectory
+} from './schemaMigration'
 
 interface Call {
     sql: string
@@ -97,5 +103,17 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"expiresAt" TIMESTAMP NOT NULL')
         expect(creates[0].sql).toContain('"consumedAt" TIMESTAMP NULL')
         expect(creates[0].sql).toContain('"version" integer NOT NULL')
+    })
+
+    it('adds provider links, OIDC configuration, and cross-process transactions', async () => {
+        const present = new Set(['identity_authentication_switch_stage'])
+        const { runner, calls } = postgresRunner(present)
+        await addOidcProvider(runner)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link"'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('UNIQUE ("providerKey", "subject")'))).toBe(true)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_configuration"'))).toBe(true)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_transaction"'))).toBe(true)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link_migration"'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('ADD COLUMN "configurationFingerprint"'))).toBe(true)
     })
 })

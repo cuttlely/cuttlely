@@ -905,11 +905,29 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
             if (!marked.length) throw new Error('lost')
             if (await inviteTargetRefusal(query, sql, found, input)) throw new Error('ineligible')
             await activatePending(query, sql, input.userId, input.now)
-            await query(
-                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'updatedDate')} = ?
-                 WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'externalId')} IS NULL`,
-                [input.externalId, dbTime(sql, input.now), input.userId]
-            )
+            if (input.providerKey && input.subject && input.assuranceBasis) {
+                await query(
+                    `INSERT INTO ${q(sql, 'identity_provider_link')} (${q(sql, 'providerKey')}, ${q(sql, 'subject')}, ${q(
+                        sql,
+                        'userId'
+                    )}, ${q(sql, 'emailAtLink')}, ${q(sql, 'assuranceBasis')}, ${q(sql, 'createdAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [
+                        input.providerKey,
+                        input.subject,
+                        input.userId,
+                        input.email.trim().toLowerCase(),
+                        input.assuranceBasis,
+                        dbTime(sql, input.now)
+                    ]
+                )
+            }
+            if (!input.providerKey || input.retainExternalId) {
+                await query(
+                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'updatedDate')} = ?
+                     WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'externalId')} IS NULL`,
+                    [input.externalId, dbTime(sql, input.now), input.userId]
+                )
+            }
             const after = await query(
                 `SELECT ${q(sql, 'status')} AS status, ${q(sql, 'externalId')} AS externalId FROM ${q(sql, 'user')} WHERE ${q(
                     sql,
@@ -918,7 +936,19 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
                 [input.userId]
             )
             const row = after[0] || {}
-            if (text(cell(row, 'status')).toLowerCase() !== 'active' || text(cell(row, 'externalId')) !== input.externalId) {
+            const providerLinked = input.providerKey
+                ? (
+                      await query(
+                          `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'identity_provider_link')} WHERE ${q(
+                              sql,
+                              'providerKey'
+                          )} = ? AND ${q(sql, 'subject')} = ?`,
+                          [input.providerKey, input.subject]
+                      )
+                  ).some((linked) => text(cell(linked, 'userId')) === input.userId)
+                : text(cell(row, 'externalId')) === input.externalId
+            const compatibilityLinked = !input.retainExternalId || text(cell(row, 'externalId')) === input.externalId
+            if (text(cell(row, 'status')).toLowerCase() !== 'active' || !providerLinked || !compatibilityLinked) {
                 throw new Error('lost')
             }
             await writeAudit(
@@ -932,7 +962,7 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
                     userId: input.userId,
                     actorId: input.userId,
                     result: 'success',
-                    reason: 'authkit'
+                    reason: input.providerKey ? 'oidc' : 'authkit'
                 },
                 input.now
             )
@@ -953,7 +983,7 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
         userId: input.userId,
         actorId: input.userId,
         summary: 'Invite accepted',
-        detail: { action: 'completed', method: 'authkit' }
+        detail: { action: 'completed', method: input.providerKey ? 'oidc' : 'authkit' }
     })
     return 'accepted'
 }

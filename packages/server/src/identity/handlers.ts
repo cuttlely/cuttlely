@@ -82,6 +82,8 @@ export interface AuthContext {
     localAdmin: boolean
     /** CUTTLELY_LOCAL_USERS is on and AuthKit is not configured. */
     localUsers: boolean
+    /** Generic OIDC is the selected ordinary method. */
+    oidcActive?: boolean
     cookiePasswordOk: boolean
     cookiePassword?: string
     redirectUri?: string
@@ -100,6 +102,9 @@ export interface AuthContext {
     workos: WorkosPort
     rateLimit: LoginLimiter
     automaticWorkosLinkingAllowed?: () => Promise<boolean>
+    workosProviderKey?: string
+    findWorkosProviderLinkedUser?: (subject: string) => Promise<import('./types').UserRow | null>
+    recordWorkosProviderLink?: (user: import('./types').UserRow, subject: string, basis: string) => Promise<boolean>
     recordRecentAuthentication?: (userId: string) => Promise<SetCookie>
     /** Optional. Production writes a redacted audit row. Tests leave it unset. */
     noteAudit?: (note: {
@@ -282,6 +287,16 @@ async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ to
     return { token, session }
 }
 
+/** Provider completions use the same database session and opaque cookie as local login. */
+export async function issueDatabaseSession(ctx: AuthContext, userId: string): Promise<HandlerResult> {
+    const issued = await issueLocalSession(ctx, userId)
+    if (!issued) return json(401, { message: 'Sign-in could not be completed.' })
+    return json(200, issued.session, {
+        cookies: [localCookie(issued.token, localSessionSecure(ctx), sessionLimitsMs().idleMs)],
+        ...cleared(ctx, [WOS_SESSION_COOKIE])
+    })
+}
+
 function loginFields(body: Record<string, unknown>): { ok: true; email: string; password: string } | { ok: false; message: string } {
     const emailRaw = body.email
     const password = body.password
@@ -375,7 +390,12 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             bootstrapEmail: ctx.bootstrapEmail,
             inviteToken: inviteTokenFrom(ctx),
             now: ctx.now,
-            automaticEmailLinking: ctx.automaticWorkosLinkingAllowed ? await ctx.automaticWorkosLinkingAllowed() : true
+            automaticEmailLinking: ctx.automaticWorkosLinkingAllowed ? await ctx.automaticWorkosLinkingAllowed() : true,
+            providerKey: ctx.workosProviderKey,
+            providerLinkedUser: ctx.findWorkosProviderLinkedUser ? await ctx.findWorkosProviderLinkedUser(authenticated.user.id) : null,
+            recordProviderLink: ctx.recordWorkosProviderLink
+                ? (user, basis) => ctx.recordWorkosProviderLink!(user, authenticated.user.id, basis)
+                : undefined
         })
         if (!linked.ok && (linked.reason === 'bootstrap-unset' || linked.reason === 'bootstrap-denied')) {
             return bootstrapPage(linked.reason)
@@ -506,7 +526,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
     }
 
     const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && (ctx.localAdmin || ctx.localUsers)) {
+    if (token && (ctx.localAdmin || ctx.localUsers || ctx.oidcActive)) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest)) {
@@ -525,12 +545,14 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
-        const gate = await localCookieGate(ctx, row.userId)
-        if (gate === 'end') {
-            await ctx.store.deleteLocalSessionsForUser(row.userId)
-            return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
+        if (!ctx.oidcActive) {
+            const gate = await localCookieGate(ctx, row.userId)
+            if (gate === 'end') {
+                await ctx.store.deleteLocalSessionsForUser(row.userId)
+                return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
+            }
+            if (gate !== 'ok') return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
-        if (gate !== 'ok') return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         const limits = sessionLimitsMs()
         const times = localSessionTimes(row)
         const idleExpires = new Date(Math.min(ctx.now + limits.idleMs, times.issuedAt + limits.absoluteMs))
@@ -818,7 +840,7 @@ export async function establishSession(
     }
 
     const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && (ctx.localAdmin || ctx.localUsers)) {
+    if (token && (ctx.localAdmin || ctx.localUsers || ctx.oidcActive)) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest))
@@ -831,12 +853,14 @@ export async function establishSession(
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        const gate = await localCookieGate(ctx, row.userId)
-        if (gate === 'end') {
-            await ctx.store.deleteLocalSessionsForUser(row.userId)
-            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
+        if (!ctx.oidcActive) {
+            const gate = await localCookieGate(ctx, row.userId)
+            if (gate === 'end') {
+                await ctx.store.deleteLocalSessionsForUser(row.userId)
+                return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
+            }
+            if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         const maxAge = await noteSessionUse(ctx, row, digest)
         const user = await ctx.store.sessionFor(row.userId)
         const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure

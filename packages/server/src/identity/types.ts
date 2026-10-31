@@ -101,6 +101,12 @@ export interface CreateOwnerInput {
 export interface CreateOwnerOptions {
     consumeSetupHmac?: string
     now?: number
+    providerLink?: {
+        providerKey: string
+        subject: string
+        emailAtLink: string
+        assuranceBasis: string
+    }
 }
 
 export interface WorkosIdentity {
@@ -129,6 +135,10 @@ export interface InviteSignIn {
     email: string
     externalId: string
     now: number
+    providerKey?: string
+    subject?: string
+    assuranceBasis?: string
+    retainExternalId?: boolean
 }
 
 export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { ok: false; reason: LinkFailure }

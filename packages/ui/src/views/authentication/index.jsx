@@ -3,6 +3,7 @@ import {
     Alert,
     Box,
     Button,
+    Checkbox,
     Chip,
     Dialog,
     DialogActions,
@@ -20,7 +21,8 @@ import MainCard from '@/ui-component/cards/MainCard'
 import api from '@/api/authenticationSettings'
 import { RECOVERY_FIX } from './RecoveryWarningBanner'
 
-const label = (method) => (method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : 'No ordinary method')
+const label = (method) =>
+    method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : method === 'oidc' ? 'Generic OIDC' : 'No ordinary method'
 
 export default function AuthenticationSettings() {
     const [data, setData] = useState(null)
@@ -28,6 +30,14 @@ export default function AuthenticationSettings() {
     const [choice, setChoice] = useState('')
     const [stage, setStage] = useState(null)
     const [confirm, setConfirm] = useState('')
+    const [oidc, setOidc] = useState(null)
+    const [oidcForm, setOidcForm] = useState({
+        issuer: '',
+        clientId: '',
+        clientSecretEnvVar: '',
+        trustMissingEmailVerification: false,
+        privateIssuerHosts: ''
+    })
     const load = () =>
         api
             .get()
@@ -38,6 +48,20 @@ export default function AuthenticationSettings() {
             .catch(() => setError('Authentication settings could not be loaded.'))
     useEffect(() => {
         load()
+        api.getOidc()
+            .then(({ data: value }) => {
+                setOidc(value)
+                if (value.draft?.configured) {
+                    setOidcForm({
+                        issuer: value.draft.issuer || '',
+                        clientId: value.draft.clientId || '',
+                        clientSecretEnvVar: value.draft.clientSecretEnvVar || '',
+                        trustMissingEmailVerification: value.draft.trustMissingEmailVerification === true,
+                        privateIssuerHosts: (value.draft.privateIssuerHosts || []).join(', ')
+                    })
+                }
+            })
+            .catch(() => setError('OIDC settings could not be loaded.'))
     }, [])
     const prepare = async () => {
         setError('')
@@ -57,7 +81,13 @@ export default function AuthenticationSettings() {
         }
     }
     const reauthenticate = () => {
-        window.location.assign(data?.activeMethod === 'workos' ? '/api/v1/auth/reauthenticate' : '/signin?reauth=1')
+        const path =
+            data?.activeMethod === 'workos'
+                ? '/api/v1/auth/reauthenticate'
+                : data?.activeMethod === 'oidc'
+                ? '/api/v1/auth/oidc/reauthenticate'
+                : '/signin?reauth=1'
+        window.location.assign(path)
     }
     const acknowledgeWarning = async () => {
         setError('')
@@ -68,6 +98,40 @@ export default function AuthenticationSettings() {
             setError(cause?.response?.data?.message || 'The warning could not be acknowledged.')
         }
     }
+    const saveOidc = async () => {
+        setError('')
+        try {
+            const result = await api.saveOidc({
+                ...oidcForm,
+                privateIssuerHosts: oidcForm.privateIssuerHosts
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean),
+                version: oidc?.draft?.version || 0
+            })
+            setOidc((current) => ({ ...current, draft: result.data.draft }))
+            await load()
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'OIDC settings could not be saved.')
+        }
+    }
+    const testOidc = async () => {
+        setError('')
+        try {
+            window.location.assign((await api.testOidc()).data.url)
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'OIDC test sign-in could not start.')
+        }
+    }
+    const activateOidc = async () => {
+        setError('')
+        try {
+            setChoice('oidc')
+            setStage({ ...(await api.stage('oidc', data.version)).data, stateVersion: data.version })
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'OIDC could not be activated.')
+        }
+    }
     const workosBlockedByRecovery = Boolean(data?.methods.workos.configured && !data?.recovery.available)
     return (
         <MainCard title='Auth / SSO'>
@@ -75,7 +139,7 @@ export default function AuthenticationSettings() {
                 {error && <Alert severity='error'>{error}</Alert>}
                 {data && !data.recovery.available && (
                     <Alert severity='error' data-testid='owner-recovery-blocking-warning'>
-                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of WorkOS is refused.
+                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of WorkOS or OIDC is refused.
                     </Alert>
                 )}
                 {data?.warning && data.warningKind === 'workos-client-mismatch' && (
@@ -123,7 +187,12 @@ export default function AuthenticationSettings() {
                                     : ''
                             }`}
                         />
-                        <FormControlLabel value='oidc' control={<Radio />} disabled label='Generic OIDC — not yet available' />
+                        <FormControlLabel
+                            value='oidc'
+                            control={<Radio />}
+                            disabled={!data?.methods.oidc.configured}
+                            label={`Generic OIDC${data?.methods.oidc.configured ? '' : ' — not configured'}`}
+                        />
                     </RadioGroup>
                     <Button variant='contained' disabled={!choice || choice === data?.activeMethod} onClick={prepare}>
                         Review change
@@ -139,11 +208,89 @@ export default function AuthenticationSettings() {
                     )}
                 </Paper>
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
+                    <Stack spacing={2}>
+                        <Typography variant='h4'>Generic OIDC setup</Typography>
+                        <TextField
+                            label='Issuer URL'
+                            value={oidcForm.issuer}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, issuer: event.target.value }))}
+                        />
+                        <TextField
+                            label='Client id'
+                            value={oidcForm.clientId}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, clientId: event.target.value }))}
+                        />
+                        <TextField
+                            label='Client secret environment variable name'
+                            value={oidcForm.clientSecretEnvVar}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, clientSecretEnvVar: event.target.value }))}
+                            helperText={
+                                oidc?.draft?.clientSecretPresent ? 'Value is set on this server.' : 'Value is not set on this server.'
+                            }
+                        />
+                        <TextField label='Callback URL' value={oidc?.callbackUrl || ''} InputProps={{ readOnly: true }} />
+                        <TextField label='Post-logout URL' value={oidc?.postLogoutUrl || ''} InputProps={{ readOnly: true }} />
+                        <TextField label='Scopes' value='openid email profile' InputProps={{ readOnly: true }} />
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={oidcForm.trustMissingEmailVerification}
+                                    onChange={(event) =>
+                                        setOidcForm((value) => ({ ...value, trustMissingEmailVerification: event.target.checked }))
+                                    }
+                                />
+                            }
+                            label='Trust issuer email when the verification claim is missing'
+                        />
+                        <Alert severity='warning'>
+                            This option permits first linking when the issuer omits email verification. An explicit false value is always
+                            refused.
+                        </Alert>
+                        <TextField
+                            label='Private issuer hosts'
+                            value={oidcForm.privateIssuerHosts}
+                            onChange={(event) => setOidcForm((value) => ({ ...value, privateIssuerHosts: event.target.value }))}
+                            helperText='Comma-separated exact host names. HTTP is accepted only for an allowlisted loopback host.'
+                        />
+                        <Stack direction='row' spacing={1} alignItems='center'>
+                            <Chip
+                                label={
+                                    oidc?.draft?.health === 'ready' ? 'Discovery and keys ready' : oidc?.draft?.healthError || 'Not checked'
+                                }
+                                color={oidc?.draft?.health === 'ready' ? 'success' : 'warning'}
+                            />
+                            {oidc?.draft?.checkedAt && <Typography color='text.secondary'>Last check: {oidc.draft.checkedAt}</Typography>}
+                        </Stack>
+                        {oidc?.draft?.testResult && (
+                            <Alert severity='success'>
+                                Test passed. Steps: {(oidc.draft.testResult.steps || []).join(', ')}. Returned email:{' '}
+                                {oidc.draft.testResult.email || 'not returned'}. Assurance: {oidc.draft.testResult.assuranceBasis}.
+                            </Alert>
+                        )}
+                        <Stack direction='row' spacing={1}>
+                            <Button variant='outlined' onClick={saveOidc}>
+                                Save draft
+                            </Button>
+                            <Button variant='outlined' onClick={testOidc} disabled={oidc?.draft?.health !== 'ready'}>
+                                Test sign-in
+                            </Button>
+                            <Button
+                                variant='contained'
+                                onClick={activateOidc}
+                                disabled={!oidc?.draft?.tested || !oidc?.linkMigrationComplete || !data?.recovery.available}
+                            >
+                                Activate
+                            </Button>
+                        </Stack>
+                    </Stack>
+                </Paper>
+                <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack direction='row' justifyContent='space-between'>
                         <Box>
                             <Typography variant='h4'>Owner recovery</Typography>
                             <Typography color='text.secondary'>
-                                WorkOS can be activated only while the recovery route is enabled and an active owner has a usable password.
+                                WorkOS or OIDC can be activated only while the recovery route is enabled and an active owner has a usable
+                                password.
                             </Typography>
                         </Box>
                         <Chip

@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Generic OIDC can be configured, tested, and activated from **Admin** > **Auth / SSO**. It uses guarded discovery and signing-key retrieval, PKCE, one-time database transactions, provider-scoped identity links, and the existing Cuttlely database session. Existing WorkOS and local sign-in behavior stays unchanged.
+
 -   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.
 
 -   Trusted-output contracts can declare an optional monetary reporting symbol for verified readouts. Explicit source denominations take precedence, compact K/M/B values must match decimal-safe rounding of actual monetary source fields, and unchanged factual sections retain their original values. Counts and percentages stay in their source units.

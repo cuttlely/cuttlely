@@ -15,6 +15,7 @@ import { hashSessionToken } from './password'
 import { applicationDataSource, applicationSql, identityStore } from './production'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
+import { providerLinkMigrationComplete, readOidcConfiguration } from './oidcStore'
 
 const RECENT_MS = 10 * 60 * 1000
 export const identityAuthenticationRouter = Router()
@@ -26,7 +27,7 @@ function actor(req: Request): { id: string; organizationId: string } | null {
         : null
 }
 
-async function recentlyAuthenticated(req: Request): Promise<boolean> {
+export async function recentlyAuthenticated(req: Request): Promise<boolean> {
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
     const local = cookies[LOCAL_SESSION_COOKIE]
     if (local) {
@@ -42,7 +43,7 @@ async function ownerLocalPasswordReady(): Promise<boolean> {
     return usableLocalOwnerReady(applicationDataSource())
 }
 
-async function ownerRecoveryReady(): Promise<boolean> {
+export async function ownerRecoveryReady(): Promise<boolean> {
     return localAdminEnabled() && (await ownerLocalPasswordReady())
 }
 
@@ -64,6 +65,7 @@ identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
     try {
         const state =
             (await readAuthenticationState(applicationDataSource())) || (await initializeAuthenticationState(applicationDataSource()))
+        const oidcDraft = await readOidcConfiguration(applicationDataSource(), 'draft')
         res.set('Cache-Control', 'no-store')
             .status(200)
             .json({
@@ -73,7 +75,7 @@ identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
                 methods: {
                     local: { configured: localUsersSetting(), label: 'Local login' },
                     workos: { configured: workosEnvironmentConfigured(), label: 'WorkOS' },
-                    oidc: { configured: false, available: false, label: 'Generic OIDC' }
+                    oidc: { configured: Boolean(oidcDraft), available: true, label: 'Generic OIDC' }
                 },
                 recovery: { available: await ownerRecoveryReady(), routeEnabled: localAdminEnabled() },
                 scim: { available: false }
@@ -89,16 +91,27 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
         const method = (req.body as { method?: unknown })?.method
         const version = Number((req.body as { version?: unknown })?.version)
         if (!who) return void res.status(401).json({ message: 'Unauthorized' })
-        if (method !== 'local' && method !== 'workos')
+        if (method !== 'local' && method !== 'workos' && method !== 'oidc')
             return void res.status(400).json({ message: 'That sign-in method is not available.' })
-        if ((method === 'local' && !localUsersSetting()) || (method === 'workos' && !workosEnvironmentConfigured()))
+        const oidc = method === 'oidc' ? await readOidcConfiguration(applicationDataSource(), 'draft') : null
+        if (
+            (method === 'local' && !localUsersSetting()) ||
+            (method === 'workos' && !workosEnvironmentConfigured()) ||
+            (method === 'oidc' && (!oidc || oidc.health !== 'ready'))
+        )
             return void res.status(409).json({ message: 'Configure this method before selecting it.' })
-        if (method === 'workos' && !(await ownerRecoveryReady())) {
+        if ((method === 'workos' || method === 'oidc') && !(await ownerRecoveryReady())) {
             await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'owner_recovery_unavailable' })
             return void res.status(409).json({
                 code: 'RECOVERY_REQUIRED',
-                message: 'WorkOS cannot be activated until the owner recovery route is enabled and an active owner has a usable password.'
+                message: 'A remote sign-in method cannot be activated until owner recovery is ready.'
             })
+        }
+        if (method === 'oidc' && oidc && oidc.testedFingerprint !== oidc.fingerprint) {
+            return void res.status(409).json({ code: 'OIDC_TEST_REQUIRED', message: 'Test this OIDC configuration before activation.' })
+        }
+        if (method === 'oidc' && !(await providerLinkMigrationComplete(applicationDataSource()))) {
+            return void res.status(409).json({ code: 'LINK_MIGRATION_REQUIRED', message: 'Identity link migration must complete first.' })
         }
         const state = await readAuthenticationState(applicationDataSource())
         if (method === 'local' && state?.activeMethod === 'workos' && !(await ownerLocalPasswordReady())) {
@@ -112,7 +125,10 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
             return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the sign-in method.' })
         if (!state || state.version !== version)
             return void res.status(409).json({ code: 'STATE_CHANGED', message: 'Authentication settings changed. Reload and try again.' })
-        const staged = await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version)
+        const staged =
+            method === 'oidc' && oidc
+                ? await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version, oidc.fingerprint)
+                : await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version)
         res.status(200).json({
             stage: staged.id,
             stageVersion: staged.version,
@@ -133,7 +149,7 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
     if (
         typeof body.stage !== 'string' ||
         Number(body.stageVersion) !== 1 ||
-        (body.method !== 'local' && body.method !== 'workos') ||
+        (body.method !== 'local' && body.method !== 'workos' && body.method !== 'oidc') ||
         !Number.isInteger(Number(body.stateVersion))
     ) {
         await auditAttempt(who, { outcome: 'refused', reason: 'stage_expired' })
@@ -170,7 +186,9 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
                 code === 'AUTH_STAGE_STALE' ||
                 code === 'METHOD_NOT_READY' ||
                 code === 'LOCAL_OWNER_REQUIRED' ||
-                code === 'RECOVERY_REQUIRED'
+                code === 'RECOVERY_REQUIRED' ||
+                code === 'OIDC_TEST_REQUIRED' ||
+                code === 'LINK_MIGRATION_REQUIRED'
                 ? 409
                 : 500
         ).json({
@@ -180,7 +198,11 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
                     : code === 'LOCAL_OWNER_REQUIRED'
                     ? 'Local login requires an active owner with a usable local password.'
                     : code === 'RECOVERY_REQUIRED'
-                    ? 'WorkOS cannot be activated until the owner recovery route is enabled and an active owner has a usable password.'
+                    ? 'A remote sign-in method cannot be activated until owner recovery is ready.'
+                    : code === 'OIDC_TEST_REQUIRED'
+                    ? 'Test this OIDC configuration before activation.'
+                    : code === 'LINK_MIGRATION_REQUIRED'
+                    ? 'Identity link migration must complete first.'
                     : 'The sign-in method was not changed.'
         })
     }

@@ -279,12 +279,14 @@ describe('sign-in screen contract', () => {
             authKit: true,
             localAdmin: false,
             localUsers: false,
+            oidc: false,
             mail: false
         })
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_ADMIN: 'true' })).toEqual({
             authKit: true,
             localAdmin: true,
             localUsers: false,
+            oidc: false,
             mail: false
         })
         expect(
@@ -296,14 +298,21 @@ describe('sign-in screen contract', () => {
         ).toBe(false)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'true' }).localUsers).toBe(true)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'TRUE' }).localUsers).toBe(false)
-        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false })
         expect(signInOptionsBody({ SMTP_HOST: 'smtp.example.com' })).toEqual({
             authKit: false,
             localAdmin: false,
             localUsers: false,
+            oidc: false,
             mail: false
         })
-        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({
+            authKit: false,
+            localAdmin: false,
+            localUsers: false,
+            oidc: false,
+            mail: false
+        })
     })
 
     it('puts the WorkOS button on the sign-in page and hides the password form unless local admin is on', () => {
