@@ -135,4 +135,21 @@ describe('Api Key', () => {
             expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: 'user-2' }))
         })
     })
+
+    describe('permission restrictions', () => {
+        const actor = {
+            permissions: ['authentication:manage'],
+            isOrganizationAdmin: true,
+            activeWorkspaceId: 'team-1'
+        }
+
+        it('refuses authentication permissions on create and update', async () => {
+            await expect(apikeyService.createApiKey(actor, 'Automation', ['authentication:manage'])).rejects.toMatchObject({
+                statusCode: 400
+            })
+            await expect(apikeyService.updateApiKey(actor, 'credential-1', 'Automation', ['authentication:manage'])).rejects.toMatchObject({
+                statusCode: 400
+            })
+        })
+    })
 })

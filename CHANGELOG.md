@@ -31,6 +31,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   API credentials can no longer be created or updated with `authentication:` permissions. The complete `/api/v1/authentication-settings` route family now requires a signed-in session, so a previously stored credential with `authentication:manage` receives 401 before route permissions are evaluated.
+
 -   WorkOS sign-out ends the hosted AuthKit session again. The provider session id stays on the Cuttlely session row; sign-out deletes that row before creating the hosted logout URL and falls back to `/signin` if URL creation does not complete.
 
 -   Creating the first owner on a fresh owner-only installation selects Local login in the same database transaction. `/signin` then shows the owner password form, and `POST /api/v1/auth/login` creates an ordinary Local session without recovery auditing, alerts, or owner notifications. Existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login.

@@ -55,7 +55,7 @@ A blank value counts as not set. A value set by the host always wins, so the pag
 
 ## Secrets
 
-API keys, passwords and the session seal are write-only. After saving, the field says that a value is saved and never shows it again; type a new one to replace it, or clear it to remove it. They are encrypted with the same key that protects Credentials. They never appear in an answer from the server, the review, History, the log, or **Copy as .env**.
+API credentials, passwords, and the AuthKit setup-test seal are write-only. After saving, the field says that a value is saved and never shows it again; type a new one to replace it, or clear it to remove it. They are encrypted with the same value that protects Credentials. They never appear in an answer from the server, the review, History, the log, or **Copy as .env**.
 
 If the encryption key changes, a saved secret shows **Saved, but this server cannot read it**; enter it again. It counts as not set. Starting never fails over it.
 

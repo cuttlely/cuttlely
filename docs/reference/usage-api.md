@@ -151,7 +151,7 @@ An API key is refused on these three routes, including a key that would be allow
 
 `CUTTLELY_LOCAL_ADMIN=true` enables the owner password endpoint for an account that already exists. It does not create that account. A fresh install with the flag on has no users, and `POST /api/v1/auth/login` returns 401 until the owner is created on the [setup page](../how-to/sign-in.md#in-the-browser) or with [`pnpm user`](../how-to/sign-in.md#in-a-terminal). The examples below use that endpoint while Local is the durable active method, so it creates an ordinary Local session. `POST /api/v1/auth/login` takes `{ "email", "password" }` and keeps the `cuttlely-local-session` cookie. That sign-in, and every later write that sends the cookie, also needs the header `x-request-from: internal`. Without that header the cookie is not accepted on `PUT` or `DELETE`, and the route returns 401.
 
-An owner who signs in with AuthKit already has a `wos-session` cookie in the browser. Send that cookie on `PUT` and `DELETE` with the same `x-request-from: internal` header. Do not use the password login below unless `pnpm user` has set a local password.
+An owner who signs in with AuthKit has a `cuttlely-local-session` cookie backed by an `identity_local_session` row. Send that cookie on `PUT` and `DELETE` with the same `x-request-from: internal` header. Do not use the password login below unless `pnpm user` has set a local password.
 
 ```bash
 curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
