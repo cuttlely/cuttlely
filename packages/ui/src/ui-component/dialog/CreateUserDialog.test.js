@@ -1,4 +1,4 @@
-import { inviteMethodFromOptions, newUserInviteNote } from './inviteDialogState'
+import { inviteLinkRequested, inviteMethodFromOptions, newUserInviteNote } from './inviteDialogState'
 
 describe('new-user sign-in guidance', () => {
     it.each([
@@ -9,5 +9,6 @@ describe('new-user sign-in guidance', () => {
         const selected = inviteMethodFromOptions(options)
         expect(selected).toBe(method)
         expect(newUserInviteNote(selected)).toContain(guidance)
+        expect(inviteLinkRequested(selected)).toBe(method === 'Local')
     })
 })

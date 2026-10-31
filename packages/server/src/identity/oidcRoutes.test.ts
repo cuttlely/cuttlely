@@ -195,10 +195,10 @@ describe('OIDC callback audit outcomes', () => {
     })
 
     it.each([
-        ['unknown', 'This identity cannot sign in.'],
-        ['invite_required', 'You have a pending invite. Open the invite link from your email to join.'],
-        ['invite_invalid', 'This invite link is not valid. Ask for a new invite.']
-    ])('returns the sign-in guidance for %s without auditing the provider subject', async (reason, message) => {
+        ['unknown', null, 'This identity cannot sign in.'],
+        ['invite_required', 'user-1', 'You have a pending invite. Open the invite link from your email to join.'],
+        ['invite_invalid', 'user-1', 'This invite link is not valid. Ask for a new invite.']
+    ])('returns the sign-in guidance for %s and scopes a known user', async (reason, matchedUserId, message) => {
         completeOidcAuthorization.mockResolvedValueOnce({
             envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/' },
             config: { trustMissingEmailVerification: false },
@@ -211,7 +211,7 @@ describe('OIDC callback audit outcomes', () => {
                 emailVerificationPresent: true
             }
         })
-        resolveOidcUser.mockResolvedValueOnce({ ok: false, reason, basis: null })
+        resolveOidcUser.mockResolvedValueOnce({ ok: false, reason, basis: null, ...(matchedUserId ? { matchedUserId } : {}) })
 
         const response = await request(app())
             .get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
@@ -223,10 +223,56 @@ describe('OIDC callback audit outcomes', () => {
             expect.anything(),
             expect.objectContaining({
                 type: 'sign_in_failure',
-                detail: expect.objectContaining({ subject: null, matchedUser: null, outcome: reason })
+                organizationId: matchedUserId ? 'org-1' : '',
+                userId: matchedUserId,
+                detail: expect.objectContaining({
+                    subject: matchedUserId ? 'provider-subject' : null,
+                    matchedUser: matchedUserId,
+                    outcome: reason
+                })
             })
         )
-        expect(JSON.stringify(safeRecordAudit.mock.calls.at(-1)?.[1])).not.toContain('provider-subject')
+        if (!matchedUserId) expect(JSON.stringify(safeRecordAudit.mock.calls.at(-1)?.[1])).not.toContain('provider-subject')
+    })
+
+    it.each([
+        [false, 'OIDC sign-in succeeded', 'signed_in'],
+        [true, 'OIDC identity linked', 'linked']
+    ])('audits a successful sign-in with linkCreated=%s', async (linkCreated, summary, outcome) => {
+        completeOidcAuthorization.mockResolvedValueOnce({
+            envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/' },
+            config: { trustMissingEmailVerification: false },
+            identity: {
+                providerKey: 'provider-1',
+                subject: 'provider-subject',
+                issuer: 'https://issuer.example',
+                email: 'ada@example.com',
+                emailVerified: true,
+                emailVerificationPresent: true
+            }
+        })
+        resolveOidcUser.mockResolvedValueOnce({
+            ok: true,
+            user: { id: 'user-1' },
+            basis: 'email_verified',
+            linkCreated
+        })
+        buildAuthContext.mockResolvedValueOnce({})
+        issueDatabaseSession.mockResolvedValueOnce({ type: 'json', status: 200, body: {}, cookies: [], clearCookies: [] })
+
+        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+
+        expect(response.status).toBe(302)
+        expect(safeRecordAudit).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                type: 'sign_in_success',
+                organizationId: 'org-1',
+                userId: 'user-1',
+                summary,
+                detail: expect.objectContaining({ matchedUser: 'user-1', subject: 'provider-subject', outcome })
+            })
+        )
     })
 
     it('throttles the callback after repeated identity link refusals', async () => {
@@ -263,7 +309,13 @@ describe('OIDC callback audit outcomes', () => {
 
 describe('OIDC administrator test callback', () => {
     const completion = {
-        envelope: { purpose: 'test', initiatingUserId: 'admin-1', authEpoch: 4, redirectTarget: '/authentication-settings' },
+        envelope: {
+            purpose: 'test',
+            initiatingUserId: 'admin-1',
+            authEpoch: 4,
+            redirectTarget: '/authentication-settings',
+            configFingerprint: 'draft-fingerprint'
+        },
         config: { fingerprint: 'draft-fingerprint', trustMissingEmailVerification: false },
         identity: {
             providerKey: 'provider-1',
@@ -331,6 +383,29 @@ describe('OIDC administrator test callback', () => {
             email: identity.email || null,
             reason: message
         })
+        expect(recordOidcTestResult).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['provider denial', new OidcError('denied', 'denied', 'provider_denied'), 'provider_denied'],
+        ['token response failure', new OidcError('response', 'token', 'token_validation_failed'), 'token_validation_failed'],
+        ['provider response failure', new OidcError('response', 'profile', 'userinfo_invalid'), 'userinfo_invalid'],
+        ['provider connection failure', new OidcError('upstream', 'offline', 'upstream_unavailable'), 'upstream_unavailable']
+    ])('clears an earlier pass after %s', async (_name, failure, outcome) => {
+        completeOidcAuthorization.mockImplementationOnce(async (input: any) => {
+            input.onEnvelope?.(completion.envelope)
+            throw failure
+        })
+
+        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+
+        expect(response.status).toBe(302)
+        expect(response.headers.location).toBe('/authentication-settings?oidcTest=failed')
+        expect(recordOidcTestFailure).toHaveBeenCalledWith(
+            expect.anything(),
+            'draft-fingerprint',
+            expect.objectContaining({ passed: false, email: null, outcome })
+        )
         expect(recordOidcTestResult).not.toHaveBeenCalled()
     })
 })

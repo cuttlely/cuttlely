@@ -677,9 +677,11 @@ export async function completeOidcAuthorization(input: {
     browserNonce: string | null
     currentEpoch: number
     now?: number
+    onEnvelope?: (envelope: Readonly<OidcEnvelope>) => void
 }): Promise<{ envelope: OidcEnvelope; config: OidcConfiguration; identity: ValidatedOidcIdentity }> {
     const now = input.now ?? Date.now()
     const envelope = await consumeEnvelope(input.dataSource, input.state, now)
+    input.onEnvelope?.(envelope)
     if (!input.browserNonce || !safeEqual(envelope.browserNonceHash, sha256(input.browserNonce))) {
         throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.', 'browser_binding_failed')
     }

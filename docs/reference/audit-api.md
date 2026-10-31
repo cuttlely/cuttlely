@@ -16,6 +16,10 @@ Settings changes are the settings history rows. They are included only for the o
 
 A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the server owner (the earliest active organization owner). An organization owner of another organization does not receive it.
 
+An OIDC refusal that resolves a durable subject link or one pending or inactive account is stored for that user and their organizations. Its detail may include the provider subject because the Cuttlely user is known. A refusal with no matched user follows the unmatched rule above.
+
+An OIDC success through an existing provider link has summary `OIDC sign-in succeeded` and detail outcome `signed_in`. A success that creates the provider link has summary `OIDC identity linked` and detail outcome `linked`.
+
 The response sends `Cache-Control: no-store`.
 
 ## Query

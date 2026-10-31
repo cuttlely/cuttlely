@@ -1,4 +1,4 @@
-import { invitationResults } from './inviteDialogState'
+import { invitationResults } from './invitePayload'
 
 describe('bulk invitation links', () => {
     it('keeps returned links paired with their email and leaves the dialog open', () => {

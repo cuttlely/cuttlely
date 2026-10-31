@@ -2,7 +2,7 @@
 
 Use this when several people sign in with email and password on a server you run, and you are not using WorkOS AuthKit. It is off until you turn it on. The first owner is still created with the setup code. There is no default password.
 
-Inviting someone in the app creates a pending (`invited`) user with no password. Only that person's one-time invite link makes them active: here it lets them choose a password, and with AuthKit on it lets them sign in with WorkOS. To let that person choose a password, ask for a one-time link. The link is shown once. It is as strong as a password: do not share it, and do not paste it into a chat. If it is lost, issue a new one. The old one stops working.
+Inviting someone in the app creates a pending (`invited`) user with no password. Only that person's one-time invite link makes them active: here it lets them choose a password, and with AuthKit on it lets them sign in with WorkOS. With Local active, **Add User** requests that link and shows it once. It is as strong as a password: do not share it, and do not paste it into a chat. If it is lost, issue a new one. The old one stops working.
 
 The owner-only password form also requires `CUTTLELY_LOCAL_ADMIN`, but `/signin` uses the shared local-user form while this mode is on. [Sign in](./sign-in.md) covers the owner-only default. This page turns on ordinary password sign-in for every active local user who already has a password, including the owner.
 

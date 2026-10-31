@@ -350,7 +350,7 @@ describe('provider-scoped identity links', () => {
                 { providerKey: 'provider', subject: 'subject', issuer: 'https://id.example' },
                 { trustMissing: false }
             )
-        ).resolves.toMatchObject({ ok: true, user: { id: 'user-1' }, basis: 'email_verified' })
+        ).resolves.toMatchObject({ ok: true, user: { id: 'user-1' }, basis: 'email_verified', linkCreated: false })
         db.close()
     })
 
@@ -369,7 +369,7 @@ describe('provider-scoped identity links', () => {
                 { providerKey: 'provider', subject: `subject-${basis}`, issuer, email: 'Ada@Example.com', ...claims },
                 { trustMissing }
             )
-        ).resolves.toMatchObject({ ok: true, basis })
+        ).resolves.toMatchObject({ ok: true, basis, linkCreated: true })
         db.close()
     })
 
@@ -389,7 +389,7 @@ describe('provider-scoped identity links', () => {
                 },
                 { trustMissing: false, linkIdentity: false }
             )
-        ).resolves.toMatchObject({ ok: true, user: { id: 'user-1' }, basis: 'email_verified' })
+        ).resolves.toMatchObject({ ok: true, user: { id: 'user-1' }, basis: 'email_verified', linkCreated: false })
         await expect(findProviderLink(db.source, 'provider', 'subject')).resolves.toBeNull()
         db.close()
     })
@@ -514,6 +514,42 @@ describe('provider-scoped identity links', () => {
             )
         ).resolves.toMatchObject({ ok: false, reason: 'email_not_assured' })
         expect(acceptInvite).not.toHaveBeenCalled()
+        db.close()
+    })
+
+    it('reports the matched user for a pending account and an inactive subject link', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store([user('pending-1', 'pending@example.com', 'invited')]),
+                {
+                    providerKey: 'provider',
+                    subject: 'pending-subject',
+                    issuer: 'https://id.example',
+                    email: 'pending@example.com',
+                    emailVerified: true
+                },
+                { trustMissing: false }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'invite_required', matchedUserId: 'pending-1' })
+
+        await createProviderLink(db.source, {
+            providerKey: 'provider',
+            subject: 'inactive-subject',
+            userId: 'inactive-1',
+            emailAtLink: 'inactive@example.com',
+            assuranceBasis: 'email_verified'
+        })
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store([user('inactive-1', 'inactive@example.com', 'disabled')]),
+                { providerKey: 'provider', subject: 'inactive-subject', issuer: 'https://id.example' },
+                { trustMissing: false }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'inactive', matchedUserId: 'inactive-1' })
         db.close()
     })
 

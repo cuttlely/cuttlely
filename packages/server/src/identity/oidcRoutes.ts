@@ -347,6 +347,16 @@ function safeSigninMessage(error: unknown): string {
     return 'Sign-in could not be completed.'
 }
 
+function oidcTestCallbackFailure(error: unknown): Record<string, unknown> {
+    return {
+        passed: false,
+        steps: ['discovery', 'authorization'],
+        email: null,
+        reason: safeSigninMessage(error),
+        outcome: oidcCallbackFailureAuditDetail(error).outcome
+    }
+}
+
 async function beginPublic(req: Request, res: Response, purpose: 'signin' | 'reauth' | 'invite', invitationToken?: string) {
     cacheNoStore(res)
     const clientAddress = address(req)
@@ -426,6 +436,7 @@ oidcAuthRouter.get(
         const code = typeof req.query.code === 'string' ? req.query.code : undefined
         const errorParam = typeof req.query.error === 'string' ? req.query.error : undefined
         const responseIssuer = typeof req.query.iss === 'string' ? req.query.iss : undefined
+        let callbackTestFingerprint: string | null = null
         try {
             const authState = await readAuthenticationState(applicationDataSource())
             if (!authState) throw new OidcError('transaction', 'Authentication state is unavailable.')
@@ -437,7 +448,10 @@ oidcAuthRouter.get(
                 responseIssuer,
                 callbackUrl: providerCallbackUrl(req),
                 browserNonce: (req.cookies || {})[OIDC_BROWSER_COOKIE] || null,
-                currentEpoch: authState.authenticationEpoch
+                currentEpoch: authState.authenticationEpoch,
+                onEnvelope: (envelope) => {
+                    if (envelope.purpose === 'test') callbackTestFingerprint = envelope.configFingerprint
+                }
             })
             if (completed.envelope.purpose === 'test') {
                 const ctx = await buildAuthContext(req)
@@ -474,7 +488,7 @@ oidcAuthRouter.get(
                 invitationToken: completed.envelope.invitationToken,
                 bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL
             })
-            const matchedUser = linked.ok ? linked.user.id : null
+            const matchedUser = linked.ok ? linked.user.id : linked.matchedUserId || null
             const orgs = matchedUser ? await organizationsForUser(applicationSql(), matchedUser) : ['']
             if (!linked.ok) {
                 for (const organizationId of orgs.length ? orgs : ['']) {
@@ -523,19 +537,20 @@ oidcAuthRouter.get(
                 res.clearCookie(RECENT_AUTH_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax', secure: ctx.secure })
             }
             for (const organizationId of orgs.length ? orgs : ['']) {
+                const identityLinked = linked.linkCreated
                 await safeRecordAudit(applicationSql(), {
                     type: 'sign_in_success',
                     organizationId,
                     workspaceId: null,
                     userId: matchedUser,
                     actorId: matchedUser,
-                    summary: 'OIDC identity linked',
+                    summary: identityLinked ? 'OIDC identity linked' : 'OIDC sign-in succeeded',
                     detail: oidcLinkAuditDetail({
                         issuer: completed.identity.issuer,
                         subject: completed.identity.subject,
                         matchedUser,
                         basis: linked.basis || null,
-                        outcome: 'linked'
+                        outcome: identityLinked ? 'linked' : 'signed_in'
                     })
                 })
             }
@@ -544,6 +559,10 @@ oidcAuthRouter.get(
             callbackFailures.recordFailure(clientAddress)
             console.warn('[server]: OIDC callback failed', oidcFailureLogDetail(error))
             await auditCallbackFailure(error)
+            if (callbackTestFingerprint) {
+                await recordOidcTestFailure(applicationDataSource(), callbackTestFingerprint, oidcTestCallbackFailure(error))
+                return void res.redirect(302, '/authentication-settings?oidcTest=failed')
+            }
             res.redirect(302, signinErrorUrl(safeSigninMessage(error)))
         }
     }

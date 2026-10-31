@@ -13,6 +13,7 @@ const resetPassword = (body) => client.post('/account/reset-password', body)
 const getBillingData = () => client.post('/account/billing')
 const logout = () => client.post('/account/logout')
 const deleteAccount = (body) => client.delete('/account/delete', { data: body })
+const getSignInOptions = () => client.get('/auth/signin-options')
 
 export default {
     addWorkspaceUser,
@@ -25,6 +26,7 @@ export default {
     resendVerificationEmail,
     forgotPassword,
     resetPassword,
+    getSignInOptions,
     logout,
     deleteAccount
 }

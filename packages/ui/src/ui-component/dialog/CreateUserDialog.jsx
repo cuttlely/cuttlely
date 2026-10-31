@@ -21,14 +21,13 @@ import {
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import { invitationPayload } from '@/ui-component/dialog/invitePayload'
-import { inviteMethodFromOptions, newUserInviteNote } from '@/ui-component/dialog/inviteDialogState'
+import { inviteLinkRequested, inviteMethodFromOptions, newUserInviteNote } from '@/ui-component/dialog/inviteDialogState'
 import { IconX, IconUserPlus } from '@tabler/icons-react'
 
 import accountApi from '@/api/account.api'
 import { isBuiltInOwnerRole, roleLabel } from '@/utils/roleLabel'
 import roleApi from '@/api/role'
 import workspaceApi from '@/api/workspace'
-import client from '@/api/client'
 import useNotifier from '@/utils/useNotifier'
 import {
     enqueueSnackbar as enqueueSnackbarAction,
@@ -85,7 +84,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
             roleApi.getAllRolesByOrganizationId(currentUser.activeOrganizationId),
             // Best effort: a caller without users:manage can still add someone by email.
             accountApi.listOrganizationUsers(currentUser.activeOrganizationId).catch(() => ({ data: [] })),
-            client.get('/auth/signin-options').catch(() => ({ data: {} }))
+            accountApi.getSignInOptions().catch(() => ({ data: {} }))
         ])
             .then(([workspaceResponse, roleResponse, peopleResponse, signInResponse]) => {
                 if (cancelled) return
@@ -162,7 +161,8 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                             email: email.trim(),
                             createdBy: currentUser.id,
                             workspaceId: teamId,
-                            roleId
+                            roleId,
+                            link: inviteLinkRequested(inviteMethod)
                         })
                     )
                 } catch (error) {

@@ -723,6 +723,25 @@ describe('generic OIDC provider', () => {
                 currentEpoch: 7
             })
         ).rejects.toMatchObject({ category: 'denied' })
+
+        const deniedTest = await start('test')
+        let observedTestFingerprint = ''
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: deniedTest.state,
+                error: 'access_denied',
+                responseIssuer: idp.issuer,
+                callbackUrl: deniedTest.callbackUrl,
+                browserNonce: deniedTest.browserNonce,
+                currentEpoch: 7,
+                onEnvelope: (envelope) => {
+                    if (envelope.purpose === 'test') observedTestFingerprint = envelope.configFingerprint
+                }
+            })
+        ).rejects.toMatchObject({ category: 'denied' })
+        expect(observedTestFingerprint).toBe(config.fingerprint)
+
         await expect(
             completeOidcAuthorization({
                 dataSource: db.source,

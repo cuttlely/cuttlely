@@ -28,8 +28,7 @@ import { autocompleteClasses } from '@mui/material/Autocomplete'
 // Project imports
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
-import { invitationPayload } from '@/ui-component/dialog/invitePayload'
-import { invitationResults } from '@/ui-component/dialog/inviteDialogState'
+import { invitationPayload, invitationResults } from '@/ui-component/dialog/invitePayload'
 
 // Icons
 import { IconX, IconCircleCheck, IconUser } from '@tabler/icons-react'

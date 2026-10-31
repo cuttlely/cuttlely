@@ -710,14 +710,20 @@ export async function resolveOidcUser(
         issuer: string
     },
     options: { trustMissing: boolean; invitationToken?: string; bootstrapEmail?: string; now?: number; linkIdentity?: boolean }
-): Promise<{ ok: true; user: UserRow; basis: string } | { ok: false; reason: string; basis?: string }> {
+): Promise<
+    { ok: true; user: UserRow; basis: string; linkCreated: boolean } | { ok: false; reason: string; basis?: string; matchedUserId?: string }
+> {
     const linked = await findProviderLink(dataSource, identity.providerKey, identity.subject)
     if (linked) {
         const session = await store.sessionFor(linked.userId)
-        if (!session || String(session.status).toLowerCase() !== 'active') return { ok: false, reason: 'inactive' }
+        if (!session || String(session.status).toLowerCase() !== 'active') {
+            return { ok: false, reason: 'inactive', matchedUserId: linked.userId }
+        }
         const users = await store.findUsersByEmail(session.email)
         const user = users.find((candidate) => candidate.id === linked.userId)
-        return user ? { ok: true, user, basis: linked.assuranceBasis } : { ok: false, reason: 'inactive' }
+        return user
+            ? { ok: true, user, basis: linked.assuranceBasis, linkCreated: false }
+            : { ok: false, reason: 'inactive', matchedUserId: linked.userId }
     }
 
     const email = identity.email ? mailboxKey(identity.email) : ''
@@ -755,7 +761,7 @@ export async function resolveOidcUser(
                     }
                 }
             )
-            return { ok: true, user, basis }
+            return { ok: true, user, basis, linkCreated: true }
         } catch (error) {
             if (error instanceof NotEmptyError) return { ok: false, reason: 'unknown', basis }
             throw error
@@ -764,7 +770,7 @@ export async function resolveOidcUser(
     if (matches.length !== 1) return { ok: false, reason: matches.length > 1 ? 'ambiguous' : 'unknown', basis: basis || undefined }
     const user = matches[0]
     if (String(user.status).toLowerCase() === 'invited') {
-        if (!options.invitationToken) return { ok: false, reason: 'invite_required' }
+        if (!options.invitationToken) return { ok: false, reason: 'invite_required', matchedUserId: user.id }
         const accepted = await store.acceptInvite({
             token: options.invitationToken,
             userId: user.id,
@@ -776,12 +782,12 @@ export async function resolveOidcUser(
             now: options.now ?? Date.now()
         })
         return accepted === 'accepted'
-            ? { ok: true, user: { ...user, status: 'active' }, basis: 'invitation' }
-            : { ok: false, reason: 'invite_invalid' }
+            ? { ok: true, user: { ...user, status: 'active' }, basis: 'invitation', linkCreated: true }
+            : { ok: false, reason: 'invite_invalid', matchedUserId: user.id }
     }
-    if (String(user.status).toLowerCase() !== 'active') return { ok: false, reason: 'inactive' }
-    if (!basis) return { ok: false, reason: 'email_not_assured' }
-    if (options.linkIdentity === false) return { ok: true, user, basis }
+    if (String(user.status).toLowerCase() !== 'active') return { ok: false, reason: 'inactive', matchedUserId: user.id }
+    if (!basis) return { ok: false, reason: 'email_not_assured', matchedUserId: user.id }
+    if (options.linkIdentity === false) return { ok: true, user, basis, linkCreated: false }
     const created = await createProviderLink(dataSource, {
         providerKey: identity.providerKey,
         subject: identity.subject,
@@ -789,5 +795,7 @@ export async function resolveOidcUser(
         emailAtLink: email,
         assuranceBasis: basis
     })
-    return created === 'linked' ? { ok: true, user, basis } : { ok: false, reason: 'link_conflict', basis }
+    return created === 'linked'
+        ? { ok: true, user, basis, linkCreated: true }
+        : { ok: false, reason: 'link_conflict', basis, matchedUserId: user.id }
 }
