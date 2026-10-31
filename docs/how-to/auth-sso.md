@@ -40,7 +40,7 @@ The switch transaction increments the authentication epoch and ends every intera
 
 Every database-session request and every owned API credential request reads the current user status. A disabled user is refused on the next call. WorkOS deactivation by itself does not immediately change the Cuttlely user row: automatic IdP deactivation requires SCIM, planned for Phase C. Until then, disable the user in Cuttlely or wait for the session to expire.
 
-The staged confirmation is stored in the database with a version, ten-minute expiry, and single-use marker. It can be applied by another application process; an expired, consumed, or stale-version stage is refused.
+The staged confirmation is stored in the database with a version, ten-minute expiry, and single-use marker. It can be applied by another application process; an expired, consumed, or stale-version stage is refused. Staging and applying each allow 10 requests per client address in 15 minutes; more return 429 with `{ "type": "authentication_rate_limit" }`. These request limits are counted in each server process: with several replicas behind a load balancer, each replica keeps its own count, and a restart resets it. The durable stage record, not the request limit, is what keeps a switch single-use.
 
 ## Upgrade behavior
 

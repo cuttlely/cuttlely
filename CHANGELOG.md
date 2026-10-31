@@ -23,7 +23,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Recovery readiness now means that any active owner has a usable local password. Administrators see a warning until `pnpm user --email owner@example.com` creates one; `CUTTLELY_LOCAL_ADMIN` is not required. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until recovery is ready.
 
--   Every sign-in method switch increments the authentication epoch and ends all interactive database sessions. Staged switches are durable, expiring, single-use database records that can be applied by another server process. The stage and apply routes now have request limits.
+-   Every sign-in method switch increments the authentication epoch and ends all interactive database sessions. Staged switches are durable, expiring, single-use database records that can be applied by another server process. The stage and apply routes now have request limits (10 per client address in 15 minutes, counted in each server process).
 
 -   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. Owner recovery also satisfies this check. The epoch-binding and reauthentication-state secrets are derived from `TOKEN_HASH_SECRET` with separate HKDF labels.
 
