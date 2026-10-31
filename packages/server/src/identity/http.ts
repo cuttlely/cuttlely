@@ -19,7 +19,7 @@
 import { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
-import { LOGIN_FAILURE_WINDOW_MS, localAdminEnabled, localUsersMode } from './constants'
+import { LOGIN_FAILURE_WINDOW_MS, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 import { runtimeNumber } from '../settings/runtime'
 import {
     TOO_MANY,
@@ -30,6 +30,7 @@ import {
     handleLocalPassword,
     handleLoginGet,
     handleReauthenticationGet,
+    handleRecoveryLoginPost,
     handleLoginPost,
     handleLogout,
     handlePasswordRecoveryGone,
@@ -163,7 +164,8 @@ function ownerLoginPreconditions(req: Request, res: Response, next: NextFunction
 
 identityAuthRouter.get('/signin-options', (_req, res) => {
     void currentAuthenticationView().then(() => {
-        if (!res.headersSent) res.json(signInOptionsBody())
+        const { selectedAuthenticationMethod } = require('./authenticationState') as typeof import('./authenticationState')
+        if (!res.headersSent) res.json(signInOptionsBody(process.env, selectedAuthenticationMethod()))
     })
 })
 
@@ -226,7 +228,17 @@ identityAuthRouter.get('/callback', (req, res, next) => {
 identityAuthRouter.post(
     '/login',
     ownerLoginPreconditions,
-    recoveryAuthRateLimit,
+    (req, res, next) => {
+        void currentAuthenticationView()
+            .then(() => {
+                const { selectedAuthenticationMethod } = require('./authenticationState') as typeof import('./authenticationState')
+                const selected = selectedAuthenticationMethod()
+                const ordinaryLocal = selected === 'local' || (selected === undefined && !workosConfigured())
+                const limit = ordinaryLocal ? localAuthRateLimit : recoveryAuthRateLimit
+                limit(req, res, next)
+            })
+            .catch(next)
+    },
     (req, res, next) => void dispatch(req, res, next, handleLoginPost)
 )
 identityAuthRouter.post(
@@ -240,7 +252,7 @@ identityAuthRouter.post(
         next()
     },
     recoveryAuthRateLimit,
-    (req, res, next) => void dispatch(req, res, next, handleLoginPost)
+    (req, res, next) => void dispatch(req, res, next, handleRecoveryLoginPost)
 )
 const acceptLinkLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,

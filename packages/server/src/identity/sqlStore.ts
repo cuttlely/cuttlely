@@ -526,8 +526,8 @@ export class SqlIdentityStore implements IdentityStore {
             )}, ${quote(d, 'lastSeenAt')}, ${quote(d, 'permissionVersion')}, ${quote(d, 'authenticationMethod')}, ${quote(
                 d,
                 'authenticationEpoch'
-            )}, ${quote(d, 'recoveryUse')}`
-            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0), ?, ?, ? FROM ${quote(
+            )}, ${quote(d, 'recoveryUse')}, ${quote(d, 'workosSessionId')}`
+            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0), ?, ?, ?, ? FROM ${quote(
                 d,
                 'user'
             )} u WHERE u.${quote(d, 'id')} = ?`
@@ -551,6 +551,7 @@ export class SqlIdentityStore implements IdentityStore {
                     row.authenticationMethod ?? null,
                     row.authenticationEpoch ?? null,
                     row.recoveryUse ? 1 : 0,
+                    row.workosSessionId ?? null,
                     row.userId
                 ])
             } catch (error) {
@@ -578,6 +579,7 @@ export class SqlIdentityStore implements IdentityStore {
                 s.${quote(d, 'authenticationMethod')} AS ${quote(d, 'authenticationMethod')},
                 s.${quote(d, 'authenticationEpoch')} AS ${quote(d, 'authenticationEpoch')},
                 s.${quote(d, 'recoveryUse')} AS ${quote(d, 'recoveryUse')},
+                s.${quote(d, 'workosSessionId')} AS ${quote(d, 'workosSessionId')},
                 u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
                 FROM ${quote(d, 'identity_local_session')} s
                 INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')}${d === 'postgres' ? '::text' : ''} = s.${quote(d, 'userId')}
@@ -603,7 +605,8 @@ export class SqlIdentityStore implements IdentityStore {
                     cell(row, 'authenticationEpoch') === null || cell(row, 'authenticationEpoch') === undefined
                         ? undefined
                         : Number(cell(row, 'authenticationEpoch')),
-                recoveryUse: Number(cell(row, 'recoveryUse') || 0) === 1
+                recoveryUse: Number(cell(row, 'recoveryUse') || 0) === 1,
+                workosSessionId: text(cell(row, 'workosSessionId')) || undefined
             }
         })
     }

@@ -22,7 +22,7 @@ Applying a different method ends every interactive session, including yours. API
 
 ## Owner recovery
 
-The separate `/owner-recovery` page is always available, regardless of the selected ordinary sign-in method or WorkOS health. It accepts only an active owner's local password and creates the same Cuttlely database session used by every other sign-in method. `CUTTLELY_LOCAL_ADMIN` is not required for this page. The older owner route continues to follow that setting for compatibility.
+The separate `/owner-recovery` page is always available, regardless of the selected ordinary sign-in method or WorkOS health. It accepts only an active owner's local password and creates the same Cuttlely database session used by every other sign-in method. `CUTTLELY_LOCAL_ADMIN` is not required for this page. The older owner route continues to follow that setting for compatibility: it is an ordinary Local sign-in while Local is active, and uses recovery treatment under another active method.
 
 Recovery currently uses a password only; it does not add a second factor. Treat the password as an emergency credential, store it with the same care as other operator credentials, and test it periodically. To create or replace it, run `pnpm user --email owner@example.com` on the server and enter the password at the prompt.
 
@@ -34,7 +34,7 @@ To offboard an owner manually, open **Admin** > **Users** while signed in as ano
 
 ## Sessions and account status
 
-Local login, WorkOS, and owner recovery all create a Cuttlely database session and the `cuttlely-local-session` browser cookie. WorkOS sealed values are not application session credentials. Logout deletes the database session and clears the session cookies before any best-effort WorkOS sign-out request.
+Local login, WorkOS, and owner recovery all create a Cuttlely database session and the `cuttlely-local-session` browser cookie. A WorkOS session also keeps its provider session id on the server. Sign-out deletes the database session first. A WorkOS session then redirects through the hosted logout URL and returns to the origin of `WORKOS_REDIRECT_URI` plus `/signin`; Local and recovery sessions go directly to `/signin`. If the hosted URL cannot be created, the local session is still gone and the browser goes to `/signin`. Sealed browser values are not application sessions.
 
 The switch transaction increments the authentication epoch and ends every interactive database session while leaving API keys enabled. Each process refreshes the durable method and epoch at most two seconds after its cached read, and session issuance checks the database epoch again before completion. A request that began under an older epoch cannot finish by creating a new session on another process.
 

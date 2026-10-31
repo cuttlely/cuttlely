@@ -25,15 +25,15 @@ No secret values appear in this guide. Never paste an API key, a cookie password
 -   **AuthKit** is WorkOS's hosted sign-in page. Cuttlely never sees a WorkOS password. It sends the browser to AuthKit, AuthKit sends the browser back with a one-time code, and Cuttlely exchanges that code for a user and a sealed session.
 -   **Cuttlely's routes** (all under `/api/v1`):
 
-| Route                            | What it does                                                                                                                                                                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /api/v1/auth/login`         | Redirects (302) to the AuthKit authorization URL, built with `WORKOS_CLIENT_ID` and `WORKOS_REDIRECT_URI`. This is the URL that starts AuthKit.                                                                          |
-| `GET /api/v1/auth/callback`      | AuthKit returns here with `?code=`. Cuttlely exchanges the code, links or bootstraps the user, sets the sealed `wos-session` cookie, and redirects to `/`.                                                               |
-| `POST /api/v1/auth/refreshToken` | Refreshes the sealed session. The UI calls it.                                                                                                                                                                           |
-| `POST /api/v1/auth/resolve`      | Tells the UI where to go first. With WorkOS configured it answers `/signin`.                                                                                                                                             |
-| `POST /api/v1/account/logout`    | Clears the cookie and returns the AuthKit logout URL. After logout AuthKit sends the browser to the origin of `WORKOS_REDIRECT_URI` plus `/signin`.                                                                      |
-| `POST /api/v1/auth/login`        | Break-glass password sign-in for the one local Super User. Only when `CUTTLELY_LOCAL_ADMIN=true` (section 8).                                                                                                            |
-| `POST /api/v1/account/register`  | Break-glass first-user setup form. Only when `CUTTLELY_LOCAL_ADMIN=true`, the user table is empty, the request sends `x-request-from: internal`, and it carries the one-time code from the setup link in the server log. |
+| Route                            | What it does                                                                                                                                                                                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/auth/login`         | Redirects (302) to the AuthKit authorization URL, built with `WORKOS_CLIENT_ID` and `WORKOS_REDIRECT_URI`. This is the URL that starts AuthKit.                                                                                                             |
+| `GET /api/v1/auth/callback`      | AuthKit returns here with `?code=`. Cuttlely exchanges the code, links or bootstraps the user, sets the sealed `wos-session` cookie, and redirects to `/`.                                                                                                  |
+| `POST /api/v1/auth/refreshToken` | Refreshes the sealed session. The UI calls it.                                                                                                                                                                                                              |
+| `POST /api/v1/auth/resolve`      | Tells the UI where to go first. With WorkOS configured it answers `/signin`.                                                                                                                                                                                |
+| `POST /api/v1/account/logout`    | Deletes the Cuttlely session, clears its cookies, and returns the AuthKit logout URL for a WorkOS session. AuthKit sends the browser to the origin of `WORKOS_REDIRECT_URI` plus `/signin`. If URL creation does not complete, the route returns `/signin`. |
+| `POST /api/v1/auth/login`        | Password sign-in for the one local Super User. With Local active it is ordinary sign-in; with another active method it uses recovery treatment. Available only when `CUTTLELY_LOCAL_ADMIN=true` (section 8).                                                |
+| `POST /api/v1/account/register`  | Break-glass first-user setup form. Only when `CUTTLELY_LOCAL_ADMIN=true`, the user table is empty, the request sends `x-request-from: internal`, and it carries the one-time code from the setup link in the server log.                                    |
 
 -   **WorkOS counts as configured** only when both `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set. When either is missing, AuthKit is off. Cuttlely can still run as one built-in Super User. That path is section 8. A missing WorkOS configuration does not turn it on.
 -   **Teams, roles, permissions, and API keys stay in Cuttlely's database.** WorkOS only proves who the person is. Cuttlely decides what they can do.
@@ -140,7 +140,7 @@ The web service in `render.yaml` is named `cuttlely`. Render assigns the public 
 | App homepage URL            | `https://your-service.onrender.com`                      | The app root.                                                                                            |
 | Initiate login URI          | `https://your-service.onrender.com/api/v1/auth/login`    | Recommended. This is the route that actually starts AuthKit. See the trade-off below.                    |
 
-**Initiate login URI: `/api/v1/auth/login`.** Keep this on the AuthKit route, not on `/signin`. WorkOS documents that password-reset and invitation context survives the bounce only when the Initiate login URI starts an AuthKit sign-in. `/signin` now shows **Sign in with WorkOS**, which goes to `GET /api/v1/auth/login`. A password form is on that page only when `CUTTLELY_LOCAL_ADMIN=true`. People who follow an AuthKit email should still land on `/api/v1/auth/login` directly.
+**Initiate login URI: `/api/v1/auth/login`.** Keep this on the AuthKit route, not on `/signin`. WorkOS documents that password-reset and invitation context survives the bounce only when the Initiate login URI starts an AuthKit sign-in. `/signin` shows **Sign in with WorkOS**, which goes to `GET /api/v1/auth/login`. While WorkOS is the durable active method, that page has no ordinary password form and keeps the **Owner recovery** link. People who follow an AuthKit email should still land on `/api/v1/auth/login` directly.
 
 ### 4.2 Any other host
 
@@ -217,7 +217,7 @@ Then start Cuttlely as usual (`bash scripts/start-cuttlely.sh` or `pnpm start:ha
 ### 7.1 First sign-in on an empty database
 
 1. Deploy with the variables from section 6, including `CUTTLELY_BOOTSTRAP_EMAIL`.
-2. Open `<your-origin>/signin`. Use **Sign in with WorkOS**. That button goes to `GET /api/v1/auth/login` (on Render, `https://your-service.onrender.com/api/v1/auth/login`, using the origin Render assigned). The password form is not on this page unless `CUTTLELY_LOCAL_ADMIN=true`.
+2. Open `<your-origin>/signin`. Use **Sign in with WorkOS**. That button goes to `GET /api/v1/auth/login` (on Render, `https://your-service.onrender.com/api/v1/auth/login`, using the origin Render assigned). The page also has the discreet **Owner recovery** link, but no ordinary password form while WorkOS is active.
 3. Sign in on AuthKit with the bootstrap email (verify the email if AuthKit asks).
 4. AuthKit returns to `/api/v1/auth/callback`. Because the database has no users and the verified email matches `CUTTLELY_BOOTSTRAP_EMAIL`, Cuttlely creates the Super User (organization owner) with that email, links it to the WorkOS user, sets the session cookie, and redirects to `/`.
 5. From now on, `CUTTLELY_BOOTSTRAP_EMAIL` has no effect while any user exists. You can leave it set.
@@ -242,7 +242,7 @@ Teams (workspaces), roles, permissions, the active team, and API keys live in Cu
 
 This is also the solo install when AuthKit is not configured. Leave `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` unset, set `CUTTLELY_LOCAL_ADMIN=true`, and create the one Super User on an empty database. `/signin` then shows the password form and hides **Sign in with WorkOS**. That is one organization owner, with no hosted identity provider. The flag does not turn on by itself when WorkOS is missing. `CUTTLELY_BOOTSTRAP_EMAIL` is not this path. It applies only to the first verified AuthKit user.
 
-The same flag is the break-glass for an install that already uses AuthKit: offline recovery, smoke tests, and getting back in when WorkOS is down or misconfigured. It exists only for the one Super User. Do not leave it on a public deploy.
+The same flag keeps the older owner route available on an install that already uses AuthKit. Under WorkOS that route uses recovery treatment, while the always-available `/owner-recovery` page does not require the flag. It exists only for the one Super User. Do not leave it on a public deploy.
 
 1. **Set a password on the Super User.** From the repo root. On Render, use the service **Shell** when the plan offers one. The image working directory is `/usr/src/cuttlely`.
 
@@ -257,12 +257,12 @@ The same flag is the break-glass for an install that already uses AuthKit: offli
     - `pnpm user` with no arguments lists the user emails and a count.
 
 2. **Turn on the flag** with `CUTTLELY_LOCAL_ADMIN=true` (in `packages/server/.env` locally, or on the Render **Environment** page in an emergency) and restart.
-3. **Sign in** on `/signin` with the Super User's email and password. Only that email works; every other email gets "Invalid email or password." even with the flag on.
-4. **Limits.** Ten failed attempts from one client address, or for one email whether or not an account exists, within 15 minutes block that address or that email for the rest of the window ("Too many sign-in attempts. Try again later.", HTTP 429). Both counts are stored in the database, so a restart does not clear them. A successful sign-in does not clear the window. This also means anyone can lock the Super User out of break-glass for 15 minutes by guessing; that is expected.
-5. **Session.** The break-glass cookie `cuttlely-local-session` lasts 12 hours idle and 7 days at most. Only a SHA-256 of the token is stored.
-6. **Turn the flag off afterward** on a public AuthKit deploy, and restart. With the flag off, `POST /api/v1/auth/login` and `POST /api/v1/account/register` answer 404, and an existing break-glass cookie stops working. A solo install that has no AuthKit keeps the flag on, because that password form is the only sign-in.
+3. **Sign in.** While Local is active and local users are off, use `/signin`; it shows the owner form and creates an ordinary Local session. While WorkOS is active, use `/owner-recovery`; `/signin` keeps only the WorkOS button and the recovery link. Only an active owner's email works on the owner routes.
+4. **Limits.** Ordinary Local attempts use `CUTTLELY_LOGIN_FAILURE_LIMIT` per client address and per email for 15 minutes. Recovery attempts use a limit of five. Both counts are stored in the database, so a restart does not clear them. A successful sign-in does not clear the window.
+5. **Session.** The `cuttlely-local-session` cookie lasts 12 hours idle and 7 days at most. An ordinary Local session carries the Local method marker; a recovery session carries the recovery marker.
+6. **Turn the flag off afterward** on a public AuthKit deploy, and restart. With the flag off, `POST /api/v1/auth/login` and `POST /api/v1/account/register` answer 404. `/owner-recovery` remains available, and an issued recovery session continues under the normal session rules. A solo owner-only Local install keeps the flag on, because that password form is the ordinary sign-in.
 
-Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password form for the most privileged account on the internet.
+Do not leave `CUTTLELY_LOCAL_ADMIN=true` on a public WorkOS deployment. It keeps the older owner compatibility endpoint available even though `/signin` hides the password form.
 
 ## 9. Troubleshooting
 
@@ -299,8 +299,8 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 
 ## 11. What this install does
 
--   `/signin` shows **Sign in with WorkOS** when `GET /api/v1/auth/signin-options` reports AuthKit. The button goes to `GET /api/v1/auth/login`. Share that login URL with people who are already active. A new person joins from their invite link instead. AuthKit turns off `POST /api/v1/auth/local/login` even when `CUTTLELY_LOCAL_USERS=true`. The owner password form still follows `CUTTLELY_LOCAL_ADMIN`. The first start with AuthKit configured ends existing local sessions and links a verified AuthKit email only when it matches one existing mailbox. See [Turn AuthKit on](../how-to/users-without-authkit.md#turn-authkit-on).
--   The password button is **Sign in with password** when WorkOS is on, and **Sign in** when it is the only way in. It appears only when `CUTTLELY_LOCAL_ADMIN=true`.
+-   `/signin` shows **Sign in with WorkOS** when `GET /api/v1/auth/signin-options` reports AuthKit. The button goes to `GET /api/v1/auth/login`. Share that login URL with people who are already active. A new person joins from their invite link instead. WorkOS turns off `POST /api/v1/auth/local/login` even when `CUTTLELY_LOCAL_USERS=true`. The page keeps the **Owner recovery** link and does not show an ordinary password form. The first start with WorkOS selected ends existing local sessions and links a verified AuthKit email only when it matches one existing mailbox. See [Turn AuthKit on](../how-to/users-without-authkit.md#turn-authkit-on).
+-   With Local active, `/signin` shows the shared local-user form when `CUTTLELY_LOCAL_USERS=true`; otherwise it shows the owner form when `CUTTLELY_LOCAL_ADMIN=true`.
 -   Add User takes a name and an email. It does not ask for a password. It shows the one-time invite link, and emails it when mail is set.
 -   With AuthKit unset and the local-admin flag off, sign-in answers 404.
 -   Other single sign-on providers, Stripe billing, and invite mail are not part of this install. The routes in this guide are the sign-in contract. Datasets, evaluators, and evaluations are in [Evaluations](../how-to/evaluations.md).

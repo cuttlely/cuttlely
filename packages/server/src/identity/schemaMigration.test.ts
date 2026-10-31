@@ -15,7 +15,13 @@
  */
 
 import type { QueryRunner } from 'typeorm'
-import { addAuthenticationState, addAuthenticationSwitchStage, addLocalDirectory, removeLocalDirectory } from './schemaMigration'
+import {
+    addAuthenticationState,
+    addAuthenticationSwitchStage,
+    addLocalDirectory,
+    addWorkosSessionId,
+    removeLocalDirectory
+} from './schemaMigration'
 
 interface Call {
     sql: string
@@ -26,6 +32,9 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
     const calls: Call[] = []
     const runner = {
         connection: { options: { type: 'postgres' } },
+        async hasColumn() {
+            return false
+        },
         async query(sql: string, params?: unknown[]) {
             calls.push({ sql, params })
             if (sql.includes('information_schema.tables')) return present.has(String(params?.[0])) ? [{ name: params?.[0] }] : []
@@ -97,5 +106,14 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"expiresAt" TIMESTAMP NOT NULL')
         expect(creates[0].sql).toContain('"consumedAt" TIMESTAMP NULL')
         expect(creates[0].sql).toContain('"version" integer NOT NULL')
+    })
+
+    it('adds the nullable WorkOS session id to application sessions', async () => {
+        const present = new Set(['identity_local_session'])
+        const { runner, calls } = postgresRunner(present)
+        await addWorkosSessionId(runner)
+        expect(
+            calls.some((call) => call.sql === 'ALTER TABLE "identity_local_session" ADD COLUMN "workosSessionId" varchar(255) NULL')
+        ).toBe(true)
     })
 })

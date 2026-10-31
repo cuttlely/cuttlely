@@ -2,19 +2,19 @@
 
 A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. That account is the **break-glass** account: it keeps working when nothing else does. When several people need to sign in, add WorkOS and let them sign in with their own identity. See [Sign in with WorkOS](#sign-in-with-workos). To let people who already have a password sign in without AuthKit, see [Users without AuthKit](./users-without-authkit.md). That switch is off by default. Invited people still have no password until a sign-in link exists.
 
-Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render turns the local password form off and uses WorkOS.
+Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render uses WorkOS and does not show an ordinary password form.
 
 ## Turn on the local account
 
-The password form shows only when the server runs with `CUTTLELY_LOCAL_ADMIN=true`, exactly `true`. A local install has it on by default.
+The owner password form shows when the durable active method is Local login, the server runs with `CUTTLELY_LOCAL_ADMIN=true`, and `CUTTLELY_LOCAL_USERS` is off. A local install has that owner-only combination by default. When Local login is active and `CUTTLELY_LOCAL_USERS=true`, `/signin` shows the shared local-user form instead; the owner uses that form like any other active local user.
 
-| Install     | Default                                                                                                                                                                                                      |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| From source | On. `scripts/start-cuttlely.sh` sets it unless you set it yourself, `packages/server/.env` sets it, or `WORKOS_API_KEY` is set.                                                                              |
-| Docker      | On. The start script turns it on for Docker when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, when you use WorkOS or publish the port beyond your machine. |
-| Render      | Off. Set it in the Dashboard only to recover the account, then remove it.                                                                                                                                    |
+| Install     | Default                                                                                                                                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| From source | On for the default owner-only Local method. `scripts/start-cuttlely.sh` sets the flag unless you set it yourself, `packages/server/.env` sets it, or `WORKOS_API_KEY` is set.                               |
+| Docker      | On for the default owner-only Local method. The start script turns the flag on when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, for a WorkOS deployment. |
+| Render      | Off. Set it in the Dashboard only to recover the account, then remove it.                                                                                                                                   |
 
-With the flag off and no WorkOS, the sign-in page says `Sign-in is not configured.` A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn a sign-in method back on.
+With the flag off, Local users off, and no active WorkOS method, the sign-in page says `Sign-in is not configured.` and still offers **Owner recovery**. A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn an ordinary sign-in method back on.
 
 ![The Sign In page. Under the Cuttlely logo and the Sign In title, the only line is Sign-in is not configured.](../images/sign-in/signin-not-configured.png)
 
@@ -109,9 +109,9 @@ Without a terminal, for example in a script, the command reads the password from
 
 1. Open `/signin` on your server, for example [http://localhost:43117/signin](http://localhost:43117/signin). Opening any page while signed out also brings you here.
 2. Type your **Email** and **Password**.
-3. Select **Sign in**. With WorkOS also on, the button is **Sign in with password**, under **Sign in with WorkOS**.
+3. Select **Sign in**. On an owner-only Local installation, this posts to `POST /api/v1/auth/login` and creates an ordinary Local session.
 
-![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/sign-in/signin-break-glass.png)
+![The Sign In page for an owner-only Local installation, with empty Email and Password fields, an eye icon on the password, a Sign in button, and the Owner recovery link.](../images/sign-in/signin-break-glass.png)
 
 The app opens **Chatflows**, or the page you were going to.
 
@@ -145,7 +145,7 @@ Use WorkOS when several people sign in. Cuttlely sends the browser to WorkOS Aut
 2. On an empty database, also set `CUTTLELY_BOOTSTRAP_EMAIL`. The first person to sign in through AuthKit must have that verified email, and becomes the owner.
 3. Open `/signin`. It now shows **Sign in with WorkOS**. The button opens `/api/v1/auth/login`, for example `http://127.0.0.1:43117/api/v1/auth/login` on a local server.
 
-With the local flag also on, the page shows both the WorkOS button and the password form.
+While WorkOS is the durable active method, `/signin` shows the WorkOS button and the discreet **Owner recovery** link. It does not show an ordinary password form, even when `CUTTLELY_LOCAL_ADMIN=true`; use `/owner-recovery` when the owner needs the recovery path.
 
 To add people, see [Invite people](#invite-people). Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
 

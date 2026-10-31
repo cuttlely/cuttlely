@@ -668,6 +668,17 @@ export async function removeSessionConvergence(runner: QueryRunner): Promise<voi
     await dropColumn(runner, dialect, 'identity_local_session', 'authenticationMethod')
 }
 
+/** Server-held WorkOS session identifier used to build a hosted sign-out URL. */
+export async function addWorkosSessionId(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await addColumn(runner, dialect, 'identity_local_session', 'workosSessionId', 'varchar(255) NULL')
+}
+
+export async function removeWorkosSessionId(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await dropColumn(runner, dialect, 'identity_local_session', 'workosSessionId')
+}
+
 function setupCodeTableSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_setup_code')} (
         ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,

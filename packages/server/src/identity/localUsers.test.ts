@@ -61,10 +61,15 @@ jest.mock('./production', () => {
         refreshAuthenticationView: () => mockRefreshView(),
         buildAuthContext: (req: Request) => {
             const redirectUri = process.env.WORKOS_REDIRECT_URI
+            const state = jest.requireActual('./authenticationState') as typeof import('./authenticationState')
+            const selected = state.selectedAuthenticationMethod()
+            const localUsers = localUsersMode()
+            const authKit = workosConfigured()
             return {
-                workosConfigured: workosConfigured(),
+                activeAuthenticationMethod: selected === undefined ? (localUsers ? 'local' : authKit ? 'workos' : null) : selected,
+                workosConfigured: authKit,
                 localAdmin: localAdminEnabled(),
-                localUsers: localUsersMode(),
+                localUsers,
                 cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
                 redirectUri,
                 secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
@@ -371,11 +376,11 @@ describe('local users mode', () => {
             { admin: false, users: false, authKit: false, methods: [], local: false, owner: false },
             { admin: true, users: false, authKit: false, methods: ['localAdmin'], local: false, owner: true },
             { admin: false, users: true, authKit: false, methods: ['localUsers'], local: true, owner: false },
-            { admin: true, users: true, authKit: false, methods: ['localAdmin', 'localUsers'], local: true, owner: true },
+            { admin: true, users: true, authKit: false, methods: ['localUsers'], local: true, owner: true },
             { admin: false, users: false, authKit: true, methods: ['authKit'], local: false, owner: false },
-            { admin: true, users: false, authKit: true, methods: ['authKit', 'localAdmin'], local: false, owner: true },
+            { admin: true, users: false, authKit: true, methods: ['authKit'], local: false, owner: true },
             { admin: false, users: true, authKit: true, methods: ['authKit'], local: false, owner: false },
-            { admin: true, users: true, authKit: true, methods: ['authKit', 'localAdmin'], local: false, owner: true }
+            { admin: true, users: true, authKit: true, methods: ['authKit'], local: false, owner: true }
         ]
         const { store } = await seed()
         for (const row of rows) {
@@ -678,6 +683,31 @@ describe('local users mode', () => {
         expect(owner.credential).toBe(ownerHash)
         expect(memberLimit.retained()).toBe(2)
         expect(ownerLimit.retained()).toBe(2)
+    })
+
+    it('shares ordinary failed-attempt limits between local-user and owner routes', async () => {
+        const { store } = await seed()
+        const rateLimit = new LoginRateLimit(2)
+        const member = json(
+            await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } }))
+        )
+        const owner = json(
+            await handleLoginPost(
+                ctx({
+                    activeAuthenticationMethod: 'local',
+                    store,
+                    localAdmin: true,
+                    internal: true,
+                    rateLimit,
+                    body: { email: 'owner@example.com', password: 'Wrong-Pass1!' }
+                })
+            )
+        )
+        const blocked = json(await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: OTHER } })))
+
+        expect(member.status).toBe(401)
+        expect(owner.status).toBe(401)
+        expect(blocked.status).toBe(429)
     })
 
     it('rejects a malformed or empty bcrypt hash on local login', async () => {
@@ -1215,7 +1245,7 @@ describe('local users mode', () => {
         }
     })
 
-    it('caps failed owner sign-ins on POST /login per client and leaves good sign-ins uncounted', async () => {
+    it('caps failed ordinary owner sign-ins on POST /login per client and leaves good sign-ins uncounted', async () => {
         const { store } = await seed()
         mockRouteStore.current = store
         let router = identityAuthRouter
@@ -1229,7 +1259,7 @@ describe('local users mode', () => {
         try {
             process.env.CUTTLELY_LOCAL_ADMIN = 'true'
             process.env.CUTTLELY_LOGIN_FAILURE_LIMIT = '3'
-            for (let i = 0; i < 4; i++) expect((await signIn(OTHER)).status).toBe(401)
+            for (let i = 0; i < 2; i++) expect((await signIn(OTHER)).status).toBe(401)
             for (let i = 0; i < 5; i++) {
                 const ok = await signIn(GOOD)
                 expect(ok.status).toBe(200)
@@ -1675,11 +1705,17 @@ describe('sign-in method view across processes', () => {
         jest.restoreAllMocks()
         mockRefreshView.mockReset()
         delete process.env.CUTTLELY_LOCAL_USERS
+        delete process.env.CUTTLELY_LOCAL_ADMIN
+        delete process.env.WORKOS_API_KEY
+        delete process.env.WORKOS_CLIENT_ID
     })
 
     it('refreshes the shared method before answering sign-in options and local sign-in', async () => {
         mockRefreshView.mockClear()
         process.env.CUTTLELY_LOCAL_USERS = 'true'
+        process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+        process.env.WORKOS_API_KEY = 'configured'
+        process.env.WORKOS_CLIENT_ID = 'configured'
         const state = jest.requireActual('./authenticationState') as typeof import('./authenticationState')
         let method: 'local' | 'workos' = 'workos'
         jest.spyOn(state, 'selectedAuthenticationMethod').mockImplementation(() => method)
@@ -1689,6 +1725,8 @@ describe('sign-in method view across processes', () => {
         const http = request(localRouteApp())
         const options = await http.get('/api/v1/auth/signin-options')
         expect(options.body.localUsers).toBe(true)
+        expect(options.body.localAdmin).toBe(false)
+        expect(options.body.authKit).toBe(false)
         method = 'workos'
         const login = await http.post('/api/v1/auth/local/login').send({ email: 'a@example.com', password: 'x' })
         expect(login.status).not.toBe(404)

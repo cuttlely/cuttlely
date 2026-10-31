@@ -322,7 +322,7 @@ export async function issueApplicationSession(
     ctx: AuthContext,
     userId: string,
     authenticationMethod: LocalSession['authenticationMethod'],
-    options: { recoveryUse?: boolean } = {}
+    options: { recoveryUse?: boolean; workosSessionId?: string } = {}
 ): Promise<{ token: string; session: SessionUser } | null> {
     if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
@@ -338,7 +338,8 @@ export async function issueApplicationSession(
         lastSeenAt: at,
         authenticationMethod,
         authenticationEpoch: ctx.authenticationEpoch,
-        recoveryUse: options.recoveryUse === true
+        recoveryUse: options.recoveryUse === true,
+        workosSessionId: authenticationMethod === 'workos' ? options.workosSessionId : undefined
     })
     if (!(await sessionSurvivedSwitch(ctx, token))) return null
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
@@ -459,7 +460,7 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
         } catch {
             // Optional. Sign-in still succeeds when WorkOS rejects the external id write.
         }
-        const issued = await issueApplicationSession(ctx, linked.user.id, 'workos')
+        const issued = await issueApplicationSession(ctx, linked.user.id, 'workos', { workosSessionId: authenticated.sessionId })
         if (!issued) {
             await noteSignIn(ctx, 'sign_in_failure', linked.user.id, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
@@ -492,23 +493,32 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     }
 }
 
-export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> {
+type OwnerPasswordMode = 'ordinary' | 'recovery'
+
+function ownerPasswordMode(ctx: AuthContext): OwnerPasswordMode {
+    return requestAuthenticationMethod(ctx) === 'local' ? 'ordinary' : 'recovery'
+}
+
+async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode): Promise<HandlerResult> {
     if (!ctx.internal) return json(401, { message: INVALID_LOGIN })
     const email = typeof ctx.body.email === 'string' ? ctx.body.email.trim().toLowerCase().slice(0, EMAIL_MAX_LENGTH) : ''
     const password = typeof ctx.body.password === 'string' ? ctx.body.password : ''
-    const limiter = ctx.recoveryRateLimit || ctx.rateLimit
-    const source = `recovery:${ctx.ip}`
-    const account = `recovery:${email}`
+    const recovery = mode === 'recovery'
+    const limiter = recovery ? ctx.recoveryRateLimit || ctx.rateLimit : ctx.rateLimit
+    const source = recovery ? `recovery:${ctx.ip}` : ctx.ip
+    const account = recovery ? `recovery:${email}` : email
+    const auditMethod = recovery ? 'owner' : 'local'
     if (await limiter.blocked(source, account, ctx.now)) {
-        if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('throttled', null)
-        await noteSignIn(ctx, 'lockout', null, 'owner')
+        if (recovery && ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('throttled', null)
+        await noteSignIn(ctx, 'lockout', null, auditMethod)
         return json(429, { message: TOO_MANY })
     }
 
     const fail = async (): Promise<HandlerResult> => {
         await limiter.recordFailure(source, account, ctx.now)
-        if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('wrong_credential', null)
-        await noteSignIn(ctx, 'sign_in_failure', null, 'owner')
+        if (recovery && ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('wrong_credential', null)
+        await noteSignIn(ctx, 'sign_in_failure', null, auditMethod)
+        if (!recovery && (await limiter.blocked(source, account, ctx.now))) await noteSignIn(ctx, 'lockout', null, auditMethod)
         return json(401, { message: INVALID_LOGIN })
     }
     if (!email || !password || password.length > PASSWORD_MAX_LENGTH) {
@@ -525,26 +535,38 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
-    const issued = await issueApplicationSession(ctx, owner.id, 'recovery', { recoveryUse: true })
+    const issued = await issueApplicationSession(ctx, owner.id, recovery ? 'recovery' : 'local', { recoveryUse: recovery })
     if (!issued) {
         if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in method changed. Try again.' })
         return json(401, { message: INVALID_LOGIN })
     }
-    try {
-        if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('success', owner.id)
-        if (ctx.raiseRecoveryAlert) await ctx.raiseRecoveryAlert(owner.id)
-    } catch (error) {
-        await ctx.store.deleteLocalSession(hashSessionToken(issued.token))
-        throw error
+    if (recovery) {
+        try {
+            if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('success', owner.id)
+            if (ctx.raiseRecoveryAlert) await ctx.raiseRecoveryAlert(owner.id)
+        } catch (error) {
+            await ctx.store.deleteLocalSession(hashSessionToken(issued.token))
+            throw error
+        }
     }
-    await noteSignIn(ctx, 'sign_in_success', owner.id, 'owner')
+    await noteSignIn(ctx, 'sign_in_success', owner.id, auditMethod)
     return json(200, issued.session, {
         cookies: [
             localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs),
-            ...(ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(owner.id)] : [])
+            ...(recovery && ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(owner.id)] : [])
         ],
         ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
     })
+}
+
+/** Compatibility owner route: ordinary under Local, recovery under any other active method. */
+export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> {
+    return handleOwnerPasswordPost(ctx, ownerPasswordMode(ctx))
+}
+
+/** The dedicated owner recovery route always uses recovery treatment. */
+export async function handleRecoveryLoginPost(ctx: AuthContext): Promise<HandlerResult> {
+    return handleOwnerPasswordPost(ctx, 'recovery')
 }
 
 export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
@@ -632,27 +654,22 @@ export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
     const localToken = ctx.cookies[LOCAL_SESSION_COOKIE]
     if (!ctx.internal && (sealed || localToken)) return json(401, { message: 'Unauthorized' })
     // Local authority ends first. Provider availability cannot keep this session open.
-    if (localToken) await ctx.store.deleteLocalSession(hashSessionToken(localToken))
+    let workosSessionId: string | undefined
+    if (localToken) {
+        const digest = hashSessionToken(localToken)
+        const session = await ctx.store.findLocalSession(digest)
+        await ctx.store.deleteLocalSession(digest)
+        if (session && tokensEqual(session.token, digest)) workosSessionId = session.workosSessionId
+    }
     const allCookies = [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE, LOCAL_SESSION_COOKIE, RECENT_AUTH_COOKIE]
     const expiredState = [expiredReauthenticationStateCookie(ctx.secure)]
-    if (sealed && ctx.workosConfigured) {
-        let redirectTo = signOutReturnTo(ctx.redirectUri) || '/signin'
-        if (ctx.cookiePasswordOk && ctx.sealedWorkosSessionsAccepted !== false) {
-            const returnTo = signOutReturnTo(ctx.redirectUri)
-            try {
-                redirectTo = await ctx.workos.logoutUrl(sealed, returnTo)
-            } catch (error) {
-                if (!(error instanceof WorkosUnavailableError)) {
-                    try {
-                        const refreshed = await ctx.workos.refresh(sealed)
-                        if (refreshed.authenticated) redirectTo = await ctx.workos.logoutUrl(refreshed.sealedSession, returnTo)
-                    } catch {
-                        redirectTo = returnTo || '/signin'
-                    }
-                }
-            }
+    if (workosSessionId && ctx.workosConfigured) {
+        try {
+            const redirectTo = await ctx.workos.logoutUrl(workosSessionId, signOutReturnTo(ctx.redirectUri))
+            return json(200, { message: 'logged_out', redirectTo }, { ...cleared(ctx, allCookies), cookies: expiredState })
+        } catch {
+            // The application session is already gone. A provider error falls back to the local sign-in page.
         }
-        return json(200, { message: 'logged_out', redirectTo }, { ...cleared(ctx, allCookies), cookies: expiredState })
     }
 
     return json(200, { message: 'logged_out', redirectTo: '/signin' }, { ...cleared(ctx, allCookies), cookies: expiredState })

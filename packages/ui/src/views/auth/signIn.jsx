@@ -150,8 +150,8 @@ const SignInPage = () => {
                                 Sign in with WorkOS
                             </Button>
                         )}
-                        {options.localUsers && (
-                            <form id='local-users-form' onSubmit={doLogin}>
+                        {(options.localUsers || options.localAdmin) && (
+                            <form id={options.localUsers ? 'local-users-form' : 'owner-password-form'} onSubmit={doLogin}>
                                 <Stack sx={{ width: '100%', flexDirection: 'column', gap: 2 }}>
                                     <Box sx={{ p: 0 }}>
                                         <Typography>

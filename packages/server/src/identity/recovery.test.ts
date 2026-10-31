@@ -3,8 +3,20 @@ import { DataSource } from 'typeorm'
 import { createRequire } from 'module'
 import fs from 'fs'
 import path from 'path'
+import { sendSmtp, smtpReady } from './actionLink'
 import { sqlFromDataSource } from './directory'
-import { acknowledgeRecoveryAlert, createRecoveryAlert, currentRecoveryAlert, recordRecoveryAttempt } from './recovery'
+import {
+    acknowledgeRecoveryAlert,
+    createRecoveryAlert,
+    currentRecoveryAlert,
+    notifyRecoverySuccess,
+    recordRecoveryAttempt
+} from './recovery'
+
+jest.mock('./actionLink', () => ({
+    sendSmtp: jest.fn(),
+    smtpReady: jest.fn()
+}))
 
 async function database(): Promise<DataSource> {
     const candidates = [
@@ -37,6 +49,11 @@ async function database(): Promise<DataSource> {
 }
 
 describe('owner recovery audit and alert', () => {
+    beforeEach(() => {
+        jest.mocked(sendSmtp).mockReset()
+        jest.mocked(smtpReady).mockReset()
+    })
+
     it('records outcome-specific high-severity audits and an audited acknowledgment', async () => {
         const db = await database()
         const sql = sqlFromDataSource(db)
@@ -66,6 +83,24 @@ describe('owner recovery audit and alert', () => {
         ])
         expect(acknowledged).toHaveLength(1)
         expect(JSON.parse(acknowledged[0].detail)).toMatchObject({ severity: 'high', outcome: 'acknowledged', alertId: alert.id })
+        await db.destroy()
+    })
+
+    it('emails active owners after a recovery success when SMTP is configured', async () => {
+        const db = await database()
+        jest.mocked(smtpReady).mockReturnValue(true)
+        jest.mocked(sendSmtp).mockResolvedValue(undefined)
+
+        await notifyRecoverySuccess(sqlFromDataSource(db), {
+            id: 'alert-1',
+            occurredAt: '2026-10-30T12:00:00.000Z'
+        })
+
+        expect(sendSmtp).toHaveBeenCalledWith({
+            to: 'owner@example.com',
+            subject: 'Cuttlely owner recovery sign-in',
+            text: expect.stringContaining('2026-10-30T12:00:00.000Z')
+        })
         await db.destroy()
     })
 })

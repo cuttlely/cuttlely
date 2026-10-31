@@ -45,6 +45,17 @@ function identityOf(user: { id: string; email: string; emailVerified: boolean; n
     }
 }
 
+export function sessionIdFromAccessToken(accessToken: string): string | undefined {
+    const payload = accessToken.split('.')[1]
+    if (!payload) return undefined
+    try {
+        const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { sid?: unknown }
+        return typeof decoded.sid === 'string' && decoded.sid.length > 0 && decoded.sid.length <= 255 ? decoded.sid : undefined
+    } catch {
+        return undefined
+    }
+}
+
 export function workosUnavailable(error: unknown): boolean {
     if (error instanceof WorkosUnavailableError) return true
     if (!error || typeof error !== 'object') return false
@@ -86,7 +97,7 @@ export const workosPort: WorkosPort = {
                 code,
                 clientId: process.env.WORKOS_CLIENT_ID
             })
-            return { user: identityOf(response.user) }
+            return { user: identityOf(response.user), sessionId: sessionIdFromAccessToken(response.accessToken) }
         } catch (error) {
             rethrow(error)
         }
@@ -121,10 +132,9 @@ export const workosPort: WorkosPort = {
         }
     },
 
-    async logoutUrl(sealed: string, returnTo?: string) {
+    async logoutUrl(sessionId: string, returnTo?: string) {
         try {
-            const session = client().userManagement.loadSealedSession({ sessionData: sealed, cookiePassword: password() })
-            return await session.getLogoutUrl(returnTo ? { returnTo } : {})
+            return client().userManagement.getLogoutUrl({ sessionId, ...(returnTo ? { returnTo } : {}) })
         } catch (error) {
             rethrow(error)
         }

@@ -20,6 +20,7 @@ import {
     handleLoginGet,
     handleReauthenticationGet,
     handleLoginPost,
+    handleRecoveryLoginPost,
     handleLogout,
     handleRefresh,
     handlePasswordRecoveryGone,
@@ -82,7 +83,7 @@ import { createHmac } from 'crypto'
 import type { DataSource } from 'typeorm'
 import * as authenticationState from './authenticationState'
 import { signedReauthenticationState, workosEpochCookie } from './cookies'
-import { workosPort } from './workosAdapter'
+import { sessionIdFromAccessToken, workosPort } from './workosAdapter'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -296,7 +297,7 @@ function workos(overrides: Partial<WorkosPort> = {}): WorkosPort & { externalIds
             )}&provider=authkit&max_age=0&prompt=login&state=${state}`,
         authenticate: async () => ({
             user: { id: 'wos-1', email: 'owner@example.com', emailVerified: true, name: 'Owner' },
-            sealedSession: 'sealed-1'
+            sessionId: 'session-1'
         }),
         authenticateSession: async () => ({ authenticated: false, reason: 'invalid_jwt' }),
         refresh: async () => ({
@@ -449,6 +450,12 @@ describe('identity auth', () => {
         }
     })
 
+    it('reads the WorkOS session id from the access token claim', () => {
+        const payload = Buffer.from(JSON.stringify({ sid: 'session-from-access-token' })).toString('base64url')
+        expect(sessionIdFromAccessToken(`header.${payload}.signature`)).toBe('session-from-access-token')
+        expect(sessionIdFromAccessToken('not-a-token')).toBeUndefined()
+    })
+
     it('GET /auth/login is 404 when WorkOS is unset', async () => {
         const result = await handleLoginGet(ctx())
         expect(result).toMatchObject({ type: 'json', status: 404 })
@@ -508,7 +515,8 @@ describe('identity auth', () => {
         expect(store.local.get(hashSessionToken(token))).toMatchObject({
             userId: 'user-9',
             authenticationMethod: 'workos',
-            recoveryUse: false
+            recoveryUse: false,
+            workosSessionId: 'session-1'
         })
         expect(store.users[0].externalId).toBe('wos-1')
         expect(store.users[0].credential).toBe('old-hash')
@@ -527,7 +535,7 @@ describe('identity auth', () => {
                     ? await handleLocalLogin(
                           ctx({ localUsers: true, internal: true, store, body: { email: 'owner@example.com', password: GOOD } })
                       )
-                    : await handleLoginPost(ctx({ internal: true, store, body: { email: 'owner@example.com', password: GOOD } }))
+                    : await handleRecoveryLoginPost(ctx({ internal: true, store, body: { email: 'owner@example.com', password: GOOD } }))
             const cookies = result.type === 'json' || result.type === 'redirect' ? result.cookies : undefined
             const cookie = cookies?.find((item) => item.name === 'cuttlely-local-session')
             const session = cookie ? store.local.get(hashSessionToken(cookie.value)) : undefined
@@ -910,10 +918,102 @@ describe('identity auth', () => {
     })
 
     it('owner recovery remains available when the compatibility flag is off', async () => {
-        await expect(handleLoginPost(ctx({ workosConfigured: true, internal: true }))).resolves.toMatchObject({
+        await expect(handleRecoveryLoginPost(ctx({ workosConfigured: true, internal: true }))).resolves.toMatchObject({
             type: 'json',
             status: 401
         })
+    })
+
+    it('uses ordinary Local treatment for the owner route while Local is active', async () => {
+        const store = new MemoryStore()
+        const credential = await hashPassword(GOOD)
+        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+        const noteRecoveryAttempt = jest.fn(async () => undefined)
+        const raiseRecoveryAlert = jest.fn(async () => undefined)
+        const recordRecentAuthentication = jest.fn()
+        const noteAudit = jest.fn(async () => undefined)
+
+        const result = json(
+            await handleLoginPost(
+                ctx({
+                    activeAuthenticationMethod: 'local',
+                    localAdmin: true,
+                    localUsers: false,
+                    internal: true,
+                    store,
+                    noteRecoveryAttempt,
+                    raiseRecoveryAlert,
+                    recordRecentAuthentication,
+                    noteAudit,
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+
+        expect(result.status).toBe(200)
+        const token = result.cookies?.find((cookie) => cookie.name === 'cuttlely-local-session')?.value || ''
+        expect(store.local.get(hashSessionToken(token))).toMatchObject({ authenticationMethod: 'local', recoveryUse: false })
+        expect(noteAudit).toHaveBeenCalledWith({ type: 'sign_in_success', userId: 'owner', method: 'local' })
+        expect(noteRecoveryAttempt).not.toHaveBeenCalled()
+        expect(raiseRecoveryAlert).not.toHaveBeenCalled()
+        expect(recordRecentAuthentication).not.toHaveBeenCalled()
+    })
+
+    it('keeps recovery treatment on the owner route while WorkOS is active', async () => {
+        const store = new MemoryStore()
+        const credential = await hashPassword(GOOD)
+        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+        const noteRecoveryAttempt = jest.fn(async () => undefined)
+        const raiseRecoveryAlert = jest.fn(async () => undefined)
+
+        const result = json(
+            await handleLoginPost(
+                ctx({
+                    activeAuthenticationMethod: 'workos',
+                    workosConfigured: true,
+                    localAdmin: true,
+                    internal: true,
+                    store,
+                    noteRecoveryAttempt,
+                    raiseRecoveryAlert,
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+
+        expect(result.status).toBe(200)
+        const token = result.cookies?.find((cookie) => cookie.name === 'cuttlely-local-session')?.value || ''
+        expect(store.local.get(hashSessionToken(token))).toMatchObject({ authenticationMethod: 'recovery', recoveryUse: true })
+        expect(noteRecoveryAttempt).toHaveBeenCalledWith('success', 'owner')
+        expect(raiseRecoveryAlert).toHaveBeenCalledWith('owner')
+    })
+
+    it('forces recovery treatment through the dedicated recovery handler while Local is active', async () => {
+        const store = new MemoryStore()
+        const credential = await hashPassword(GOOD)
+        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+        const noteRecoveryAttempt = jest.fn(async () => undefined)
+        const raiseRecoveryAlert = jest.fn(async () => undefined)
+
+        const result = json(
+            await handleRecoveryLoginPost(
+                ctx({
+                    activeAuthenticationMethod: 'local',
+                    localAdmin: true,
+                    internal: true,
+                    store,
+                    noteRecoveryAttempt,
+                    raiseRecoveryAlert,
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+
+        expect(result.status).toBe(200)
+        const token = result.cookies?.find((cookie) => cookie.name === 'cuttlely-local-session')?.value || ''
+        expect(store.local.get(hashSessionToken(token))).toMatchObject({ authenticationMethod: 'recovery', recoveryUse: true })
+        expect(noteRecoveryAttempt).toHaveBeenCalledWith('success', 'owner')
+        expect(raiseRecoveryAlert).toHaveBeenCalledWith('owner')
     })
 
     it('break-glass login allows only the super user and sets the local cookie', async () => {
@@ -961,16 +1061,16 @@ describe('identity auth', () => {
         const recoveryRateLimit = new LoginRateLimit(1)
         const base = { internal: true, store, recoveryRateLimit, noteRecoveryAttempt, raiseRecoveryAlert, recordRecentAuthentication }
 
-        expect(json(await handleLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: 'Wrong-Pass1!' } }))).status).toBe(
-            401
-        )
-        expect(json(await handleLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: GOOD } }))).status).toBe(429)
+        expect(
+            json(await handleRecoveryLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: 'Wrong-Pass1!' } }))).status
+        ).toBe(401)
+        expect(json(await handleRecoveryLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: GOOD } }))).status).toBe(429)
         expect(noteRecoveryAttempt).toHaveBeenNthCalledWith(1, 'wrong_credential', null)
         expect(noteRecoveryAttempt).toHaveBeenNthCalledWith(2, 'throttled', null)
 
         const successLimiter = new LoginRateLimit(1)
         const success = json(
-            await handleLoginPost(
+            await handleRecoveryLoginPost(
                 ctx({
                     ...base,
                     recoveryRateLimit: successLimiter,
@@ -1123,41 +1223,69 @@ describe('identity auth', () => {
                 seen.push(redirectUri)
                 return 'https://authkit.example/authorize'
             },
-            logoutUrl: async (_sealed: string, returnTo?: string) => {
-                seen.push(returnTo || '')
+            logoutUrl: async (sessionId: string, returnTo?: string) => {
+                seen.push(`${sessionId}:${returnTo || ''}`)
                 return 'https://authkit.example/logout?return_to=' + encodeURIComponent(returnTo || '')
             }
         })
         await handleLoginGet(ctx({ workosConfigured: true, redirectUri: hosted, workos: port }))
         await handleLoginGet(ctx({ workosConfigured: true, redirectUri: local, workos: port }))
+        const store = new MemoryStore()
+        const token = 'workos-token'
+        await store.insertLocalSession({
+            id: 'session',
+            userId: 'owner',
+            token: hashSessionToken(token),
+            idleExpires: new Date(NOW + 1000),
+            absoluteExpires: new Date(NOW + 1000),
+            authenticationMethod: 'workos',
+            workosSessionId: 'workos-session'
+        })
         const logged = json(
             await handleLogout(
-                ctx({ workosConfigured: true, internal: true, redirectUri: hosted, cookies: { 'wos-session': 'sealed' }, workos: port })
+                ctx({
+                    workosConfigured: true,
+                    internal: true,
+                    redirectUri: hosted,
+                    store,
+                    cookies: { 'cuttlely-local-session': token },
+                    workos: port
+                })
             )
         )
-        expect(seen).toEqual([hosted, local, 'https://cuttlely.example.com/signin'])
+        expect(seen).toEqual([hosted, local, 'workos-session:https://cuttlely.example.com/signin'])
         expect(logged.body.redirectTo).toContain(encodeURIComponent('https://cuttlely.example.com/signin'))
     })
 
-    it('logout returns the AuthKit URL for a sealed session and /signin for the local session', async () => {
-        const sealed = json(await handleLogout(ctx({ workosConfigured: true, internal: true, cookies: { 'wos-session': 'sealed-1' } })))
-        expect(sealed.status).toBe(200)
-        expect(sealed.body).toEqual({ message: 'logged_out', redirectTo: 'https://authkit.example/logout' })
-        expect(sealed.clearCookies).toContain('wos-session')
-
+    it.each(['local', 'recovery'] as const)('logout sends a %s session to /signin', async (authenticationMethod) => {
         const store = new MemoryStore()
+        const token = `${authenticationMethod}-token`
         await store.insertLocalSession({
             id: 'sess',
             userId: 'owner',
-            token: hashSessionToken('local-token'),
+            token: hashSessionToken(token),
             idleExpires: new Date(NOW + 1000),
-            absoluteExpires: new Date(NOW + 1000)
+            absoluteExpires: new Date(NOW + 1000),
+            authenticationMethod
         })
         const local = json(
-            await handleLogout(ctx({ localAdmin: true, internal: true, store, cookies: { 'cuttlely-local-session': 'local-token' } }))
+            await handleLogout(ctx({ localAdmin: true, internal: true, store, cookies: { 'cuttlely-local-session': token } }))
         )
         expect(local.body).toEqual({ message: 'logged_out', redirectTo: '/signin' })
-        expect(store.local.has(hashSessionToken('local-token'))).toBe(false)
+        expect(store.local.has(hashSessionToken(token))).toBe(false)
+    })
+
+    it('does not treat a sealed browser value as an application session', async () => {
+        const logoutUrl = jest.fn(async () => 'https://authkit.example/logout')
+        const sealed = json(
+            await handleLogout(
+                ctx({ workosConfigured: true, internal: true, cookies: { 'wos-session': 'sealed-1' }, workos: workos({ logoutUrl }) })
+            )
+        )
+        expect(sealed.status).toBe(200)
+        expect(sealed.body).toEqual({ message: 'logged_out', redirectTo: '/signin' })
+        expect(sealed.clearCookies).toContain('wos-session')
+        expect(logoutUrl).not.toHaveBeenCalled()
         await expect(
             handleLogout(ctx({ workosConfigured: true, internal: false, cookies: { 'wos-session': 'sealed-1' } }))
         ).resolves.toMatchObject({
@@ -1171,7 +1299,7 @@ describe('identity auth', () => {
         })
     })
 
-    it('deletes the application session before remote logout and keeps local logout successful on remote failure', async () => {
+    it('deletes the application session before building the WorkOS logout URL', async () => {
         const order: string[] = []
         const store = new MemoryStore()
         const token = 'application-token'
@@ -1180,7 +1308,9 @@ describe('identity auth', () => {
             userId: 'owner',
             token: hashSessionToken(token),
             idleExpires: new Date(NOW + 1000),
-            absoluteExpires: new Date(NOW + 1000)
+            absoluteExpires: new Date(NOW + 1000),
+            authenticationMethod: 'workos',
+            workosSessionId: 'workos-session-1'
         })
         const originalDelete = store.deleteLocalSession.bind(store)
         store.deleteLocalSession = async (digest) => {
@@ -1195,21 +1325,50 @@ describe('identity auth', () => {
                     store,
                     cookies: { 'cuttlely-local-session': token, 'wos-session': 'old-sealed' },
                     workos: workos({
-                        logoutUrl: async () => {
+                        logoutUrl: async (sessionId, returnTo) => {
                             order.push('remote')
-                            throw new Error('provider unavailable')
+                            expect(sessionId).toBe('workos-session-1')
+                            expect(returnTo).toBe('http://127.0.0.1:43117/signin')
+                            expect(store.local.has(hashSessionToken(token))).toBe(false)
+                            return 'https://authkit.example/logout'
                         }
                     })
                 })
             )
         )
-        expect(order[0]).toBe('local')
-        expect(order.slice(1)).toEqual(['remote', 'remote'])
+        expect(order).toEqual(['local', 'remote'])
         expect(result.status).toBe(200)
-        expect(result.body.redirectTo).toMatch(/\/signin$/)
+        expect(result.body.redirectTo).toBe('https://authkit.example/logout')
         expect(result.clearCookies).toEqual(
             expect.arrayContaining(['cuttlely-local-session', 'wos-session', 'cuttlely-workos-epoch', 'cuttlely-recent-auth'])
         )
+    })
+
+    it('keeps the application session deleted when WorkOS logout URL creation fails', async () => {
+        const store = new MemoryStore()
+        const token = 'application-token'
+        await store.insertLocalSession({
+            id: 'session',
+            userId: 'owner',
+            token: hashSessionToken(token),
+            idleExpires: new Date(NOW + 1000),
+            absoluteExpires: new Date(NOW + 1000),
+            authenticationMethod: 'workos',
+            workosSessionId: 'workos-session-1'
+        })
+        const result = json(
+            await handleLogout(
+                ctx({
+                    workosConfigured: true,
+                    internal: true,
+                    store,
+                    cookies: { 'cuttlely-local-session': token },
+                    workos: workos({ logoutUrl: async () => Promise.reject(new Error('unavailable')) })
+                })
+            )
+        )
+        expect(store.local.has(hashSessionToken(token))).toBe(false)
+        expect(result.body).toEqual({ message: 'logged_out', redirectTo: '/signin' })
     })
 
     it('resolve follows WorkOS, break-glass, and existing users', async () => {

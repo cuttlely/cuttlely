@@ -31,6 +31,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   WorkOS sign-out ends the hosted AuthKit session again. The provider session id stays on the Cuttlely session row; sign-out deletes that row before creating the hosted logout URL and falls back to `/signin` if URL creation does not complete.
+
+-   Default owner-only Local installations show the owner password form on `/signin` again. `POST /api/v1/auth/login` now creates an ordinary Local session while Local is the durable active method; recovery auditing, alerts, and owner notifications remain limited to `/owner-recovery`, `POST /api/v1/auth/recovery/login`, and compatibility use of the older endpoint under another active method.
+
 -   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.
 
 ## [1.4.8] - 2026-10-30

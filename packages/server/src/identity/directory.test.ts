@@ -274,7 +274,7 @@ describe('directory users', () => {
 })
 
 describe('sign-in screen contract', () => {
-    it('reports AuthKit without the break-glass form unless the flag is exactly true', () => {
+    it('shows the owner form only for owner-only Local sign-in', () => {
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client' })).toEqual({
             authKit: true,
             localAdmin: false,
@@ -284,7 +284,7 @@ describe('sign-in screen contract', () => {
         })
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_ADMIN: 'true' })).toEqual({
             authKit: true,
-            localAdmin: true,
+            localAdmin: false,
             localUsers: false,
             mail: false,
             ownerRecovery: true
@@ -297,7 +297,25 @@ describe('sign-in screen contract', () => {
             }).localUsers
         ).toBe(false)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'true' }).localUsers).toBe(true)
+        expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'true', CUTTLELY_LOCAL_ADMIN: 'true' }).localAdmin).toBe(false)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'TRUE' }).localUsers).toBe(false)
+        expect(
+            signInOptionsBody(
+                {
+                    WORKOS_API_KEY: 'key',
+                    WORKOS_CLIENT_ID: 'client',
+                    CUTTLELY_LOCAL_ADMIN: 'true'
+                },
+                'local'
+            )
+        ).toEqual({ authKit: false, localAdmin: true, localUsers: false, mail: false, ownerRecovery: true })
+        expect(signInOptionsBody({ CUTTLELY_LOCAL_ADMIN: 'true' }, 'workos')).toEqual({
+            authKit: false,
+            localAdmin: false,
+            localUsers: false,
+            mail: false,
+            ownerRecovery: true
+        })
         expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false, ownerRecovery: true })
         expect(signInOptionsBody({ SMTP_HOST: 'smtp.example.com' })).toEqual({
             authKit: false,
