@@ -502,9 +502,23 @@ export async function switchAuthenticationMethod(
             )
             if (consumed === 0) throw new Error('AUTH_STAGE_STALE')
         }
-        const counted = await query(runner, `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${q(d, 'identity_local_session')}`)
+        const switchAt = stage?.now ?? Date.now()
+        const cutoff = await query(
+            runner,
+            `SELECT ${q(d, 'cutoffAt')} AS ${q(d, 'cutoffAt')} FROM ${q(d, 'identity_session_convergence')} WHERE ${q(d, 'id')} = 1`
+        )
+        const cutoffAt = cutoff[0] ? value(cutoff[0], 'cutoffAt') : null
+        const sessions = q(d, 'identity_local_session')
+        const counted = await query(
+            runner,
+            `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${sessions} WHERE ${q(d, 'expiresAt')} > ? AND ${q(
+                d,
+                'absoluteExpiresAt'
+            )} > ? AND NOT (${q(d, 'authenticationMethod')} = 'workos' AND ${q(d, 'createdDate')} <= ?)`,
+            [databaseDate(runner, new Date(switchAt)), databaseDate(runner, new Date(switchAt)), cutoffAt]
+        )
         const ended = Number(value(counted[0] || {}, 'count') || 0)
-        await query(runner, `DELETE FROM ${q(d, 'identity_local_session')}`)
+        await query(runner, `DELETE FROM ${sessions}`)
         const now = new Date()
         await query(
             runner,

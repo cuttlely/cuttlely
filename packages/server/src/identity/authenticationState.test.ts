@@ -62,7 +62,11 @@ async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Prom
         } NOT NULL)`
     )
     await runner.query(
-        'CREATE TABLE "identity_local_session" ("id" varchar(36) PRIMARY KEY, "userId" varchar(36) NOT NULL, "token" varchar(64) NOT NULL)'
+        `CREATE TABLE "identity_local_session" ("id" varchar(36) PRIMARY KEY, "userId" varchar(36) NOT NULL, "token" varchar(64) NOT NULL,
+         "expiresAt" ${type === 'postgres' ? 'timestamp' : 'datetime'} NULL,
+         "absoluteExpiresAt" ${type === 'postgres' ? 'timestamp' : 'datetime'} NULL,
+         "createdDate" ${type === 'postgres' ? 'timestamp' : 'datetime'} NULL,
+         "authenticationMethod" varchar(32) NULL)`
     )
     await runner.query('CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "credential" text, "status" varchar(20))')
     await runner.query('CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(100))')
@@ -157,7 +161,11 @@ describe('authentication provider foundation', () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
             const db = await database()
             const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
-            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['recovery-session', 'user', 'token'])
+            await db.query('INSERT INTO "identity_local_session" ("id", "userId", "token") VALUES (?, ?, ?)', [
+                'recovery-session',
+                'user',
+                'token'
+            ])
             await db.query('INSERT INTO "api_key" VALUES (?)', ['key'])
             const after = await switchAuthenticationMethod(db, 'workos', before.version, {
                 organizationId: 'org',
@@ -169,6 +177,44 @@ describe('authentication provider foundation', () => {
             expect(await db.query('SELECT * FROM "api_key"')).toHaveLength(1)
             const audit = await db.query('SELECT "detail" FROM "audit_event"')
             expect(JSON.parse(audit[0].detail)).toMatchObject({ outcome: 'applied', configurationFingerprint: expect.any(String) })
+            await db.destroy()
+        })
+    })
+
+    it('counts only usable sessions that survive the convergence cutoff when switching', async () => {
+        await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
+            const db = await database()
+            const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+            const cutoff = Date.parse('2026-10-30T12:00:00.000Z')
+            const switchAt = Date.parse('2026-10-30T13:00:00.000Z')
+            await activateSessionConvergence(db, cutoff)
+            const insert = async (
+                id: string,
+                expiresAt: number,
+                absoluteExpiresAt: number,
+                createdDate: number,
+                authenticationMethod: string
+            ) =>
+                db.query(
+                    'INSERT INTO "identity_local_session" ("id", "userId", "token", "expiresAt", "absoluteExpiresAt", "createdDate", "authenticationMethod") VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [id, 'user', id, expiresAt, absoluteExpiresAt, createdDate, authenticationMethod]
+                )
+            await insert('usable-local', switchAt + 1, switchAt + 2, switchAt - 1, 'local')
+            await insert('idle-ended', switchAt - 1, switchAt + 2, switchAt - 2, 'local')
+            await insert('absolute-ended', switchAt + 1, switchAt - 1, switchAt - 2, 'local')
+            await insert('cutoff-workos', switchAt + 1, switchAt + 2, cutoff, 'workos')
+            await insert('new-workos', switchAt + 1, switchAt + 2, switchAt, 'workos')
+
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(switchAt)
+            let after
+            try {
+                after = await switchAuthenticationMethod(db, 'workos', before.version)
+            } finally {
+                clock.mockRestore()
+            }
+
+            expect(after.sessionsEnded).toBe(2)
+            expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(0)
             await db.destroy()
         })
     })
@@ -273,7 +319,7 @@ describe('authentication provider foundation', () => {
             await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
             await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
             await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
-            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['session', 'owner', 'token'])
+            await db.query('INSERT INTO "identity_local_session" ("id", "userId", "token") VALUES (?, ?, ?)', ['session', 'owner', 'token'])
             const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'local', before.version)
             await db.query('UPDATE "user" SET "credential" = NULL WHERE "id" = ?', ['owner'])
             await expect(
@@ -347,7 +393,11 @@ describe('authentication provider foundation', () => {
             const db = await database()
             const local = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
             await switchAuthenticationMethod(db, 'workos', local.version)
-            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['recovery-session', 'owner', 'token'])
+            await db.query('INSERT INTO "identity_local_session" ("id", "userId", "token") VALUES (?, ?, ?)', [
+                'recovery-session',
+                'owner',
+                'token'
+            ])
             expect(await applyAuthKitSwitchOnBoot(db)).toBeNull()
             expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
             await db.destroy()
