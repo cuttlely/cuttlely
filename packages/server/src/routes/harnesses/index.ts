@@ -41,6 +41,13 @@ router.get(
     requireHarnessAccess(),
     harnessesController.getRun
 )
+router.get(
+    '/:name/runs/:runId/diagnostics',
+    harnessRunRateLimit('read'),
+    requireAnyPermission('chatflows:update,agentflows:create'),
+    requireHarnessAccess(),
+    harnessesController.getRunDiagnostics
+)
 router.post(
     '/:name/runs',
     harnessRunRateLimit('start'),

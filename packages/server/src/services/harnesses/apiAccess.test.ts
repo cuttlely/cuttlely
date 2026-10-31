@@ -225,6 +225,22 @@ describe('harness API runs with an API key', () => {
             setTeamPermissionLookup(null)
         }
     })
+
+    it('requires an author permission to read private validation diagnostics', async () => {
+        const url = '/api/v1/harnesses/bakery/runs/run_00000000-0000-4000-8000-000000000000/diagnostics'
+        const { setTeamPermissionLookup } = await import('../../identity/rbac')
+        const person = { id: 'author', activeWorkspaceId: 'team-a', activeOrganizationId: 'org-1' }
+        for (const permissions of [['chatflows:view'], ['chatflows:update']]) {
+            setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions }) })
+            try {
+                const res = await request(app({ ...person, permissions })).get(url)
+                expect(res.status).toBe(permissions.includes('chatflows:update') ? 200 : 403)
+            } finally {
+                setTeamPermissionLookup(null)
+            }
+        }
+        expect(handled).toEqual(['getRunDiagnostics bakery'])
+    })
 })
 
 describe('harness run rate limits', () => {

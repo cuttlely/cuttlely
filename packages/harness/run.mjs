@@ -28,8 +28,10 @@ import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
 import { renderTrustedOutputs, composeTrustedOutputs, verifiedUnmappedOutput } from './trusted-output.mjs'
-import { composeProtectedInterpretation, protectedLiteralIssues } from './protected-interpretation.mjs'
+import { composeProtectedInterpretation, protectedLiteralIssues, protectedReportingCaption } from './protected-interpretation.mjs'
 import { sourceAnswerFallback } from './source-answer-fallback.mjs'
+import { reportingCurrencySymbol } from './reporting-currency.mjs'
+import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-output.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
@@ -161,11 +163,11 @@ function traceIdFrom(args) {
     return safeTraceId(args?.traceId) || safeTraceId(args?.flowOptions?.executionId) || safeTraceId(args?.metadata?.executionId)
 }
 
-function rememberRun(args, started, pending, result, error) {
+function rememberRun(args, started, pending, result, error, diagnostics) {
     let recorded = pending
     try {
         if (pending) {
-            recorded = finishHarnessRun(pending, { result, error, traceId: traceIdFrom(args) }) || pending
+            recorded = finishHarnessRun(pending, { result, error, traceId: traceIdFrom(args), diagnostics }) || pending
         } else {
             const opened = beginHarnessRun({
                 id: args?.runId,
@@ -177,7 +179,7 @@ function rememberRun(args, started, pending, result, error) {
                 input: args?.input,
                 traceId: traceIdFrom(args)
             })
-            recorded = opened ? finishHarnessRun(opened, { result, error, traceId: traceIdFrom(args) }) : null
+            recorded = opened ? finishHarnessRun(opened, { result, error, traceId: traceIdFrom(args), diagnostics }) : null
         }
     } catch (historyError) {
         console.warn(`[harness] run history was not saved: ${historyError.message}`)
@@ -230,13 +232,18 @@ async function runHarnessBody(args = {}) {
         }
     }
     const turnFolders = new Set()
+    // Kept outside the result, events and public trace. Only the author diagnostics route reads these.
+    const diagnostics = []
+    const recordInterpretationDiagnostic = (claim) => {
+        if (!replay && diagnostics.length < 8) diagnostics.push(claim)
+    }
     let result
     let failure = null
     const tryName = args.record?.tryId ? tryProfileName(args.record.tryId) : ''
     if (tryName) noteLiveTry(tryName)
     try {
         // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
-        const rawResult = await runHarnessTurn({ ...args, turnFolders })
+        const rawResult = await runHarnessTurn({ ...args, turnFolders, recordInterpretationDiagnostic })
         result = maskWorkspacePaths(rawResult)
         if (rawResult.trace?.handoff?.reason === 'trustedOutput') result.text = rawResult.text
         return result
@@ -267,7 +274,7 @@ async function runHarnessBody(args = {}) {
                 // Dropping the check's captured rows must not hide the run's own error.
             }
         } else {
-            rememberRun(args, started, pending, result, failure)
+            rememberRun(args, started, pending, result, failure, diagnostics)
         }
     }
 }
@@ -293,7 +300,8 @@ async function runHarnessTurn({
     record,
     replay,
     trustedOutputPreview,
-    turnFolders
+    turnFolders,
+    recordInterpretationDiagnostic
 } = {}) {
     const harness = harnessForTurn(name, record)
     if (!chatId) {
@@ -325,7 +333,8 @@ async function runHarnessTurn({
                     images,
                     replay,
                     trustedOutputPreview,
-                    turnFolders
+                    turnFolders,
+                    recordInterpretationDiagnostic
                 }),
             { workspace: harness.workspaceId }
         )
@@ -376,7 +385,8 @@ async function runTurn(
         images,
         replay,
         trustedOutputPreview,
-        turnFolders
+        turnFolders,
+        recordInterpretationDiagnostic
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
@@ -403,7 +413,8 @@ async function runTurn(
             images,
             replay,
             trustedOutputPreview,
-            turnFolders
+            turnFolders,
+            recordInterpretationDiagnostic
         })
     } finally {
         if (callerWorkspace) clearCallerWorkspace(harness.name)
@@ -432,7 +443,8 @@ async function runTurnBody(
         images,
         replay,
         trustedOutputPreview,
-        turnFolders
+        turnFolders,
+        recordInterpretationDiagnostic
     }
 ) {
     assertCurrentRecord(harness)
@@ -486,6 +498,7 @@ async function runTurnBody(
         turnId: crypto.randomUUID(),
         images: promptImages(images),
         turnFolders,
+        recordInterpretationDiagnostic,
         // Publish-check replay: do not read or write the harness session.
         replay: replay === true,
         trustedOutputPreview: trustedOutputPreview === true
@@ -2112,7 +2125,24 @@ function replaceTrustedArtifacts(context, name, artifacts = []) {
     }
 }
 
-async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
+export function verifiedMonetaryQueryReadout(specialist, captured, text) {
+    const symbol = reportingCurrencySymbol(specialist.trustedOutputs)
+    return Boolean(
+        specialist.trustedInterpretation === true &&
+            specialist.trustedOutputPolicy === VERIFIED_QUERY_POLICY &&
+            symbol &&
+            captured.length &&
+            captured.every((item) => verifiedQueryCapture(item) && item.queryEvidence.rowCap <= 100 && item.result.rows.length <= 100) &&
+            protectedLiteralIssues(
+                text,
+                captured.map((item) => item.result),
+                [],
+                symbol
+            ).length === 0
+    )
+}
+
+async function protectStepOutput(context, specialist, { dataTask, text, factualText } = {}) {
     if (!specialist.trustedOutputs?.length) return null
     const captured = context.trustedCaptures?.get(specialist.name) || []
     const mapped = (name) => specialist.trustedOutputs.some((contract) => name === contract.pin || name?.endsWith(`__${contract.pin}`))
@@ -2133,14 +2163,28 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
             if (specialist.trustedInterpretation === true && captured.length) {
                 const issues = protectedLiteralIssues(
                     text,
-                    captured.map((item) => item.result)
+                    captured.map((item) => item.result),
+                    [],
+                    reportingCurrencySymbol(specialist.trustedOutputs)
                 )
                 if (issues.length) {
                     replaceTrustedArtifacts(context, specialist.name)
                     return {
-                        text: maskWorkspacePaths(sourceAnswerFallback(captured)),
+                        text: maskWorkspacePaths(sourceAnswerFallback(captured, reportingCurrencySymbol(specialist.trustedOutputs))),
                         artifacts: [],
                         interpretation: { included: false, reason: issues.join(',') }
+                    }
+                }
+                if (factualText) {
+                    const caption = protectedReportingCaption(
+                        captured.map((item) => item.result),
+                        [],
+                        reportingCurrencySymbol(specialist.trustedOutputs)
+                    )
+                    return {
+                        text: `${text}\n\n---\n\n${caption ? caption + '\n\n' : ''}${factualText}`,
+                        artifacts: [],
+                        interpretation: { included: true, reason: '' }
                     }
                 }
             }
@@ -2159,12 +2203,29 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
     if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
     replaceTrustedArtifacts(context, specialist.name, rendered.artifacts)
     if (specialist.trustedInterpretation === true) {
+        const diagnosticPins = specialist.trustedOutputs.filter(
+            (contract) => contract.interpretationDiagnostics === true && captured.some((item) => item.toolName === contract.pin)
+        )
         const composed = composeProtectedInterpretation({
             interpretation: maskWorkspacePaths(text),
             facts: rendered.text,
             sources: captured.map((item) => item.result),
-            paths: specialist.trustedInterpretationPaths
+            paths: specialist.trustedInterpretationPaths,
+            diagnostics: diagnosticPins.length > 0 && !context.replay,
+            reportingCurrencySymbol:
+                reportingCurrencySymbol(
+                    specialist.trustedOutputs.filter((contract) => captured.some((item) => item.toolName === contract.pin))
+                ) || reportingCurrencySymbol(specialist.trustedOutputs)
         })
+        if (composed.diagnostics?.length && typeof context.recordInterpretationDiagnostic === 'function') {
+            for (const claim of composed.diagnostics) {
+                context.recordInterpretationDiagnostic({
+                    specialist: specialist.name,
+                    pins: diagnosticPins.map((contract) => contract.pin),
+                    ...claim
+                })
+            }
+        }
         if (Buffer.byteLength(composed.text) > 200000)
             throw new HarnessError('trusted_output', 'Interpreted output exceeds the composed output limit.')
         return { ...rendered, text: composed.text, interpretation: { included: composed.included, reason: composed.reason } }
@@ -2220,6 +2281,7 @@ async function runStep(context, step) {
                 : null
         let out = preRun
         let protectedOutput
+        let nativeQueryFacts
         if (!out) {
             try {
                 out = await runSpecialistOnce(context, specialist, task)
@@ -2265,22 +2327,27 @@ async function runStep(context, step) {
             })
             out = { text: detail, sources: [], ungrounded: true }
         } else if (dataTask) {
+            const captured = context.trustedCaptures?.get(specialist.name) || []
+            const preserveReadout = verifiedMonetaryQueryReadout(specialist, captured, out.text)
+            const groundedText = groundAnalystSpecialistText(out.text, context.toolLog, specialist.name)
+            if (preserveReadout && groundedText !== out.text) nativeQueryFacts = groundedText
             out = {
                 ...out,
                 // Pin-first text is the harness's own rendering of the logged result (escaped cells, author columns), so
                 // it is not rewritten from the raw payload; the payloads still ride along for the answer checks.
                 text:
                     preRun ||
+                    preserveReadout ||
                     (specialist.trustedInterpretation === true &&
                         (context.trustedCaptures?.get(specialist.name) || []).some((item) =>
                             specialist.trustedOutputs?.some((contract) => item.toolName === contract.pin)
                         ))
                         ? out.text
-                        : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
+                        : groundedText,
                 analystPayloads: analystPayloadsFor(context.toolLog, specialist.name)
             }
         }
-        protectedOutput ||= await protectStepOutput(context, specialist, { dataTask, text: out.text })
+        protectedOutput ||= await protectStepOutput(context, specialist, { dataTask, text: out.text, factualText: nativeQueryFacts })
         if (protectedOutput?.passthrough) out = { ...out, trustedPassthrough: true }
         else if (protectedOutput)
             out = {

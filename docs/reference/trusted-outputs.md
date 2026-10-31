@@ -70,6 +70,40 @@ If the interpretation is empty or cannot be verified, factual delivery continues
 
 Interpretation takes precedence over **Pin first**'s model-free shortcut. The specialist model runs the canonical source once and explains its returned evidence; no deterministic pre-run duplicates that query. With interpretation off, the shortcut and strict factual delivery are unchanged. The new policy and interpretation controls are saved-author settings and cannot be enabled through request overrides.
 
+## Private interpretation diagnostics
+
+For author QA, add `"interpretationDiagnostics": true` to a matching **Markdown** contract in `trustedOutputs`, with `trustedInterpretation: true` on its specialist. The option defaults off and accepts a boolean, not request override text. For example, an existing report contract can include:
+
+```json
+{
+    "pin": "pq_report",
+    "hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "mode": "markdown",
+    "fields": [{ "path": "rows.0.report_markdown" }],
+    "interpretationDiagnostics": true
+}
+```
+
+Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number` rejection with at most eight deduplicated numeric literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
+
+After the run, a signed-in harness author can request:
+
+```http
+GET /api/v1/harnesses/:name/runs/:runId/diagnostics
+```
+
+The caller needs `chatflows:update` or `agentflows:create` permission in the current workspace, and the named harness and run must belong to that workspace. API keys, including harness-bound keys, cannot read this route. It returns the bounded private claims for the selected run; an opted-out run has no claims. These records are absent from ordinary run lists and history, saved results, public traces, chat responses and streamed events. They use the same 100-run history retention limit rather than a separate unbounded archive. Disable the contract option when author investigation is complete.
+
+## Monetary reporting convention
+
+When interpretation is enabled, an author can add `"reportingCurrencySymbol": "$"` to an existing trusted-output contract. This sets a business reporting display convention for monetary measures such as ACV, ARR, revenue and churn amounts when their source does not return a denomination. It does not change the query, infer an ISO currency code or perform an exchange-rate conversion. Explicit source denominations take precedence; a dollar convention cannot override a source amount recorded in euros. A nonempty unrecognized denomination or conflicting unbound source metadata also prevents an inferred default.
+
+The setting accepts one supported currency symbol, not a currency code or instruction text. For mapped evidence, the matching contracts establish the convention. An unmapped verified query can use the specialist's default only when its explicitly configured contract symbols agree; an omitted symbol makes no currency claim, and conflicting declarations supply no default. Without this optional setting, existing currency checks and other harnesses keep their behavior. Source notes, comments and model text cannot enable a convention.
+
+A monetary readout can use the exact comma-grouped amount or compact `K`, `M` and `B` notation. A compact value must match one actual typed monetary source value, rounded half away from zero to the displayed precision, with at most three fractional digits. For example, `1250000.00` ACV can be shown as `$1.25M`. A nonzero amount cannot be displayed as compact zero. Counts, percentages, scores and dates cannot supply monetary values, and summing unrelated rows does not authorize a new figure.
+
+The server adds a concise monetary reporting caption where appropriate while keeping the original factual text, table cells and raw numerical values unchanged. Conflicting source denominations retain their source presentation. If a generated answer fails the checks, the bounded source-field fallback uses the same convention and preserves the returned values.
+
 ## Source Markdown
 
 `markdown` selects strings at static configured paths, in configured order. A dot separates object keys and array indexes. `*` selects each member of an array in source order, for example `rows.*.section_markdown`. A JSON column returned as text is decoded as data while following its path. Paths cannot select prototype properties or execute expressions.
