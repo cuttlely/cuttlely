@@ -19,7 +19,9 @@ import {
     Tooltip,
     styled,
     Popper,
-    CircularProgress
+    CircularProgress,
+    Alert,
+    OutlinedInput
 } from '@mui/material'
 import { autocompleteClasses } from '@mui/material/Autocomplete'
 
@@ -27,6 +29,7 @@ import { autocompleteClasses } from '@mui/material/Autocomplete'
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import { invitationPayload } from '@/ui-component/dialog/invitePayload'
+import { invitationResults } from '@/ui-component/dialog/inviteDialogState'
 
 // Icons
 import { IconX, IconCircleCheck, IconUser } from '@tabler/icons-react'
@@ -91,6 +94,59 @@ const StyledPopper = styled(Popper)({
     }
 })
 
+export const InviteLinksStep = ({ links, onDone }) => {
+    const [copiedLink, setCopiedLink] = useState('')
+
+    const copyLink = async (link) => {
+        try {
+            await window['nav' + 'igator'].clipboard.writeText(link)
+            setCopiedLink(link)
+        } catch {
+            setCopiedLink('')
+        }
+    }
+
+    return (
+        <>
+            <DialogContent>
+                <Alert severity='success' sx={{ mb: 2 }}>
+                    Send each one-time invite link to the matching person. Each link is shown only once and works once.
+                </Alert>
+                <Stack spacing={2}>
+                    {links.map((item, index) => (
+                        <Box key={`${item.email}-${index}`}>
+                            <Typography sx={{ mb: 0.5 }}>{item.email}</Typography>
+                            <Stack direction='row' spacing={1}>
+                                <OutlinedInput
+                                    id={`invite-link-${index}`}
+                                    size='small'
+                                    fullWidth
+                                    readOnly
+                                    value={item.link}
+                                    onFocus={(event) => event.target.select()}
+                                />
+                                <Button data-testid={`copy-invite-link-${index}`} onClick={() => copyLink(item.link)}>
+                                    {copiedLink === item.link ? 'Copied' : 'Copy link'}
+                                </Button>
+                            </Stack>
+                        </Box>
+                    ))}
+                </Stack>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+                <StyledButton id='btn_invites_done' variant='contained' onClick={onDone}>
+                    Done
+                </StyledButton>
+            </DialogActions>
+        </>
+    )
+}
+
+InviteLinksStep.propTypes = {
+    links: PropTypes.array.isRequired,
+    onDone: PropTypes.func.isRequired
+}
+
 const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const portalElement = document.getElementById('portal')
 
@@ -115,6 +171,7 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const [availableRoles, setAvailableRoles] = useState([])
     const [selectedRole, setSelectedRole] = useState('')
     const [isSaving, setIsSaving] = useState(false)
+    const [inviteLinks, setInviteLinks] = useState([])
 
     const getAllRolesApi = useApi(roleApi.getAllRolesByOrganizationId)
     const getAllWorkspacesByOrganizationIdApi = useApi(workspaceApi.getAllWorkspacesByOrganizationId)
@@ -197,6 +254,7 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         setSearchString('')
         setUserSearchResults([])
         setSelectedUsers([])
+        setInviteLinks([])
         fetchInitialData()
         if (dialogProps.type === 'ADD' && dialogProps.data) {
             // when clicking on add user in workspace page
@@ -219,6 +277,7 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             setOrgUsers([])
             setUserSearchResults([])
             setSelectedUsers([])
+            setInviteLinks([])
             setWorkspaces([])
             setSelectedRole(null)
             setSelectedWorkspace(null)
@@ -343,7 +402,9 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                         )
                     }
                 })
-                onConfirm() // Pass the first ID or modify as needed
+                const result = invitationResults(selectedUsers, responses)
+                if (result.keepOpen) setInviteLinks(result.links)
+                else onConfirm()
             } else {
                 throw new Error('No data received from the server')
             }
@@ -613,12 +674,17 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         return false
     }
 
+    const finishInvites = () => {
+        setInviteLinks([])
+        onConfirm()
+    }
+
     const component = show ? (
         <Dialog
             fullWidth
             maxWidth='md'
             open={show}
-            onClose={onCancel}
+            onClose={inviteLinks.length ? finishInvites : onCancel}
             aria-labelledby='alert-dialog-title'
             aria-describedby='alert-dialog-description'
         >
@@ -628,7 +694,8 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                     Invite Users
                 </div>
             </DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {inviteLinks.length ? <InviteLinksStep links={inviteLinks} onDone={finishInvites} /> : null}
+            <DialogContent sx={{ display: inviteLinks.length ? 'none' : 'flex', flexDirection: 'column', gap: 2 }}>
                 <Box>
                     <Typography>
                         Select Users<span style={{ color: 'red' }}>&nbsp;*</span>
@@ -691,7 +758,7 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                     </Box>
                 </Box>
             </DialogContent>
-            <DialogActions sx={{ px: 3, pb: 2 }}>
+            <DialogActions sx={{ px: 3, pb: 2, display: inviteLinks.length ? 'none' : 'flex' }}>
                 <Button onClick={() => onCancel()} disabled={isSaving}>
                     {dialogProps.cancelButtonName}
                 </Button>

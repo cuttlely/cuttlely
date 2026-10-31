@@ -158,7 +158,7 @@ Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS A
 An invited person joins only through their own invite link. Signing in through the active remote method with the invited email is not enough, even when the provider has verified that email.
 
 1. Open **Admin**, then **Users**, and select **Add User**. Give the person a name, an email, a team and a role, then select **Create User**.
-2. The dialog shows a one-time invite link, once. Select **Copy link** and send it to that person. When the mail server is set in **Server Settings**, Cuttlely also emails it. With **Invite delivery** set to **Email**, Cuttlely only emails it and the dialog closes.
+2. The dialog shows each returned one-time invite link, once. Select **Copy link** and send it to the matching person, then select **Done**. The dialog stays open while those links are visible. When the mail server is set in **Server Settings**, Cuttlely also emails them. With **Invite delivery** set to **Email**, Cuttlely only emails them and the dialog closes.
 3. The person opens the link, selects **Accept invite with _provider_**, and signs in with the email the invite was sent to. The button names WorkOS or the configured generic OIDC provider, whichever method is active.
 
 That first sign-in through the link makes the person active and creates their provider link in the same transaction that consumes the invitation. After that they use the active remote sign-in method like everyone else. If AuthKit public sign-up is off, also create them in the WorkOS Users directory.

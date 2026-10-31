@@ -33,7 +33,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Generic OIDC **Test sign-in** now passes only when the returned identity would be accepted by ordinary sign-in. Missing or unassured email and an email with no matching Cuttlely user show a clear failure, clear the tested fingerprint, and keep activation unavailable. OIDC drafts tested before this correction must be tested again. Startup also recognizes the durable active OIDC method instead of reporting that no sign-in method is available. Refusal audits omit the provider subject when no user matched, and pending or invalid invitations show the documented next step on the sign-in page.
+-   Generic OIDC **Test sign-in** now passes only when the returned identity would be accepted by ordinary sign-in. Missing or unassured email and an email with no matching Cuttlely user show a clear failure, clear the tested fingerprint, and keep activation unavailable. OIDC drafts tested before this correction must be tested again. Startup also recognizes the durable active OIDC method instead of reporting that no sign-in method is available. Refusal audits omit the provider subject when no user matched, and pending or invalid invitations show the documented next step on the sign-in page. Bulk invitations keep returned links visible and copyable until dismissed, and Add User names OIDC, WorkOS, or Local to match the active method.
 
 -   Mixed harness answers retain separately requested documentation guidance alongside protected business reports when the guidance cites sources retrieved in the same specialist turn. Protected facts and files keep their existing validation and are not rewritten.
 
