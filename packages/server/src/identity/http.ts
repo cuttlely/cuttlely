@@ -71,6 +71,7 @@ async function dispatch(
     next: NextFunction,
     run: (ctx: Awaited<ReturnType<typeof buildAuthContext>>) => Promise<HandlerResult>
 ) {
+    if (req.path === '/login' || req.path === '/callback') res.set('Cache-Control', 'no-store')
     try {
         const result = await run(await buildAuthContext(req))
         if (result.type === 'next') {
