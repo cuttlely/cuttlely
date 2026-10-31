@@ -7,6 +7,7 @@ import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { GoogleGenerativeAIChatInput } from '@langchain/google-genai'
 import { ChatGoogleGenerativeAI } from './FlowiseChatGoogleGenerativeAI'
 import { checkDenyList } from '../../../src/httpSecurity'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class GoogleGenerativeAI_ChatModels implements INode {
     label: string
@@ -267,6 +268,7 @@ class GoogleGenerativeAI_ChatModels implements INode {
             model: customModelName || modelName,
             streaming: streaming ?? true
         }
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         // this extra metadata is needed, as langchain does not show the model name in the callbacks.
         obj.metadata = {
@@ -276,7 +278,7 @@ class GoogleGenerativeAI_ChatModels implements INode {
         if (topP) obj.topP = parseFloat(topP)
         if (topK) obj.topK = parseFloat(topK)
         if (cache) obj.cache = cache
-        if (temperature) obj.temperature = parseFloat(temperature)
+        if (parsedTemperature !== undefined) obj.temperature = parsedTemperature
         if (baseUrl) {
             await checkDenyList(baseUrl)
             obj.baseUrl = baseUrl

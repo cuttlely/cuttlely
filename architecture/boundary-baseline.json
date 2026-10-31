@@ -45,7 +45,17 @@
     "r3Edges": [
         {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
@@ -55,7 +65,17 @@
         },
         {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
@@ -65,7 +85,27 @@
         },
         {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
@@ -76,6 +116,11 @@
         {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
@@ -105,7 +150,22 @@
         },
         {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
@@ -2231,7 +2291,17 @@
     ],
     "r4Edges": [
         {
+            "from": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
             "from": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
             "to": "packages/components/src/numberInput.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
@@ -2241,7 +2311,17 @@
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
+            "from": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
             "from": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
             "to": "packages/components/src/numberInput.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
@@ -2251,7 +2331,27 @@
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
+            "from": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
             "from": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
             "to": "packages/components/src/numberInput.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
@@ -2262,6 +2362,11 @@
         },
         {
             "from": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
             "to": "packages/components/src/numberInput.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
@@ -2291,7 +2396,22 @@
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
+            "from": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
             "from": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
             "to": "packages/components/src/numberInput.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },

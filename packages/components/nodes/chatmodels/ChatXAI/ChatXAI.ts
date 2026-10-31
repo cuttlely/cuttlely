@@ -4,6 +4,7 @@ import { ICommonObject, IMultiModalOption, INode, INodeData, INodeOptionsValue, 
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { ChatXAI } from './FlowiseChatXAI'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatXAI_ChatModels implements INode {
     label: string
@@ -100,12 +101,13 @@ class ChatXAI_ChatModels implements INode {
 
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const xaiApiKey = getCredentialParam('xaiApiKey', credentialData, nodeData)
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         const obj: ChatXAIInput = {
             apiKey: xaiApiKey,
             streaming: streaming ?? true,
             model: modelName,
-            temperature: temperature ? parseFloat(temperature) : undefined
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {})
         }
         if (cache) obj.cache = cache
         if (maxTokens) obj.maxTokens = parseInt(maxTokens, 10)
