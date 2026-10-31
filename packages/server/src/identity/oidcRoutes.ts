@@ -61,6 +61,15 @@ const callbackFailures = new IdentityFailureRateLimit(OIDC_FAILURE_LIMIT)
 const callbackLimitAuditAt = new Map<string, number>()
 const CALLBACK_LIMIT_AUDIT_MS = LOGIN_FAILURE_WINDOW_MS
 
+export function countsTowardCallbackFailureLimit(error: unknown): boolean {
+    if (!(error instanceof OidcError)) return false
+    return (
+        error.outcome === 'authorization_response_invalid' ||
+        error.outcome === 'token_validation_failed' ||
+        error.outcome === 'userinfo_invalid'
+    )
+}
+
 function address(req: Request): string {
     return req.ip || req.socket?.remoteAddress || 'unknown'
 }
@@ -524,7 +533,6 @@ oidcAuthRouter.get(
                         })
                     })
                 }
-                callbackFailures.recordFailure(clientAddress)
                 return void res.redirect(302, signinErrorUrl(oidcLinkFailureMessage(linked.reason)))
             }
             if (completed.envelope.purpose === 'reauth' && linked.user.id !== completed.envelope.initiatingUserId) {
@@ -590,7 +598,7 @@ oidcAuthRouter.get(
             }
             res.redirect(302, completed.envelope.redirectTarget)
         } catch (error) {
-            if (callbackBound) callbackFailures.recordFailure(clientAddress)
+            if (callbackBound && countsTowardCallbackFailureLimit(error)) callbackFailures.recordFailure(clientAddress)
             console.warn('[server]: OIDC callback failed', oidcFailureLogDetail(error))
             await auditCallbackFailure(error, callbackEnvelope)
             if (callbackTestFingerprint) {

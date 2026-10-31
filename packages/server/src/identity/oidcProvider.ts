@@ -425,9 +425,19 @@ async function exchangeCode(config: OidcConfiguration, discovery: OidcDiscovery,
     ) {
         const retried = await request('client_secret_post')
         if (retried.status < 400) return retried
-        throw new OidcError('upstream', `The OIDC endpoint returned status ${retried.status}.`)
+        throw new OidcError(
+            'upstream',
+            `The OIDC endpoint returned status ${retried.status}.`,
+            retried.value.error === 'invalid_grant' ? 'token_validation_failed' : undefined
+        )
     }
-    if (first.status >= 400) throw new OidcError('upstream', `The OIDC endpoint returned status ${first.status}.`)
+    if (first.status >= 400) {
+        throw new OidcError(
+            'upstream',
+            `The OIDC endpoint returned status ${first.status}.`,
+            first.value.error === 'invalid_grant' ? 'token_validation_failed' : undefined
+        )
+    }
     return first
 }
 

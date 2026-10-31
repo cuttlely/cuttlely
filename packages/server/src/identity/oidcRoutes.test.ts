@@ -69,7 +69,7 @@ jest.mock('./actionLink', () => ({ liveInviteUser }))
 import { oidcCallbackUrl } from './cookies'
 import { OidcError } from './oidcProvider'
 import { oidcProviderKey } from './oidcStore'
-import { oidcAdminRouter, oidcAuthRouter, oidcInviteStartUrl } from './oidcRoutes'
+import { countsTowardCallbackFailureLimit, oidcAdminRouter, oidcAuthRouter, oidcInviteStartUrl } from './oidcRoutes'
 
 function app() {
     const server = express()
@@ -112,6 +112,32 @@ function oidcConfig(slot: 'draft' | 'active', issuer: string, clientId: string, 
         version: 1
     }
 }
+
+function successfulSignInCompletion() {
+    return {
+        envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/signed-in' },
+        config: { trustMissingEmailVerification: false },
+        identity: {
+            providerKey: 'provider-made-up',
+            subject: 'subject-made-up',
+            issuer: 'https://login.example.test',
+            email: 'person@example.test',
+            emailVerified: true,
+            emailVerificationPresent: true
+        }
+    }
+}
+
+describe('OIDC callback failure-limit classification', () => {
+    it.each([
+        ['a token endpoint outage', new OidcError('upstream', 'status 503', 'upstream_unavailable'), false],
+        ['a token endpoint invalid_grant response', new OidcError('upstream', 'invalid grant', 'token_validation_failed'), true],
+        ['a provider denial', new OidcError('denied', 'denied', 'provider_denied'), false],
+        ['an invalid authorization response', new OidcError('response', 'invalid response', 'authorization_response_invalid'), true]
+    ])('classifies %s', (_name, error, expected) => {
+        expect(countsTowardCallbackFailureLimit(error)).toBe(expected)
+    })
+})
 
 describe('OIDC callback audit outcomes', () => {
     beforeEach(() => {
@@ -363,28 +389,85 @@ describe('OIDC callback audit outcomes', () => {
         )
     })
 
-    it('throttles the callback after repeated identity link refusals', async () => {
-        completeOidcAuthorization.mockResolvedValue({
-            envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/' },
-            config: { trustMissingEmailVerification: false },
-            identity: {
-                providerKey: 'provider-1',
-                subject: 'subject-1',
-                issuer: 'https://issuer.example',
-                email: 'ada@example.com',
-                emailVerified: true,
-                emailVerificationPresent: true
+    it('does not throttle a valid callback after repeated bound provider denials', async () => {
+        const completion = successfulSignInCompletion()
+        let completionAttempt = 0
+        completeOidcAuthorization.mockImplementation(async (input: any) => {
+            completionAttempt += 1
+            if (completionAttempt <= 21) {
+                input.onEnvelope?.(completion.envelope)
+                input.onBrowserBound?.(completion.envelope)
+                throw new OidcError('denied', 'denied', 'provider_denied')
             }
+            return completion
         })
-        resolveOidcUser.mockResolvedValue({ ok: false, reason: 'unlinked', basis: null })
+        resolveOidcUser.mockResolvedValue({ ok: true, user: { id: 'user-made-up' }, basis: 'email_verified', linkCreated: false })
+        buildAuthContext.mockResolvedValue({})
+        issueDatabaseSession.mockResolvedValue({ type: 'json', status: 200, body: {}, cookies: [], clearCookies: [] })
         const client = request(app())
         const callback = () =>
-            client.get('/api/v1/auth/oidc/callback/provider-1?state=callback-state&code=callback-code').set('x-forwarded-for', '192.0.2.88')
+            client
+                .get('/api/v1/auth/oidc/callback/provider-made-up?state=callback-state&error=access_denied')
+                .set('x-forwarded-for', '192.0.2.89')
 
-        for (let attempt = 0; attempt < 20; attempt += 1) {
+        for (let attempt = 0; attempt < 21; attempt += 1) {
+            const response = await callback()
+            expect(response.headers.location).not.toContain('Too%20many')
+        }
+
+        const valid = await client
+            .get('/api/v1/auth/oidc/callback/provider-made-up?state=valid-state&code=valid-code')
+            .set('x-forwarded-for', '192.0.2.89')
+        expect(valid.status).toBe(302)
+        expect(valid.headers.location).toBe('/signed-in')
+        expect(completeOidcAuthorization).toHaveBeenCalledTimes(22)
+    })
+
+    it('does not throttle a valid callback after repeated unprovisioned identity refusals', async () => {
+        const completion = successfulSignInCompletion()
+        let resolutionAttempt = 0
+        completeOidcAuthorization.mockResolvedValue(completion)
+        resolveOidcUser.mockImplementation(async () => {
+            resolutionAttempt += 1
+            if (resolutionAttempt <= 21) return { ok: false, reason: 'unknown', basis: null }
+            return { ok: true, user: { id: 'user-made-up' }, basis: 'email_verified', linkCreated: false }
+        })
+        buildAuthContext.mockResolvedValue({})
+        issueDatabaseSession.mockResolvedValue({ type: 'json', status: 200, body: {}, cookies: [], clearCookies: [] })
+        const client = request(app())
+        const callback = () =>
+            client
+                .get('/api/v1/auth/oidc/callback/provider-made-up?state=callback-state&code=callback-code')
+                .set('x-forwarded-for', '192.0.2.90')
+
+        for (let attempt = 0; attempt < 21; attempt += 1) {
             const response = await callback()
             const error = new URL(response.headers.location, 'http://localhost').searchParams.get('error')
             expect(JSON.parse(error || '{}')).toEqual({ message: 'This identity cannot sign in.' })
+        }
+
+        const valid = await callback()
+        expect(valid.status).toBe(302)
+        expect(valid.headers.location).toBe('/signed-in')
+        expect(completeOidcAuthorization).toHaveBeenCalledTimes(22)
+    })
+
+    it('throttles the next callback after twenty bound token-validation failures', async () => {
+        const completion = successfulSignInCompletion()
+        completeOidcAuthorization.mockImplementation(async (input: any) => {
+            input.onEnvelope?.(completion.envelope)
+            input.onBrowserBound?.(completion.envelope)
+            throw new OidcError('response', 'nonce mismatch', 'token_validation_failed')
+        })
+        const client = request(app())
+        const callback = () =>
+            client
+                .get('/api/v1/auth/oidc/callback/provider-made-up?state=callback-state&code=callback-code')
+                .set('x-forwarded-for', '192.0.2.91')
+
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const response = await callback()
+            expect(response.headers.location).not.toContain('Too%20many')
         }
 
         const throttled = await callback()
