@@ -4,6 +4,7 @@ import { BaseCache } from '@langchain/core/caches'
 import { ICommonObject, IMultiModalOption, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { ChatOpenRouter } from './FlowiseChatOpenRouter'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatOpenRouter_ChatModels implements INode {
     label: string
@@ -157,8 +158,9 @@ class ChatOpenRouter_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const openRouterApiKey = getCredentialParam('openRouterApiKey', credentialData, nodeData)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             openAIApiKey: openRouterApiKey,
             apiKey: openRouterApiKey,

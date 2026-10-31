@@ -3,6 +3,7 @@ import { ChatGroq, ChatGroqInput } from '@langchain/groq'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class Groq_ChatModels implements INode {
     label: string
@@ -90,9 +91,10 @@ class Groq_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const groqApiKey = getCredentialParam('groqApiKey', credentialData, nodeData)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatGroqInput = {
             model: modelName,
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             apiKey: groqApiKey,
             streaming: streaming ?? true
         }

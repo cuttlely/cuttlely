@@ -2,6 +2,7 @@ import { BaseCache } from '@langchain/core/caches'
 import { HFInput, HuggingFaceInference } from './core'
 import { ICommonObject, INode, INodeData, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatHuggingFace_ChatModels implements INode {
     label: string
@@ -139,8 +140,9 @@ class ChatHuggingFace_ChatModels implements INode {
             model,
             apiKey: huggingFaceApiKey
         }
+        const parsedTemperature = parseOptionalNumber(temperature)
 
-        if (temperature) obj.temperature = parseFloat(temperature)
+        if (parsedTemperature !== undefined) obj.temperature = parsedTemperature
         if (maxTokens) obj.maxTokens = parseInt(maxTokens, 10)
         if (topP) obj.topP = parseFloat(topP)
         if (hfTopK) obj.topK = parseFloat(hfTopK)

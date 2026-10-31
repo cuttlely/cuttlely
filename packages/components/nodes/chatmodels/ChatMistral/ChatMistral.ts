@@ -3,6 +3,7 @@ import { ChatMistralAI, ChatMistralAIInput } from '@langchain/mistralai'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatMistral_ChatModels implements INode {
     label: string
@@ -136,11 +137,12 @@ class ChatMistral_ChatModels implements INode {
             modelName: modelName,
             streaming: streaming ?? true
         }
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         if (maxOutputTokens) obj.maxTokens = parseInt(maxOutputTokens, 10)
         if (topP) obj.topP = parseFloat(topP)
         if (cache) obj.cache = cache
-        if (temperature) obj.temperature = parseFloat(temperature)
+        if (parsedTemperature !== undefined) obj.temperature = parsedTemperature
         if (randomSeed) obj.randomSeed = parseFloat(randomSeed)
         if (safeMode) obj.safeMode = safeMode
         if (overrideEndpoint) obj.endpoint = overrideEndpoint

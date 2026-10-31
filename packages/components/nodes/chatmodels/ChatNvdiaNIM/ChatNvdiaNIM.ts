@@ -4,6 +4,7 @@ import { ChatOpenAI, ChatOpenAIFields } from '@langchain/openai'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { checkDenyList } from '../../../src/httpSecurity'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatNvdiaNIM_ChatModels implements INode {
     label: string
@@ -145,8 +146,9 @@ class ChatNvdiaNIM_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const nvidiaNIMApiKey = getCredentialParam('nvidiaNIMApiKey', credentialData, nodeData)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields & { nvdiaNIMApiKey?: string } = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             openAIApiKey: nvidiaNIMApiKey ?? 'sk-',
             apiKey: nvidiaNIMApiKey ?? 'sk-',
