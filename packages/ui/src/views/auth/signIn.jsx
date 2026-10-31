@@ -55,6 +55,7 @@ const SignInPage = () => {
     const activeLogin = options.localUsers ? localLoginApi : loginApi
     const navigate = useNavigate()
     const location = useLocation()
+    const reauthentication = new URLSearchParams(location.search).get('reauth') === '1'
 
     const doLogin = (event) => {
         event.preventDefault()
@@ -116,11 +117,11 @@ const SignInPage = () => {
         if (signedIn) {
             setLoading(false)
             store.dispatch(loginSuccess(signedIn))
-            navigate(location.state?.path || '/')
+            navigate(reauthentication ? '/authentication-settings' : location.state?.path || '/')
         }
-    }, [loginApi.data, localLoginApi.data, options.localUsers, location.state, navigate])
+    }, [loginApi.data, localLoginApi.data, options.localUsers, location.state, navigate, reauthentication])
 
-    if (isAuthenticated && currentUser) {
+    if (isAuthenticated && currentUser && !reauthentication) {
         return <Navigate to={location.state?.path || '/'} replace />
     }
 

@@ -47,6 +47,7 @@ import { SqlLoginRateLimit, teamAccess } from './sqlStore'
 import { HandlerResult, LocalSession, SessionUser, UserRow } from './types'
 
 const mockRouteStore: { current: IdentityStore | null } = { current: null }
+const mockRefreshView = jest.fn(async (): Promise<void> => undefined)
 
 jest.mock('./production', () => {
     const { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } = jest.requireActual(
@@ -55,6 +56,7 @@ jest.mock('./production', () => {
     const { cookieSecure } = jest.requireActual('./cookies') as typeof import('./cookies')
     const { LoginRateLimit } = jest.requireActual('./rateLimit') as typeof import('./rateLimit')
     return {
+        refreshAuthenticationView: () => mockRefreshView(),
         buildAuthContext: (req: Request) => {
             const redirectUri = process.env.WORKOS_REDIRECT_URI
             return {
@@ -1640,5 +1642,31 @@ describe('local users mode', () => {
         expect(store.local.size).toBe(1)
         await store.applyAuthKitSwitch(true, new Date('2026-10-18T00:00:00.000Z'))
         expect(store.local.size).toBe(0)
+    })
+})
+
+describe('sign-in method view across processes', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+        mockRefreshView.mockReset()
+        delete process.env.CUTTLELY_LOCAL_USERS
+    })
+
+    it('refreshes the shared method before answering sign-in options and local sign-in', async () => {
+        mockRefreshView.mockClear()
+        process.env.CUTTLELY_LOCAL_USERS = 'true'
+        const state = jest.requireActual('./authenticationState') as typeof import('./authenticationState')
+        let method: 'local' | 'workos' = 'workos'
+        jest.spyOn(state, 'selectedAuthenticationMethod').mockImplementation(() => method)
+        mockRefreshView.mockImplementation(async () => {
+            method = 'local'
+        })
+        const http = request(localRouteApp())
+        const options = await http.get('/api/v1/auth/signin-options')
+        expect(options.body.localUsers).toBe(true)
+        method = 'workos'
+        const login = await http.post('/api/v1/auth/local/login').send({ email: 'a@example.com', password: 'x' })
+        expect(login.status).not.toBe(404)
+        expect(mockRefreshView).toHaveBeenCalledTimes(2)
     })
 })

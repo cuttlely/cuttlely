@@ -14,7 +14,18 @@
  * limitations under the License.
  */
 
-import { INVITE_COOKIE, INVITE_COOKIE_MS, INVITE_COOKIE_PATH, LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
+import { createHmac, timingSafeEqual } from 'crypto'
+import {
+    INVITE_COOKIE,
+    INVITE_COOKIE_MS,
+    INVITE_COOKIE_PATH,
+    LOCAL_SESSION_COOKIE,
+    REAUTH_STATE_COOKIE,
+    REAUTH_STATE_COOKIE_MS,
+    RECENT_AUTH_COOKIE,
+    WOS_EPOCH_COOKIE,
+    WOS_SESSION_COOKIE
+} from './constants'
 import { SetCookie } from './types'
 
 export function cookieSecure(redirectUri: string | undefined, httpsRequest: boolean): boolean {
@@ -29,6 +40,28 @@ export function sealedCookie(value: string, secure: boolean): SetCookie {
         value,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure }
     }
+}
+
+function epochDigest(sealed: string, epoch: number, password: string): string {
+    return createHmac('sha256', password).update(`${epoch}\n${sealed}`).digest('base64url')
+}
+
+export function workosEpochCookie(sealed: string, epoch: number, password: string, secure: boolean): SetCookie {
+    return {
+        name: WOS_EPOCH_COOKIE,
+        value: `${epoch}.${epochDigest(sealed, epoch, password)}`,
+        options: { httpOnly: true, sameSite: 'lax', path: '/', secure }
+    }
+}
+
+export function workosEpochCookieValid(value: string | undefined, sealed: string, epoch: number, password: string): boolean {
+    if (!value) return false
+    const [stored, digest] = value.split('.')
+    if (Number(stored) !== epoch || !digest) return false
+    const expected = epochDigest(sealed, epoch, password)
+    const left = Buffer.from(digest)
+    const right = Buffer.from(expected)
+    return left.length === right.length && timingSafeEqual(left, right)
 }
 
 export function inviteCookie(value: string, secure: boolean): SetCookie {
@@ -49,5 +82,44 @@ export function localCookie(value: string, secure: boolean, maxAge: number): Set
         name: LOCAL_SESSION_COOKIE,
         value,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge }
+    }
+}
+
+export function recentAuthenticationCookie(value: string, secure: boolean, maxAge: number): SetCookie {
+    return { name: RECENT_AUTH_COOKIE, value, options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge } }
+}
+
+export function reauthenticationStateCookie(value: string, secure: boolean): SetCookie {
+    return {
+        name: REAUTH_STATE_COOKIE,
+        value,
+        options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: REAUTH_STATE_COOKIE_MS }
+    }
+}
+
+function reauthenticationStateDigest(requestedAt: number, nonce: string, password: string): string {
+    return createHmac('sha256', password).update(`${requestedAt}\n${nonce}`).digest('base64url')
+}
+
+export function signedReauthenticationState(requestedAt: number, nonce: string, password: string): string {
+    return `${requestedAt}.${nonce}.${reauthenticationStateDigest(requestedAt, nonce, password)}`
+}
+
+export function reauthenticationRequestTime(value: string | undefined, password: string | undefined): number | null {
+    if (!value || !password) return null
+    const [requestedAtText, nonce, digest, extra] = value.split('.')
+    const requestedAt = Number(requestedAtText)
+    if (extra !== undefined || !Number.isSafeInteger(requestedAt) || requestedAt <= 0 || !nonce || !digest) return null
+    const expected = reauthenticationStateDigest(requestedAt, nonce, password)
+    const left = Buffer.from(digest)
+    const right = Buffer.from(expected)
+    return left.length === right.length && timingSafeEqual(left, right) ? requestedAt : null
+}
+
+export function expiredReauthenticationStateCookie(secure: boolean): SetCookie {
+    return {
+        name: REAUTH_STATE_COOKIE,
+        value: '',
+        options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: 0 }
     }
 }

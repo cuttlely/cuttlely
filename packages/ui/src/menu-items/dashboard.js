@@ -253,6 +253,15 @@ const dashboard = {
                     permission: 'roles:manage'
                 },
                 {
+                    id: 'authenticationSettings',
+                    title: 'Auth / SSO',
+                    type: 'item',
+                    url: '/authentication-settings',
+                    icon: icons.IconShield,
+                    breadcrumbs: true,
+                    permission: 'authentication:manage'
+                },
+                {
                     // Server-wide: only the organization owner sees it (no role holds this permission).
                     id: 'serverSettings',
                     title: 'Server Settings',

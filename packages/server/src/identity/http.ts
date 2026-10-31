@@ -29,6 +29,7 @@ import {
     handleLocalLogout,
     handleLocalPassword,
     handleLoginGet,
+    handleReauthenticationGet,
     handleLoginPost,
     handleLogout,
     handlePasswordRecoveryGone,
@@ -66,10 +67,10 @@ async function dispatch(
     req: Request,
     res: Response,
     next: NextFunction,
-    run: (ctx: ReturnType<typeof buildAuthContext>) => Promise<HandlerResult>
+    run: (ctx: Awaited<ReturnType<typeof buildAuthContext>>) => Promise<HandlerResult>
 ) {
     try {
-        const result = await run(buildAuthContext(req))
+        const result = await run(await buildAuthContext(req))
         if (result.type === 'next') {
             next()
             return
@@ -101,18 +102,32 @@ const localAuthRateLimit = rateLimit({
     message: { message: TOO_MANY }
 })
 
+/** Refreshes the process view of the sign-in method so a switch applied by another process is seen within the cache window. */
+export async function currentAuthenticationView(): Promise<void> {
+    try {
+        const { refreshAuthenticationView } = await import('./production')
+        await refreshAuthenticationView()
+    } catch (error: unknown) {
+        logger.error(`authentication state refresh failed: ${error instanceof Error ? error.name : 'error'}`)
+    }
+}
+
 function localAuthPreconditions(missingHeader: string) {
     return (req: Request, res: Response, next: NextFunction): void => {
-        if (!localUsersMode()) {
-            res.status(404).json({ message: 'Not Found' })
-            return
-        }
-        if (req.headers['x-request-from'] !== 'internal') {
-            res.status(401).json({ message: missingHeader })
-            return
-        }
-        next()
+        void currentAuthenticationView().then(() => checkLocalAuth(req, res, next, missingHeader))
     }
+}
+
+function checkLocalAuth(req: Request, res: Response, next: NextFunction, missingHeader: string): void {
+    if (!localUsersMode()) {
+        res.status(404).json({ message: 'Not Found' })
+        return
+    }
+    if (req.headers['x-request-from'] !== 'internal') {
+        res.status(401).json({ message: missingHeader })
+        return
+    }
+    next()
 }
 
 function ownerLoginPreconditions(req: Request, res: Response, next: NextFunction): void {
@@ -128,11 +143,13 @@ function ownerLoginPreconditions(req: Request, res: Response, next: NextFunction
 }
 
 identityAuthRouter.get('/signin-options', (_req, res) => {
-    res.json(signInOptionsBody())
+    void currentAuthenticationView().then(() => {
+        if (!res.headersSent) res.json(signInOptionsBody())
+    })
 })
 identityAuthRouter.get('/options', (req, res) => {
     void (async () => {
-        const ctx = buildAuthContext(req)
+        const ctx = await buildAuthContext(req)
         const state = ctx.store ? await ctx.store.readAuthKitSwitch() : null
         if (!res.headersSent) res.json(authOptionsBody(process.env, state))
     })().catch((error: unknown) => {
@@ -168,6 +185,7 @@ identityAuthRouter.get('/permissions/:type', (_req, res) => {
     res.status(404).json({ message: 'Not Found' })
 })
 identityAuthRouter.get('/login', (req, res, next) => void dispatch(req, res, next, handleLoginGet))
+identityAuthRouter.get('/reauthenticate', (req, res, next) => void dispatch(req, res, next, handleReauthenticationGet))
 identityAuthRouter.get('/callback', (req, res, next) => {
     // A test sign-in from Server settings, Set up AuthKit. It never signs anyone in. Loaded on use, so this
     // router never pulls in the settings start-up code.
@@ -195,7 +213,8 @@ const acceptLinkLimit = rateLimit({
 
 identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
     const query = req.query && typeof req.query === 'object' ? (req.query as Record<string, unknown>) : {}
-    void acceptLocalRoute(buildAuthContext(req), query)
+    void buildAuthContext(req)
+        .then((ctx) => acceptLocalRoute(ctx, query))
         .then((result) => {
             if (res.headersSent) return
             if (result.type !== 'json') {

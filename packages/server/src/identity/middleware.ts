@@ -46,7 +46,7 @@ export async function attachIdentitySession(req: Request, res: Response): Promis
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
     if (!cookies[WOS_SESSION_COOKIE] && !cookies[LOCAL_SESSION_COOKIE]) return null
     try {
-        const established = await establishSession(buildAuthContext(req))
+        const established = await establishSession(await buildAuthContext(req))
         const secure = established.secure ?? established.cookies?.[0]?.options.secure ?? false
         for (const name of established.clearCookies || []) {
             res.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure })

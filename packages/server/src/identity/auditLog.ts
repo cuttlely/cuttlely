@@ -31,7 +31,9 @@ export const AUDIT_TYPES = [
     'harness_access',
     'harness_schedule',
     // 19 characters. audit_event.type is varchar(32) with no check constraint, so this needs no migration.
-    'pinned_query_change'
+    'pinned_query_change',
+    'auth_method_change',
+    'auth_config_warning_ack'
 ] as const
 
 export type AuditType = (typeof AUDIT_TYPES)[number]
@@ -189,6 +191,8 @@ export function auditSummary(type: AuditType): string {
     if (type === 'harness_access') return 'API key harness access changed'
     if (type === 'harness_schedule') return 'Harness schedule changed'
     if (type === 'pinned_query_change') return 'Pinned query changed'
+    if (type === 'auth_method_change') return 'Sign-in method changed'
+    if (type === 'auth_config_warning_ack') return 'Authentication warning acknowledged'
     return 'Settings changed'
 }
 

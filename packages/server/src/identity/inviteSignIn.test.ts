@@ -39,7 +39,8 @@ import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
 import { utcEpoch } from './dbTime'
-import { addIdentityActionLinks } from './schemaMigration'
+import { addAuthenticationState, addIdentityActionLinks } from './schemaMigration'
+import { automaticWorkosLinkingAllowed, initializeAuthenticationState } from './authenticationState'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
 
@@ -105,6 +106,9 @@ function seed(dialect: 'sqlite' | 'postgres'): string {
             id varchar(255) PRIMARY KEY, "userId" varchar(255), token varchar(255), "expiresAt" ${time},
             "absoluteExpiresAt" ${time}, "createdDate" ${time}, "lastSeenAt" ${time}, "permissionVersion" integer NOT NULL DEFAULT 0
         );
+        CREATE TABLE identity_authkit_switch (
+            id integer PRIMARY KEY, configured integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" ${time}
+        );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Harbor Bakery');
         INSERT INTO "user" (id, name, email, status, credential) VALUES ('${OWNER}', 'Rosa Diaz', 'rosa@example.com', 'active', NULL);
         INSERT INTO role (id, "organizationId", name, permissions) VALUES ('${MEMBER_ROLE}', NULL, 'member', '["chatflows:view"]');
@@ -134,14 +138,33 @@ async function sqliteBackend(): Promise<Backend> {
         prepared.run(...params)
         return []
     }
-    const runner = () =>
-        ({
+    const runner = () => {
+        let inTransaction = false
+        return {
             connection: { options: { type: 'sqlite' } },
             connect: async () => undefined,
             release: async () => undefined,
-            query: run
-        } as unknown as QueryRunner)
-    await addIdentityActionLinks(runner())
+            query: run,
+            startTransaction: async () => {
+                db.exec('BEGIN')
+                inTransaction = true
+            },
+            commitTransaction: async () => {
+                db.exec('COMMIT')
+                inTransaction = false
+            },
+            rollbackTransaction: async () => {
+                db.exec('ROLLBACK')
+                inTransaction = false
+            },
+            get isTransactionActive() {
+                return inTransaction
+            }
+        } as unknown as QueryRunner
+    }
+    const setup = runner()
+    await addIdentityActionLinks(setup)
+    await addAuthenticationState(setup)
     const dataSource = fakeDataSource('sqlite', runner, run)
     return {
         dataSource,
@@ -207,6 +230,7 @@ async function postgresBackend(): Promise<Backend> {
     const setup = runner()
     await setup.connect()
     await addIdentityActionLinks(setup)
+    await addAuthenticationState(setup)
     await setup.release()
     const dataSource = fakeDataSource('postgres', runner, async (statement, params = []) => (await pool.query(statement, params)).rows)
     const sql = sqlFromDataSource(dataSource)
@@ -388,6 +412,20 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
 
         expect(await signIn('ada@example.com', undefined, NOW + 2 * HOUR)).toMatchObject({ ok: true, user: { id: ada.id } })
         expect(await signIn('ada@example.com', undefined, NOW, 'wos-someone-else')).toEqual({ ok: false, reason: 'rebind' })
+    })
+
+    maybe('a mixed local-user and WorkOS upgrade keeps invitation sign-in working', async () => {
+        const env = { ...AUTHKIT_ENV, CUTTLELY_LOCAL_USERS: 'true' }
+        const ada = await invite('ada@example.com')
+        await initializeAuthenticationState(db.dataSource, env)
+        const result = await withEnv(env, async () =>
+            linkWorkosUser(db.store, identity('ada@example.com'), {
+                inviteToken: ada.token,
+                now: NOW,
+                automaticEmailLinking: await automaticWorkosLinkingAllowed(db.dataSource)
+            })
+        )
+        expect(result).toMatchObject({ ok: true, user: { id: ada.id, status: 'active', externalId: 'wos-ada' } })
     })
 
     maybe('refuses an expired token', async () => {

@@ -120,6 +120,7 @@ export type LinkFailure =
     | 'bootstrap-denied'
     | 'invite-required'
     | 'invite-invalid'
+    | 'review-required'
 
 /** An AuthKit sign-in that carries the raw token from an invite link. */
 export interface InviteSignIn {
@@ -134,7 +135,9 @@ export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { 
 
 export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
-    authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string }>
+    reauthorizationUrl?(redirectUri: string, state: string): string
+    /** authTime is the provider's auth_time claim, in Unix seconds, when the provider supplies a verified value. */
+    authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string; authTime?: number }>
     authenticateSession(
         sealed: string
     ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>

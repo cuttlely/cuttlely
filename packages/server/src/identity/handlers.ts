@@ -15,14 +15,28 @@
  */
 
 import { randomUUID } from 'crypto'
-import { expiredInviteCookie, inviteCookie, localCookie, sealedCookie } from './cookies'
+import type { DataSource } from 'typeorm'
+import {
+    expiredInviteCookie,
+    expiredReauthenticationStateCookie,
+    inviteCookie,
+    localCookie,
+    reauthenticationStateCookie,
+    reauthenticationRequestTime,
+    sealedCookie,
+    signedReauthenticationState,
+    workosEpochCookie,
+    workosEpochCookieValid
+} from './cookies'
 import {
     EMAIL_MAX_LENGTH,
     INVITE_COOKIE,
     INVITE_TOKEN_MAX_LENGTH,
     LOCAL_SESSION_COOKIE,
     PASSWORD_MAX_LENGTH,
+    REAUTH_STATE_COOKIE,
     WOS_SESSION_COOKIE,
+    WOS_EPOCH_COOKIE,
     signOutReturnTo,
     signinErrorUrl,
     unavailablePage
@@ -61,11 +75,15 @@ import {
 } from './types'
 
 export interface AuthContext {
+    dataSource?: DataSource
+    /** Captured at request start so a concurrent method switch can stop completion. */
+    authenticationEpoch?: number
     workosConfigured: boolean
     localAdmin: boolean
     /** CUTTLELY_LOCAL_USERS is on and AuthKit is not configured. */
     localUsers: boolean
     cookiePasswordOk: boolean
+    cookiePassword?: string
     redirectUri?: string
     secure: boolean
     now: number
@@ -74,12 +92,15 @@ export interface AuthContext {
     socketAddress: string
     internal: boolean
     code?: string
+    state?: string
     body: Record<string, unknown>
     cookies: Record<string, string | undefined>
     bootstrapEmail?: string
     store: IdentityStore
     workos: WorkosPort
     rateLimit: LoginLimiter
+    automaticWorkosLinkingAllowed?: () => Promise<boolean>
+    recordRecentAuthentication?: (userId: string) => Promise<SetCookie>
     /** Optional. Production writes a redacted audit row. Tests leave it unset. */
     noteAudit?: (note: {
         type: 'sign_in_success' | 'sign_in_failure' | 'lockout'
@@ -89,6 +110,39 @@ export interface AuthContext {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
+async function authenticationEpochCurrent(ctx: AuthContext): Promise<boolean> {
+    if (ctx.authenticationEpoch === undefined) return true
+    if (!ctx.dataSource) return true
+    const { refreshAuthenticationState, selectedAuthenticationEpoch } =
+        require('./authenticationState') as typeof import('./authenticationState')
+    await refreshAuthenticationState(ctx.dataSource, true)
+    return selectedAuthenticationEpoch() === ctx.authenticationEpoch
+}
+
+async function sealedSessionEpochCurrent(ctx: AuthContext, sealed: string): Promise<boolean> {
+    if (ctx.authenticationEpoch === undefined) return true
+    if (!(await authenticationEpochCurrent(ctx))) return false
+    const { selectedAuthenticationBaselineEpoch } = require('./authenticationState') as typeof import('./authenticationState')
+    if (!ctx.cookies[WOS_EPOCH_COOKIE]) {
+        return Boolean(ctx.cookiePassword && ctx.authenticationEpoch === selectedAuthenticationBaselineEpoch())
+    }
+    return Boolean(
+        ctx.cookiePassword && workosEpochCookieValid(ctx.cookies[WOS_EPOCH_COOKIE], sealed, ctx.authenticationEpoch, ctx.cookiePassword)
+    )
+}
+
+function missingEpochCookie(ctx: AuthContext, sealed: string): SetCookie[] | undefined {
+    if (ctx.cookies[WOS_EPOCH_COOKIE] || ctx.authenticationEpoch === undefined || !ctx.cookiePassword) return undefined
+    return [workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.cookiePassword, ctx.secure)]
+}
+
+function sealedCookies(ctx: AuthContext, sealed: string): SetCookie[] {
+    const cookies = [sealedCookie(sealed, ctx.secure)]
+    if (ctx.authenticationEpoch !== undefined && ctx.cookiePassword) {
+        cookies.push(workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.cookiePassword, ctx.secure))
+    }
+    return cookies
+}
 export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {
     const service = setupServiceName(env)
     return `Open the setup link from the server log to create the first account. With Docker, run: docker compose logs ${service} | grep 'Setup code'`
@@ -201,7 +255,15 @@ async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' |
     return 'ok'
 }
 
+/** A method switch can commit between the epoch check and the insert. Recheck after the insert and remove a session that missed the switch. */
+async function sessionSurvivedSwitch(ctx: AuthContext, token: string): Promise<boolean> {
+    if (await authenticationEpochCurrent(ctx)) return true
+    await ctx.store.deleteLocalSession(hashSessionToken(token))
+    return false
+}
+
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
+    if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)
@@ -214,6 +276,7 @@ async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ to
         issuedAt: at,
         lastSeenAt: at
     })
+    if (!(await sessionSurvivedSwitch(ctx, token))) return null
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
     if (!session) return null
     return { token, session }
@@ -255,6 +318,25 @@ export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
     }
 }
 
+export async function handleReauthenticationGet(ctx: AuthContext): Promise<HandlerResult> {
+    if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
+    if (!ctx.redirectUri) return textUnavailable()
+    const reauthorizationUrl = ctx.workos.reauthorizationUrl
+    if (!reauthorizationUrl) return textUnavailable()
+    try {
+        if (!ctx.cookiePassword) return textUnavailable()
+        const state = signedReauthenticationState(ctx.now, randomUUID(), ctx.cookiePassword)
+        return {
+            type: 'redirect',
+            status: 302,
+            url: reauthorizationUrl(ctx.redirectUri, state),
+            cookies: [reauthenticationStateCookie(state, ctx.secure)]
+        }
+    } catch {
+        return textUnavailable()
+    }
+}
+
 function inviteTokenFrom(ctx: AuthContext): string | undefined {
     const raw = ctx.cookies[INVITE_COOKIE]
     if (typeof raw !== 'string' || !raw || raw.length > INVITE_TOKEN_MAX_LENGTH) return undefined
@@ -275,8 +357,11 @@ export async function handleInviteStart(ctx: AuthContext): Promise<HandlerResult
 
 export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
     const result = await callbackResult(ctx)
-    if (ctx.cookies[INVITE_COOKIE] === undefined || result.type === 'next') return result
-    return { ...result, cookies: [...(result.cookies || []), expiredInviteCookie(ctx.secure)] }
+    if (result.type === 'next') return result
+    const cookies = [...(result.cookies || [])]
+    if (ctx.cookies[INVITE_COOKIE] !== undefined) cookies.push(expiredInviteCookie(ctx.secure))
+    if (ctx.cookies[REAUTH_STATE_COOKIE] !== undefined) cookies.push(expiredReauthenticationStateCookie(ctx.secure))
+    return cookies.length === (result.cookies || []).length ? result : { ...result, cookies }
 }
 
 async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
@@ -285,10 +370,12 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.cookiePasswordOk) return textUnavailable()
     try {
         const authenticated = await ctx.workos.authenticate(ctx.code)
+        if (!(await authenticationEpochCurrent(ctx))) return { type: 'redirect', status: 302, url: '/signin' }
         const linked = await linkWorkosUser(ctx.store, authenticated.user, {
             bootstrapEmail: ctx.bootstrapEmail,
             inviteToken: inviteTokenFrom(ctx),
-            now: ctx.now
+            now: ctx.now,
+            automaticEmailLinking: ctx.automaticWorkosLinkingAllowed ? await ctx.automaticWorkosLinkingAllowed() : true
         })
         if (!linked.ok && (linked.reason === 'bootstrap-unset' || linked.reason === 'bootstrap-denied')) {
             return bootstrapPage(linked.reason)
@@ -308,11 +395,22 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
         }
         await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
+        const reauthenticationRequestedAt =
+            ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE] ? reauthenticationRequestTime(ctx.state, ctx.cookiePassword) : null
+        const reauthenticated = Boolean(
+            reauthenticationRequestedAt !== null &&
+                typeof authenticated.authTime === 'number' &&
+                Number.isFinite(authenticated.authTime) &&
+                authenticated.authTime * 1000 >= reauthenticationRequestedAt
+        )
         return {
             type: 'redirect',
             status: 302,
             url: '/',
-            cookies: [sealedCookie(authenticated.sealedSession, ctx.secure)],
+            cookies: [
+                ...sealedCookies(ctx, authenticated.sealedSession),
+                ...(reauthenticated && ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(linked.user.id)] : [])
+            ],
             ...cleared(ctx, [LOCAL_SESSION_COOKIE])
         }
     } catch (error) {
@@ -350,6 +448,7 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
+    if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
     const token = randomToken()
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)
@@ -362,6 +461,7 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
         issuedAt: at,
         lastSeenAt: at
     })
+    if (!(await sessionSurvivedSwitch(ctx, token))) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
     const session = await sessionAfterLogin(ctx.store, owner.id, ctx.now)
     if (!session) {
         await noteSignIn(ctx, 'sign_in_failure', owner.id, 'owner')
@@ -370,13 +470,15 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     await noteSignIn(ctx, 'sign_in_success', owner.id, 'owner')
     return json(200, session, {
         cookies: [localCookie(token, ctx.secure, sessionLimitsMs().idleMs)],
-        ...cleared(ctx, [WOS_SESSION_COOKIE])
+        ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
     })
 }
 
 export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
     const sealed = ctx.cookies[WOS_SESSION_COOKIE]
     if (sealed && ctx.workosConfigured) {
+        if (!(await sealedSessionEpochCurrent(ctx, sealed)))
+            return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE]))
         if (!ctx.cookiePasswordOk) return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
         try {
             const refreshed = await ctx.workos.refresh(sealed)
@@ -394,7 +496,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
             }
             const session = await ctx.store.sessionFor(row.id)
             if (!session) return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
-            return json(200, session, { cookies: [sealedCookie(refreshed.sealedSession, ctx.secure)] })
+            return json(200, session, { cookies: sealedCookies(ctx, refreshed.sealedSession) })
         } catch (error) {
             if (error instanceof WorkosUnavailableError) {
                 return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
@@ -464,15 +566,23 @@ export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
             }
         }
         if (localToken) await ctx.store.deleteLocalSession(hashSessionToken(localToken))
-        return json(200, { message: 'logged_out', redirectTo }, cleared(ctx, [WOS_SESSION_COOKIE, LOCAL_SESSION_COOKIE]))
+        return json(200, { message: 'logged_out', redirectTo }, cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE, LOCAL_SESSION_COOKIE]))
     }
 
     if (localToken) {
         if (!ctx.internal) return json(401, { message: 'Unauthorized' })
         await ctx.store.deleteLocalSession(hashSessionToken(localToken))
-        return json(200, { message: 'logged_out', redirectTo: '/signin' }, cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE]))
+        return json(
+            200,
+            { message: 'logged_out', redirectTo: '/signin' },
+            cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
+        )
     }
-    return json(200, { message: 'logged_out', redirectTo: '/signin' }, cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE]))
+    return json(
+        200,
+        { message: 'logged_out', redirectTo: '/signin' },
+        cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
+    )
 }
 
 export async function handleResolve(ctx: AuthContext): Promise<HandlerResult> {
@@ -670,6 +780,9 @@ export async function establishSession(
 ): Promise<{ user: SessionUser | null; cookies?: SetCookie[]; clearCookies?: string[]; secure?: boolean }> {
     const sealed = ctx.cookies[WOS_SESSION_COOKIE]
     if (sealed && ctx.workosConfigured && ctx.cookiePasswordOk) {
+        if (!(await sealedSessionEpochCurrent(ctx, sealed))) {
+            return { user: null, clearCookies: [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE], secure: ctx.secure }
+        }
         try {
             const authenticated = await ctx.workos.authenticateSession(sealed)
             if (authenticated.authenticated) {
@@ -679,7 +792,7 @@ export async function establishSession(
                         return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
                     }
                     const user = await ctx.store.sessionFor(row.id)
-                    return { user }
+                    return { user, cookies: user ? missingEpochCookie(ctx, sealed) : undefined }
                 }
                 return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
             }
@@ -694,7 +807,7 @@ export async function establishSession(
             const user = await ctx.store.sessionFor(row.id)
             return {
                 user,
-                cookies: user ? [sealedCookie(refreshed.sealedSession, ctx.secure)] : undefined,
+                cookies: user ? sealedCookies(ctx, refreshed.sealedSession) : undefined,
                 clearCookies: user ? undefined : [WOS_SESSION_COOKIE],
                 secure: ctx.secure
             }

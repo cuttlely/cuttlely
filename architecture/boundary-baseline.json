@@ -1632,6 +1632,11 @@
             "to": "packages/server/src/utils/getUploadsConfig.ts"
         },
         {
+            "from": "packages/ui/src/api/authenticationSettings.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Auth / SSO admin page uses the shared API client and card like the other admin views"
+        },
+        {
             "from": "packages/ui/src/api/builder.js",
             "to": "packages/ui/src/api/client.js"
         },
@@ -1836,6 +1841,26 @@
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
             "to": "packages/ui/src/utils/usePrompt.js"
+        },
+        {
+            "from": "packages/ui/src/views/auth/signIn.test.js",
+            "to": "packages/ui/src/api/auth.js",
+            "reason": "The sign-in reauthentication test drives the shared sign-in page and its API hooks"
+        },
+        {
+            "from": "packages/ui/src/views/auth/signIn.test.js",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "The sign-in reauthentication test drives the shared sign-in page and its API hooks"
+        },
+        {
+            "from": "packages/ui/src/views/auth/signIn.test.js",
+            "to": "packages/ui/src/views/auth/signIn.jsx",
+            "reason": "The sign-in reauthentication test drives the shared sign-in page and its API hooks"
+        },
+        {
+            "from": "packages/ui/src/views/authentication/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "Auth / SSO admin page uses the shared API client and card like the other admin views"
         },
         {
             "from": "packages/ui/src/views/canvas/CanvasNode.missing.test.js",

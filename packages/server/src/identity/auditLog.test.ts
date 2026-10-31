@@ -20,7 +20,7 @@ import { join } from 'path'
 import express, { Request } from 'express'
 import request from 'supertest'
 import { appendHistory } from '../settings/history'
-import { redactAudit, recordAudit, pageAudit, organizationsForUser, AuditQueryError } from './auditLog'
+import { AUDIT_TYPES, redactAudit, recordAudit, pageAudit, organizationsForUser, AuditQueryError } from './auditLog'
 import { identityAuditRouter, setAuditReaderForTests } from './auditRoutes'
 import { Sql } from './directory'
 import { setTeamPermissionLookup } from './rbac'
@@ -84,6 +84,10 @@ function dump(db: InstanceType<typeof DatabaseSync>): string {
 }
 
 describe('audit redaction', () => {
+    it('keeps every registered audit type within the database limit', () => {
+        expect(AUDIT_TYPES).toContain('auth_config_warning_ack')
+        expect(AUDIT_TYPES.every((type) => type.length <= 32)).toBe(true)
+    })
     it('drops passwords, tokens, secret values, and question text', () => {
         const redacted = redactAudit({
             type: 'sign_in_failure',

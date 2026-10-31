@@ -11,6 +11,7 @@ import { RequireAuth } from '@/routes/RequireAuth'
 const Chatflows = Loadable(lazy(() => import('@/views/chatflows')))
 const Promote = Loadable(lazy(() => import('@/views/promote')))
 const ServerSettings = Loadable(lazy(() => import('@/views/serversettings')))
+const AuthenticationSettings = Loadable(lazy(() => import('@/views/authentication')))
 const PromoteFlow = Loadable(lazy(() => import('@/views/promote/PromoteFlow')))
 
 // agents routing
@@ -330,6 +331,14 @@ const MainRoutes = {
             element: (
                 <RequireAuth permission={'workspace:view'} display={'feat:workspaces'}>
                     <WorkspaceDetails />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/authentication-settings',
+            element: (
+                <RequireAuth permission={'authentication:manage'}>
+                    <AuthenticationSettings />
                 </RequireAuth>
             )
         },

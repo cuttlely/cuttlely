@@ -123,6 +123,12 @@ export function isBcryptHash(stored: string): boolean {
     return cost !== null && cost >= BCRYPT_MIN_COST && cost <= BCRYPT_MAX_COST
 }
 
+/** True when local sign-in can check a password against this stored value. */
+export function isUsablePasswordHash(stored: string | null | undefined): boolean {
+    if (!stored) return false
+    return (isScryptHash(stored) && stored.split('$').length === 3) || isBcryptHash(stored)
+}
+
 export function tokensEqual(left: string, right: string): boolean {
     const a = Buffer.from(left)
     const b = Buffer.from(right)
