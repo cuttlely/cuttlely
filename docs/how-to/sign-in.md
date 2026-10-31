@@ -111,7 +111,9 @@ Without a terminal, for example in a script, the command reads the password from
 2. Type your **Email** and **Password**.
 3. Select **Sign in**. On an owner-only Local installation, this posts to `POST /api/v1/auth/login` and creates an ordinary Local session.
 
-![The Sign In page for an owner-only Local installation, with empty Email and Password fields, an eye icon on the password, a Sign in button, and the Owner recovery link.](../images/sign-in/signin-break-glass.png)
+![The owner password form on the Sign In page, with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/sign-in/signin-break-glass.png)
+
+The screenshot shows the password form only. The live page for an owner-only Local installation also shows the discreet **Owner recovery** link below the form.
 
 The app opens **Chatflows**, or the page you were going to.
 
