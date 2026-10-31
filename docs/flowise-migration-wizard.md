@@ -18,6 +18,7 @@ Import Flowise JSON, in the **Import** menu on Chatflows and on the canvas gear,
 -   A node missing `inputParams`, `inputAnchors`, or `outputAnchors` is a refusal. The canvas cannot draw that node.
 -   Credential ids, `FLOWISE_CREDENTIAL_ID`, and password, file, and folder inputs are removed before the canvas opens.
 -   An edge whose source or target is missing is dropped.
+-   On the chatflow canvas and the legacy agentflow canvas, a node saved with no version or an older version is refreshed to the current node. Empty settings get their defaults, the selected output follows the edge that leaves it, and each edge is written into the input it connects. An edge whose input or output is gone after the refresh is dropped and listed. An input that already holds a different connection is left as it is and listed. Agentflow v2 nodes are not changed.
 -   A chatflow with no Chain, Agent, or Engine still opens. The result says it cannot chat yet.
 -   A workspace bundle (`ChatFlow`, `AgentFlow`, and the other export tables) is refused. Import one chatflow.
 -   A file meant for that other import item is refused here. It is not converted.
@@ -30,6 +31,6 @@ Every save of the migrated flow is kept in [Version history](./how-to/versioning
 
 -   Creating or matching credentials inside the wizard. After the canvas opens, select a credential saved in this app.
 -   Rewriting a deprecated LLM into the chat-model node of the same provider.
--   Syncing outdated node versions. The canvas sync control still does that.
+-   Refreshing agentflow v2 nodes. The canvas sync control still does that.
 -   Restoring the export viewport.
 -   Importing more than one chatflow at a time.
