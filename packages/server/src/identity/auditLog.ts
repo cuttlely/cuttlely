@@ -49,7 +49,7 @@ export function oidcLinkAuditDetail(input: {
 }): Record<string, string | null> {
     return {
         issuer: input.issuer,
-        subject: input.subject,
+        subject: input.matchedUser ? input.subject : null,
         matchedUser: input.matchedUser,
         basis: input.basis,
         outcome: input.outcome

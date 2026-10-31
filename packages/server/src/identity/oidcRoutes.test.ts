@@ -194,6 +194,41 @@ describe('OIDC callback audit outcomes', () => {
         }
     })
 
+    it.each([
+        ['unknown', 'This identity cannot sign in.'],
+        ['invite_required', 'You have a pending invite. Open the invite link from your email to join.'],
+        ['invite_invalid', 'This invite link is not valid. Ask for a new invite.']
+    ])('returns the sign-in guidance for %s without auditing the provider subject', async (reason, message) => {
+        completeOidcAuthorization.mockResolvedValueOnce({
+            envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/' },
+            config: { trustMissingEmailVerification: false },
+            identity: {
+                providerKey: 'provider-1',
+                subject: 'provider-subject',
+                issuer: 'https://issuer.example',
+                email: 'ada@example.com',
+                emailVerified: true,
+                emailVerificationPresent: true
+            }
+        })
+        resolveOidcUser.mockResolvedValueOnce({ ok: false, reason, basis: null })
+
+        const response = await request(app())
+            .get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+            .set('x-forwarded-for', `192.0.2.${reason.length + 100}`)
+
+        const error = new URL(response.headers.location, 'http://localhost').searchParams.get('error')
+        expect(JSON.parse(error || '{}')).toEqual({ message })
+        expect(safeRecordAudit).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                type: 'sign_in_failure',
+                detail: expect.objectContaining({ subject: null, matchedUser: null, outcome: reason })
+            })
+        )
+        expect(JSON.stringify(safeRecordAudit.mock.calls.at(-1)?.[1])).not.toContain('provider-subject')
+    })
+
     it('throttles the callback after repeated identity link refusals', async () => {
         completeOidcAuthorization.mockResolvedValue({
             envelope: { purpose: 'signin', initiatingUserId: null, authEpoch: 4, redirectTarget: '/' },

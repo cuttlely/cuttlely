@@ -171,3 +171,9 @@ export function linkFailureMessage(reason: LinkFailure): string {
             return 'No account exists for this email.'
     }
 }
+
+export function oidcLinkFailureMessage(reason: string): string {
+    if (reason === 'invite_required') return linkFailureMessage('invite-required')
+    if (reason === 'invite_invalid') return linkFailureMessage('invite-invalid')
+    return 'This identity cannot sign in.'
+}

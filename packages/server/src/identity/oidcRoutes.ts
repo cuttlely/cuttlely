@@ -38,6 +38,7 @@ import {
     validatedOidcIssuer
 } from './oidcStore'
 import { readAuthenticationState } from './authenticationState'
+import { oidcLinkFailureMessage } from './link'
 import {
     oidcCallbackFailureAuditDetail,
     oidcFailureLogDetail,
@@ -494,7 +495,7 @@ oidcAuthRouter.get(
                     })
                 }
                 callbackFailures.recordFailure(clientAddress)
-                return void res.redirect(302, signinErrorUrl('This identity cannot sign in.'))
+                return void res.redirect(302, signinErrorUrl(oidcLinkFailureMessage(linked.reason)))
             }
             if (completed.envelope.purpose === 'reauth' && linked.user.id !== completed.envelope.initiatingUserId) {
                 throw new OidcError(
