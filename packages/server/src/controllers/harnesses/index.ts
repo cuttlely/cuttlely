@@ -85,6 +85,16 @@ const getRun = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
+const getRunDiagnostics = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        // Rejected claims are author diagnostics, never a public-chat or API-key response surface.
+        if (isApiKeyCaller(req)) return res.status(StatusCodes.FORBIDDEN).json({ message: 'Diagnostics require a signed-in author.' })
+        return res.json(await harnessesService.getRunDiagnostics(req.params.name, req.params.runId, activeWorkspace(req)))
+    } catch (error) {
+        next(error)
+    }
+}
+
 function writeSse(res: Response, event: string, data: unknown) {
     if (res.writableEnded) return
     res.write(`message:\ndata:${JSON.stringify({ event, data })}\n\n`)
@@ -244,6 +254,7 @@ export default {
     deleteHarness,
     listRuns,
     getRun,
+    getRunDiagnostics,
     createRun,
     startBackgroundRun,
     getRunResult,

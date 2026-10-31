@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.
+
 -   Trusted-output contracts can declare an optional monetary reporting symbol for verified readouts. Explicit source denominations take precedence, compact K/M/B values must match decimal-safe rounding of actual monetary source fields, and unchanged factual sections retain their original values. Counts and percentages stay in their source units.
 
 -   Harness Specialist can explicitly allow verified native read-only SQL when no tested pin covers a request. PostgreSQL MCP can expose scoped pinned-query definitions without stamps or secure defaults; fallback queries retain database guards and are limited to two calls per specialist turn.

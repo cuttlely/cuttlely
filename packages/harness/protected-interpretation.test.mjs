@@ -34,6 +34,122 @@ const paths = ['rows.0.report']
 const useful =
     'The workshop addressed the technical question, but procurement remains unresolved in the dated notes. Confirm the decision owner and ask whether the procurement review still blocks the renewal. This is a suggested follow-up, not evidence that approval has been obtained.'
 
+test('numeric claim diagnostics default off preserves exact composition objects and decisions', () => {
+    for (const interpretation of [useful, useful + ' There are 918273 open tickets.', useful + ' ACV is $2.5M.']) {
+        const args = { interpretation, facts: 'EXACT FACTUAL BLOCK', sources: [source], paths, reportingCurrencySymbol: '$' }
+        const legacy = composeProtectedInterpretation(args)
+        assert.deepEqual(composeProtectedInterpretation({ ...args, diagnostics: false }), legacy)
+        assert.deepEqual(composeProtectedInterpretation({ ...args, diagnostics: 'true' }), legacy)
+        assert.equal(Object.hasOwn(legacy, 'diagnostics'), false)
+        const enabled = composeProtectedInterpretation({ ...args, diagnostics: true })
+        const { diagnostics, ...unchanged } = enabled
+        assert.deepEqual(unchanged, legacy)
+        assert(Array.isArray(diagnostics))
+    }
+})
+
+test('opt-in numeric diagnostics retain the exact rejected literal and only a whitelisted unit', () => {
+    const draft = useful + ' There are +918,273.50 open tickets beside a PRIVATE-DRAFT-MARKER.'
+    const records = []
+    const legacy = protectedInterpretationIssues(draft, [source], paths)
+    const enabled = protectedInterpretationIssues(draft, [source], paths, undefined, {
+        diagnostics: true,
+        onDiagnostic: (record) => records.push(record)
+    })
+    assert.deepEqual(enabled, legacy)
+    assert.deepEqual(records, [{ issue: 'unsupported_number', literal: '+918,273.50', unit: '', contextType: 'number' }])
+    assert.equal(JSON.stringify(records).includes('PRIVATE-DRAFT-MARKER'), false)
+    assert.equal(JSON.stringify(records).includes('do-not-show'), false)
+    const count = composeProtectedInterpretation({
+        interpretation: useful + ' There are 918273 tickets.',
+        facts: 'FACTS',
+        sources: [source],
+        paths,
+        diagnostics: true
+    })
+    assert.deepEqual(count.diagnostics, [{ issue: 'unsupported_number', literal: '918273', unit: 'tickets', contextType: 'number' }])
+})
+
+test('compact and word-scale diagnostics report only rejected numeric notation and safe units', () => {
+    const args = { facts: 'FACTS', sources: [source], paths, reportingCurrencySymbol: '$', diagnostics: true }
+    const compact = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $2.5M.' })
+    assert(compact.reason.includes('unsupported_number'))
+    assert.deepEqual(compact.diagnostics, [{ issue: 'unsupported_number', literal: '2.5M', unit: 'M', contextType: 'compact_monetary' }])
+    const words = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $2.5 million.' })
+    assert(
+        words.diagnostics.some(
+            (record) => record.literal === '2.5' && record.unit === 'million' && record.contextType === 'word_scale_monetary'
+        )
+    )
+    const valid = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $1.25M.' })
+    assert.equal(valid.included, true)
+    assert.deepEqual(valid.diagnostics, [])
+})
+
+test('numeric diagnostics are bounded and contain no draft or source-body snippets', () => {
+    const literal = '9'.repeat(120)
+    const draft =
+        useful +
+        ` PRIVATE-DRAFT-MARKER: ${literal} PRIVATE-UNIT-MARKER. ` +
+        Array.from({ length: 20 }, (_, i) => `${900001 + i} tickets`).join('; ')
+    const result = composeProtectedInterpretation({
+        interpretation: draft,
+        facts: 'FACTS',
+        sources: [{ rows: [{ acv: '1250000', note: 'PRIVATE-SOURCE-MARKER', password: 'PRIVATE-SECRET-MARKER' }] }],
+        diagnostics: true
+    })
+    assert.equal(result.diagnostics.length, 8)
+    assert.equal(result.diagnostics[0].literal.length, 80)
+    for (const record of result.diagnostics) {
+        assert.deepEqual(Object.keys(record).sort(), ['contextType', 'issue', 'literal', 'unit'])
+        assert(record.literal.length <= 80 && record.unit.length <= 80)
+        assert.match(record.literal, /^[-+]?\d[\d,.]*[KMB]?$/)
+        assert(['', 'tickets'].includes(record.unit))
+    }
+    assert.doesNotMatch(JSON.stringify(result.diagnostics), /PRIVATE-|workshop|procurement|password/)
+})
+
+test('numeric diagnostic collection is strict opt-in and callback failure does not affect validation', () => {
+    const draft = useful + ' There are 918273 tickets.'
+    const legacy = protectedInterpretationIssues(draft, [source], paths)
+    let calls = 0
+    assert.deepEqual(
+        protectedInterpretationIssues(draft, [source], paths, undefined, {
+            diagnostics: false,
+            onDiagnostic: () => {
+                calls++
+            }
+        }),
+        legacy
+    )
+    assert.equal(calls, 0)
+    assert.deepEqual(
+        protectedInterpretationIssues(draft, [source], paths, undefined, {
+            diagnostics: true,
+            onDiagnostic: () => {
+                throw new Error('Diagnostic destination unavailable')
+            }
+        }),
+        legacy
+    )
+})
+
+test('diagnostics preserve date, percentage, currency and valid-claim validation decisions', () => {
+    for (const claim of [
+        ' The source date is 2099-01-01.',
+        ' Utilization is 91.234%.',
+        ' The reported ACV is EUR 1,250,000.00.',
+        ' The source score is 0.83 and utilization is 42.5%.',
+        ' There is a 99% probability of churn.'
+    ]) {
+        const args = { interpretation: useful + claim, facts: 'FACTS', sources: [source], paths, reportingCurrencySymbol: '$' }
+        const legacy = composeProtectedInterpretation(args)
+        const { diagnostics, ...enabled } = composeProtectedInterpretation({ ...args, diagnostics: true })
+        assert.deepEqual(enabled, legacy)
+        assert(diagnostics.length <= 8)
+    }
+})
+
 test('exposes actual bounded observations with paths and treats notes as untrusted data', () => {
     const evidence = protectedInterpretationEvidence(source, paths)
     assert(evidence.sourceEvidence.some((entry) => entry.value === source.rows[0].report.notes[0].text))
