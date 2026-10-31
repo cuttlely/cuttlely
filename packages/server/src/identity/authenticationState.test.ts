@@ -22,6 +22,7 @@ import {
 import { addAuthenticationState, addAuthenticationSwitchStage, addOidcProvider } from './schemaMigration'
 import { workosEpochCookie, workosEpochCookieValid } from './cookies'
 import { applyAuthKitSwitchOnBoot } from './production'
+import { oidcConfigurationFingerprint } from './oidcStore'
 
 async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Promise<DataSource> {
     const candidates = [
@@ -153,6 +154,55 @@ describe('authentication provider foundation', () => {
             expect(JSON.parse(audit[0].detail)).toMatchObject({ outcome: 'applied', configurationFingerprint: expect.any(String) })
             await db.destroy()
         })
+    })
+
+    it('activates a tested private-host allowlist change while OIDC remains selected', async () => {
+        const db = await database()
+        const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+        const configuration = (privateIssuerHosts: string[]) => {
+            const safe = {
+                issuer: 'https://id.example',
+                clientId: 'client',
+                clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+                trustMissingEmailVerification: false,
+                privateIssuerHosts
+            }
+            return { ...safe, fingerprint: oidcConfigurationFingerprint(safe) }
+        }
+        const first = configuration([])
+        await db.query(
+            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, NULL, ?)`,
+            [
+                'draft',
+                first.issuer,
+                first.clientId,
+                first.clientSecretEnvVar,
+                0,
+                JSON.stringify(first.privateIssuerHosts),
+                first.fingerprint,
+                'ready',
+                first.fingerprint,
+                1
+            ]
+        )
+        await db.query(
+            `INSERT INTO "identity_provider_link_migration" ("id", "providerKey", "migratedCount", "inertCount", "completedAt", "error") VALUES (?, NULL, 0, 0, ?, NULL)`,
+            [1, Date.now()]
+        )
+        const active = await switchAuthenticationMethod(db, 'oidc', before.version)
+        const changed = configuration(['127.0.0.1'])
+        await db.query(
+            `UPDATE "identity_oidc_configuration" SET "privateIssuerHosts" = ?, "fingerprint" = ?, "testedFingerprint" = ?, "version" = "version" + 1 WHERE "slot" = 'draft'`,
+            [JSON.stringify(changed.privateIssuerHosts), changed.fingerprint, changed.fingerprint]
+        )
+        const after = await switchAuthenticationMethod(db, 'oidc', active.version)
+        const [stored] = await db.query(
+            `SELECT "privateIssuerHosts", "fingerprint" FROM "identity_oidc_configuration" WHERE "slot" = 'active'`
+        )
+        expect(JSON.parse(stored.privateIssuerHosts)).toEqual(['127.0.0.1'])
+        expect(stored.fingerprint).toBe(changed.fingerprint)
+        expect(after.version).toBeGreaterThan(active.version)
+        await db.destroy()
     })
 
     it('refuses a staged WorkOS activation when recovery stopped being ready after staging', async () => {

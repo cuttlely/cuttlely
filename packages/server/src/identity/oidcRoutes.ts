@@ -1,21 +1,30 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { Request, Response, Router } from 'express'
 import { isIP } from 'net'
-import { recentAuthenticationCookie } from './cookies'
-import { LOCAL_SESSION_COOKIE, signinErrorUrl } from './constants'
+import { cookieSecure, expiredOidcBrowserCookie, oidcBrowserCookie, recentAuthenticationCookie } from './cookies'
+import { LOCAL_SESSION_COOKIE, OIDC_BROWSER_COOKIE, signinErrorUrl } from './constants'
 import { issueDatabaseSession, establishSession } from './handlers'
-import { identityRouteLimit } from './rateLimit'
+import {
+    IdentityFailureRateLimit,
+    identityRouteLimit,
+    OIDC_ADMIN_WRITE_LIMIT,
+    OIDC_CALLBACK_LIMIT,
+    OIDC_FAILURE_LIMIT,
+    OIDC_LOGIN_START_LIMIT,
+    OIDC_TEST_START_LIMIT
+} from './rateLimit'
 import { applicationDataSource, applicationSql, buildAuthContext, identityStore } from './production'
 import { requirePermission } from './rbac'
-import { beginOidcAuthorization, browserSessionBinding, checkOidcConfiguration, completeOidcAuthorization, OidcError } from './oidcProvider'
+import { beginOidcAuthorization, checkOidcConfiguration, completeOidcAuthorization, OidcError } from './oidcProvider'
 import {
     migrateLegacyProviderLinks,
     oidcConfigurationFingerprint,
-    providerLinkMigrationComplete,
+    providerLinkMigrationStatus,
     readOidcConfiguration,
     recordOidcTestResult,
     resolveOidcUser,
-    saveOidcDraft
+    saveOidcDraft,
+    validatedOidcIssuer
 } from './oidcStore'
 import { hasRecentAuthentication, readAuthenticationState, recordRecentAuthentication } from './authenticationState'
 import { hashSessionToken } from './password'
@@ -27,6 +36,12 @@ const HOST_NAME = /^(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?|::1)$/i
 
 export const oidcAdminRouter = Router()
 export const oidcAuthRouter = Router()
+const startFailures = new IdentityFailureRateLimit(OIDC_FAILURE_LIMIT)
+const callbackFailures = new IdentityFailureRateLimit(OIDC_FAILURE_LIMIT)
+
+function address(req: Request): string {
+    return req.ip || req.socket?.remoteAddress || 'unknown'
+}
 
 function actor(req: Request): { id: string; organizationId: string } | null {
     const user = req.user as { id?: unknown; activeOrganizationId?: unknown } | undefined
@@ -51,6 +66,20 @@ export function oidcPostLogoutUrl(): string {
 
 function cacheNoStore(res: Response): void {
     res.set('Cache-Control', 'no-store')
+}
+
+function oidcCookieIsSecure(req: Request): boolean {
+    return cookieSecure(oidcCallbackUrl(), Boolean(req.secure) || req.protocol === 'https')
+}
+
+function setOidcBrowserCookie(req: Request, res: Response, value: string): void {
+    const cookie = oidcBrowserCookie(value, oidcCookieIsSecure(req))
+    res.cookie(cookie.name, cookie.value, cookie.options)
+}
+
+function clearOidcBrowserCookie(req: Request, res: Response): void {
+    const cookie = expiredOidcBrowserCookie(oidcCookieIsSecure(req))
+    res.cookie(cookie.name, cookie.value, cookie.options)
 }
 
 function configurationBody(config: Awaited<ReturnType<typeof readOidcConfiguration>>) {
@@ -106,10 +135,10 @@ oidcAdminRouter.get('/', async (_req, res) => {
     try {
         const state = await readAuthenticationState(applicationDataSource())
         if (state) await migrateLegacyProviderLinks(applicationDataSource(), state)
-        const [draft, active, migrated] = await Promise.all([
+        const [draft, active, migration] = await Promise.all([
             readOidcConfiguration(applicationDataSource(), 'draft'),
             readOidcConfiguration(applicationDataSource(), 'active'),
-            providerLinkMigrationComplete(applicationDataSource())
+            providerLinkMigrationStatus(applicationDataSource())
         ])
         res.status(200).json({
             draft: configurationBody(draft),
@@ -117,20 +146,21 @@ oidcAdminRouter.get('/', async (_req, res) => {
             callbackUrl: oidcCallbackUrl(),
             postLogoutUrl: oidcPostLogoutUrl(),
             scopes: ['openid', 'email', 'profile'],
-            linkMigrationComplete: migrated
+            linkMigrationComplete: migration.complete,
+            linkMigration: migration
         })
     } catch {
         res.status(500).json({ message: 'OIDC settings could not be read.' })
     }
 })
 
-oidcAdminRouter.put('/', identityRouteLimit(10), async (req, res) => {
+oidcAdminRouter.put('/', identityRouteLimit(OIDC_ADMIN_WRITE_LIMIT), async (req, res) => {
     cacheNoStore(res)
     const who = actor(req)
     if (!who) return void res.status(401).json({ message: 'Unauthorized' })
     if (!(await recent(req, who.id))) return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again first.' })
     const body = (req.body || {}) as Record<string, unknown>
-    const issuerText = typeof body.issuer === 'string' ? body.issuer.trim().replace(/\/$/, '') : ''
+    const issuer = validatedOidcIssuer(body.issuer)
     const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
     const clientSecretEnvVar = typeof body.clientSecretEnvVar === 'string' ? body.clientSecretEnvVar.trim() : ''
     const trustMissingEmailVerification = body.trustMissingEmailVerification === true
@@ -145,21 +175,19 @@ oidcAdminRouter.put('/', identityRouteLimit(10), async (req, res) => {
           ]
         : []
     const version = Number(body.version)
-    if (!issuerText || !clientId || !ENV_NAME.test(clientSecretEnvVar) || !Number.isInteger(version) || version < 0) {
+    if (!issuer || !clientId || !ENV_NAME.test(clientSecretEnvVar) || !Number.isInteger(version) || version < 0) {
         return void res.status(400).json({ message: 'Issuer, client id, secret environment variable name, and version are required.' })
     }
     if (privateIssuerHosts.some((host) => (isIP(host) === 0 && !HOST_NAME.test(host)) || host.includes('..'))) {
         return void res.status(400).json({ message: 'Private issuer hosts must be exact host names.' })
     }
-    let issuer: string
-    try {
-        const parsed = new URL(issuerText)
-        if (parsed.search || parsed.hash || parsed.username || parsed.password) throw new Error('parts')
-        issuer = parsed.toString().replace(/\/$/, '')
-    } catch {
-        return void res.status(400).json({ message: 'Issuer must be a valid URL.' })
-    }
-    const fingerprint = oidcConfigurationFingerprint({ issuer, clientId, clientSecretEnvVar, trustMissingEmailVerification })
+    const fingerprint = oidcConfigurationFingerprint({
+        issuer,
+        clientId,
+        clientSecretEnvVar,
+        trustMissingEmailVerification,
+        privateIssuerHosts
+    })
     const base = {
         issuer,
         clientId,
@@ -209,7 +237,7 @@ oidcAdminRouter.put('/', identityRouteLimit(10), async (req, res) => {
     }
 })
 
-oidcAdminRouter.post('/test', identityRouteLimit(10), async (req, res) => {
+oidcAdminRouter.post('/test', identityRouteLimit(OIDC_TEST_START_LIMIT), async (req, res) => {
     cacheNoStore(res)
     const who = actor(req)
     if (!who) return void res.status(401).json({ message: 'Unauthorized' })
@@ -224,9 +252,9 @@ oidcAdminRouter.post('/test', identityRouteLimit(10), async (req, res) => {
             callbackUrl: oidcCallbackUrl(),
             redirectTarget: '/authentication-settings',
             purpose: 'test',
-            initiatingSession: browserSessionBinding((req.cookies || {}) as Record<string, string | undefined>),
             initiatingUserId: who.id
         })
+        setOidcBrowserCookie(req, res, begun.browserNonce)
         res.status(200).json({ url: begun.url })
     } catch {
         res.status(409).json({ message: 'OIDC test sign-in could not start.' })
@@ -242,6 +270,8 @@ function safeSigninMessage(error: unknown): string {
 
 async function beginPublic(req: Request, res: Response, purpose: 'signin' | 'reauth' | 'invite', invitationToken?: string) {
     cacheNoStore(res)
+    const clientAddress = address(req)
+    if (startFailures.blocked(clientAddress)) return void res.redirect(302, signinErrorUrl('Too many attempts. Try again later.'))
     try {
         const state = await readAuthenticationState(applicationDataSource())
         if (!state || state.activeMethod !== 'oidc') return void res.status(404).json({ message: 'Not Found' })
@@ -256,126 +286,147 @@ async function beginPublic(req: Request, res: Response, purpose: 'signin' | 'rea
             callbackUrl: oidcCallbackUrl(),
             redirectTarget: purpose === 'reauth' ? '/authentication-settings' : '/',
             purpose,
-            initiatingSession: purpose === 'reauth' ? browserSessionBinding(ctx.cookies) : null,
             initiatingUserId: current?.user?.id || null,
             invitationToken
         })
+        setOidcBrowserCookie(req, res, begun.browserNonce)
         res.redirect(302, begun.url)
     } catch (error) {
+        startFailures.recordFailure(clientAddress)
         res.redirect(302, signinErrorUrl(safeSigninMessage(error)))
     }
 }
 
-oidcAuthRouter.get('/login', identityRouteLimit(30), (req, res) => void beginPublic(req, res, 'signin'))
-oidcAuthRouter.get('/reauthenticate', identityRouteLimit(20), (req, res) => void beginPublic(req, res, 'reauth'))
+oidcAuthRouter.get('/login', identityRouteLimit(OIDC_LOGIN_START_LIMIT), (req, res) => void beginPublic(req, res, 'signin'))
+oidcAuthRouter.get('/reauthenticate', identityRouteLimit(300), (req, res) => void beginPublic(req, res, 'reauth'))
 
-export async function oidcInviteStartUrl(req: Request, token: string): Promise<string> {
-    const state = await readAuthenticationState(applicationDataSource())
-    if (!state || state.activeMethod !== 'oidc') throw new OidcError('configuration', 'OIDC is not active.')
-    const begun = await beginOidcAuthorization({
-        dataSource: applicationDataSource(),
-        slot: 'active',
-        installationId: state.installationId,
-        authenticationEpoch: state.authenticationEpoch,
-        callbackUrl: oidcCallbackUrl(),
-        redirectTarget: '/',
-        purpose: 'invite',
-        initiatingSession: null,
-        invitationToken: token
-    })
-    return begun.url
-}
-
-oidcAuthRouter.get('/callback', identityRouteLimit(60), async (req, res) => {
-    cacheNoStore(res)
-    const state = typeof req.query.state === 'string' ? req.query.state : ''
-    const code = typeof req.query.code === 'string' ? req.query.code : undefined
-    const errorParam = typeof req.query.error === 'string' ? req.query.error : undefined
-    const responseIssuer = typeof req.query.iss === 'string' ? req.query.iss : undefined
+export async function oidcInviteStartUrl(req: Request, token: string): Promise<{ url: string; browserNonce: string }> {
+    const clientAddress = address(req)
+    if (startFailures.blocked(clientAddress)) throw new OidcError('transaction', 'Too many attempts.')
     try {
-        const authState = await readAuthenticationState(applicationDataSource())
-        if (!authState) throw new OidcError('transaction', 'Authentication state is unavailable.')
-        const completed = await completeOidcAuthorization({
+        const state = await readAuthenticationState(applicationDataSource())
+        if (!state || state.activeMethod !== 'oidc') throw new OidcError('configuration', 'OIDC is not active.')
+        const begun = await beginOidcAuthorization({
             dataSource: applicationDataSource(),
-            state,
-            code,
-            error: errorParam,
-            responseIssuer,
+            slot: 'active',
+            installationId: state.installationId,
+            authenticationEpoch: state.authenticationEpoch,
             callbackUrl: oidcCallbackUrl(),
-            browserSession: browserSessionBinding((req.cookies || {}) as Record<string, string | undefined>),
-            currentEpoch: authState.authenticationEpoch
+            redirectTarget: '/',
+            purpose: 'invite',
+            invitationToken: token
         })
-        if (completed.envelope.purpose === 'test') {
-            const ctx = await buildAuthContext(req)
-            const current = await establishSession(ctx)
-            if (!current.user || current.user.id !== completed.envelope.initiatingUserId) {
-                throw new OidcError('transaction', 'The test sign-in binding is invalid.')
-            }
-            const basis =
-                completed.identity.emailVerified === true
-                    ? 'email_verified'
-                    : completed.identity.xmsEdov === true && new URL(completed.identity.issuer).hostname === 'login.microsoftonline.com'
-                    ? 'xms_edov'
-                    : completed.identity.emailVerified === undefined &&
-                      completed.identity.emailVerificationPresent !== true &&
-                      completed.config.trustMissingEmailVerification
-                    ? 'issuer_trusted'
-                    : 'not_assured'
-            await recordOidcTestResult(applicationDataSource(), completed.config.fingerprint, {
-                steps: ['discovery', 'authorization', 'token', 'signature', 'claims'],
-                email: completed.identity.email || null,
-                assuranceBasis: basis
-            })
-            return void res.redirect(302, '/authentication-settings?oidcTest=passed')
-        }
-        if (authState.activeMethod !== 'oidc') throw new OidcError('transaction', 'OIDC is no longer active.')
-        const linked = await resolveOidcUser(applicationDataSource(), identityStore(), completed.identity, {
-            trustMissing: completed.config.trustMissingEmailVerification,
-            invitationToken: completed.envelope.invitationToken,
-            bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL
-        })
-        const matchedUser = linked.ok ? linked.user.id : null
-        const orgs = matchedUser ? await organizationsForUser(applicationSql(), matchedUser) : ['']
-        for (const organizationId of orgs.length ? orgs : ['']) {
-            await safeRecordAudit(applicationSql(), {
-                type: linked.ok ? 'sign_in_success' : 'sign_in_failure',
-                organizationId,
-                workspaceId: null,
-                userId: matchedUser,
-                actorId: matchedUser,
-                summary: linked.ok ? 'OIDC identity linked' : 'OIDC identity link refused',
-                detail: oidcLinkAuditDetail({
-                    issuer: completed.identity.issuer,
-                    subject: completed.identity.subject,
-                    matchedUser,
-                    basis: linked.basis || null,
-                    outcome: linked.ok ? 'linked' : linked.reason
-                })
-            })
-        }
-        if (!linked.ok) return void res.redirect(302, signinErrorUrl('This identity cannot sign in.'))
-        if (completed.envelope.purpose === 'reauth' && linked.user.id !== completed.envelope.initiatingUserId) {
-            throw new OidcError('transaction', 'Reauthentication must use the account that started it.')
-        }
-        const ctx = await buildAuthContext(req)
-        ctx.authenticationEpoch = completed.envelope.authEpoch
-        const issued = await issueDatabaseSession(ctx, linked.user.id)
-        if (issued.type !== 'json' || issued.status !== 200) throw new OidcError('response', 'Session creation failed.')
-        for (const cookie of issued.cookies || []) res.cookie(cookie.name, cookie.value, cookie.options)
-        for (const name of issued.clearCookies || [])
-            res.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: issued.secure })
-        if (
-            completed.envelope.purpose === 'reauth' &&
-            completed.identity.authTime !== undefined &&
-            completed.identity.authTime * 1000 >= completed.envelope.requestTime
-        ) {
-            const recent = await recordRecentAuthentication(applicationDataSource(), linked.user.id)
-            const cookie = recentAuthenticationCookie(recent.token, ctx.secure, recent.expiresAt - Date.now())
-            res.cookie(cookie.name, cookie.value, cookie.options)
-        }
-        res.redirect(302, completed.envelope.redirectTarget)
+        return { url: begun.url, browserNonce: begun.browserNonce }
     } catch (error) {
-        console.warn('[server]: OIDC callback failed', oidcFailureLogDetail(error))
-        res.redirect(302, signinErrorUrl(safeSigninMessage(error)))
+        startFailures.recordFailure(clientAddress)
+        throw error
     }
-})
+}
+
+oidcAuthRouter.get(
+    '/callback',
+    (req, res, next) => {
+        cacheNoStore(res)
+        clearOidcBrowserCookie(req, res)
+        next()
+    },
+    identityRouteLimit(OIDC_CALLBACK_LIMIT),
+    async (req, res) => {
+        cacheNoStore(res)
+        const clientAddress = address(req)
+        if (callbackFailures.blocked(clientAddress)) {
+            return void res.redirect(302, signinErrorUrl('Too many attempts. Try again later.'))
+        }
+        const state = typeof req.query.state === 'string' ? req.query.state : ''
+        const code = typeof req.query.code === 'string' ? req.query.code : undefined
+        const errorParam = typeof req.query.error === 'string' ? req.query.error : undefined
+        const responseIssuer = typeof req.query.iss === 'string' ? req.query.iss : undefined
+        try {
+            const authState = await readAuthenticationState(applicationDataSource())
+            if (!authState) throw new OidcError('transaction', 'Authentication state is unavailable.')
+            const completed = await completeOidcAuthorization({
+                dataSource: applicationDataSource(),
+                state,
+                code,
+                error: errorParam,
+                responseIssuer,
+                callbackUrl: oidcCallbackUrl(),
+                browserNonce: (req.cookies || {})[OIDC_BROWSER_COOKIE] || null,
+                currentEpoch: authState.authenticationEpoch
+            })
+            if (completed.envelope.purpose === 'test') {
+                const ctx = await buildAuthContext(req)
+                const current = await establishSession(ctx)
+                if (!current.user || current.user.id !== completed.envelope.initiatingUserId) {
+                    throw new OidcError('transaction', 'The test sign-in binding is invalid.')
+                }
+                const basis =
+                    completed.identity.emailVerified === true
+                        ? 'email_verified'
+                        : completed.identity.xmsEdov === true && new URL(completed.identity.issuer).hostname === 'login.microsoftonline.com'
+                        ? 'xms_edov'
+                        : completed.identity.emailVerified === undefined &&
+                          completed.identity.emailVerificationPresent !== true &&
+                          completed.config.trustMissingEmailVerification
+                        ? 'issuer_trusted'
+                        : 'not_assured'
+                await recordOidcTestResult(applicationDataSource(), completed.config.fingerprint, {
+                    steps: ['discovery', 'authorization', 'token', 'signature', 'claims'],
+                    email: completed.identity.email || null,
+                    assuranceBasis: basis
+                })
+                return void res.redirect(302, '/authentication-settings?oidcTest=passed')
+            }
+            if (authState.activeMethod !== 'oidc') throw new OidcError('transaction', 'OIDC is no longer active.')
+            const linked = await resolveOidcUser(applicationDataSource(), identityStore(), completed.identity, {
+                trustMissing: completed.config.trustMissingEmailVerification,
+                invitationToken: completed.envelope.invitationToken,
+                bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL
+            })
+            const matchedUser = linked.ok ? linked.user.id : null
+            const orgs = matchedUser ? await organizationsForUser(applicationSql(), matchedUser) : ['']
+            for (const organizationId of orgs.length ? orgs : ['']) {
+                await safeRecordAudit(applicationSql(), {
+                    type: linked.ok ? 'sign_in_success' : 'sign_in_failure',
+                    organizationId,
+                    workspaceId: null,
+                    userId: matchedUser,
+                    actorId: matchedUser,
+                    summary: linked.ok ? 'OIDC identity linked' : 'OIDC identity link refused',
+                    detail: oidcLinkAuditDetail({
+                        issuer: completed.identity.issuer,
+                        subject: completed.identity.subject,
+                        matchedUser,
+                        basis: linked.basis || null,
+                        outcome: linked.ok ? 'linked' : linked.reason
+                    })
+                })
+            }
+            if (!linked.ok) return void res.redirect(302, signinErrorUrl('This identity cannot sign in.'))
+            if (completed.envelope.purpose === 'reauth' && linked.user.id !== completed.envelope.initiatingUserId) {
+                throw new OidcError('transaction', 'Reauthentication must use the account that started it.')
+            }
+            const ctx = await buildAuthContext(req)
+            ctx.authenticationEpoch = completed.envelope.authEpoch
+            const issued = await issueDatabaseSession(ctx, linked.user.id)
+            if (issued.type !== 'json' || issued.status !== 200) throw new OidcError('response', 'Session creation failed.')
+            for (const cookie of issued.cookies || []) res.cookie(cookie.name, cookie.value, cookie.options)
+            for (const name of issued.clearCookies || [])
+                res.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: issued.secure })
+            if (
+                completed.envelope.purpose === 'reauth' &&
+                completed.identity.authTime !== undefined &&
+                completed.identity.authTime * 1000 >= completed.envelope.requestTime
+            ) {
+                const recent = await recordRecentAuthentication(applicationDataSource(), linked.user.id)
+                const cookie = recentAuthenticationCookie(recent.token, ctx.secure, recent.expiresAt - Date.now())
+                res.cookie(cookie.name, cookie.value, cookie.options)
+            }
+            res.redirect(302, completed.envelope.redirectTarget)
+        } catch (error) {
+            callbackFailures.recordFailure(clientAddress)
+            console.warn('[server]: OIDC callback failed', oidcFailureLogDetail(error))
+            res.redirect(302, signinErrorUrl(safeSigninMessage(error)))
+        }
+    }
+)

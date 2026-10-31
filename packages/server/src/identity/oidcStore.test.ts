@@ -15,7 +15,8 @@ import {
     providerLinkMigrationComplete,
     readOidcConfiguration,
     resolveOidcUser,
-    saveOidcDraft
+    saveOidcDraft,
+    validatedOidcIssuer
 } from './oidcStore'
 
 const { DatabaseSync } = require('node:sqlite') as {
@@ -84,6 +85,11 @@ function store(users: UserRow[], accepted: 'accepted' | 'invalid' = 'invalid'): 
 }
 
 describe('provider-scoped identity links', () => {
+    it('keeps the exact trimmed issuer including a trailing slash', () => {
+        expect(validatedOidcIssuer('  https://id.example/tenant/  ')).toBe('https://id.example/tenant/')
+        expect(validatedOidcIssuer('https://id.example/tenant/?query=no')).toBeNull()
+    })
+
     it('consumes a cross-process sign-in transaction once', async () => {
         const db = database()
         await addOidcProvider(db.source.createQueryRunner())
@@ -106,7 +112,8 @@ describe('provider-scoped identity links', () => {
                 issuer: 'https://id.example',
                 clientId: 'client',
                 clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
-                trustMissingEmailVerification: false
+                trustMissingEmailVerification: false,
+                privateIssuerHosts: []
             }),
             discovery: null,
             health: 'unchecked' as const,
@@ -131,10 +138,18 @@ describe('provider-scoped identity links', () => {
             'subject-1',
             'active'
         ])
-        const first = await migrateLegacyProviderLinks(db.source, { providerKey: 'workos-provider', warningKind: null })
-        const second = await migrateLegacyProviderLinks(db.source, { providerKey: 'workos-provider', warningKind: null })
-        expect(first).toEqual({ complete: true, migrated: 1, error: null })
-        expect(second).toEqual({ complete: true, migrated: 0, error: null })
+        const first = await migrateLegacyProviderLinks(db.source, {
+            activeMethod: 'workos',
+            providerKey: 'workos-provider',
+            warningKind: null
+        })
+        const second = await migrateLegacyProviderLinks(db.source, {
+            activeMethod: 'workos',
+            providerKey: 'workos-provider',
+            warningKind: null
+        })
+        expect(first).toEqual({ complete: true, migrated: 1, inert: 0, error: null })
+        expect(second).toEqual({ complete: true, migrated: 0, inert: 0, error: null })
         expect(await findProviderLink(db.source, 'workos-provider', 'subject-1')).toMatchObject({
             userId: 'user-1',
             emailAtLink: 'ada@example.com',
@@ -156,12 +171,36 @@ describe('provider-scoped identity links', () => {
             'active'
         ])
         const result = await migrateLegacyProviderLinks(db.source, {
+            activeMethod: 'workos',
             providerKey: 'workos-provider',
             warningKind: 'workos-client-mismatch'
         })
         expect(result.complete).toBe(false)
         expect(await findProviderLink(db.source, 'workos-provider', 'subject-1')).toBeNull()
         expect(await providerLinkMigrationComplete(db.source)).toBe(false)
+        db.close()
+    })
+
+    it('records unattributable legacy WorkOS subjects as inert without blocking OIDC', async () => {
+        const db = database()
+        const runner = db.source.createQueryRunner()
+        await addOidcProvider(runner)
+        await runner.query('INSERT INTO "user" (id, email, "externalId", status) VALUES (?, ?, ?, ?)', [
+            'user-1',
+            'ada@example.com',
+            'workos-subject',
+            'active'
+        ])
+        await expect(
+            migrateLegacyProviderLinks(db.source, { activeMethod: 'local', providerKey: null, warningKind: null })
+        ).resolves.toEqual({
+            complete: true,
+            migrated: 0,
+            inert: 1,
+            error: null
+        })
+        expect(await providerLinkMigrationComplete(db.source)).toBe(true)
+        expect(await db.rows('SELECT "inertCount" AS value FROM identity_provider_link_migration')).toEqual([{ value: 1 }])
         db.close()
     })
 
@@ -311,10 +350,15 @@ describe('provider-scoped identity links', () => {
             issuer: 'https://id.example',
             clientId: 'client',
             clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
-            trustMissingEmailVerification: false
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: []
         }
         expect(oidcConfigurationFingerprint(base)).not.toBe(
             oidcConfigurationFingerprint({ ...base, clientSecretEnvVar: 'OTHER_CLIENT_SECRET' })
+        )
+        expect(oidcConfigurationFingerprint(base)).not.toBe(oidcConfigurationFingerprint({ ...base, privateIssuerHosts: ['127.0.0.1'] }))
+        expect(oidcConfigurationFingerprint({ ...base, privateIssuerHosts: ['EXAMPLE.internal.', '127.0.0.1'] })).toBe(
+            oidcConfigurationFingerprint({ ...base, privateIssuerHosts: ['127.0.0.1', 'example.internal'] })
         )
         expect(oidcProviderKey('installation-a', base.issuer, base.clientId)).not.toBe(
             oidcProviderKey('installation-b', base.issuer, base.clientId)

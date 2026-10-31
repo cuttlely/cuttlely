@@ -131,6 +131,10 @@ Ignoring a host value outside its range, instead of pulling it into range, is in
 
 A server that already has local password sessions ends those sessions the first time it starts with AuthKit configured (`WORKOS_API_KEY` and `WORKOS_CLIENT_ID` both set). That includes the owner break-glass session. The owner signs in again with the owner password when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else signs in with AuthKit. A verified AuthKit email links the one existing user with that mailbox. Two users with the same mailbox are not linked. A later restart of the web server does not end sessions created after the switch. A queue worker that does not have the AuthKit environment does not record the switch as off. [Turn AuthKit on](./how-to/users-without-authkit.md#turn-authkit-on).
 
+## Legacy WorkOS subjects before OIDC activation
+
+An upgrade copies legacy WorkOS subjects from `externalId` into provider-scoped links when the installation has a stable WorkOS provider identity. That attributable state must finish before generic OIDC can be activated. If an installation used WorkOS and later returned to Local login without retaining a stable WorkOS provider identity, those subjects are recorded as unmigrated and inert. They cannot match the configured OIDC provider, do not block OIDC activation, and remain visible as a count on **Admin** > **Auth / SSO**.
+
 ## Invites after 1.3.0
 
 From 1.3.0 an invited person joins only through their own one-time invite link. The link is single use, expires after the invite link lifetime (72 hours by default), works only for that person and the email it was sent to, and stops working when a newer link replaces it or the person is disabled or removed from the team or the organization. A sign-in whose email matches a pending invite never activates it, even when the email is verified, and shows `You have a pending invite. Open the invite link from your email to join.`

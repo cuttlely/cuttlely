@@ -35,6 +35,26 @@ export interface ProviderLink {
     createdAt: string
 }
 
+export interface ProviderLinkMigrationStatus {
+    complete: boolean
+    migrated: number
+    inert: number
+    error: string | null
+}
+
+export function validatedOidcIssuer(value: unknown): string | null {
+    if (typeof value !== 'string') return null
+    const issuer = value.trim()
+    if (!issuer) return null
+    try {
+        const parsed = new URL(issuer)
+        if (parsed.search || parsed.hash || parsed.username || parsed.password) return null
+        return issuer
+    } catch {
+        return null
+    }
+}
+
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mariadb'
 
 function dialect(runner: QueryRunner): Dialect {
@@ -106,12 +126,26 @@ export function oidcConfigurationFingerprint(input: {
     clientId: string
     clientSecretEnvVar: string
     trustMissingEmailVerification: boolean
+    privateIssuerHosts: string[]
 }): string {
+    const privateIssuerHosts = [
+        ...new Set(
+            input.privateIssuerHosts
+                .map((host) =>
+                    host
+                        .trim()
+                        .toLowerCase()
+                        .replace(/^\[|\]$/g, '')
+                        .replace(/\.+$/, '')
+                )
+                .filter(Boolean)
+        )
+    ].sort()
     return createHash('sha256')
         .update(
-            `oidc-config-v1\n${input.issuer}\n${input.clientId}\n${input.clientSecretEnvVar}\n${
+            `oidc-config-v2\n${input.issuer}\n${input.clientId}\n${input.clientSecretEnvVar}\n${
                 input.trustMissingEmailVerification ? 'true' : 'false'
-            }`
+            }\n${privateIssuerHosts.join('\n')}`
         )
         .digest('hex')
 }
@@ -390,8 +424,8 @@ export async function createProviderLink(
 
 export async function migrateLegacyProviderLinks(
     dataSource: DataSource,
-    state: { providerKey: string | null; warningKind: string | null }
-): Promise<{ complete: boolean; migrated: number; error: string | null }> {
+    state: { activeMethod: string | null; providerKey: string | null; warningKind: string | null }
+): Promise<ProviderLinkMigrationStatus> {
     const runner = dataSource.createQueryRunner()
     await runner.connect()
     await runner.startTransaction()
@@ -404,11 +438,12 @@ export async function migrateLegacyProviderLinks(
                 'externalId'
             )} FROM ${q(d, 'user')} WHERE ${q(d, 'externalId')} IS NOT NULL AND ${q(d, 'externalId')} <> ''`
         )
+        const workosProviderKey = state.activeMethod === 'workos' ? state.providerKey : null
         let error: string | null = null
         if (existing.length && state.warningKind === 'workos-client-mismatch') error = 'WorkOS configuration review is required.'
-        else if (existing.length && !state.providerKey) error = 'The WorkOS provider identity is unavailable.'
+        const inert = existing.length && !workosProviderKey && !error ? existing.length : 0
         let migrated = 0
-        if (!error && state.providerKey) {
+        if (!error && workosProviderKey) {
             for (const row of existing) {
                 const subject = String(cell(row, 'externalId'))
                 const userId = String(cell(row, 'id'))
@@ -418,7 +453,7 @@ export async function migrateLegacyProviderLinks(
                         d,
                         'providerKey'
                     )} = ? AND ${q(d, 'subject')} = ?`,
-                    [state.providerKey, subject]
+                    [workosProviderKey, subject]
                 )
                 if (linked.length) {
                     if (String(cell(linked[0], 'userId')) !== userId) throw new Error('Legacy identity link conflict.')
@@ -429,7 +464,7 @@ export async function migrateLegacyProviderLinks(
                     'assuranceBasis'
                 )}, ${q(d, 'createdAt')}`
                 const values = [
-                    state.providerKey,
+                    workosProviderKey,
                     subject,
                     userId,
                     mailboxKey(String(cell(row, 'email') || '')) || null,
@@ -452,38 +487,44 @@ export async function migrateLegacyProviderLinks(
                         d,
                         'providerKey'
                     )} = ? AND ${q(d, 'subject')} = ?`,
-                    [state.providerKey, subject]
+                    [workosProviderKey, subject]
                 )
                 if (!after[0] || String(cell(after[0], 'userId')) !== userId) throw new Error('Legacy identity link conflict.')
                 migrated += 1
             }
         }
-        const markerColumns = `${q(d, 'id')}, ${q(d, 'providerKey')}, ${q(d, 'migratedCount')}, ${q(d, 'completedAt')}, ${q(d, 'error')}`
-        const markerValues = [state.providerKey, migrated, error ? null : dateValue(runner, Date.now()), error]
+        const markerColumns = `${q(d, 'id')}, ${q(d, 'providerKey')}, ${q(d, 'migratedCount')}, ${q(d, 'inertCount')}, ${q(
+            d,
+            'completedAt'
+        )}, ${q(d, 'error')}`
+        const markerValues = [workosProviderKey, migrated, inert, error ? null : dateValue(runner, Date.now()), error]
         await query(
             runner,
             d === 'mysql' || d === 'mariadb'
                 ? `INSERT INTO ${q(
                       d,
                       'identity_provider_link_migration'
-                  )} (${markerColumns}) VALUES (1, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ${q(d, 'providerKey')} = VALUES(${q(
+                  )} (${markerColumns}) VALUES (1, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ${q(d, 'providerKey')} = VALUES(${q(
                       d,
                       'providerKey'
-                  )}), ${q(d, 'migratedCount')} = VALUES(${q(d, 'migratedCount')}), ${q(d, 'completedAt')} = VALUES(${q(
+                  )}), ${q(d, 'migratedCount')} = VALUES(${q(d, 'migratedCount')}), ${q(d, 'inertCount')} = VALUES(${q(
                       d,
-                      'completedAt'
-                  )}), ${q(d, 'error')} = VALUES(${q(d, 'error')})`
-                : `INSERT INTO ${q(d, 'identity_provider_link_migration')} (${markerColumns}) VALUES (1, ?, ?, ?, ?) ON CONFLICT (${q(
+                      'inertCount'
+                  )}), ${q(d, 'completedAt')} = VALUES(${q(d, 'completedAt')}), ${q(d, 'error')} = VALUES(${q(d, 'error')})`
+                : `INSERT INTO ${q(d, 'identity_provider_link_migration')} (${markerColumns}) VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT (${q(
                       d,
                       'id'
                   )}) DO UPDATE SET ${q(d, 'providerKey')} = excluded.${q(d, 'providerKey')}, ${q(d, 'migratedCount')} = excluded.${q(
                       d,
                       'migratedCount'
-                  )}, ${q(d, 'completedAt')} = excluded.${q(d, 'completedAt')}, ${q(d, 'error')} = excluded.${q(d, 'error')}`,
+                  )}, ${q(d, 'inertCount')} = excluded.${q(d, 'inertCount')}, ${q(d, 'completedAt')} = excluded.${q(d, 'completedAt')}, ${q(
+                      d,
+                      'error'
+                  )} = excluded.${q(d, 'error')}`,
             markerValues
         )
         await runner.commitTransaction()
-        return { complete: !error, migrated, error }
+        return { complete: !error, migrated, inert, error }
     } catch (error) {
         if (runner.isTransactionActive) await runner.rollbackTransaction()
         throw error
@@ -493,18 +534,31 @@ export async function migrateLegacyProviderLinks(
 }
 
 export async function providerLinkMigrationComplete(dataSource: DataSource): Promise<boolean> {
+    return (await providerLinkMigrationStatus(dataSource)).complete
+}
+
+export async function providerLinkMigrationStatus(dataSource: DataSource): Promise<ProviderLinkMigrationStatus> {
     const runner = dataSource.createQueryRunner()
     await runner.connect()
     try {
         const d = dialect(runner)
         const rows = await query(
             runner,
-            `SELECT ${q(d, 'completedAt')} AS ${q(d, 'completedAt')}, ${q(d, 'error')} AS ${q(d, 'error')} FROM ${q(
+            `SELECT ${q(d, 'migratedCount')} AS ${q(d, 'migratedCount')}, ${q(d, 'inertCount')} AS ${q(d, 'inertCount')}, ${q(
                 d,
-                'identity_provider_link_migration'
-            )} WHERE ${q(d, 'id')} = 1`
+                'completedAt'
+            )} AS ${q(d, 'completedAt')}, ${q(d, 'error')} AS ${q(d, 'error')} FROM ${q(d, 'identity_provider_link_migration')} WHERE ${q(
+                d,
+                'id'
+            )} = 1`
         )
-        return Boolean(rows[0] && cell(rows[0], 'completedAt') && !cell(rows[0], 'error'))
+        const row = rows[0]
+        return {
+            complete: Boolean(row && cell(row, 'completedAt') && !cell(row, 'error')),
+            migrated: Number((row && cell(row, 'migratedCount')) || 0),
+            inert: Number((row && cell(row, 'inertCount')) || 0),
+            error: row && cell(row, 'error') ? String(cell(row, 'error')) : null
+        }
     } finally {
         await runner.release()
     }

@@ -13,12 +13,11 @@ This release supports **Local login**, **Generic OIDC**, and **WorkOS**. Existin
 
 ## Set up generic OIDC
 
-1. Set `CUTTLELY_OIDC_TRANSACTION_SECRET` on every Cuttlely server to the same value of at least 32 random bytes, then restart. This value encrypts authorization transactions for the ten minutes they can exist.
-2. Open **Admin** > **Auth / SSO**. Enter the exact issuer URL, client id, and the name of the environment variable that contains the client secret. Cuttlely stores the environment variable name, never its value. Set that named variable on every server.
-3. Register the callback URL and post-logout URL shown on the card with the identity provider. The requested scopes are fixed to `openid email profile`.
-4. Save the draft. Cuttlely reads discovery and signing keys through its guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time.
-5. Choose **Test sign-in** in the same administrator browser. The test expires after ten minutes, is single use, creates no application session, and does not change the active method. A successful result shows the returned email and assurance basis.
-6. Choose **Activate**, review the session impact, type `END SESSIONS`, and apply.
+1. Open **Admin** > **Auth / SSO**. Enter the exact issuer URL, client id, and the name of the environment variable that contains the client secret. Cuttlely stores the environment variable name, never its value. Set that named variable on every server.
+2. Register the callback URL and post-logout URL shown on the card with the identity provider. The requested scopes are fixed to `openid email profile`.
+3. Save the draft. Cuttlely reads discovery and signing keys through its guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time.
+4. Choose **Test sign-in** in the same administrator browser. The test expires after ten minutes, is single use, creates no application session, and does not change the active method. A successful result shows the returned email and assurance basis.
+5. Choose **Activate**, review the session impact, type `END SESSIONS`, and apply.
 
 Activation returns `409 Conflict` until the current configuration fingerprint has passed a test, owner recovery is ready, and the provider-link migration has completed. The callback URL comes from trusted server configuration, not request forwarding headers.
 
@@ -26,7 +25,7 @@ Issuer and token endpoints must use HTTPS. For local testing only, HTTP is accep
 
 The **Trust issuer email when the verification claim is missing** option is off by default. With it off, first linking requires `email_verified=true`. For an Entra ID issuer on `login.microsoftonline.com`, `xms_edov=true` also qualifies. With the option on, a missing verification claim may qualify; an explicit `email_verified=false` never does.
 
-`CUTTLELY_OIDC_TRANSACTION_SECRET` is independent of the OIDC client secret. Rotate the transaction secret by updating every server together and restarting; only sign-ins already in progress stop working. Rotating the value in the client-secret environment variable does not end application sessions because the configuration fingerprint uses the environment variable name, not its value. Changing the issuer, client id, secret reference name, or trust option produces a new fingerprint and requires another test and activation.
+OIDC authorization transactions use a purpose-specific key derived from `TOKEN_HASH_SECRET`; there is no separate OIDC transaction setting. Every sign-in start also creates a fresh ten-minute, HttpOnly, SameSite=Lax browser cookie that is limited to the callback path. The transaction stores only its digest. The callback consumes the transaction and expires the cookie, and a callback opened in another browser is refused without creating a session. Rotate `TOKEN_HASH_SECRET` on every server together. That rotation ends sign-ins already in progress, along with the other server data already tied to `TOKEN_HASH_SECRET`. Rotating the value in the client-secret environment variable does not end application sessions because the configuration fingerprint uses the environment variable name, not its value. Changing the issuer, client id, secret reference name, trust option, or private-host allowlist produces a new fingerprint and requires another test and activation.
 
 ### Identity linking
 
@@ -61,6 +60,8 @@ On the first start after upgrade, Cuttlely records a database installation id an
 -   An owner-only installation keeps recovery access without enabling ordinary local login.
 
 The durable method state is loaded before the prior one-time WorkOS cutoff is considered. After a panel switch, restart defers to that durable state and does not repeat session deletion.
+
+Legacy `externalId` values are WorkOS subjects. When the upgraded installation has a stable WorkOS provider identity, Cuttlely copies those subjects into durable provider links before OIDC can be activated. When no stable WorkOS provider identity can be attributed, the subjects are recorded as unmigrated and inert instead; they cannot match a generic OIDC provider and do not block OIDC activation. **Auth / SSO** reports how many inert subjects remain.
 
 Only a saved WorkOS client identity that differs from the current client identity pauses automatic email linking, including the email linking used to accept an invitation. Existing durable WorkOS subject links can still sign in. An administrator must complete a fresh sign-in and explicitly acknowledge that warning on **Auth / SSO**; that audited action accepts the current configuration fingerprint and enables automatic email and invitation linking again. Other configuration warnings are informational and do not pause linking. Existing sign-in routes, cookies, and settings otherwise continue unchanged.
 

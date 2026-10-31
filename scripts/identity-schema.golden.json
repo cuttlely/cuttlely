@@ -1640,6 +1640,13 @@
                     "pk": 0
                 },
                 {
+                    "name": "inertCount",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
+                },
+                {
                     "name": "completedAt",
                     "type": "datetime",
                     "nullable": true,

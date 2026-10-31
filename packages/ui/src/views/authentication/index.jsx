@@ -267,6 +267,13 @@ export default function AuthenticationSettings() {
                                 {oidc.draft.testResult.email || 'not returned'}. Assurance: {oidc.draft.testResult.assuranceBasis}.
                             </Alert>
                         )}
+                        {oidc?.linkMigration?.inert > 0 && (
+                            <Alert severity='info' data-testid='inert-workos-links'>
+                                {oidc.linkMigration.inert} legacy WorkOS subject link
+                                {oidc.linkMigration.inert === 1 ? '' : 's'} could not be attributed to a stable WorkOS provider identity.{' '}
+                                {oidc.linkMigration.inert === 1 ? 'It remains' : 'They remain'} inert and will not match this OIDC provider.
+                            </Alert>
+                        )}
                         <Stack direction='row' spacing={1}>
                             <Button variant='outlined' onClick={saveOidc}>
                                 Save draft

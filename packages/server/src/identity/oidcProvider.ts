@@ -13,8 +13,8 @@ import {
 import type { DataSource } from 'typeorm'
 import { secureFetch } from '@cuttlely/components'
 import { OidcConfiguration, consumeOidcTransaction, createOidcTransaction, oidcProviderKey, readOidcConfiguration } from './oidcStore'
+import { authSecret } from './authSecrets'
 
-export const OIDC_TRANSACTION_SECRET = 'CUTTLELY_OIDC_TRANSACTION_SECRET'
 export const OIDC_TRANSACTION_MS = 10 * 60 * 1000
 const MAX_DOCUMENT_BYTES = 256 * 1024
 const FETCH_TIMEOUT_MS = 5_000
@@ -30,6 +30,7 @@ export interface OidcDiscovery {
     authorization_endpoint: string
     token_endpoint: string
     jwks_uri: string
+    userinfo_endpoint?: string
     response_types_supported: string[]
     id_token_signing_alg_values_supported: string[]
     token_endpoint_auth_methods_supported?: string[]
@@ -45,7 +46,7 @@ export interface OidcEnvelope {
     authEpoch: number
     redirectTarget: string
     purpose: OidcPurpose
-    initiatingSession: string | null
+    browserNonceHash: string
     initiatingUserId: string | null
     requestTime: number
     invitationToken?: string
@@ -167,18 +168,19 @@ async function boundedJson(
 }
 
 export async function discoverOidc(config: OidcConfiguration): Promise<OidcDiscovery> {
-    const issuerUrl = checkedUrl(config.issuer, config, 'Issuer URL')
-    const issuer = issuerUrl.toString().replace(/\/$/, issuerUrl.pathname === '/' ? '' : '/')
-    const discoveryUrl = `${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`
+    checkedUrl(config.issuer, config, 'Issuer URL')
+    const discoveryUrl = `${config.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`
     const { value } = await boundedJson(discoveryUrl, config)
     if (value.issuer !== config.issuer) throw new OidcError('response', 'Discovery issuer does not match the configured issuer.')
     const authorization = typeof value.authorization_endpoint === 'string' ? value.authorization_endpoint : ''
     const token = typeof value.token_endpoint === 'string' ? value.token_endpoint : ''
     const jwks = typeof value.jwks_uri === 'string' ? value.jwks_uri : ''
+    const userinfo = typeof value.userinfo_endpoint === 'string' ? value.userinfo_endpoint : undefined
     if (!authorization || !token || !jwks) throw new OidcError('response', 'Discovery is missing a required endpoint.')
     checkedUrl(authorization, config, 'Authorization endpoint')
     checkedUrl(token, config, 'Token endpoint')
     checkedUrl(jwks, config, 'JWKS endpoint')
+    if (userinfo) checkedUrl(userinfo, config, 'UserInfo endpoint')
     const responseTypes = Array.isArray(value.response_types_supported) ? value.response_types_supported.map(String) : []
     if (!responseTypes.includes('code')) throw new OidcError('response', 'Discovery does not support the code response type.')
     const algorithms = Array.isArray(value.id_token_signing_alg_values_supported)
@@ -198,6 +200,7 @@ export async function discoverOidc(config: OidcConfiguration): Promise<OidcDisco
         authorization_endpoint: authorization,
         token_endpoint: token,
         jwks_uri: jwks,
+        userinfo_endpoint: userinfo,
         response_types_supported: responseTypes,
         id_token_signing_alg_values_supported: algorithms,
         token_endpoint_auth_methods_supported: methods,
@@ -206,8 +209,15 @@ export async function discoverOidc(config: OidcConfiguration): Promise<OidcDisco
 }
 
 function transactionKey(env: NodeJS.ProcessEnv = process.env): Buffer {
-    const source = env[OIDC_TRANSACTION_SECRET]
-    if (!source || Buffer.byteLength(source) < 32) throw new OidcError('configuration', `${OIDC_TRANSACTION_SECRET} is not configured.`)
+    let source = env.TOKEN_HASH_SECRET?.trim()
+    if (!source && env === process.env) {
+        try {
+            source = authSecret('TOKEN_HASH_SECRET')
+        } catch {
+            source = undefined
+        }
+    }
+    if (!source) throw new OidcError('configuration', 'The server transaction secret is not available.')
     return Buffer.from(
         hkdfSync(
             'sha256',
@@ -241,14 +251,6 @@ export function decryptOidcEnvelope(value: string, env: NodeJS.ProcessEnv = proc
     }
 }
 
-export function browserSessionBinding(cookies: Record<string, string | undefined>): string | null {
-    const values = ['cuttlely-local-session', 'wos-session']
-        .map((name) => (cookies[name] ? `${name}:${cookies[name]}` : ''))
-        .filter(Boolean)
-        .join('\n')
-    return values ? createHash('sha256').update(values).digest('hex') : null
-}
-
 const REDIRECT_TARGETS = new Set(['/', '/authentication-settings'])
 
 function localRedirect(value: string): string {
@@ -263,17 +265,17 @@ export async function beginOidcAuthorization(input: {
     callbackUrl: string
     redirectTarget: string
     purpose: OidcPurpose
-    initiatingSession: string | null
     initiatingUserId?: string | null
     invitationToken?: string
     now?: number
-}): Promise<{ url: string; state: string; config: OidcConfiguration }> {
+}): Promise<{ url: string; state: string; config: OidcConfiguration; browserNonce: string }> {
     const config = await readOidcConfiguration(input.dataSource, input.slot)
     if (!config || config.health !== 'ready') throw new OidcError('configuration', 'OIDC is not configured.')
     const discovery = (config.discovery || (await discoverOidc(config))) as unknown as OidcDiscovery
     const verifier = randomValue(48)
     const nonce = randomValue()
     const state = randomValue()
+    const browserNonce = randomValue()
     const now = input.now ?? Date.now()
     const envelope: OidcEnvelope = {
         verifier,
@@ -284,7 +286,7 @@ export async function beginOidcAuthorization(input: {
         authEpoch: input.authenticationEpoch,
         redirectTarget: localRedirect(input.redirectTarget),
         purpose: input.purpose,
-        initiatingSession: input.initiatingSession,
+        browserNonceHash: sha256(browserNonce),
         initiatingUserId: input.initiatingUserId || null,
         requestTime: now,
         invitationToken: input.invitationToken,
@@ -304,7 +306,7 @@ export async function beginOidcAuthorization(input: {
         url.searchParams.set('prompt', 'login')
         url.searchParams.set('max_age', '0')
     }
-    return { url: url.toString(), state, config }
+    return { url: url.toString(), state, config, browserNonce }
 }
 
 async function consumeEnvelope(dataSource: DataSource, state: string, now: number): Promise<OidcEnvelope> {
@@ -329,7 +331,10 @@ async function exchangeCode(config: OidcConfiguration, discovery: OidcDiscovery,
     })
     const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }
     if (method === 'client_secret_post') body.set('client_secret', secret)
-    else headers.authorization = `Basic ${Buffer.from(`${config.clientId}:${secret}`).toString('base64')}`
+    else {
+        const encode = (value: string) => new URLSearchParams([['value', value]]).toString().slice('value='.length)
+        headers.authorization = `Basic ${Buffer.from(`${encode(config.clientId)}:${encode(secret)}`).toString('base64')}`
+    }
     return boundedJson(discovery.token_endpoint, config, { method: 'POST', headers, body: body.toString() })
 }
 
@@ -473,6 +478,37 @@ function safeEqual(left: string, right: string): boolean {
     return a.length === b.length && timingSafeEqual(a, b)
 }
 
+function claimsIdentity(
+    claims: Record<string, unknown>,
+    base: Pick<ValidatedOidcIdentity, 'providerKey' | 'subject' | 'issuer' | 'authTime'>
+): ValidatedOidcIdentity {
+    return {
+        ...base,
+        email: typeof claims.email === 'string' ? claims.email : undefined,
+        emailVerified: claims.email_verified === true ? true : claims.email_verified === false ? false : undefined,
+        emailVerificationPresent: Object.prototype.hasOwnProperty.call(claims, 'email_verified'),
+        xmsEdov: claims.xms_edov === true,
+        name: typeof claims.name === 'string' ? claims.name : undefined
+    }
+}
+
+async function completeIdentityFromUserInfo(
+    identity: ValidatedOidcIdentity,
+    accessToken: unknown,
+    config: OidcConfiguration,
+    discovery: OidcDiscovery
+): Promise<ValidatedOidcIdentity> {
+    if (identity.email !== undefined || !discovery.userinfo_endpoint) return identity
+    if (typeof accessToken !== 'string' || !accessToken) throw new OidcError('response', 'The token response has no access token.')
+    const response = await boundedJson(discovery.userinfo_endpoint, config, {
+        headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` }
+    })
+    if (typeof response.value.sub !== 'string' || !safeEqual(response.value.sub, identity.subject)) {
+        throw new OidcError('response', 'The UserInfo subject does not match the ID token subject.')
+    }
+    return claimsIdentity(response.value, identity)
+}
+
 export async function completeOidcAuthorization(input: {
     dataSource: DataSource
     state: string
@@ -480,18 +516,18 @@ export async function completeOidcAuthorization(input: {
     error?: string
     responseIssuer?: string
     callbackUrl: string
-    browserSession: string | null
+    browserNonce: string | null
     currentEpoch: number
     now?: number
 }): Promise<{ envelope: OidcEnvelope; config: OidcConfiguration; identity: ValidatedOidcIdentity }> {
     const now = input.now ?? Date.now()
     const envelope = await consumeEnvelope(input.dataSource, input.state, now)
+    if (!input.browserNonce || !safeEqual(envelope.browserNonceHash, sha256(input.browserNonce))) {
+        throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.')
+    }
     if (input.error) throw new OidcError('denied', 'The identity provider denied sign-in.')
     if (!input.code) throw new OidcError('response', 'The authorization response has no code.')
     if (envelope.authEpoch !== input.currentEpoch) throw new OidcError('transaction', 'Authentication settings changed during sign-in.')
-    if (envelope.initiatingSession && !safeEqual(envelope.initiatingSession, input.browserSession || '')) {
-        throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.')
-    }
     if ((envelope.authorizationResponseIssuer || input.responseIssuer !== undefined) && input.responseIssuer !== envelope.expectedIssuer) {
         throw new OidcError('response', 'The authorization response issuer is invalid.')
     }
@@ -504,7 +540,8 @@ export async function completeOidcAuthorization(input: {
     const exchanged = await exchangeCode(config, discovery, input.code, envelope.verifier, input.callbackUrl)
     const idToken = typeof exchanged.value.id_token === 'string' ? exchanged.value.id_token : ''
     if (!idToken) throw new OidcError('response', 'The token response has no ID token.')
-    const identity = await validateIdToken(idToken, config, discovery, envelope.nonce, envelope.providerKey, now)
+    const idTokenIdentity = await validateIdToken(idToken, config, discovery, envelope.nonce, envelope.providerKey, now)
+    const identity = await completeIdentityFromUserInfo(idTokenIdentity, exchanged.value.access_token, config, discovery)
     return { envelope, config, identity }
 }
 

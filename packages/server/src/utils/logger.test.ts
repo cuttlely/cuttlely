@@ -237,6 +237,7 @@ describe('logger.ts', () => {
             const invite = 'exampleinvitetokenexampleinvitetoken99'
             const sealed = 'sealed-authkit-session-value'
             const local = 'local-session-value'
+            const oidcBrowser = 'oidc-browser-binding-value'
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
             const req = {
                 url: '/api/v1/auth/callback?code=made-up',
@@ -245,15 +246,15 @@ describe('logger.ts', () => {
                 body: { token: invite },
                 query: {},
                 headers: {
-                    cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}; cuttlely-setup=${sealed}; code=${invite}`
+                    cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}; cuttlely-oidc-browser=${oidcBrowser}; cuttlely-setup=${sealed}; code=${invite}`
                 }
             } as any
             expressRequestLogger(req, {} as any, next)
             const logged = JSON.stringify(infoSpy.mock.calls)
-            for (const secret of [invite, sealed, local]) expect(logged).not.toContain(secret)
+            for (const secret of [invite, sealed, local, oidcBrowser]) expect(logged).not.toContain(secret)
             const meta = infoSpy.mock.calls[0][1] as { request: { headers: { cookie: string } } }
             expect(meta.request.headers.cookie).toBe(
-                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]; cuttlely-setup=[redacted]; code=[redacted]'
+                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]; cuttlely-oidc-browser=[redacted]; cuttlely-setup=[redacted]; code=[redacted]'
             )
             infoSpy.mockRestore()
         })

@@ -45,7 +45,8 @@ import { buildAuthContext } from './production'
 import { applySetupHeaders } from './sessionGuard'
 import { HandlerResult } from './types'
 import { selectedAuthenticationMethod } from './authenticationState'
-import { oidcInviteStartUrl } from './oidcRoutes'
+import { oidcCallbackUrl, oidcInviteStartUrl } from './oidcRoutes'
+import { cookieSecure, oidcBrowserCookie } from './cookies'
 
 function apply(res: Response, result: Exclude<HandlerResult, { type: 'next' }>): void {
     const secure = result.secure ?? result.cookies?.[0]?.options.secure ?? false
@@ -240,7 +241,10 @@ identityAuthRouter.post('/invite/start', (req, res, next) => {
         return void res.status(400).json({ message: 'This invite link is not valid. Ask for a new invite.' })
     }
     void oidcInviteStartUrl(req, token)
-        .then((url) => res.status(200).json({ url }))
+        .then(({ url, browserNonce }) => {
+            const cookie = oidcBrowserCookie(browserNonce, cookieSecure(oidcCallbackUrl(), Boolean(req.secure) || req.protocol === 'https'))
+            res.cookie(cookie.name, cookie.value, cookie.options).status(200).json({ url })
+        })
         .catch(() => res.status(409).json({ message: 'OIDC sign-in could not start.' }))
 })
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))

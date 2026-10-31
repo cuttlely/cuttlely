@@ -759,17 +759,27 @@ export async function addOidcProvider(runner: QueryRunner): Promise<void> {
         )
     }
 
-    if (!(await tableExists(runner, dialect, 'identity_provider_link_migration'))) {
+    const providerLinkMigrationExists = await tableExists(runner, dialect, 'identity_provider_link_migration')
+    if (!providerLinkMigrationExists) {
         await runner.query(
             `CREATE TABLE ${q(dialect, 'identity_provider_link_migration')} (` +
                 `${q(dialect, 'id')} integer PRIMARY KEY, ` +
                 `${q(dialect, 'providerKey')} varchar(64) NULL, ` +
                 `${q(dialect, 'migratedCount')} integer NOT NULL, ` +
+                `${q(dialect, 'inertCount')} integer NOT NULL DEFAULT 0, ` +
                 `${q(dialect, 'completedAt')} ${timestamp} NULL, ` +
                 `${q(dialect, 'error')} varchar(255) NULL` +
                 `)${dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci' : ''}${
                     dialect === 'mariadb' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci' : ''
                 }`
+        )
+    }
+    if (providerLinkMigrationExists && !(await columnExists(runner, dialect, 'identity_provider_link_migration', 'inertCount'))) {
+        await runner.query(
+            `ALTER TABLE ${q(dialect, 'identity_provider_link_migration')} ADD COLUMN ${q(
+                dialect,
+                'inertCount'
+            )} integer NOT NULL DEFAULT 0`
         )
     }
 }

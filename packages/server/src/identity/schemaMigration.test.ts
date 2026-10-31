@@ -114,6 +114,20 @@ describe('local directory schema on postgres', () => {
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_configuration"'))).toBe(true)
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_transaction"'))).toBe(true)
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link_migration"'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('"inertCount" integer NOT NULL DEFAULT 0'))).toBe(true)
         expect(calls.some((call) => call.sql.includes('ADD COLUMN "configurationFingerprint"'))).toBe(true)
+    })
+
+    it('adds the inert legacy-link count to an existing OIDC schema', async () => {
+        const present = new Set([
+            'identity_authentication_switch_stage',
+            'identity_provider_link',
+            'identity_oidc_configuration',
+            'identity_oidc_transaction',
+            'identity_provider_link_migration'
+        ])
+        const { runner, calls } = postgresRunner(present)
+        await addOidcProvider(runner)
+        expect(calls.some((call) => call.sql.includes('ADD COLUMN "inertCount" integer NOT NULL DEFAULT 0'))).toBe(true)
     })
 })

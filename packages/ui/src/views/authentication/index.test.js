@@ -22,6 +22,7 @@ jest.mock('@/api/authenticationSettings', () => ({
                     callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
                     postLogoutUrl: 'https://app.example/signin',
                     linkMigrationComplete: true,
+                    linkMigration: { complete: true, migrated: 0, inert: 2, error: null },
                     draft: {
                         configured: true,
                         issuer: 'https://id.example',
@@ -72,6 +73,8 @@ it('shows the OIDC setup status and derived URLs without a secret value', async 
     expect(container.textContent).toContain('Value is set on this server.')
     expect(container.textContent).toContain('Steps: discovery, authorization, token, signature, claims.')
     expect(container.textContent).toContain('Returned email: ada@example.com. Assurance: email_verified.')
+    expect(container.textContent).toContain('2 legacy WorkOS subject links could not be attributed')
+    expect(container.textContent).toContain('They remain inert and will not match this OIDC provider.')
     expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback"]')).not.toBeNull()
     expect(container.querySelector('input[value="https://app.example/signin"]')).not.toBeNull()
     expect(container.querySelector('input[value="openid email profile"]')).not.toBeNull()

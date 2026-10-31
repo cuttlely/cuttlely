@@ -1,7 +1,7 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 jest.mock('@cuttlely/components', () => jest.requireActual('../../../components/src/httpSecurity'))
 
-import { createHmac, generateKeyPairSync, randomBytes, sign } from 'crypto'
+import { createHash, createHmac, generateKeyPairSync, randomBytes, sign } from 'crypto'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import type { AddressInfo } from 'net'
 import type { DataSource, QueryRunner } from 'typeorm'
@@ -12,8 +12,8 @@ import {
     checkOidcConfiguration,
     clearOidcCachesForTest,
     completeOidcAuthorization,
+    decryptOidcEnvelope,
     discoverOidc,
-    OIDC_TRANSACTION_SECRET,
     validateIdToken
 } from './oidcProvider'
 
@@ -67,14 +67,20 @@ type Claims = Record<string, unknown>
 class TestIdp {
     private readonly first = generateKeyPairSync('rsa', { modulusLength: 2048 })
     private readonly second = generateKeyPairSync('rsa', { modulusLength: 2048 })
-    readonly clientSecret = randomBytes(32).toString('base64url')
+    clientId = 'test-client'
+    clientSecret = randomBytes(32).toString('base64url')
     readonly server = createServer((request, response) => void this.handle(request, response))
     issuer = ''
     discoveryMode: 'normal' | 'malformed' | 'redirect' = 'normal'
     key: 'first' | 'second' = 'first'
     nonce = ''
     claims: Partial<Claims> = {}
+    userInfo: Record<string, unknown> | null = null
+    tokenAuthMethods = ['client_secret_post']
     lastTokenBody = ''
+    lastTokenAuthorization = ''
+    lastUserInfoAuthorization = ''
+    lastAccessToken = ''
 
     async start(): Promise<void> {
         await new Promise<void>((resolve, reject) => {
@@ -94,14 +100,16 @@ class TestIdp {
     }
 
     discovery(): Record<string, unknown> {
+        const base = this.issuer.replace(/\/+$/, '')
         return {
             issuer: this.issuer,
-            authorization_endpoint: `${this.issuer}/authorize`,
-            token_endpoint: `${this.issuer}/token`,
-            jwks_uri: `${this.issuer}/jwks`,
+            authorization_endpoint: `${base}/authorize`,
+            token_endpoint: `${base}/token`,
+            jwks_uri: `${base}/jwks`,
+            userinfo_endpoint: `${base}/userinfo`,
             response_types_supported: ['code'],
             id_token_signing_alg_values_supported: ['RS256'],
-            token_endpoint_auth_methods_supported: ['client_secret_post'],
+            token_endpoint_auth_methods_supported: this.tokenAuthMethods,
             authorization_response_iss_parameter_supported: true
         }
     }
@@ -112,7 +120,7 @@ class TestIdp {
         const payload = Buffer.from(
             JSON.stringify({
                 iss: this.issuer,
-                aud: 'test-client',
+                aud: this.clientId,
                 sub: 'subject-1',
                 email: 'ada@example.com',
                 email_verified: true,
@@ -150,17 +158,23 @@ class TestIdp {
             return this.json(response, { keys: [{ ...key, kid: this.key, use: 'sig', alg: 'RS256' }] }, { 'cache-control': 'max-age=3600' })
         }
         if (path === '/token') {
+            this.lastTokenAuthorization = String(request.headers.authorization || '')
             this.lastTokenBody = await new Promise<string>((resolve) => {
                 let body = ''
                 request.setEncoding('utf8')
                 request.on('data', (part) => (body += part))
                 request.on('end', () => resolve(body))
             })
+            this.lastAccessToken = randomBytes(32).toString('base64url')
             return this.json(response, {
                 id_token: this.token(),
-                access_token: randomBytes(32).toString('base64url'),
+                access_token: this.lastAccessToken,
                 refresh_token: randomBytes(32).toString('base64url')
             })
+        }
+        if (path === '/userinfo') {
+            this.lastUserInfoAuthorization = String(request.headers.authorization || '')
+            return this.json(response, this.userInfo || { sub: 'subject-1' })
         }
         response.writeHead(404)
         response.end()
@@ -170,14 +184,14 @@ class TestIdp {
 function configuration(idp: TestIdp, privateIssuerHosts = ['127.0.0.1']): OidcConfiguration {
     const safe = {
         issuer: idp.issuer,
-        clientId: 'test-client',
+        clientId: idp.clientId,
         clientSecretEnvVar: 'CUTTLELY_TEST_OIDC_CLIENT_SECRET',
-        trustMissingEmailVerification: false
+        trustMissingEmailVerification: false,
+        privateIssuerHosts
     }
     return {
         slot: 'active',
         ...safe,
-        privateIssuerHosts,
         fingerprint: oidcConfigurationFingerprint(safe),
         discovery: null,
         health: 'ready',
@@ -198,8 +212,8 @@ describe('generic OIDC provider', () => {
         clearOidcCachesForTest()
         idp = new TestIdp()
         await idp.start()
-        for (const name of [OIDC_TRANSACTION_SECRET, 'CUTTLELY_TEST_OIDC_CLIENT_SECRET']) savedEnvironment[name] = process.env[name]
-        process.env[OIDC_TRANSACTION_SECRET] = randomBytes(48).toString('base64url')
+        for (const name of ['TOKEN_HASH_SECRET', 'CUTTLELY_TEST_OIDC_CLIENT_SECRET']) savedEnvironment[name] = process.env[name]
+        process.env.TOKEN_HASH_SECRET = randomBytes(48).toString('base64url')
         process.env.CUTTLELY_TEST_OIDC_CLIENT_SECRET = idp.clientSecret
     })
 
@@ -218,6 +232,63 @@ describe('generic OIDC provider', () => {
         await expect(discoverOidc(configuration(idp))).rejects.toThrow('required endpoint')
         idp.discoveryMode = 'redirect'
         await expect(discoverOidc(configuration(idp))).rejects.toMatchObject({ category: 'upstream' })
+    })
+
+    it('preserves an issuer that ends in a slash', async () => {
+        idp.issuer = `${idp.issuer}/`
+        const config = configuration(idp)
+        await expect(discoverOidc(config)).resolves.toMatchObject({ issuer: idp.issuer })
+    })
+
+    it('form-encodes the client credentials used by client_secret_basic', async () => {
+        idp.clientId = 'client%: value'
+        idp.clientSecret = 'secret%: value'
+        idp.tokenAuthMethods = ['client_secret_basic']
+        process.env.CUTTLELY_TEST_OIDC_CLIENT_SECRET = idp.clientSecret
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        await saveOidcDraft(
+            db.source,
+            {
+                issuer: config.issuer,
+                clientId: config.clientId,
+                clientSecretEnvVar: config.clientSecretEnvVar,
+                trustMissingEmailVerification: false,
+                privateIssuerHosts: config.privateIssuerHosts,
+                fingerprint: config.fingerprint,
+                discovery: discovery as unknown as Record<string, unknown>,
+                health: 'ready',
+                healthError: null,
+                checkedAt: new Date().toISOString()
+            },
+            0
+        )
+        await db.source.query('UPDATE identity_oidc_configuration SET slot = ? WHERE slot = ?', ['active', 'draft'])
+        const begun = await beginOidcAuthorization({
+            dataSource: db.source,
+            slot: 'active',
+            installationId: 'installation',
+            authenticationEpoch: 1,
+            callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+            redirectTarget: '/',
+            purpose: 'signin'
+        })
+        idp.nonce = new URL(begun.url).searchParams.get('nonce') || ''
+        await completeOidcAuthorization({
+            dataSource: db.source,
+            state: begun.state,
+            code: 'code',
+            responseIssuer: idp.issuer,
+            callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+            browserNonce: begun.browserNonce,
+            currentEpoch: 1
+        })
+        const encodedId = new URLSearchParams([['value', idp.clientId]]).toString().slice('value='.length)
+        const encodedSecret = new URLSearchParams([['value', idp.clientSecret]]).toString().slice('value='.length)
+        expect(idp.lastTokenAuthorization).toBe(`Basic ${Buffer.from(`${encodedId}:${encodedSecret}`).toString('base64')}`)
+        db.close()
     })
 
     it('refuses an unreachable issuer with a normalized upstream error', async () => {
@@ -283,7 +354,7 @@ describe('generic OIDC provider', () => {
         )
         await db.source.query('UPDATE identity_oidc_configuration SET slot = ? WHERE slot = ?', ['active', 'draft'])
 
-        const start = async (purpose: 'signin' | 'test' | 'reauth' = 'signin', initiatingSession: string | null = null) => {
+        const start = async (purpose: 'signin' | 'test' | 'reauth' | 'invite' = 'signin') => {
             const begun = await beginOidcAuthorization({
                 dataSource: db.source,
                 slot: 'active',
@@ -291,8 +362,7 @@ describe('generic OIDC provider', () => {
                 authenticationEpoch: 7,
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
                 redirectTarget: '/',
-                purpose,
-                initiatingSession
+                purpose
             })
             const url = new URL(begun.url)
             idp.nonce = url.searchParams.get('nonce') || ''
@@ -301,12 +371,32 @@ describe('generic OIDC provider', () => {
             return begun
         }
 
-        const reauthentication = await start('reauth', 'browser')
+        const reauthentication = await start('reauth')
         expect(new URL(reauthentication.url).searchParams.get('prompt')).toBe('login')
         expect(new URL(reauthentication.url).searchParams.get('max_age')).toBe('0')
         const ordinary = await start()
         expect(new URL(ordinary.url).searchParams.has('prompt')).toBe(false)
         expect(new URL(ordinary.url).searchParams.has('max_age')).toBe(false)
+        const storedTransactions = (await db.source.query('SELECT envelope FROM identity_oidc_transaction')) as Array<{ envelope: string }>
+        const ordinaryEnvelope = storedTransactions.map((row) => decryptOidcEnvelope(row.envelope)).find((row) => row.purpose === 'signin')
+        expect(ordinaryEnvelope?.browserNonceHash).toBe(createHash('sha256').update(ordinary.browserNonce).digest('base64url'))
+        expect(JSON.stringify(ordinaryEnvelope)).not.toContain(ordinary.browserNonce)
+
+        for (const purpose of ['signin', 'invite', 'test', 'reauth'] as const) {
+            const bound = await start(purpose)
+            idp.lastTokenBody = ''
+            await expect(
+                completeOidcAuthorization({
+                    dataSource: db.source,
+                    state: bound.state,
+                    code: 'code',
+                    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                    browserNonce: 'different-browser',
+                    currentEpoch: 7
+                })
+            ).rejects.toThrow('browser that started')
+            expect(idp.lastTokenBody).toBe('')
+        }
 
         await expect(
             completeOidcAuthorization({
@@ -314,7 +404,7 @@ describe('generic OIDC provider', () => {
                 state: 'wrong-state',
                 code: 'code',
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: null,
                 currentEpoch: 7
             })
         ).rejects.toMatchObject({ category: 'transaction' })
@@ -326,7 +416,7 @@ describe('generic OIDC provider', () => {
                 state: denied.state,
                 error: 'access_denied',
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: denied.browserNonce,
                 currentEpoch: 7
             })
         ).rejects.toMatchObject({ category: 'denied' })
@@ -336,7 +426,7 @@ describe('generic OIDC provider', () => {
                 state: denied.state,
                 code: 'replay-code',
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: denied.browserNonce,
                 currentEpoch: 7
             })
         ).rejects.toMatchObject({ category: 'transaction' })
@@ -348,19 +438,19 @@ describe('generic OIDC provider', () => {
                 state: oldEpoch.state,
                 code: 'code',
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: oldEpoch.browserNonce,
                 currentEpoch: 8
             })
         ).rejects.toThrow('settings changed')
 
-        const browserBound = await start('test', 'expected-browser')
+        const browserBound = await start('test')
         await expect(
             completeOidcAuthorization({
                 dataSource: db.source,
                 state: browserBound.state,
                 code: 'code',
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: 'other-browser',
+                browserNonce: 'other-browser',
                 currentEpoch: 7
             })
         ).rejects.toThrow('browser that started')
@@ -373,7 +463,7 @@ describe('generic OIDC provider', () => {
                 code: 'code',
                 responseIssuer: 'https://other.example',
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: wrongIssuer.browserNonce,
                 currentEpoch: 7
             })
         ).rejects.toThrow('response issuer')
@@ -387,12 +477,14 @@ describe('generic OIDC provider', () => {
                 code: 'code',
                 responseIssuer: idp.issuer,
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: changedConfig.browserNonce,
                 currentEpoch: 7
             })
         ).rejects.toThrow('configuration changed')
         await db.source.query('UPDATE identity_oidc_configuration SET fingerprint = ? WHERE slot = ?', [config.fingerprint, 'active'])
 
+        idp.claims = { email: undefined, email_verified: undefined }
+        idp.userInfo = { sub: 'subject-1', email: 'userinfo@example.com', email_verified: true }
         const success = await start()
         await expect(
             completeOidcAuthorization({
@@ -401,12 +493,30 @@ describe('generic OIDC provider', () => {
                 code: 'one-time-code',
                 responseIssuer: idp.issuer,
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserSession: null,
+                browserNonce: success.browserNonce,
                 currentEpoch: 7
             })
-        ).resolves.toMatchObject({ config: { fingerprint: draft.fingerprint }, identity: { subject: 'subject-1' } })
+        ).resolves.toMatchObject({
+            config: { fingerprint: draft.fingerprint },
+            identity: { subject: 'subject-1', email: 'userinfo@example.com', emailVerified: true }
+        })
         expect(idp.lastTokenBody).toContain('code=one-time-code')
         expect(idp.lastTokenBody).toContain('code_verifier=')
+        expect(idp.lastUserInfoAuthorization).toBe(`Bearer ${idp.lastAccessToken}`)
+
+        idp.userInfo = { sub: 'different-subject', email: 'userinfo@example.com', email_verified: true }
+        const mismatchedUserInfo = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: mismatchedUserInfo.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserNonce: mismatchedUserInfo.browserNonce,
+                currentEpoch: 7
+            })
+        ).rejects.toThrow('UserInfo subject')
         db.close()
     })
 })

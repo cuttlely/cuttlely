@@ -35,6 +35,11 @@ type FailureRow = { scope: 'ip' | 'account'; key: string; at: number }
 
 /** How many distinct email keys to keep. Older ones are dropped first. */
 export const ACCOUNT_LOCK_CAP = 1024
+export const OIDC_LOGIN_START_LIMIT = 600
+export const OIDC_CALLBACK_LIMIT = 1200
+export const OIDC_FAILURE_LIMIT = 20
+export const OIDC_ADMIN_WRITE_LIMIT = 10
+export const OIDC_TEST_START_LIMIT = 10
 
 const LOCK_PURPOSE = 'cuttlely-login-failure-v1'
 
@@ -111,6 +116,34 @@ export class LoginRateLimit implements LoginLimiter {
         if (extra <= 0) return
         const drop = new Set(oldest.slice(0, extra))
         this.rows = this.rows.filter((row) => row.scope !== 'account' || !drop.has(row.key))
+    }
+}
+
+/** Failure-only process limit for OIDC starts and callbacks; successful shared-address traffic is not recorded. */
+export class IdentityFailureRateLimit {
+    private readonly failures = new Map<string, number[]>()
+
+    constructor(private readonly limit: number, private readonly windowMs = LOGIN_FAILURE_WINDOW_MS) {}
+
+    blocked(address: string, now = Date.now()): boolean {
+        return this.current(address, now).length >= this.limit
+    }
+
+    recordFailure(address: string, now = Date.now()): void {
+        const current = this.current(address, now)
+        current.push(now)
+        this.failures.set(address, current)
+    }
+
+    retained(address: string, now = Date.now()): number {
+        return this.current(address, now).length
+    }
+
+    private current(address: string, now: number): number[] {
+        const current = (this.failures.get(address) || []).filter((at) => now - at < this.windowMs)
+        if (current.length) this.failures.set(address, current)
+        else this.failures.delete(address)
+        return current
     }
 }
 
