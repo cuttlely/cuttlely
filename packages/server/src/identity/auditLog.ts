@@ -37,6 +37,8 @@ export const AUDIT_TYPES = [
     'owner_recovery',
     'scim_token',
     'scim_user',
+    'scim_group',
+    'scim_mapping',
     'scim_auth_failure'
 ] as const
 
@@ -200,6 +202,8 @@ export function auditSummary(type: AuditType): string {
     if (type === 'owner_recovery') return 'Owner recovery sign-in'
     if (type === 'scim_token') return 'SCIM credential changed'
     if (type === 'scim_user') return 'SCIM user changed'
+    if (type === 'scim_group') return 'SCIM group changed'
+    if (type === 'scim_mapping') return 'SCIM mapping changed'
     if (type === 'scim_auth_failure') return 'SCIM authentication failed'
     return 'Settings changed'
 }

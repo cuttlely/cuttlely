@@ -10,6 +10,7 @@ import {
     mappingOptions,
     mutateGroup,
     pageGroups,
+    previewMappingCreation,
     previewMappingRemoval,
     readScimOperations,
     recordScimOperation,
@@ -97,6 +98,10 @@ function store(): { sql: Sql; db: MemoryDatabase } {
             id text primary key, organizationId text, category text, outcome text,
             correlationId text, detail text, completedAt text
         );
+        CREATE TABLE audit_event (
+            id text, type text, organizationId text, workspaceId text, userId text,
+            actorId text, summary text, detail text, createdAt integer
+        );
         INSERT INTO role VALUES
             ('role-member', NULL, 'member', '[]', CURRENT_TIMESTAMP),
             ('role-viewer', 'org-1', 'viewer-custom', '["chatflows:view"]', CURRENT_TIMESTAMP),
@@ -122,6 +127,11 @@ function store(): { sql: Sql; db: MemoryDatabase } {
         INSERT INTO workspace_user VALUES ('team-1', 'user-3', 'role-builder', 'active', 'owner-1', 'owner-1');
     `)
     return { sql, db }
+}
+
+async function createConfirmedMapping(sql: Sql, body: { groupId: string; workspaceId: string; roleId?: string | null }, now = start) {
+    const preview = await previewMappingCreation(sql, adminActor, body)
+    return createMapping(sql, adminActor, body, preview.fingerprint, now)
 }
 
 describe('SCIM groups', () => {
@@ -193,6 +203,7 @@ describe('SCIM groups', () => {
         await deleteGroup(sql, tokenActor, group.id, start + 6)
         expect(await groupsForOrganization(sql.query, sql, 'org-1')).toEqual([])
         await expect(deleteGroup(sql, tokenActor, group.id, start + 7)).rejects.toMatchObject({ status: 404 })
+        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_group'").get()).toMatchObject({ count: 7 })
         db.close()
     })
 
@@ -221,21 +232,19 @@ describe('SCIM mapping reconciliation', () => {
     it('refuses owner and authentication-settings roles', async () => {
         const { sql, db } = store()
         const group = await createGroup(sql, tokenActor, { displayName: 'Engineering' }, start)
-        await expect(
-            createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-owner' })
-        ).rejects.toMatchObject({
+        await expect(createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-owner' })).rejects.toMatchObject(
+            {
+                status: 400
+            }
+        )
+        await expect(createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-auth' })).rejects.toMatchObject({
             status: 400
         })
-        await expect(
-            createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-auth' })
-        ).rejects.toMatchObject({
-            status: 400
-        })
-        await expect(
-            createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-admin' })
-        ).rejects.toMatchObject({
-            status: 400
-        })
+        await expect(createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-admin' })).rejects.toMatchObject(
+            {
+                status: 400
+            }
+        )
         expect((await mappingOptions(sql, adminActor)).roles).toEqual(
             expect.not.arrayContaining([
                 expect.objectContaining({ id: 'role-owner' }),
@@ -254,7 +263,7 @@ describe('SCIM mapping reconciliation', () => {
             { displayName: 'Engineering', members: [{ value: 'scim-user-1' }, { value: 'scim-user-2' }, { value: 'scim-user-3' }] },
             start
         )
-        const mapping = await createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
+        const mapping = await createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
         expect(db.prepare('SELECT roleId FROM workspace_user WHERE userId = ?').get('user-1')).toMatchObject({ roleId: 'role-viewer' })
         expect(db.prepare('SELECT roleId FROM workspace_user WHERE userId = ?').get('user-3')).toMatchObject({ roleId: 'role-builder' })
         expect(db.prepare('SELECT permissionVersion FROM user WHERE id = ?').get('user-1')).toMatchObject({ permissionVersion: 1 })
@@ -283,13 +292,45 @@ describe('SCIM mapping reconciliation', () => {
         db.close()
     })
 
+    it('previews creation, refuses a stale fingerprint, and audits confirmed create and removal', async () => {
+        const { sql, db } = store()
+        const group = await createGroup(sql, tokenActor, { displayName: 'Engineering', members: [{ value: 'scim-user-1' }] }, start)
+        const body = { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }
+        const stale = await previewMappingCreation(sql, adminActor, body)
+        expect(stale).toMatchObject({ assignments: [expect.objectContaining({ userId: 'user-1' })], conflicts: [] })
+        await mutateGroup(
+            sql,
+            tokenActor,
+            group.id,
+            groupPatchChanges({ Operations: [{ op: 'Add', path: 'members', value: [{ value: 'scim-user-2' }] }] }),
+            start + 1
+        )
+        await expect(createMapping(sql, adminActor, body, stale.fingerprint, start + 2)).rejects.toMatchObject({ status: 409 })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_mapping').get()).toMatchObject({ count: 0 })
+        expect(db.prepare("SELECT COUNT(*) AS count FROM workspace_user WHERE userId IN ('user-1', 'user-2')").get()).toMatchObject({
+            count: 0
+        })
+
+        const fresh = await previewMappingCreation(sql, adminActor, body)
+        const mapping = await createMapping(sql, adminActor, body, fresh.fingerprint, start + 3)
+        expect(mapping.ownedAssignments).toBe(2)
+        const removal = await previewMappingRemoval(sql, adminActor, mapping.id)
+        await removeMapping(sql, adminActor, mapping.id, removal.fingerprint, start + 4)
+        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_mapping'").get()).toMatchObject({ count: 2 })
+        db.close()
+    })
+
     it('fails closed on conflicting roles and records a diagnostic', async () => {
         const { sql, db } = store()
         const first = await createGroup(sql, tokenActor, { displayName: 'First', members: [{ value: 'scim-user-1' }] }, start)
         const second = await createGroup(sql, tokenActor, { displayName: 'Second', members: [{ value: 'scim-user-1' }] }, start + 1)
-        await createMapping(sql, adminActor, { groupId: first.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 2)
-        await createMapping(sql, adminActor, { groupId: second.id, workspaceId: 'team-1', roleId: 'role-builder' }, start + 3)
-        expect(db.prepare('SELECT roleId FROM workspace_user WHERE userId = ?').get('user-1')).toMatchObject({ roleId: 'role-viewer' })
+        await createConfirmedMapping(sql, { groupId: first.id, workspaceId: 'team-1', roleId: 'role-builder' }, start + 2)
+        await createConfirmedMapping(sql, { groupId: second.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 3)
+        expect(db.prepare('SELECT COUNT(*) AS count FROM workspace_user WHERE userId = ?').get('user-1')).toMatchObject({ count: 0 })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_assignment WHERE userId = ?').get('user-1')).toMatchObject({
+            count: 0
+        })
+        expect(db.prepare('SELECT permissionVersion FROM user WHERE id = ?').get('user-1')).toMatchObject({ permissionVersion: 2 })
         expect(
             db.prepare("SELECT COUNT(*) AS count FROM identity_scim_diagnostic WHERE category = 'mapping_conflict'").get()
         ).toMatchObject({
@@ -301,7 +342,7 @@ describe('SCIM mapping reconciliation', () => {
     it('removes an owned grant when its role later gains authentication settings', async () => {
         const { sql, db } = store()
         const group = await createGroup(sql, tokenActor, { displayName: 'Engineering', members: [{ value: 'scim-user-1' }] }, start)
-        await createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
+        await createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
         db.prepare('UPDATE role SET permissions = ? WHERE id = ?').run('["authentication:manage"]', 'role-viewer')
         await mutateGroup(sql, tokenActor, group.id, { displayName: 'Engineering' }, start + 2)
         expect(db.prepare('SELECT COUNT(*) AS count FROM workspace_user WHERE userId = ?').get('user-1')).toMatchObject({ count: 0 })
@@ -314,7 +355,7 @@ describe('SCIM mapping reconciliation', () => {
     it('requires a current preview fingerprint and group deletion removes owned assignments', async () => {
         const { sql, db } = store()
         const group = await createGroup(sql, tokenActor, { displayName: 'Engineering', members: [{ value: 'scim-user-1' }] }, start)
-        const mapping = await createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
+        const mapping = await createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
         const preview = await previewMappingRemoval(sql, adminActor, mapping.id)
         db.prepare('UPDATE identity_scim_assignment SET roleId = ? WHERE mappingId = ?').run('role-builder', mapping.id)
         await expect(removeMapping(sql, adminActor, mapping.id, preview.fingerprint, start + 2)).rejects.toMatchObject({ status: 409 })
@@ -328,7 +369,7 @@ describe('SCIM mapping reconciliation', () => {
     it('removes a mapped assignment while inactive and restores it on reactivation reconciliation', async () => {
         const { sql, db } = store()
         const group = await createGroup(sql, tokenActor, { displayName: 'Engineering', members: [{ value: 'scim-user-1' }] }, start)
-        await createMapping(sql, adminActor, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
+        await createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
         db.prepare("UPDATE user SET status = 'disable' WHERE id = 'user-1'").run()
         await mutateGroup(sql, tokenActor, group.id, { displayName: 'Engineering' }, start + 2)
         expect(db.prepare('SELECT COUNT(*) AS count FROM workspace_user WHERE userId = ?').get('user-1')).toMatchObject({ count: 0 })

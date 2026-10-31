@@ -17,8 +17,15 @@ export default {
     rotateScimToken: (overlapHours) => client.post('/authentication-settings/scim-token/rotate', { overlapHours }),
     endScimOverlap: () => client.post('/authentication-settings/scim-token/end-previous'),
     revokeScimToken: () => client.delete('/authentication-settings/scim-token'),
-    createScimMapping: (groupId, workspaceId, roleId) =>
-        client.post('/authentication-settings/scim-mappings', { groupId, workspaceId, roleId: roleId || null }),
+    previewScimMappingCreation: (groupId, workspaceId, roleId) =>
+        client.post('/authentication-settings/scim-mappings/preview', { groupId, workspaceId, roleId: roleId || null }),
+    confirmScimMappingCreation: (mapping, fingerprint) =>
+        client.post('/authentication-settings/scim-mappings/confirm', {
+            groupId: mapping.groupId,
+            workspaceId: mapping.workspaceId,
+            roleId: mapping.roleId,
+            fingerprint
+        }),
     previewScimMappingRemoval: (id) => client.get(`/authentication-settings/scim-mappings/${id}/remove-preview`),
     removeScimMapping: (id, fingerprint) => client.post(`/authentication-settings/scim-mappings/${id}/remove`, { fingerprint })
 }

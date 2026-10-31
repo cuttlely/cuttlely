@@ -671,117 +671,126 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
     const normalized = userName.toLowerCase()
     let resourceId = ''
     let internalId = ''
-    await sql.transaction(async (query) => {
-        const links = await usersForOrganization(query, sql, actor.organizationId, true)
-        const activeConflict = links.find(
-            (item) => !item.deletedAt && (item.userName.toLowerCase() === normalized || (externalId && item.externalId === externalId))
-        )
-        if (activeConflict) throw new ScimError(409, 'A matching SCIM user already exists.', 'uniqueness')
-        const deleted = links.find(
-            (item) => item.deletedAt && (item.userName.toLowerCase() === normalized || (externalId && item.externalId === externalId))
-        )
-        const at = utcDbTime(sql.type, now)
-        if (deleted) {
-            resourceId = deleted.id
-            internalId = deleted.userId
-            await query(
-                `UPDATE ${q(sql, 'identity_scim_user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'userName')} = ?, ${q(
-                    sql,
-                    'normalizedUserName'
-                )} = ?, ${q(sql, 'displayName')} = ?, ${q(sql, 'givenName')} = ?, ${q(sql, 'familyName')} = ?, ${q(
-                    sql,
-                    'workEmail'
-                )} = ?, ${q(sql, 'deletedAt')} = NULL, ${q(sql, 'updatedAt')} = ? WHERE ${q(sql, 'id')} = ?`,
-                [externalId, userName, normalized, displayName, givenName, familyName, workEmail, at, resourceId]
+    try {
+        await sql.transaction(async (query) => {
+            const links = await usersForOrganization(query, sql, actor.organizationId, true)
+            const activeConflict = links.find(
+                (item) => !item.deletedAt && (item.userName.toLowerCase() === normalized || (externalId && item.externalId === externalId))
             )
-            await query(
-                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'name')} = ?, ${q(sql, 'email')} = ?, ${q(sql, 'status')} = 'active', ${q(
-                    sql,
-                    'updatedBy'
-                )} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP WHERE ${q(sql, 'id')} = ?`,
-                [displayName, userName, actor.creatorId, internalId]
+            if (activeConflict) throw new ScimError(409, 'A matching SCIM user already exists.', 'uniqueness')
+            const deleted = links.find(
+                (item) => item.deletedAt && (item.userName.toLowerCase() === normalized || (externalId && item.externalId === externalId))
             )
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedBy')} = ?, ${q(
-                    sql,
-                    'updatedDate'
-                )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                [actor.creatorId, actor.organizationId, internalId]
-            )
-            if (!active) await deactivateUserInTransaction(query, sql, actor.organizationId, internalId, now)
-            return
-        }
-        const candidates = await query(
-            `SELECT u.${q(sql, 'id')} AS id FROM ${q(sql, 'user')} u
+            const at = utcDbTime(sql.type, now)
+            if (deleted) {
+                resourceId = deleted.id
+                internalId = deleted.userId
+                await query(
+                    `UPDATE ${q(sql, 'identity_scim_user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'userName')} = ?, ${q(
+                        sql,
+                        'normalizedUserName'
+                    )} = ?, ${q(sql, 'displayName')} = ?, ${q(sql, 'givenName')} = ?, ${q(sql, 'familyName')} = ?, ${q(
+                        sql,
+                        'workEmail'
+                    )} = ?, ${q(sql, 'deletedAt')} = NULL, ${q(sql, 'updatedAt')} = ? WHERE ${q(sql, 'id')} = ?`,
+                    [externalId, userName, normalized, displayName, givenName, familyName, workEmail, at, resourceId]
+                )
+                await query(
+                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'name')} = ?, ${q(sql, 'email')} = ?, ${q(sql, 'status')} = 'active', ${q(
+                        sql,
+                        'updatedBy'
+                    )} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP WHERE ${q(sql, 'id')} = ?`,
+                    [displayName, userName, actor.creatorId, internalId]
+                )
+                await query(
+                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedBy')} = ?, ${q(
+                        sql,
+                        'updatedDate'
+                    )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                    [actor.creatorId, actor.organizationId, internalId]
+                )
+                if (!active) await deactivateUserInTransaction(query, sql, actor.organizationId, internalId, now)
+                await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
+                return
+            }
+            const candidates = await query(
+                `SELECT u.${q(sql, 'id')} AS id FROM ${q(sql, 'user')} u
              INNER JOIN ${q(sql, 'organization_user')} ou ON ou.${q(sql, 'userId')} = u.${q(sql, 'id')}
              INNER JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = ou.${q(sql, 'roleId')}
              LEFT JOIN ${q(sql, 'identity_scim_user')} su ON su.${q(sql, 'userId')} = u.${q(sql, 'id')}
              WHERE ou.${q(sql, 'organizationId')} = ? AND LOWER(u.${q(sql, 'email')}) = ?
                AND su.${q(sql, 'id')} IS NULL AND LOWER(r.${q(sql, 'name')}) <> 'owner'`,
-            [actor.organizationId, normalized]
-        )
-        if (candidates.length === 1) {
-            internalId = text(cell(candidates[0], 'id'))
-        } else {
-            internalId = randomUUID()
-            await query(
-                `INSERT INTO ${q(sql, 'user')} (${q(sql, 'id')}, ${q(sql, 'name')}, ${q(sql, 'email')}, ${q(sql, 'credential')}, ${q(
-                    sql,
-                    'status'
-                )}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')}) VALUES (?, ?, ?, NULL, 'active', ?, ?)`,
-                [internalId, displayName, userName, actor.creatorId, actor.creatorId]
+                [actor.organizationId, normalized]
             )
-            const roleId = await memberRoleId(query, sql)
+            if (candidates.length === 1) {
+                internalId = text(cell(candidates[0], 'id'))
+            } else {
+                internalId = randomUUID()
+                await query(
+                    `INSERT INTO ${q(sql, 'user')} (${q(sql, 'id')}, ${q(sql, 'name')}, ${q(sql, 'email')}, ${q(sql, 'credential')}, ${q(
+                        sql,
+                        'status'
+                    )}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')}) VALUES (?, ?, ?, NULL, 'active', ?, ?)`,
+                    [internalId, displayName, userName, actor.creatorId, actor.creatorId]
+                )
+                const roleId = await memberRoleId(query, sql)
+                await query(
+                    `INSERT INTO ${q(sql, 'organization_user')} (${q(sql, 'organizationId')}, ${q(sql, 'userId')}, ${q(sql, 'roleId')}, ${q(
+                        sql,
+                        'status'
+                    )}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')}) VALUES (?, ?, ?, 'active', ?, ?)`,
+                    [actor.organizationId, internalId, roleId, actor.creatorId, actor.creatorId]
+                )
+            }
+            resourceId = randomUUID()
             await query(
-                `INSERT INTO ${q(sql, 'organization_user')} (${q(sql, 'organizationId')}, ${q(sql, 'userId')}, ${q(sql, 'roleId')}, ${q(
+                `INSERT INTO ${q(sql, 'identity_scim_user')} (${q(sql, 'id')}, ${q(sql, 'organizationId')}, ${q(sql, 'userId')}, ${q(
                     sql,
-                    'status'
-                )}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')}) VALUES (?, ?, ?, 'active', ?, ?)`,
-                [actor.organizationId, internalId, roleId, actor.creatorId, actor.creatorId]
+                    'externalId'
+                )}, ${q(sql, 'userName')}, ${q(sql, 'normalizedUserName')}, ${q(sql, 'displayName')}, ${q(sql, 'givenName')}, ${q(
+                    sql,
+                    'familyName'
+                )}, ${q(sql, 'workEmail')}, ${q(sql, 'createdAt')}, ${q(sql, 'updatedAt')}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    resourceId,
+                    actor.organizationId,
+                    internalId,
+                    externalId,
+                    userName,
+                    normalized,
+                    displayName,
+                    givenName,
+                    familyName,
+                    workEmail,
+                    at,
+                    at
+                ]
             )
-        }
-        resourceId = randomUUID()
-        await query(
-            `INSERT INTO ${q(sql, 'identity_scim_user')} (${q(sql, 'id')}, ${q(sql, 'organizationId')}, ${q(sql, 'userId')}, ${q(
-                sql,
-                'externalId'
-            )}, ${q(sql, 'userName')}, ${q(sql, 'normalizedUserName')}, ${q(sql, 'displayName')}, ${q(sql, 'givenName')}, ${q(
-                sql,
-                'familyName'
-            )}, ${q(sql, 'workEmail')}, ${q(sql, 'createdAt')}, ${q(sql, 'updatedAt')}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                resourceId,
-                actor.organizationId,
-                internalId,
-                externalId,
-                userName,
-                normalized,
-                displayName,
-                givenName,
-                familyName,
-                workEmail,
-                at,
-                at
-            ]
-        )
-        if (active) {
-            await query(
-                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+            if (active) {
+                await query(
+                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
                  WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'disable'`,
-                [internalId]
-            )
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(
-                    sql,
-                    'updatedDate'
-                )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                [actor.organizationId, internalId]
-            )
-        } else {
-            await deactivateUserInTransaction(query, sql, actor.organizationId, internalId, now)
+                    [internalId]
+                )
+                await query(
+                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(
+                        sql,
+                        'updatedDate'
+                    )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                    [actor.organizationId, internalId]
+                )
+            } else {
+                await deactivateUserInTransaction(query, sql, actor.organizationId, internalId, now)
+            }
+            await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
+        })
+    } catch (error) {
+        if (error instanceof DirectoryError && error.status === 409) {
+            await auditUser(sql, actor, 'created', internalId || null, 'refused')
+            throw new ScimError(409, error.message, 'mutability')
         }
-        await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
-    })
+        throw error
+    }
     await auditUser(sql, actor, 'created', internalId)
     const created = (await usersForOrganization(sql.query, sql, actor.organizationId)).find((item) => item.id === resourceId)
     if (!created) throw new Error('SCIM_USER_CREATE_FAILED')
@@ -796,6 +805,10 @@ export interface UserChanges {
     familyName?: string | null
     workEmail?: string | null
     active?: boolean
+}
+
+export function operationCategoryForUserChanges(changes: UserChanges): 'usersDisabled' | 'usersUpdated' {
+    return changes.active === false ? 'usersDisabled' : 'usersUpdated'
 }
 
 function replaceChanges(value: Record<string, unknown>): UserChanges {
@@ -1234,14 +1247,13 @@ async function scimAuthentication(req: Request, res: Response, next: NextFunctio
 
 function operationCategory(req: Request, status: number): string {
     if (status >= 400) return text(req.res?.locals.scimFailureCategory) || (status === 401 ? 'authentication' : 'request')
+    const parsedCategory = text(req.res?.locals.scimOperationCategory)
+    if (parsedCategory) return parsedCategory
     const path = req.path.toLowerCase()
     if (path.startsWith('/users')) {
         if (req.method === 'POST') return 'usersCreated'
         if (req.method === 'DELETE') return 'usersDisabled'
-        if (req.method === 'PATCH' || req.method === 'PUT') {
-            const serialized = JSON.stringify(req.body || {}).toLowerCase()
-            return /"active"\s*:\s*(false|"false")/.test(serialized) ? 'usersDisabled' : 'usersUpdated'
-        }
+        if (req.method === 'PATCH' || req.method === 'PUT') return 'usersUpdated'
         return 'userRequests'
     }
     if (path.startsWith('/groups')) {
@@ -1415,6 +1427,7 @@ identityScimRouter.put(
             record.name && typeof record.name === 'object' ? nullable((record.name as Record<string, unknown>).familyName) : null
         changes.workEmail = emailValue({ emails: record.emails })
         const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'replaced')
+        res.locals.scimOperationCategory = operationCategoryForUserChanges(changes)
         res.status(200).json(scimUser(updated, requestedAttributes(req.query)))
     })
 )
@@ -1422,7 +1435,9 @@ identityScimRouter.put(
 identityScimRouter.patch(
     '/Users/:id',
     asyncRoute(async (req, res) => {
-        const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, patchChanges(req.body), 'updated')
+        const changes = patchChanges(req.body)
+        const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'updated')
+        res.locals.scimOperationCategory = operationCategoryForUserChanges(changes)
         res.status(200).json(scimUser(updated, requestedAttributes(req.query)))
     })
 )

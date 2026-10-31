@@ -19,6 +19,8 @@ const switchAuthenticationMethod = jest.fn()
 const acknowledgeAuthenticationWarning = jest.fn()
 const usableLocalOwnerReady = jest.fn()
 const hasRecentAuthentication = jest.fn()
+const createMapping = jest.fn()
+const previewMappingCreation = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -45,8 +47,9 @@ jest.mock('./constants', () => ({
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
 jest.mock('./scimGroups', () => ({
-    createMapping: jest.fn(),
+    createMapping,
     mappingOptions: jest.fn(async () => ({ mappings: [], groups: [], workspaces: [], roles: [] })),
+    previewMappingCreation,
     previewMappingRemoval: jest.fn(),
     readScimOperations: jest.fn(async () => ({ counts: {}, recentErrors: [], retentionDays: 30 })),
     removeMapping: jest.fn()
@@ -72,7 +75,7 @@ function app(cookies: Record<string, string> = {}) {
         req.cookies = cookies
         next()
     })
-    server.use('/api/v1/authentication', identityAuthenticationRouter)
+    server.use('/api/v1/authentication-settings', identityAuthenticationRouter)
     return server
 }
 
@@ -93,20 +96,27 @@ describe('authentication settings routes', () => {
             sessionsEnded: 2
         })
         acknowledgeAuthenticationWarning.mockResolvedValue({ version: 5, authenticationEpoch: 3, sessionsEnded: 2 })
+        previewMappingCreation.mockResolvedValue({
+            mapping: { groupId: 'group-1', workspaceId: 'team-1', roleId: 'role-1' },
+            assignments: [],
+            conflicts: [],
+            fingerprint: 'preview-1'
+        })
+        createMapping.mockResolvedValue({ id: 'mapping-1' })
     })
 
     afterAll(() => setTeamPermissionLookup(null))
 
     it('refuses callers without authentication:manage', async () => {
         setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: [] }) })
-        expect((await request(app({ 'local-session': 'fresh' })).get('/api/v1/authentication')).status).toBe(403)
+        expect((await request(app({ 'local-session': 'fresh' })).get('/api/v1/authentication-settings')).status).toBe(403)
         expect(readAuthenticationState).not.toHaveBeenCalled()
     })
 
     it('requires a fresh authentication before staging', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(Date.now() - 11 * 60 * 1000) })
         const response = await request(app({ 'local-session': 'old' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('REAUTH_REQUIRED')
@@ -115,7 +125,7 @@ describe('authentication settings routes', () => {
 
     it('stages successfully after a fresh local authentication', async () => {
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(200)
         expect(response.body).toMatchObject({ stage: 'stage-1', stageVersion: 1, method: 'workos', sessionsWillEnd: true })
@@ -125,7 +135,7 @@ describe('authentication settings routes', () => {
     it('does not treat a fresh WorkOS database session as recent authentication', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'workos' })
         const response = await request(app({ 'local-session': 'workos-session' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('REAUTH_REQUIRED')
@@ -135,7 +145,7 @@ describe('authentication settings routes', () => {
     it('treats a fresh owner recovery database session as recent authentication', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'recovery' })
         const response = await request(app({ 'local-session': 'recovery-session' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(200)
     })
@@ -144,17 +154,47 @@ describe('authentication settings routes', () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'workos' })
         hasRecentAuthentication.mockResolvedValue(true)
         const response = await request(app({ 'local-session': 'workos-session', 'recent-auth': 'proven-auth-time' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(200)
         expect(hasRecentAuthentication).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'proven-auth-time')
+    })
+
+    it('previews mapping creation without changing state and requires fresh authentication to confirm it', async () => {
+        findLocalSession.mockResolvedValue({ issuedAt: new Date(Date.now() - 11 * 60 * 1000), authenticationMethod: 'local' })
+        const body = { groupId: 'group-1', workspaceId: 'team-1', roleId: 'role-1' }
+        const preview = await request(app({ 'local-session': 'old' }))
+            .post('/api/v1/authentication-settings/scim-mappings/preview')
+            .send(body)
+        expect(preview.status).toBe(200)
+        expect(preview.body.fingerprint).toBe('preview-1')
+        expect(previewMappingCreation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'owner-1' }), body)
+        expect(createMapping).not.toHaveBeenCalled()
+
+        const refused = await request(app({ 'local-session': 'old' }))
+            .post('/api/v1/authentication-settings/scim-mappings/confirm')
+            .send({ ...body, fingerprint: 'preview-1' })
+        expect(refused.status).toBe(409)
+        expect(createMapping).not.toHaveBeenCalled()
+
+        findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'local' })
+        const confirmed = await request(app({ 'local-session': 'fresh' }))
+            .post('/api/v1/authentication-settings/scim-mappings/confirm')
+            .send({ ...body, fingerprint: 'preview-1' })
+        expect(confirmed.status).toBe(201)
+        expect(createMapping).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ id: 'owner-1' }),
+            expect.anything(),
+            'preview-1'
+        )
     })
 
     it('refuses a WorkOS-to-Local stage without an active owner password', async () => {
         readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
         usableLocalOwnerReady.mockResolvedValue(false)
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'local', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body).toMatchObject({ code: 'LOCAL_OWNER_REQUIRED' })
@@ -165,7 +205,7 @@ describe('authentication settings routes', () => {
         usableLocalOwnerReady.mockResolvedValue(false)
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'local' })
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('RECOVERY_REQUIRED')
@@ -176,14 +216,14 @@ describe('authentication settings routes', () => {
         expect(
             (
                 await request(app({ 'local-session': 'fresh' }))
-                    .post('/api/v1/authentication/stage')
+                    .post('/api/v1/authentication-settings/stage')
                     .send({ method: 'oidc', version: 4 })
             ).status
         ).toBe(400)
         expect(
             (
                 await request(app({ 'local-session': 'fresh' }))
-                    .post('/api/v1/authentication/apply')
+                    .post('/api/v1/authentication-settings/apply')
                     .send({
                         stage: 'stage-1',
                         stageVersion: 1,
@@ -196,7 +236,7 @@ describe('authentication settings routes', () => {
         expect(
             (
                 await request(app({ 'local-session': 'fresh' }))
-                    .post('/api/v1/authentication/apply')
+                    .post('/api/v1/authentication-settings/apply')
                     .send({ stage: 7 })
             ).status
         ).toBe(409)
@@ -206,7 +246,7 @@ describe('authentication settings routes', () => {
     it('requires a fresh authentication again when applying a staged change', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(Date.now() - 11 * 60 * 1000) })
         const response = await request(app({ 'local-session': 'old' }))
-            .post('/api/v1/authentication/apply')
+            .post('/api/v1/authentication-settings/apply')
             .send({
                 stage: 'stage-1',
                 stageVersion: 1,
@@ -228,7 +268,7 @@ describe('authentication settings routes', () => {
             confirm: 'END SESSIONS'
         }
         const applied = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/apply')
+            .post('/api/v1/authentication-settings/apply')
             .send(body)
         expect(applied.status).toBe(200)
         expect(applied.body).toEqual({
@@ -241,7 +281,7 @@ describe('authentication settings routes', () => {
 
         switchAuthenticationMethod.mockRejectedValueOnce(new Error('AUTH_STATE_CHANGED'))
         const stale = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/apply')
+            .post('/api/v1/authentication-settings/apply')
             .send(body)
         expect(stale.status).toBe(409)
         expect(stale.body.message).toContain('changed')
@@ -250,7 +290,7 @@ describe('authentication settings routes', () => {
     it('reports an owner-password refusal during apply', async () => {
         switchAuthenticationMethod.mockRejectedValueOnce(new Error('LOCAL_OWNER_REQUIRED'))
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/apply')
+            .post('/api/v1/authentication-settings/apply')
             .send({
                 stage: 'stage-1',
                 stageVersion: 1,
@@ -265,7 +305,7 @@ describe('authentication settings routes', () => {
     it('records a failed apply as failed rather than refused', async () => {
         switchAuthenticationMethod.mockRejectedValueOnce(new Error('METHOD_NOT_READY'))
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/apply')
+            .post('/api/v1/authentication-settings/apply')
             .send({
                 stage: 'stage-1',
                 stageVersion: 1,
@@ -282,7 +322,7 @@ describe('authentication settings routes', () => {
 
     it('reports the session-ending warning acknowledgment transition', async () => {
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/acknowledge-warning')
+            .post('/api/v1/authentication-settings/acknowledge-warning')
             .send({ version: 4 })
         expect(response.status).toBe(200)
         expect(response.body).toEqual({
@@ -303,7 +343,7 @@ describe('authentication settings routes', () => {
         for (let attempt = 0; attempt < 12 && status !== 429; attempt++) {
             status = (
                 await request(app({ 'local-session': 'fresh' }))
-                    .post('/api/v1/authentication/stage')
+                    .post('/api/v1/authentication-settings/stage')
                     .send({ method: 'workos', version: 4 })
             ).status
         }
@@ -315,7 +355,7 @@ describe('authentication settings routes', () => {
         for (let attempt = 0; attempt < 12 && status !== 429; attempt++) {
             status = (
                 await request(app({ 'local-session': 'fresh' }))
-                    .post('/api/v1/authentication/apply')
+                    .post('/api/v1/authentication-settings/apply')
                     .send({
                         stage: 'stage-1',
                         stageVersion: 1,

@@ -101,6 +101,10 @@ function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof Datab
             id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
             userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
         );
+        CREATE TABLE audit_event (
+            id text, type text, organizationId text, workspaceId text, userId text,
+            actorId text, summary text, detail text, createdAt integer
+        );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Cuttlely');
         INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
             ('${OWNER}', 'Owner', 'owner@example.com', 'active', 0),
@@ -369,6 +373,21 @@ describe('local directory rules', () => {
                 status: 403
             }
         )
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('owner-disabled', 'Disabled owner', 'disabled-owner@example.com', 'disable', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'owner-disabled', 'role-owner', 'disable');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM}', 'owner-disabled', 'role-owner', 'disable');
+        `)
+        const disabledOwner = { id: 'owner-disabled', organizationId: ORG, workspaceId: TEAM }
+        await expect(
+            updateWorkspaceUserRole(sql, disabledOwner, { userId: OWNER, workspaceId: TEAM, roleId: 'role-admin' })
+        ).rejects.toMatchObject({ status: 409 })
+        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE summary = 'Last owner change refused'").all()[0]).toMatchObject({
+            count: 5
+        })
         expect(db.prepare('SELECT status FROM organization_user WHERE "userId" = ?').all(OWNER)).toEqual([{ status: 'active' }])
     })
 

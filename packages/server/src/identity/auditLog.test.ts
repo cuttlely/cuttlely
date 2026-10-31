@@ -87,6 +87,7 @@ function dump(db: InstanceType<typeof DatabaseSync>): string {
 describe('audit redaction', () => {
     it('keeps every registered audit type within the database limit', () => {
         expect(AUDIT_TYPES).toContain('auth_config_warning_ack')
+        expect(AUDIT_TYPES).toEqual(expect.arrayContaining(['scim_group', 'scim_mapping']))
         expect(AUDIT_TYPES.every((type) => type.length <= 32)).toBe(true)
     })
     it('drops passwords, tokens, secret values, and question text', () => {

@@ -19,6 +19,7 @@ import {
     groupResourceType,
     groupSchema,
     mutateUser,
+    operationCategoryForUserChanges,
     pageUsers,
     userResourceType,
     userSchema,
@@ -208,7 +209,10 @@ describe('SCIM users', () => {
                 createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP,
                 updatedDate text default CURRENT_TIMESTAMP, permissionVersion integer not null default 0
             );
-            CREATE TABLE role (id text primary key, organizationId text, name text, createdDate text default CURRENT_TIMESTAMP);
+            CREATE TABLE role (
+                id text primary key, organizationId text, name text, permissions text,
+                createdDate text default CURRENT_TIMESTAMP
+            );
             CREATE TABLE organization_user (
                 organizationId text, userId text, roleId text, status text,
                 createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP, updatedDate text default CURRENT_TIMESTAMP
@@ -278,6 +282,29 @@ describe('SCIM users', () => {
         expect(db.prepare('SELECT roleId FROM organization_user WHERE userId = ?').get(created.userId)).toMatchObject({
             roleId: 'member-role'
         })
+        const mappedAt = '2026-10-31T12:30:00.000Z'
+        db.prepare('INSERT INTO workspace VALUES (?, ?, ?)').run('mapped-team', 'org-1', 'Mapped Team')
+        db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, NULL, ?, ?)').run(
+            'mapped-group',
+            'org-1',
+            'mapped-external',
+            'Mapped Group',
+            mappedAt,
+            mappedAt
+        )
+        db.prepare('INSERT INTO identity_scim_group_member VALUES (?, ?, ?)').run('mapped-group', created.id, mappedAt)
+        db.prepare('INSERT INTO identity_scim_mapping VALUES (?, ?, ?, ?, NULL, ?, ?)').run(
+            'mapped-mapping',
+            'org-1',
+            'mapped-group',
+            'mapped-team',
+            mappedAt,
+            'owner-1'
+        )
+        await mutateUser(sql, actor, created.id, { active: true }, 'updated', Date.UTC(2026, 9, 31, 12, 30))
+        expect(db.prepare('SELECT roleId FROM workspace_user WHERE userId = ?').get(created.userId)).toMatchObject({
+            roleId: 'member-role'
+        })
 
         const replaced = await mutateUser(
             sql,
@@ -311,7 +338,10 @@ describe('SCIM users', () => {
         expect(await usersForOrganization(sql.query, sql, 'org-1')).toHaveLength(0)
         const restored = await createUser(sql, actor, { userName: 'person@example.com', externalId: 'provider-43' })
         expect(restored.id).toBe(created.id)
-        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_user'").get()).toMatchObject({ count: 6 })
+        expect(db.prepare('SELECT roleId FROM workspace_user WHERE userId = ?').get(created.userId)).toMatchObject({
+            roleId: 'member-role'
+        })
+        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_user'").get()).toMatchObject({ count: 7 })
         db.close()
     })
 
@@ -321,6 +351,19 @@ describe('SCIM users', () => {
         expect(
             patchChanges({ Operations: [{ op: 'Replace', path: 'emails[type eq "work"].value', value: 'work@example.com' }] })
         ).toMatchObject({ workEmail: 'work@example.com' })
+    })
+
+    it('classifies every supported inactive mutation as a disabled-user operation', () => {
+        const changes = [
+            { active: false },
+            patchChanges({ Operations: [{ op: 'replace', value: { active: false } }] }),
+            patchChanges({ Operations: [{ op: 'Replace', path: 'active', value: 'False' }] }),
+            patchChanges({ Operations: [{ op: 'replace', path: 'active', value: false }] })
+        ]
+        for (const change of changes) expect(operationCategoryForUserChanges(change)).toBe('usersDisabled')
+        expect(operationCategoryForUserChanges(patchChanges({ Operations: [{ op: 'Replace', path: 'displayName', value: 'New' }] }))).toBe(
+            'usersUpdated'
+        )
     })
 
     it.each([
@@ -364,6 +407,9 @@ describe('SCIM users', () => {
         db.prepare('INSERT INTO identity_local_session VALUES (?, ?)').run('owner-session', 'owner-2')
         db.prepare('INSERT INTO apikey VALUES (?, ?, NULL)').run('owner-key', 'owner-2')
 
+        await expect(
+            mutateUser(sql, actor, 'scim-owner-2', { active: false }, 'updated', Date.UTC(2026, 9, 31, 13, 30))
+        ).rejects.toMatchObject({ status: 409 })
         await expect(deleteUser(sql, actor, 'scim-owner-2', Date.UTC(2026, 9, 31, 14))).rejects.toMatchObject({ status: 409 })
         expect(db.prepare('SELECT status FROM user WHERE id = ?').get('owner-2')).toMatchObject({ status: 'active' })
         expect(db.prepare('SELECT status FROM organization_user WHERE userId = ?').get('owner-2')).toMatchObject({ status: 'active' })
@@ -372,7 +418,7 @@ describe('SCIM users', () => {
         })
         expect(db.prepare('SELECT disabledAt FROM apikey WHERE ownerUserId = ?').get('owner-2')).toMatchObject({ disabledAt: null })
         expect(db.prepare('SELECT deletedAt FROM identity_scim_user WHERE id = ?').get('scim-owner-2')).toMatchObject({ deletedAt: null })
-        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_user'").get()).toMatchObject({ count: 2 })
+        expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_user'").get()).toMatchObject({ count: 3 })
         db.close()
     })
 

@@ -1,5 +1,6 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { createHash, randomUUID } from 'crypto'
+import { safeRecordAudit } from './auditLog'
 import { builtInPermissionKeys } from './builtInRoles'
 import { QueryFn, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
@@ -39,6 +40,49 @@ export interface MappingRecord {
 export interface MappingAdminActor {
     id: string
     organizationId: string
+}
+
+async function auditGroup(
+    sql: Sql,
+    actor: TokenActor,
+    operation: string,
+    group: Pick<GroupRecord, 'id' | 'displayName' | 'members'>
+): Promise<void> {
+    await safeRecordAudit(sql, {
+        type: 'scim_group',
+        organizationId: actor.organizationId,
+        workspaceId: null,
+        userId: null,
+        actorId: 'scim',
+        summary: `SCIM group ${operation}`,
+        detail: { operation, groupId: group.id, displayName: group.displayName, memberCount: group.members.length }
+    })
+}
+
+async function auditMapping(
+    sql: Sql,
+    actor: MappingAdminActor,
+    operation: string,
+    mapping: { id: string; groupId: string; workspaceId: string; roleId: string | null },
+    assignmentCount: number,
+    conflictCount = 0
+): Promise<void> {
+    await safeRecordAudit(sql, {
+        type: 'scim_mapping',
+        organizationId: actor.organizationId,
+        workspaceId: mapping.workspaceId,
+        userId: null,
+        actorId: actor.id,
+        summary: `SCIM mapping ${operation}`,
+        detail: {
+            operation,
+            mappingId: mapping.id,
+            groupId: mapping.groupId,
+            roleId: mapping.roleId,
+            assignmentCount,
+            conflictCount
+        }
+    })
 }
 
 function q(sql: Sql, name: string): string {
@@ -325,6 +369,7 @@ export async function createGroup(sql: Sql, actor: TokenActor, body: unknown, no
     })
     const created = (await groupsForOrganization(sql.query, sql, actor.organizationId)).find((group) => group.id === id)
     if (!created) throw new Error('SCIM_GROUP_CREATE_FAILED')
+    await auditGroup(sql, actor, 'created', created)
     return created
 }
 
@@ -398,6 +443,8 @@ export async function mutateGroup(
     })
     const updated = (await groupsForOrganization(sql.query, sql, actor.organizationId)).find((group) => group.id === groupId)
     if (!updated) throw new ScimError(404, 'Group not found.', 'noTarget')
+    const membershipChanged = Boolean(changes.replaceMembers || changes.addMembers || changes.removeMembers)
+    await auditGroup(sql, actor, membershipChanged ? 'membership changed' : 'updated', updated)
     return updated
 }
 
@@ -549,14 +596,28 @@ export async function reconcileMappings(
         const workspaceId = text(cell(assignment, 'workspaceId'))
         const pair = `${userId}\u0000${workspaceId}`
         assignmentByPair.set(pair, assignment)
-        if (conflicts.has(pair)) continue
-        const desired = desiredByPair.get(pair) || []
         const memberships = await query(
             `SELECT ${q(sql, 'roleId')} AS roleId FROM ${q(sql, 'workspace_user')}
              WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
             [workspaceId, userId]
         )
         const roleStillMatches = Boolean(memberships.length && text(cell(memberships[0], 'roleId')) === text(cell(assignment, 'roleId')))
+        if (conflicts.has(pair)) {
+            if (roleStillMatches) {
+                await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`, [
+                    workspaceId,
+                    userId
+                ])
+                changed.add(userId)
+            }
+            await query(`DELETE FROM ${q(sql, 'identity_scim_assignment')} WHERE ${q(sql, 'mappingId')} = ? AND ${q(sql, 'userId')} = ?`, [
+                text(cell(assignment, 'mappingId')),
+                userId
+            ])
+            assignmentByPair.delete(pair)
+            continue
+        }
+        const desired = desiredByPair.get(pair) || []
         const stillDesired = desired.some((candidate) => candidate.mappingId === text(cell(assignment, 'mappingId')))
         if (stillDesired && roleStillMatches) continue
         if (!stillDesired && roleStillMatches) {
@@ -612,9 +673,11 @@ export async function reconcileMappings(
 }
 
 export async function deleteGroup(sql: Sql, actor: TokenActor, groupId: string, now = Date.now()): Promise<void> {
+    let deleted: GroupRecord | null = null
     await sql.transaction(async (query) => {
         const current = (await groupsForOrganization(query, sql, actor.organizationId)).find((group) => group.id === groupId)
         if (!current) throw new ScimError(404, 'Group not found.', 'noTarget')
+        deleted = current
         await query(`DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'groupId')} = ?`, [groupId])
         await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
         await query(`DELETE FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'groupId')} = ?`, [groupId])
@@ -623,6 +686,7 @@ export async function deleteGroup(sql: Sql, actor: TokenActor, groupId: string, 
             [utcDbTime(sql.type, now), utcDbTime(sql.type, now), groupId]
         )
     })
+    if (deleted) await auditGroup(sql, actor, 'deleted', deleted)
 }
 
 async function mappingRows(sql: Sql, organizationId: string): Promise<MappingRecord[]> {
@@ -682,31 +746,191 @@ export async function mappingOptions(sql: Sql, actor: MappingAdminActor): Promis
     }
 }
 
-export async function createMapping(sql: Sql, actor: MappingAdminActor, body: unknown, now = Date.now()): Promise<MappingRecord> {
+interface MappingPreviewAssignment {
+    userId: string
+    userName: string
+    workspaceId: string
+    workspaceName: string
+    roleId: string
+    roleName: string
+}
+
+interface MappingPreviewConflict extends MappingPreviewAssignment {
+    currentRoleId: string | null
+    currentRoleName: string | null
+    removesOwnedMembership: boolean
+}
+
+interface MappingCreationSnapshot {
+    mapping: {
+        groupId: string
+        groupName: string
+        workspaceId: string
+        workspaceName: string
+        roleId: string | null
+        effectiveRoleId: string
+        roleName: string
+    }
+    assignments: MappingPreviewAssignment[]
+    manualMemberships: MappingPreviewAssignment[]
+    conflicts: MappingPreviewConflict[]
+}
+
+async function mappingCreationSnapshot(
+    query: QueryFn,
+    sql: Sql,
+    actor: MappingAdminActor,
+    body: unknown
+): Promise<MappingCreationSnapshot> {
     const record = object(body)
     const groupId = text(record.groupId).trim()
     const workspaceId = text(record.workspaceId).trim()
     const roleId = nullable(record.roleId)
     if (!groupId || !workspaceId) throw new ScimError(400, 'Choose a SCIM group and team.', 'invalidValue')
-    let id = ''
-    await sql.transaction(async (query) => {
-        const groups = await groupsForOrganization(query, sql, actor.organizationId)
-        if (!groups.some((group) => group.id === groupId)) throw new ScimError(400, 'Choose a current SCIM group.', 'invalidValue')
-        const workspaces = await query(
-            `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'workspace')}
-             WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'organizationId')} = ?
-               AND LOWER(${q(sql, 'name')}) <> 'personal workspace'`,
-            [workspaceId, actor.organizationId]
-        )
-        if (!workspaces.length) throw new ScimError(400, 'Choose a team in this organization.', 'invalidValue')
-        if (roleId && !(await safeRole(query, sql, actor.organizationId, roleId))) {
-            throw new ScimError(400, 'That role cannot be granted by a SCIM mapping.', 'invalidValue')
+    const groups = await groupsForOrganization(query, sql, actor.organizationId)
+    const group = groups.find((item) => item.id === groupId)
+    if (!group) throw new ScimError(400, 'Choose a current SCIM group.', 'invalidValue')
+    const workspaces = await query(
+        `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'name')} AS name FROM ${q(sql, 'workspace')}
+         WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'organizationId')} = ?
+           AND LOWER(${q(sql, 'name')}) <> 'personal workspace'`,
+        [workspaceId, actor.organizationId]
+    )
+    if (!workspaces.length) throw new ScimError(400, 'Choose a team in this organization.', 'invalidValue')
+    const effectiveRoleId = roleId || (await memberRole(query, sql))
+    if (!(await safeRole(query, sql, actor.organizationId, effectiveRoleId))) {
+        throw new ScimError(400, 'That role cannot be granted by a SCIM mapping.', 'invalidValue')
+    }
+    const existing = await query(`SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'groupId')} = ?`, [
+        groupId
+    ])
+    if (existing.length) throw new ScimError(409, 'That SCIM group already has a mapping.', 'uniqueness')
+    const roleRows = await query(
+        `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'name')} AS name, ${q(sql, 'permissions')} AS permissions,
+                ${q(sql, 'organizationId')} AS organizationId FROM ${q(sql, 'role')}
+         WHERE ${q(sql, 'organizationId')} = ? OR ${q(sql, 'organizationId')} IS NULL`,
+        [actor.organizationId]
+    )
+    const roleById = new Map(roleRows.map((row) => [text(cell(row, 'id')), row]))
+    const requestedRole = roleById.get(effectiveRoleId)
+    if (!requestedRole) throw new ScimError(400, 'Choose a current role.', 'invalidValue')
+    const candidates = await query(
+        `SELECT su.${q(sql, 'userId')} AS userId, su.${q(sql, 'displayName')} AS userName
+         FROM ${q(sql, 'identity_scim_group_member')} gm
+         INNER JOIN ${q(sql, 'identity_scim_user')} su ON su.${q(sql, 'id')} = gm.${q(sql, 'scimUserId')}
+            AND su.${q(sql, 'deletedAt')} IS NULL
+         INNER JOIN ${q(sql, 'user')} u ON u.${q(sql, 'id')} = su.${q(sql, 'userId')} AND LOWER(u.${q(sql, 'status')}) = 'active'
+         INNER JOIN ${q(sql, 'organization_user')} ou ON ou.${q(sql, 'userId')} = u.${q(sql, 'id')}
+            AND ou.${q(sql, 'organizationId')} = ? AND LOWER(ou.${q(sql, 'status')}) = 'active'
+         INNER JOIN ${q(sql, 'role')} orgRole ON orgRole.${q(sql, 'id')} = ou.${q(sql, 'roleId')}
+            AND LOWER(orgRole.${q(sql, 'name')}) <> 'owner'
+         WHERE gm.${q(sql, 'groupId')} = ? ORDER BY su.${q(sql, 'userId')} ASC`,
+        [actor.organizationId, groupId]
+    )
+    const desiredRows = await query(
+        `SELECT m.${q(sql, 'id')} AS mappingId, m.${q(sql, 'roleId')} AS roleId, su.${q(sql, 'userId')} AS userId
+         FROM ${q(sql, 'identity_scim_mapping')} m
+         INNER JOIN ${q(sql, 'identity_scim_group')} g ON g.${q(sql, 'id')} = m.${q(sql, 'groupId')} AND g.${q(sql, 'deletedAt')} IS NULL
+         INNER JOIN ${q(sql, 'identity_scim_group_member')} gm ON gm.${q(sql, 'groupId')} = g.${q(sql, 'id')}
+         INNER JOIN ${q(sql, 'identity_scim_user')} su ON su.${q(sql, 'id')} = gm.${q(sql, 'scimUserId')}
+            AND su.${q(sql, 'deletedAt')} IS NULL
+         INNER JOIN ${q(sql, 'user')} u ON u.${q(sql, 'id')} = su.${q(sql, 'userId')} AND LOWER(u.${q(sql, 'status')}) = 'active'
+         INNER JOIN ${q(sql, 'organization_user')} ou ON ou.${q(sql, 'userId')} = u.${q(sql, 'id')}
+            AND ou.${q(sql, 'organizationId')} = ? AND LOWER(ou.${q(sql, 'status')}) = 'active'
+         WHERE m.${q(sql, 'organizationId')} = ? AND m.${q(sql, 'workspaceId')} = ?`,
+        [actor.organizationId, actor.organizationId, workspaceId]
+    )
+    const existingRoles = new Map<string, Set<string>>()
+    for (const row of desiredRows) {
+        const mappedRoleId = nullable(cell(row, 'roleId')) || (await memberRole(query, sql))
+        if (!(await safeRole(query, sql, actor.organizationId, mappedRoleId))) continue
+        const userId = text(cell(row, 'userId'))
+        const roles = existingRoles.get(userId) || new Set<string>()
+        roles.add(mappedRoleId)
+        existingRoles.set(userId, roles)
+    }
+    const memberships = await query(
+        `SELECT wu.${q(sql, 'userId')} AS userId, wu.${q(sql, 'roleId')} AS roleId
+         FROM ${q(sql, 'workspace_user')} wu WHERE wu.${q(sql, 'workspaceId')} = ?`,
+        [workspaceId]
+    )
+    const membershipByUser = new Map(memberships.map((row) => [text(cell(row, 'userId')), text(cell(row, 'roleId'))]))
+    const ownedRows = await query(
+        `SELECT a.${q(sql, 'userId')} AS userId, a.${q(sql, 'roleId')} AS roleId
+         FROM ${q(sql, 'identity_scim_assignment')} a
+         INNER JOIN ${q(sql, 'identity_scim_mapping')} m ON m.${q(sql, 'id')} = a.${q(sql, 'mappingId')}
+         WHERE m.${q(sql, 'organizationId')} = ? AND a.${q(sql, 'workspaceId')} = ?`,
+        [actor.organizationId, workspaceId]
+    )
+    const ownedRoleByUser = new Map(ownedRows.map((row) => [text(cell(row, 'userId')), text(cell(row, 'roleId'))]))
+    const workspaceName = text(cell(workspaces[0], 'name'))
+    const roleName = text(cell(requestedRole, 'name'))
+    const assignments: MappingPreviewAssignment[] = []
+    const manualMemberships: MappingPreviewAssignment[] = []
+    const conflicts: MappingPreviewConflict[] = []
+    for (const row of candidates) {
+        const userId = text(cell(row, 'userId'))
+        const userName = text(cell(row, 'userName'))
+        const currentRoleId = membershipByUser.get(userId) || null
+        const currentRoleName = currentRoleId ? text(cell(roleById.get(currentRoleId) || {}, 'name')) || null : null
+        const roleSet = new Set(existingRoles.get(userId) || [])
+        roleSet.add(effectiveRoleId)
+        const assignment = { userId, userName, workspaceId, workspaceName, roleId: effectiveRoleId, roleName }
+        if (roleSet.size > 1) {
+            conflicts.push({
+                ...assignment,
+                currentRoleId,
+                currentRoleName,
+                removesOwnedMembership: Boolean(currentRoleId && ownedRoleByUser.get(userId) === currentRoleId)
+            })
+        } else if (!currentRoleId) {
+            assignments.push(assignment)
+        } else if (!ownedRoleByUser.has(userId)) {
+            manualMemberships.push({ ...assignment, roleId: currentRoleId, roleName: currentRoleName || currentRoleId })
         }
-        const existing = await query(
-            `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'groupId')} = ?`,
-            [groupId]
-        )
-        if (existing.length) throw new ScimError(409, 'That SCIM group already has a mapping.', 'uniqueness')
+    }
+    return {
+        mapping: {
+            groupId,
+            groupName: group.displayName,
+            workspaceId,
+            workspaceName,
+            roleId,
+            effectiveRoleId,
+            roleName
+        },
+        assignments,
+        manualMemberships,
+        conflicts
+    }
+}
+
+function mappingCreationFingerprint(snapshot: MappingCreationSnapshot): string {
+    return createHash('sha256').update(JSON.stringify(snapshot)).digest('base64url')
+}
+
+export async function previewMappingCreation(sql: Sql, actor: MappingAdminActor, body: unknown): Promise<Record<string, unknown>> {
+    const snapshot = await mappingCreationSnapshot(sql.query, sql, actor, body)
+    return { ...snapshot, fingerprint: mappingCreationFingerprint(snapshot) }
+}
+
+export async function createMapping(
+    sql: Sql,
+    actor: MappingAdminActor,
+    body: unknown,
+    fingerprint: unknown,
+    now = Date.now()
+): Promise<MappingRecord> {
+    let id = ''
+    let confirmedAssignmentCount = 0
+    let confirmedConflictCount = 0
+    await sql.transaction(async (query) => {
+        const snapshot = await mappingCreationSnapshot(query, sql, actor, body)
+        if (typeof fingerprint !== 'string' || fingerprint !== mappingCreationFingerprint(snapshot)) {
+            throw new ScimError(409, 'The mapping preview changed. Preview the mapping again.', 'versionMismatch')
+        }
+        confirmedAssignmentCount = snapshot.assignments.length
+        confirmedConflictCount = snapshot.conflicts.length
         id = randomUUID()
         await query(
             `INSERT INTO ${q(sql, 'identity_scim_mapping')} (${q(sql, 'id')}, ${q(sql, 'organizationId')}, ${q(sql, 'groupId')}, ${q(
@@ -714,12 +938,28 @@ export async function createMapping(sql: Sql, actor: MappingAdminActor, body: un
                 'workspaceId'
             )}, ${q(sql, 'roleId')}, ${q(sql, 'createdAt')}, ${q(sql, 'createdBy')})
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, actor.organizationId, groupId, workspaceId, roleId, utcDbTime(sql.type, now), actor.id]
+            [
+                id,
+                actor.organizationId,
+                snapshot.mapping.groupId,
+                snapshot.mapping.workspaceId,
+                snapshot.mapping.roleId,
+                utcDbTime(sql.type, now),
+                actor.id
+            ]
         )
         await reconcileMappings(query, sql, actor.organizationId, actor.id, now)
     })
     const created = (await mappingRows(sql, actor.organizationId)).find((mapping) => mapping.id === id)
     if (!created) throw new Error('SCIM_MAPPING_CREATE_FAILED')
+    await auditMapping(
+        sql,
+        actor,
+        'created',
+        { id, groupId: created.groupId, workspaceId: created.workspaceId, roleId: created.roleId },
+        confirmedAssignmentCount,
+        confirmedConflictCount
+    )
     return created
 }
 
@@ -767,9 +1007,12 @@ export async function removeMapping(
     fingerprint: unknown,
     now = Date.now()
 ): Promise<void> {
+    let removed: { id: string; groupId: string; workspaceId: string; roleId: string | null } | null = null
+    let removedAssignmentCount = 0
     await sql.transaction(async (query) => {
         const mappings = await query(
-            `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'identity_scim_mapping')}
+            `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'groupId')} AS groupId, ${q(sql, 'workspaceId')} AS workspaceId,
+                    ${q(sql, 'roleId')} AS roleId FROM ${q(sql, 'identity_scim_mapping')}
              WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'organizationId')} = ?`,
             [mappingId, actor.organizationId]
         )
@@ -778,6 +1021,13 @@ export async function removeMapping(
         if (typeof fingerprint !== 'string' || fingerprint !== previewFingerprint(mappingId, assignments)) {
             throw new ScimError(409, 'The mapping assignments changed. Preview the removal again.', 'versionMismatch')
         }
+        removed = {
+            id: mappingId,
+            groupId: text(cell(mappings[0], 'groupId')),
+            workspaceId: text(cell(mappings[0], 'workspaceId')),
+            roleId: nullable(cell(mappings[0], 'roleId'))
+        }
+        removedAssignmentCount = assignments.length
         await query(`DELETE FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'id')} = ?`, [mappingId])
         for (const assignment of assignments) {
             const current = await query(
@@ -802,6 +1052,7 @@ export async function removeMapping(
         await query(`DELETE FROM ${q(sql, 'identity_scim_assignment')} WHERE ${q(sql, 'mappingId')} = ?`, [mappingId])
         await reconcileMappings(query, sql, actor.organizationId, actor.id, now)
     })
+    if (removed) await auditMapping(sql, actor, 'removed', removed, removedAssignmentCount)
 }
 
 export async function sweepScimDiagnostics(sql: Sql, now = Date.now()): Promise<void> {

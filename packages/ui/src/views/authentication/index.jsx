@@ -48,6 +48,7 @@ export default function AuthenticationSettings() {
     const [mappingGroup, setMappingGroup] = useState('')
     const [mappingWorkspace, setMappingWorkspace] = useState('')
     const [mappingRole, setMappingRole] = useState('')
+    const [mappingCreation, setMappingCreation] = useState(null)
     const [mappingRemoval, setMappingRemoval] = useState(null)
     const load = () =>
         api
@@ -110,16 +111,25 @@ export default function AuthenticationSettings() {
             setError(cause?.response?.data?.message || 'The SCIM credential could not be changed.')
         }
     }
-    const createMapping = async () => {
+    const previewMappingCreation = async () => {
         setError('')
         try {
-            await api.createScimMapping(mappingGroup, mappingWorkspace, mappingRole)
+            setMappingCreation((await api.previewScimMappingCreation(mappingGroup, mappingWorkspace, mappingRole)).data)
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'The SCIM mapping could not be previewed.')
+        }
+    }
+    const confirmMappingCreation = async () => {
+        try {
+            await api.confirmScimMappingCreation(mappingCreation.mapping, mappingCreation.fingerprint)
+            setMappingCreation(null)
             setMappingGroup('')
             setMappingWorkspace('')
             setMappingRole('')
             await load()
         } catch (cause) {
-            setError(cause?.response?.data?.message || 'The SCIM mapping could not be created.')
+            setMappingCreation(null)
+            setError(cause?.response?.data?.message || 'The mapping changed. Preview it again.')
         }
     }
     const previewMappingRemoval = async (id) => {
@@ -412,7 +422,7 @@ export default function AuthenticationSettings() {
                                         </MenuItem>
                                     ))}
                                 </Select>
-                                <Button variant='contained' disabled={!mappingGroup || !mappingWorkspace} onClick={createMapping}>
+                                <Button variant='contained' disabled={!mappingGroup || !mappingWorkspace} onClick={previewMappingCreation}>
                                     Create mapping
                                 </Button>
                             </Stack>
@@ -444,6 +454,39 @@ export default function AuthenticationSettings() {
                     <Button onClick={() => setWarningConfirmationOpen(false)}>Cancel</Button>
                     <Button color='error' variant='contained' onClick={acknowledgeWarning}>
                         Acknowledge and end sessions
+                    </Button>
+                </DialogActions>
+            </Dialog>
+            <Dialog open={Boolean(mappingCreation)} onClose={() => setMappingCreation(null)}>
+                <DialogTitle>Create group mapping?</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        {mappingCreation?.mapping?.groupName} → {mappingCreation?.mapping?.workspaceName} (
+                        {mappingCreation?.mapping?.roleName})
+                    </Typography>
+                    <Typography sx={{ mt: 1 }}>Assignments to add:</Typography>
+                    {(mappingCreation?.assignments || []).map((assignment) => (
+                        <Typography key={`${assignment.userId}-${assignment.workspaceId}`}>
+                            {assignment.userName} · {assignment.workspaceName} · {assignment.roleName}
+                        </Typography>
+                    ))}
+                    {!mappingCreation?.assignments?.length && <Typography>No assignments will be added.</Typography>}
+                    {(mappingCreation?.manualMemberships || []).length > 0 && (
+                        <Typography sx={{ mt: 1 }}>
+                            {mappingCreation.manualMemberships.length} existing manual membership(s) will stay unchanged.
+                        </Typography>
+                    )}
+                    {(mappingCreation?.conflicts || []).length > 0 && (
+                        <Alert severity='warning' sx={{ mt: 1 }}>
+                            {mappingCreation.conflicts.length} conflicting assignment(s) will receive no mapped role. Any mapping-owned role
+                            for those people will be removed.
+                        </Alert>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setMappingCreation(null)}>Cancel</Button>
+                    <Button color='primary' variant='contained' onClick={confirmMappingCreation}>
+                        Confirm creation
                     </Button>
                 </DialogActions>
             </Dialog>

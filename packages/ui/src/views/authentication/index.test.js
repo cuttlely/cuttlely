@@ -54,7 +54,8 @@ jest.mock('@/api/authenticationSettings', () => ({
         rotateScimToken: jest.fn(),
         endScimOverlap: jest.fn(),
         revokeScimToken: jest.fn(),
-        createScimMapping: jest.fn(),
+        previewScimMappingCreation: jest.fn(),
+        confirmScimMappingCreation: jest.fn(),
         previewScimMappingRemoval: jest.fn(),
         removeScimMapping: jest.fn()
     }
@@ -64,6 +65,7 @@ jest.mock('@/ui-component/cards/MainCard', () => ({ children }) => <div>{childre
 import { createElement } from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
+import { fireEvent } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import api from '@/api/authenticationSettings'
 import AuthenticationSettings from './index'
@@ -143,7 +145,24 @@ it('creates a SCIM credential and shows its clear value once', async () => {
     act(() => root.unmount())
 })
 
-it('shows mapping and operations state and confirms removal from a preview', async () => {
+it('previews and confirms mapping creation, then confirms removal from a preview', async () => {
+    api.previewScimMappingCreation.mockResolvedValueOnce({
+        data: {
+            mapping: {
+                groupId: 'group-1',
+                groupName: 'Engineering',
+                workspaceId: 'team-1',
+                workspaceName: 'Product',
+                roleId: 'role-1',
+                roleName: 'viewer'
+            },
+            assignments: [{ userId: 'user-2', userName: 'Lin', workspaceId: 'team-1', workspaceName: 'Product', roleName: 'viewer' }],
+            manualMemberships: [],
+            conflicts: [],
+            fingerprint: 'creation-preview'
+        }
+    })
+    api.confirmScimMappingCreation.mockResolvedValueOnce({ data: { id: 'mapping-2' } })
     api.previewScimMappingRemoval.mockResolvedValueOnce({
         data: {
             mapping: { id: 'mapping-1', groupName: 'Engineering', workspaceName: 'Product' },
@@ -162,6 +181,31 @@ it('shows mapping and operations state and confirms removal from a preview', asy
     expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('Users created 2')
     expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('mapping_conflict')
     expect(container.querySelector('[data-testid="scim-mappings-view"]')?.textContent).toContain('Engineering → Product')
+
+    const choose = async (label, value) => {
+        const labeled = container.querySelector(`[aria-label="${label}"]`)
+        await act(async () => {
+            fireEvent.change(labeled.querySelector('input'), { target: { value } })
+            await Promise.resolve()
+        })
+    }
+    await choose('SCIM group', 'group-1')
+    await choose('Mapped team', 'team-1')
+    await choose('Mapped role', 'role-1')
+    const createMapping = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Create mapping')
+    await act(async () => {
+        createMapping.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await Promise.resolve()
+    })
+    expect(api.confirmScimMappingCreation).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Assignments to add:')
+    expect(document.body.textContent).toContain('Lin · Product · viewer')
+    const confirmCreation = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent === 'Confirm creation')
+    await act(async () => {
+        confirmCreation.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await Promise.resolve()
+    })
+    expect(api.confirmScimMappingCreation).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'group-1' }), 'creation-preview')
 
     const remove = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Remove')
     await act(async () => {
