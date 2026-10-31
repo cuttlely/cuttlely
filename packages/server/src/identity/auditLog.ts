@@ -62,6 +62,40 @@ export function oidcFailureLogDetail(error: unknown): { category: string; kind: 
     return { category, kind: error instanceof Error && error.name === 'OidcError' ? 'OidcError' : 'Error' }
 }
 
+const OIDC_CALLBACK_OUTCOMES = new Set([
+    'browser_binding_failed',
+    'configuration_unavailable',
+    'provider_denied',
+    'state_expired_or_unknown',
+    'settings_changed',
+    'authorization_response_invalid',
+    'token_validation_failed',
+    'userinfo_invalid',
+    'upstream_unavailable',
+    'rate_limited',
+    'unexpected_error'
+])
+
+export function oidcCallbackFailureAuditDetail(error: unknown): { method: 'oidc'; category: string; outcome: string } {
+    const logged = oidcFailureLogDetail(error)
+    const candidate = error && typeof error === 'object' && 'outcome' in error ? String((error as { outcome?: unknown }).outcome || '') : ''
+    const knownOutcome = OIDC_CALLBACK_OUTCOMES.has(candidate)
+    const outcome = knownOutcome
+        ? candidate
+        : logged.category === 'denied'
+        ? 'provider_denied'
+        : logged.category === 'transaction'
+        ? 'state_expired_or_unknown'
+        : logged.category === 'upstream'
+        ? 'upstream_unavailable'
+        : logged.category === 'configuration'
+        ? 'configuration_unavailable'
+        : logged.category === 'response'
+        ? 'token_validation_failed'
+        : 'unexpected_error'
+    return { method: 'oidc', category: logged.category, outcome }
+}
+
 export const AUDIT_RETENTION_KEY = 'CUTTLELY_AUDIT_RETENTION_DAYS'
 export const AUDIT_PAGE_DEFAULT = 50
 export const AUDIT_PAGE_MAX = 100

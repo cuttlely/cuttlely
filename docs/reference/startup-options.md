@@ -34,6 +34,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `WORKOS_REDIRECT_URI`                        | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `WORKOS_COOKIE_PASSWORD`                     | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_BOOTSTRAP_EMAIL`                   | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_OIDC_CLIENT_SECRET`                | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `DATABASE_TYPE`                              | sqlite                                      | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_HOST`                              | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_PORT`                              | 5432                                        | 1 to 65535        | —             | Host, then Server settings     | Yes     |

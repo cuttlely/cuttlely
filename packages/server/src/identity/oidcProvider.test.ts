@@ -14,6 +14,8 @@ import {
     completeOidcAuthorization,
     decryptOidcEnvelope,
     discoverOidc,
+    oidcCallbackError,
+    oidcReauthenticationIsRecent,
     validateIdToken
 } from './oidcProvider'
 
@@ -232,6 +234,15 @@ describe('generic OIDC provider', () => {
         await expect(discoverOidc(configuration(idp))).rejects.toThrow('required endpoint')
         idp.discoveryMode = 'redirect'
         await expect(discoverOidc(configuration(idp))).rejects.toMatchObject({ category: 'upstream' })
+    })
+
+    it('requires HTTPS callbacks except for the three local development hosts', () => {
+        expect(oidcCallbackError('https://app.example/api/v1/auth/oidc/callback')).toBeNull()
+        expect(oidcCallbackError('http://localhost:3000/api/v1/auth/oidc/callback')).toBeNull()
+        expect(oidcCallbackError('http://127.0.0.1:3000/api/v1/auth/oidc/callback')).toBeNull()
+        expect(oidcCallbackError('http://[::1]:3000/api/v1/auth/oidc/callback')).toBeNull()
+        expect(oidcCallbackError('http://127.0.0.2:3000/api/v1/auth/oidc/callback')).toContain('APP_URL')
+        expect(oidcCallbackError('http://app.example/api/v1/auth/oidc/callback')).toContain('HTTPS')
     })
 
     it('preserves an issuer that ends in a slash', async () => {
@@ -504,7 +515,42 @@ describe('generic OIDC provider', () => {
         expect(idp.lastTokenBody).toContain('code_verifier=')
         expect(idp.lastUserInfoAuthorization).toBe(`Bearer ${idp.lastAccessToken}`)
 
+        idp.claims = { email: 'id-token@example.com', email_verified: undefined }
+        idp.userInfo = { sub: 'subject-1', email_verified: true }
+        const verificationFromUserInfo = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: verificationFromUserInfo.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserNonce: verificationFromUserInfo.browserNonce,
+                currentEpoch: 7
+            })
+        ).resolves.toMatchObject({ identity: { email: 'id-token@example.com', emailVerified: true } })
+
+        const completeReauthentication = async (authTime?: number) => {
+            idp.claims = { auth_time: authTime, email: 'ada@example.com', email_verified: true }
+            idp.userInfo = null
+            const begun = await start('reauth')
+            const completed = await completeOidcAuthorization({
+                dataSource: db.source,
+                state: begun.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserNonce: begun.browserNonce,
+                currentEpoch: 7
+            })
+            return oidcReauthenticationIsRecent(completed.envelope, completed.identity)
+        }
+        await expect(completeReauthentication()).resolves.toBe(false)
+        await expect(completeReauthentication(Math.floor((Date.now() - 61_000) / 1000))).resolves.toBe(false)
+        await expect(completeReauthentication(Math.floor((Date.now() - 30_000) / 1000))).resolves.toBe(true)
+
         idp.userInfo = { sub: 'different-subject', email: 'userinfo@example.com', email_verified: true }
+        idp.claims = { email: undefined, email_verified: undefined }
         const mismatchedUserInfo = await start()
         await expect(
             completeOidcAuthorization({

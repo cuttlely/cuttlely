@@ -509,6 +509,23 @@ export async function switchAuthenticationMethod(
             )
                 throw new Error('AUTH_STAGE_STALE')
         }
+        const unchanged = current.activeMethod === method && current.configurationFingerprint === fingerprint
+        if (unchanged) {
+            if (stage) {
+                const d = dialect(runner)
+                const consumed = await affectedRows(
+                    runner,
+                    `UPDATE ${q(d, 'identity_authentication_switch_stage')} SET ${q(d, 'consumedAt')} = ?, ${q(d, 'version')} = ${q(
+                        d,
+                        'version'
+                    )} + 1 WHERE ${q(d, 'id')} = ? AND ${q(d, 'version')} = ? AND ${q(d, 'consumedAt')} IS NULL`,
+                    [databaseDate(runner, new Date(stage.now ?? Date.now())), stage.id, stage.version]
+                )
+                if (consumed === 0) throw new Error('AUTH_STAGE_STALE')
+            }
+            await runner.commitTransaction()
+            return current
+        }
         if (method === 'workos' && (!workosEnvironmentConfigured() || !fingerprint)) throw new Error('METHOD_NOT_READY')
         if (
             method === 'oidc' &&
@@ -537,10 +554,6 @@ export async function switchAuthenticationMethod(
         }
         if (current.activeMethod === 'workos' && method === 'local' && !(await usableLocalOwnerExists(runner))) {
             throw new Error('LOCAL_OWNER_REQUIRED')
-        }
-        if (!stage && current.activeMethod === method && current.configurationFingerprint === fingerprint) {
-            await runner.commitTransaction()
-            return current
         }
         const d = dialect(runner)
         if (stage) {

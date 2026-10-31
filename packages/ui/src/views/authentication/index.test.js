@@ -57,6 +57,7 @@ import { createElement } from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
+import api from '@/api/authenticationSettings'
 import AuthenticationSettings from './index'
 
 it('shows the OIDC setup status and derived URLs without a secret value', async () => {
@@ -81,5 +82,29 @@ it('shows the OIDC setup status and derived URLs without a secret value', async 
     expect(container.textContent).not.toContain('client-secret-value')
     const activate = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Activate')
     expect(activate?.disabled).toBe(false)
+    act(() => root.unmount())
+})
+
+it('labels and disables activation when the tested draft is already active', async () => {
+    const auth = (await api.get()).data
+    const oidc = (await api.getOidc()).data
+    api.get.mockResolvedValueOnce({ data: { ...auth, activeMethod: 'oidc' } })
+    api.getOidc.mockResolvedValueOnce({
+        data: {
+            ...oidc,
+            draft: { ...oidc.draft, fingerprint: 'same-fingerprint' },
+            active: { configured: true, fingerprint: 'same-fingerprint' }
+        }
+    })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
+        await Promise.resolve()
+        await Promise.resolve()
+    })
+    const active = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Already active')
+    expect(active?.disabled).toBe(true)
     act(() => root.unmount())
 })

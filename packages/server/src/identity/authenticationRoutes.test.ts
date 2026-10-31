@@ -17,8 +17,10 @@ const readAuthenticationState = jest.fn()
 const stageAuthenticationMethodSwitch = jest.fn()
 const switchAuthenticationMethod = jest.fn()
 const usableLocalOwnerReady = jest.fn()
+const hasRecentAuthentication = jest.fn()
 const readOidcConfiguration = jest.fn()
 const providerLinkMigrationComplete = jest.fn()
+const oidcCallbackError = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -27,7 +29,7 @@ jest.mock('./production', () => ({
 }))
 jest.mock('./authenticationState', () => ({
     acknowledgeAuthenticationWarning: jest.fn(),
-    hasRecentAuthentication: jest.fn(),
+    hasRecentAuthentication,
     initializeAuthenticationState: jest.fn(),
     readAuthenticationState,
     stageAuthenticationMethodSwitch,
@@ -44,10 +46,11 @@ jest.mock('./constants', () => ({
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
 jest.mock('./oidcStore', () => ({ readOidcConfiguration, providerLinkMigrationComplete }))
+jest.mock('./oidcProvider', () => ({ oidcCallbackError }))
 
 import { identityAuthenticationRouter } from './authenticationRoutes'
 
-function app(cookie?: string) {
+function app(cookie?: string, recent?: string) {
     const server = express()
     server.use(express.json())
     server.use((req, _res, next) => {
@@ -57,7 +60,7 @@ function app(cookie?: string) {
             activeWorkspaceId: 'team-1',
             permissions: []
         }
-        req.cookies = cookie ? { 'local-session': cookie } : {}
+        req.cookies = cookie ? { 'local-session': cookie, ...(recent ? { 'recent-auth': recent } : {}) } : {}
         next()
     })
     server.use('/api/v1/authentication', identityAuthenticationRouter)
@@ -74,6 +77,8 @@ describe('authentication settings routes', () => {
         usableLocalOwnerReady.mockResolvedValue(true)
         readOidcConfiguration.mockResolvedValue(null)
         providerLinkMigrationComplete.mockResolvedValue(true)
+        hasRecentAuthentication.mockResolvedValue(false)
+        oidcCallbackError.mockReturnValue(null)
         findLocalSession.mockResolvedValue({ issuedAt: new Date() })
         stageAuthenticationMethodSwitch.mockResolvedValue({ id: 'stage-1', version: 1, expiresAt: new Date('2026-11-01T00:00:00Z') })
         switchAuthenticationMethod.mockResolvedValue({
@@ -104,6 +109,25 @@ describe('authentication settings routes', () => {
         expect(response.status).toBe(200)
         expect(response.body).toMatchObject({ stage: 'stage-1', stageVersion: 1, method: 'workos', sessionsWillEnd: true })
         expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'workos', 4)
+    })
+
+    it('requires the recorded recent-auth time for an OIDC database session', async () => {
+        readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'oidc', configurationFingerprint: 'oidc-fingerprint' })
+        readOidcConfiguration.mockResolvedValue({
+            health: 'ready',
+            fingerprint: 'oidc-fingerprint',
+            testedFingerprint: 'oidc-fingerprint'
+        })
+        const cookies = 'fresh'
+        const refused = await request(app(cookies)).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(refused.status).toBe(409)
+        expect(refused.body.code).toBe('REAUTH_REQUIRED')
+        expect(findLocalSession).not.toHaveBeenCalled()
+
+        hasRecentAuthentication.mockResolvedValue(true)
+        const allowed = await request(app(cookies, 'recorded')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(allowed.status).toBe(200)
+        expect(hasRecentAuthentication).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'recorded')
     })
 
     it('refuses a WorkOS-to-Local stage without an active owner password', async () => {
@@ -144,6 +168,22 @@ describe('authentication settings routes', () => {
         const ready = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
         expect(ready.status).toBe(200)
         expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'oidc', 4, 'oidc-fingerprint')
+    })
+
+    it('refuses OIDC activation when APP_URL cannot produce an HTTPS callback', async () => {
+        readOidcConfiguration.mockResolvedValue({
+            health: 'ready',
+            fingerprint: 'oidc-fingerprint',
+            testedFingerprint: 'oidc-fingerprint'
+        })
+        oidcCallbackError.mockReturnValue('Set APP_URL to the public HTTPS address before activating OIDC.')
+        const response = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(response.status).toBe(409)
+        expect(response.body).toEqual({
+            code: 'OIDC_HTTPS_REQUIRED',
+            message: 'Set APP_URL to the public HTTPS address before activating OIDC.'
+        })
+        expect(stageAuthenticationMethodSwitch).not.toHaveBeenCalled()
     })
 
     it('validates stage and apply requests', async () => {

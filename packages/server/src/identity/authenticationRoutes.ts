@@ -16,6 +16,8 @@ import { applicationDataSource, applicationSql, identityStore } from './producti
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
 import { providerLinkMigrationComplete, readOidcConfiguration } from './oidcStore'
+import { oidcCallbackError } from './oidcProvider'
+import { publicOrigin } from './setupCode'
 
 const RECENT_MS = 10 * 60 * 1000
 export const identityAuthenticationRouter = Router()
@@ -29,13 +31,17 @@ function actor(req: Request): { id: string; organizationId: string } | null {
 
 export async function recentlyAuthenticated(req: Request): Promise<boolean> {
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
+    const who = actor(req)
+    const recent = cookies[RECENT_AUTH_COOKIE]
+    const state = await readAuthenticationState(applicationDataSource())
+    if (state?.activeMethod === 'oidc') {
+        return Boolean(who && recent && (await hasRecentAuthentication(applicationDataSource(), who.id, recent)))
+    }
     const local = cookies[LOCAL_SESSION_COOKIE]
     if (local) {
         const session = await identityStore().findLocalSession(hashSessionToken(local))
         return Boolean(session?.issuedAt && Date.now() - session.issuedAt.getTime() <= RECENT_MS)
     }
-    const who = actor(req)
-    const recent = cookies[RECENT_AUTH_COOKIE]
     return Boolean(who && recent && (await hasRecentAuthentication(applicationDataSource(), who.id, recent)))
 }
 
@@ -113,6 +119,13 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
         if (method === 'oidc' && !(await providerLinkMigrationComplete(applicationDataSource()))) {
             return void res.status(409).json({ code: 'LINK_MIGRATION_REQUIRED', message: 'Identity link migration must complete first.' })
         }
+        if (method === 'oidc') {
+            const configuredOrigin = process.env.RENDER_EXTERNAL_URL?.trim() || process.env.APP_URL?.trim()
+            const callbackError = oidcCallbackError(
+                configuredOrigin || `${publicOrigin(process.env.PORT || '3000')}/api/v1/auth/oidc/callback`
+            )
+            if (callbackError) return void res.status(409).json({ code: 'OIDC_HTTPS_REQUIRED', message: callbackError })
+        }
         const state = await readAuthenticationState(applicationDataSource())
         if (method === 'local' && state?.activeMethod === 'workos' && !(await ownerLocalPasswordReady())) {
             await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'local_owner_unavailable' })
@@ -133,7 +146,7 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
             stage: staged.id,
             stageVersion: staged.version,
             method,
-            sessionsWillEnd: state.activeMethod !== method,
+            sessionsWillEnd: state.activeMethod !== method || (method === 'oidc' && state.configurationFingerprint !== oidc?.fingerprint),
             apiKeysWillRemain: true,
             expiresAt: staged.expiresAt
         })

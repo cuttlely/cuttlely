@@ -202,6 +202,25 @@ describe('authentication provider foundation', () => {
         expect(JSON.parse(stored.privateIssuerHosts)).toEqual(['127.0.0.1'])
         expect(stored.fingerprint).toBe(changed.fingerprint)
         expect(after.version).toBeGreaterThan(active.version)
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+        await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+        await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+        await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['keep-session', 'owner', 'keep-token'])
+        await withEnvironment({ CUTTLELY_LOCAL_ADMIN: 'true' }, async () => {
+            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'oidc', after.version, changed.fingerprint)
+            const unchanged = await switchAuthenticationMethod(db, 'oidc', after.version, undefined, {
+                id: staged.id,
+                actorId: 'owner',
+                version: staged.version
+            })
+            expect(unchanged).toMatchObject({
+                version: after.version,
+                authenticationEpoch: after.authenticationEpoch,
+                sessionsEnded: after.sessionsEnded
+            })
+        })
+        expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
+        expect(await db.query(`SELECT * FROM "identity_oidc_configuration" WHERE "slot" = 'active'`)).toHaveLength(1)
         await db.destroy()
     })
 

@@ -65,8 +65,25 @@ export interface ValidatedOidcIdentity {
     authTime?: number
 }
 
+export type OidcFailureOutcome =
+    | 'browser_binding_failed'
+    | 'configuration_unavailable'
+    | 'provider_denied'
+    | 'state_expired_or_unknown'
+    | 'settings_changed'
+    | 'authorization_response_invalid'
+    | 'token_validation_failed'
+    | 'userinfo_invalid'
+    | 'upstream_unavailable'
+    | 'rate_limited'
+    | 'unexpected_error'
+
 export class OidcError extends Error {
-    constructor(readonly category: 'configuration' | 'denied' | 'transaction' | 'response' | 'upstream', message: string) {
+    constructor(
+        readonly category: 'configuration' | 'denied' | 'transaction' | 'response' | 'upstream',
+        message: string,
+        readonly outcome?: OidcFailureOutcome
+    ) {
         super(message)
         this.name = 'OidcError'
     }
@@ -103,6 +120,31 @@ function exactHostList(values: string[]): string[] {
 function loopbackHost(hostname: string): boolean {
     const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
     return host === 'localhost' || host === 'ip6-localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host)
+}
+
+function callbackLoopbackHost(hostname: string): boolean {
+    const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+export function oidcCallbackError(callbackUrl: string): string | null {
+    let url: URL
+    try {
+        url = new URL(callbackUrl)
+    } catch {
+        return 'Set APP_URL to the public HTTPS address before testing or activating OIDC.'
+    }
+    if (url.username || url.password || url.hash) {
+        return 'Set APP_URL to the public HTTPS address before testing or activating OIDC.'
+    }
+    if (url.protocol === 'https:') return null
+    if (url.protocol === 'http:' && callbackLoopbackHost(url.hostname)) return null
+    return 'Set APP_URL to the public HTTPS address before testing or activating OIDC. HTTP is allowed only for localhost, 127.0.0.1, or ::1.'
+}
+
+export function oidcReauthenticationIsRecent(envelope: OidcEnvelope, identity: ValidatedOidcIdentity): boolean {
+    if (envelope.purpose !== 'reauth' || identity.authTime === undefined) return false
+    return identity.authTime * 1000 >= envelope.requestTime - 60_000
 }
 
 function checkedUrl(raw: string, config: Pick<OidcConfiguration, 'privateIssuerHosts'>, name: string): URL {
@@ -269,6 +311,8 @@ export async function beginOidcAuthorization(input: {
     invitationToken?: string
     now?: number
 }): Promise<{ url: string; state: string; config: OidcConfiguration; browserNonce: string }> {
+    const callbackError = oidcCallbackError(input.callbackUrl)
+    if (callbackError) throw new OidcError('configuration', callbackError, 'configuration_unavailable')
     const config = await readOidcConfiguration(input.dataSource, input.slot)
     if (!config || config.health !== 'ready') throw new OidcError('configuration', 'OIDC is not configured.')
     const discovery = (config.discovery || (await discoverOidc(config))) as unknown as OidcDiscovery
@@ -311,15 +355,16 @@ export async function beginOidcAuthorization(input: {
 
 async function consumeEnvelope(dataSource: DataSource, state: string, now: number): Promise<OidcEnvelope> {
     const encrypted = await consumeOidcTransaction(dataSource, sha256(state), now)
-    if (!encrypted) throw new OidcError('transaction', 'The sign-in transaction expired or was already used.')
+    if (!encrypted) throw new OidcError('transaction', 'The sign-in transaction expired or was already used.', 'state_expired_or_unknown')
     const envelope = decryptOidcEnvelope(encrypted)
-    if (envelope.requestTime + OIDC_TRANSACTION_MS <= now) throw new OidcError('transaction', 'The sign-in transaction expired.')
+    if (envelope.requestTime + OIDC_TRANSACTION_MS <= now)
+        throw new OidcError('transaction', 'The sign-in transaction expired.', 'state_expired_or_unknown')
     return envelope
 }
 
 async function exchangeCode(config: OidcConfiguration, discovery: OidcDiscovery, code: string, verifier: string, callbackUrl: string) {
     const secret = process.env[config.clientSecretEnvVar]
-    if (!secret) throw new OidcError('configuration', 'The OIDC client secret is not set.')
+    if (!secret) throw new OidcError('configuration', 'The OIDC client secret is not set.', 'configuration_unavailable')
     const methods = discovery.token_endpoint_auth_methods_supported || ['client_secret_basic']
     const method = methods.includes('client_secret_post') ? 'client_secret_post' : 'client_secret_basic'
     const body = new URLSearchParams({
@@ -410,27 +455,28 @@ export async function validateIdToken(
 ): Promise<ValidatedOidcIdentity> {
     const parts = token.split('.')
     if (parts.length !== 3 || parts.some((part) => !part))
-        throw new OidcError('response', 'Encrypted or malformed ID tokens are not supported.')
+        throw new OidcError('response', 'Encrypted or malformed ID tokens are not supported.', 'token_validation_failed')
     const header = jsonPart(parts[0])
     const claims = jsonPart(parts[1])
     const algorithm = String(header.alg || '')
     const kid = String(header.kid || '')
     if (!ALGORITHMS.has(algorithm) || !discovery.id_token_signing_alg_values_supported.includes(algorithm) || !kid) {
-        throw new OidcError('response', 'The ID token algorithm or key id is not accepted.')
+        throw new OidcError('response', 'The ID token algorithm or key id is not accepted.', 'token_validation_failed')
     }
     const key = await signingKey(config, discovery, kid)
-    if (key.alg && key.alg !== algorithm) throw new OidcError('response', 'The signing key algorithm does not match the ID token.')
+    if (key.alg && key.alg !== algorithm)
+        throw new OidcError('response', 'The signing key algorithm does not match the ID token.', 'token_validation_failed')
     if (
         ((algorithm === 'RS256' || algorithm === 'PS256') && key.kty !== 'RSA') ||
         (algorithm === 'ES256' && (key.kty !== 'EC' || key.crv !== 'P-256'))
     ) {
-        throw new OidcError('response', 'The signing key type does not match the ID token algorithm.')
+        throw new OidcError('response', 'The signing key type does not match the ID token algorithm.', 'token_validation_failed')
     }
     let publicKey
     try {
         publicKey = createPublicKey({ key: key as any, format: 'jwk' })
     } catch {
-        throw new OidcError('response', 'The ID token signing key is invalid.')
+        throw new OidcError('response', 'The ID token signing key is invalid.', 'token_validation_failed')
     }
     const data = Buffer.from(`${parts[0]}.${parts[1]}`)
     const signature = Buffer.from(parts[2], 'base64url')
@@ -442,23 +488,24 @@ export async function validateIdToken(
             ? { key: publicKey, dsaEncoding: 'ieee-p1363' }
             : publicKey
     if (!verifySignature(verifyAlgorithm, data, keyOptions, signature))
-        throw new OidcError('response', 'The ID token signature is invalid.')
+        throw new OidcError('response', 'The ID token signature is invalid.', 'token_validation_failed')
     const seconds = Math.floor(now / 1000)
     const exp = typeof claims.exp === 'number' ? claims.exp : Number.NaN
     const iat = typeof claims.iat === 'number' ? claims.iat : Number.NaN
     if (!Number.isFinite(exp) || !Number.isFinite(iat) || exp < seconds - 60 || iat > seconds + 60) {
-        throw new OidcError('response', 'The ID token time claims are invalid.')
+        throw new OidcError('response', 'The ID token time claims are invalid.', 'token_validation_failed')
     }
-    if (claims.iss !== config.issuer) throw new OidcError('response', 'The ID token issuer is invalid.')
+    if (claims.iss !== config.issuer) throw new OidcError('response', 'The ID token issuer is invalid.', 'token_validation_failed')
     const audiences = Array.isArray(claims.aud) ? claims.aud.map(String) : typeof claims.aud === 'string' ? [claims.aud] : []
-    if (!audiences.includes(config.clientId)) throw new OidcError('response', 'The ID token audience is invalid.')
+    if (!audiences.includes(config.clientId))
+        throw new OidcError('response', 'The ID token audience is invalid.', 'token_validation_failed')
     if ((audiences.length > 1 || claims.azp !== undefined) && claims.azp !== config.clientId) {
-        throw new OidcError('response', 'The ID token authorized party is invalid.')
+        throw new OidcError('response', 'The ID token authorized party is invalid.', 'token_validation_failed')
     }
     if (typeof claims.nonce !== 'string' || !safeEqual(claims.nonce, nonce))
-        throw new OidcError('response', 'The ID token nonce is invalid.')
+        throw new OidcError('response', 'The ID token nonce is invalid.', 'token_validation_failed')
     const subject = typeof claims.sub === 'string' ? claims.sub : ''
-    if (!subject.trim()) throw new OidcError('response', 'The ID token subject is missing.')
+    if (!subject.trim()) throw new OidcError('response', 'The ID token subject is missing.', 'token_validation_failed')
     return {
         providerKey,
         subject,
@@ -478,17 +525,21 @@ function safeEqual(left: string, right: string): boolean {
     return a.length === b.length && timingSafeEqual(a, b)
 }
 
-function claimsIdentity(
-    claims: Record<string, unknown>,
-    base: Pick<ValidatedOidcIdentity, 'providerKey' | 'subject' | 'issuer' | 'authTime'>
-): ValidatedOidcIdentity {
+function claimsIdentity(claims: Record<string, unknown>, base: ValidatedOidcIdentity): ValidatedOidcIdentity {
+    const verificationPresent = Object.prototype.hasOwnProperty.call(claims, 'email_verified')
     return {
         ...base,
-        email: typeof claims.email === 'string' ? claims.email : undefined,
-        emailVerified: claims.email_verified === true ? true : claims.email_verified === false ? false : undefined,
-        emailVerificationPresent: Object.prototype.hasOwnProperty.call(claims, 'email_verified'),
-        xmsEdov: claims.xms_edov === true,
-        name: typeof claims.name === 'string' ? claims.name : undefined
+        email: typeof claims.email === 'string' ? claims.email : base.email,
+        emailVerified: verificationPresent
+            ? claims.email_verified === true
+                ? true
+                : claims.email_verified === false
+                ? false
+                : undefined
+            : base.emailVerified,
+        emailVerificationPresent: verificationPresent || base.emailVerificationPresent,
+        xmsEdov: Object.prototype.hasOwnProperty.call(claims, 'xms_edov') ? claims.xms_edov === true : base.xmsEdov,
+        name: typeof claims.name === 'string' ? claims.name : base.name
     }
 }
 
@@ -498,13 +549,14 @@ async function completeIdentityFromUserInfo(
     config: OidcConfiguration,
     discovery: OidcDiscovery
 ): Promise<ValidatedOidcIdentity> {
-    if (identity.email !== undefined || !discovery.userinfo_endpoint) return identity
-    if (typeof accessToken !== 'string' || !accessToken) throw new OidcError('response', 'The token response has no access token.')
+    if ((identity.email !== undefined && identity.emailVerificationPresent) || !discovery.userinfo_endpoint) return identity
+    if (typeof accessToken !== 'string' || !accessToken)
+        throw new OidcError('response', 'The token response has no access token.', 'userinfo_invalid')
     const response = await boundedJson(discovery.userinfo_endpoint, config, {
         headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` }
     })
     if (typeof response.value.sub !== 'string' || !safeEqual(response.value.sub, identity.subject)) {
-        throw new OidcError('response', 'The UserInfo subject does not match the ID token subject.')
+        throw new OidcError('response', 'The UserInfo subject does not match the ID token subject.', 'userinfo_invalid')
     }
     return claimsIdentity(response.value, identity)
 }
@@ -523,23 +575,24 @@ export async function completeOidcAuthorization(input: {
     const now = input.now ?? Date.now()
     const envelope = await consumeEnvelope(input.dataSource, input.state, now)
     if (!input.browserNonce || !safeEqual(envelope.browserNonceHash, sha256(input.browserNonce))) {
-        throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.')
+        throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.', 'browser_binding_failed')
     }
-    if (input.error) throw new OidcError('denied', 'The identity provider denied sign-in.')
-    if (!input.code) throw new OidcError('response', 'The authorization response has no code.')
-    if (envelope.authEpoch !== input.currentEpoch) throw new OidcError('transaction', 'Authentication settings changed during sign-in.')
+    if (input.error) throw new OidcError('denied', 'The identity provider denied sign-in.', 'provider_denied')
+    if (!input.code) throw new OidcError('response', 'The authorization response has no code.', 'authorization_response_invalid')
+    if (envelope.authEpoch !== input.currentEpoch)
+        throw new OidcError('transaction', 'Authentication settings changed during sign-in.', 'settings_changed')
     if ((envelope.authorizationResponseIssuer || input.responseIssuer !== undefined) && input.responseIssuer !== envelope.expectedIssuer) {
-        throw new OidcError('response', 'The authorization response issuer is invalid.')
+        throw new OidcError('response', 'The authorization response issuer is invalid.', 'authorization_response_invalid')
     }
     const slot = envelope.purpose === 'test' ? 'draft' : 'active'
     const config = await readOidcConfiguration(input.dataSource, slot)
     if (!config || config.fingerprint !== envelope.configFingerprint) {
-        throw new OidcError('transaction', 'OIDC configuration changed during sign-in.')
+        throw new OidcError('transaction', 'OIDC configuration changed during sign-in.', 'settings_changed')
     }
     const discovery = (config.discovery || (await discoverOidc(config))) as unknown as OidcDiscovery
     const exchanged = await exchangeCode(config, discovery, input.code, envelope.verifier, input.callbackUrl)
     const idToken = typeof exchanged.value.id_token === 'string' ? exchanged.value.id_token : ''
-    if (!idToken) throw new OidcError('response', 'The token response has no ID token.')
+    if (!idToken) throw new OidcError('response', 'The token response has no ID token.', 'token_validation_failed')
     const idTokenIdentity = await validateIdToken(idToken, config, discovery, envelope.nonce, envelope.providerKey, now)
     const identity = await completeIdentityFromUserInfo(idTokenIdentity, exchanged.value.access_token, config, discovery)
     return { envelope, config, identity }

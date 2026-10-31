@@ -1,6 +1,6 @@
 # Auth API
 
-How a browser signs in when AuthKit is off, and how the server reports which methods are on. The owner break-glass route is unchanged. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
+How a browser signs in with a local account, AuthKit, or generic OIDC, and how the server reports which methods are on. The owner break-glass route is unchanged. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
 
 An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with AuthKit on, to sign in with WorkOS and join. A pending user is never activated by an AuthKit email match alone. See [One-time links](#one-time-links) and the summary in [Security](../../SECURITY.md#invites).
 
@@ -26,6 +26,7 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 | Method       | Present when                                                                                        |
 | ------------ | --------------------------------------------------------------------------------------------------- |
 | `authKit`    | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                |
+| `oidc`       | Generic OIDC is the active ordinary sign-in method                                                  |
 | `localAdmin` | `CUTTLELY_LOCAL_ADMIN` is exactly `true`                                                            |
 | `localUsers` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                              |
 | `mail`       | Omitted. Admin links can email a URL when SMTP is set. The sign-in page has no Forgot password form |
@@ -42,7 +43,15 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 
 The body has no emails, cookies, or session ids. A missing session is still 200. `POST /api/v1/auth/options` is 404 and does not end sessions.
 
-`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`) for the sign-in page. A false boolean is still returned there. It does not include `status`. `/auth/options` leaves the off methods out.
+`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `oidc`, `localAdmin`, `localUsers`, `mail`) for the sign-in page. A false boolean is still returned there. It does not include `status`. `/auth/options` leaves the off methods out.
+
+## OIDC sign in
+
+`GET /api/v1/auth/oidc/login` starts ordinary OIDC sign-in when generic OIDC is active. It returns `302` to the provider. The callback is `GET /api/v1/auth/oidc/callback`; it completes only in the browser that started the request, consumes the single-use transaction, and returns `302` to the application or to `/signin` with a short error message.
+
+`GET /api/v1/auth/oidc/reauthenticate` starts the fresh-authentication path for a signed-in user. The provider request includes `prompt=login` and `max_age=0`. Completion counts as recent authentication only when the ID token includes `auth_time` no earlier than 60 seconds before the request began. A missing or older value can still complete sign-in, but sensitive authentication settings continue to require a qualifying recent-auth record.
+
+Both OIDC start routes require the derived callback to use HTTPS. HTTP is accepted only for a callback host of `localhost`, `127.0.0.1`, or `::1` during local development. Configure the origin with `APP_URL`.
 
 ## Flag combinations
 
@@ -212,7 +221,9 @@ Invite links last 72 hours (`INVITE_TOKEN_EXPIRY_IN_HOURS`, 1 to 168). Reset lin
 
 `POST /api/v1/auth/invite/start`
 
-Public. No session. Answers 404 unless AuthKit is configured, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. Otherwise the answer is 200 `{ "url": "/api/v1/auth/login" }` with an httpOnly, `SameSite=Lax` cookie `cuttlely-invite`, scoped to `Path=/api/v1/auth/callback`, that holds the token for 15 minutes. Starting does not use the token and does not say whether it is valid. `/local-accept` calls this route and then opens the URL.
+Public. No session. It requires `x-request-from: internal`; without it the response is 401 `{ "message": "Unauthorized" }`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. Starting does not use the token and does not say whether it is valid. `/local-accept` calls this route and then opens the returned URL.
+
+With AuthKit active, the response is 200 `{ "url": "/api/v1/auth/login" }` with the 15-minute `cuttlely-invite` cookie scoped to `Path=/api/v1/auth/callback`. With generic OIDC active, the response is 200 with the provider authorization URL and the callback-path browser-binding cookie; the invitation value stays in the server transaction and no application session is created until the OIDC callback succeeds. When neither remote method is active, the route answers 404. An OIDC start that cannot use the configured callback answers 409 `{ "message": "OIDC sign-in could not start." }`.
 
 The AuthKit callback reads that cookie, expires it on that same path on every outcome, and decides:
 

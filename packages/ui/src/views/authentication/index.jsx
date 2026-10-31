@@ -34,7 +34,7 @@ export default function AuthenticationSettings() {
     const [oidcForm, setOidcForm] = useState({
         issuer: '',
         clientId: '',
-        clientSecretEnvVar: '',
+        clientSecretEnvVar: 'CUTTLELY_OIDC_CLIENT_SECRET',
         trustMissingEmailVerification: false,
         privateIssuerHosts: ''
     })
@@ -133,6 +133,9 @@ export default function AuthenticationSettings() {
         }
     }
     const workosBlockedByRecovery = Boolean(data?.methods.workos.configured && !data?.recovery.available)
+    const oidcMatchesActive = Boolean(
+        data?.activeMethod === 'oidc' && oidc?.draft?.fingerprint && oidc.draft.fingerprint === oidc?.active?.fingerprint
+    )
     return (
         <MainCard title='Auth / SSO'>
             <Stack spacing={3} sx={{ maxWidth: 820 }}>
@@ -229,6 +232,7 @@ export default function AuthenticationSettings() {
                             }
                         />
                         <TextField label='Callback URL' value={oidc?.callbackUrl || ''} InputProps={{ readOnly: true }} />
+                        {oidc?.callbackError && <Alert severity='error'>{oidc.callbackError}</Alert>}
                         <TextField label='Post-logout URL' value={oidc?.postLogoutUrl || ''} InputProps={{ readOnly: true }} />
                         <TextField label='Scopes' value='openid email profile' InputProps={{ readOnly: true }} />
                         <FormControlLabel
@@ -278,15 +282,25 @@ export default function AuthenticationSettings() {
                             <Button variant='outlined' onClick={saveOidc}>
                                 Save draft
                             </Button>
-                            <Button variant='outlined' onClick={testOidc} disabled={oidc?.draft?.health !== 'ready'}>
+                            <Button
+                                variant='outlined'
+                                onClick={testOidc}
+                                disabled={oidc?.draft?.health !== 'ready' || Boolean(oidc?.callbackError)}
+                            >
                                 Test sign-in
                             </Button>
                             <Button
                                 variant='contained'
                                 onClick={activateOidc}
-                                disabled={!oidc?.draft?.tested || !oidc?.linkMigrationComplete || !data?.recovery.available}
+                                disabled={
+                                    !oidc?.draft?.tested ||
+                                    !oidc?.linkMigrationComplete ||
+                                    !data?.recovery.available ||
+                                    Boolean(oidc?.callbackError) ||
+                                    oidcMatchesActive
+                                }
                             >
-                                Activate
+                                {oidcMatchesActive ? 'Already active' : 'Activate'}
                             </Button>
                         </Stack>
                     </Stack>

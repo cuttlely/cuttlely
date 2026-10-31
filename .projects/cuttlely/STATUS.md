@@ -214,6 +214,7 @@ Cuttlely 1.4.8. The product version is the root `package.json`, `packages/server
 -   Auth / SSO Phase A is on `main` from #352: provider boundary, durable method and epoch state, compatibility inference, database-backed staged session-ending switches, epoch-bound sealed WorkOS sessions, permission and audit entries, Admin Panel recovery warnings, an administrator application banner, and the operator guide. This branch adds Phase B1 generic OIDC. SCIM, session convergence, and the later recovery work remain future phases.
 
     -   Review follow-up: warning responses now include a distinct kind. Only a WorkOS client fingerprint mismatch pauses automatic mailbox and invitation linking; a mixed local-user and WorkOS upgrade remains informational. A fresh-sign-in acknowledgment accepts the new fingerprint and restores linking. The recovery guide links use the published GitHub document URL.
+    -   Generic OIDC review follow-up: reauthentication requires a qualifying `auth_time` for recent-auth, callbacks require an HTTPS public origin except on the three local development hosts, incomplete ID-token mailbox claims use matching-subject UserInfo, unchanged activation is a no-op, callback failures have outcome-specific audit rows, and the shipped container configuration passes `APP_URL` and `CUTTLELY_OIDC_CLIENT_SECRET`.
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Hardened public config endpoints and template sanitizing are on `main` (#238).
