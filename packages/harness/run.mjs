@@ -28,6 +28,7 @@ import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
 import { renderTrustedOutputs, composeTrustedOutputs, verifiedUnmappedOutput } from './trusted-output.mjs'
+import { beginRetrievedSources, takeRetrievedSources, endRetrievedSources, citedRetrievedGuidance } from './retrieval-capture.mjs'
 import { composeProtectedInterpretation, protectedLiteralIssues, protectedReportingCaption } from './protected-interpretation.mjs'
 import { sourceAnswerFallback } from './source-answer-fallback.mjs'
 import { reportingCurrencySymbol } from './reporting-currency.mjs'
@@ -2380,6 +2381,9 @@ async function runStep(context, step) {
             ...(out.pinFirst ? { pinFirst: out.pinFirst } : {}),
             ...(out.trustedOutput ? { trustedOutput: true, trustedArtifactNames: out.trustedArtifactNames } : {}),
             ...(out.trustedPassthrough ? { trustedPassthrough: true } : {}),
+            ...(!dataTask && !hasAnalystTool(specialist) && citedRetrievedGuidance(specialist, out.text, out.sources)
+                ? { retrievedGuidance: true }
+                : {}),
             ...(out.recovery ? { recovery: out.recovery } : {}),
             ...(out.finishReason ? { finishReason: out.finishReason } : {}),
             tools: toolsFor(context, specialist.name),
@@ -2673,6 +2677,8 @@ async function runHermesSpecialist(context, specialist, task) {
     const onAbort = () => cancel()
     context.workSignal?.addEventListener('abort', onAbort, { once: true })
     const specialistStarted = Date.now()
+    const retrievalScope = { harness: context.name, specialist: specialist.name, sourceTurn: body.session_id }
+    beginRetrievedSources(retrievalScope)
     const toolLogStart = context.toolLog?.length || 0
     const startCapture = analystStartCapture((data) => emitTool(context, data), {
         gatewayName: analystBridgeQueryName(specialist)
@@ -2724,7 +2730,8 @@ async function runHermesSpecialist(context, specialist, task) {
         noteTurnImages(context, specialist, specialistStarted, imageDir)
         const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir, specialistWorkspaceRoot()) : ''
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
-        return { text }
+        const sources = takeRetrievedSources(retrievalScope)
+        return { text, ...(sources.length ? { sources } : {}) }
     } catch (error) {
         // The wait's own deadline stops only this remote run, leaving other chats on the same profile alone.
         if (error.code === 'run_timeout') stopCurrentRun()
@@ -2734,6 +2741,7 @@ async function runHermesSpecialist(context, specialist, task) {
         // Capture source failures too; they must not fall back to conflicting model output.
         if (specialist.trustedOutputs?.length) attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         context.analystStarts.delete(specialist.name)
+        endRetrievedSources(retrievalScope)
         endAnalystCalls(context.name, specialist.name, context.chatId)
         context.workSignal?.removeEventListener('abort', onAbort)
         await Promise.all(stops)

@@ -248,10 +248,19 @@ const pinFirstTests = spawnSync(process.execPath, ['--test', path.join(root, 'pa
 })
 check('pin first runtime and configuration tests', pinFirstTests.status === 0, pinFirstTests.stdout + pinFirstTests.stderr)
 
-const trustedOutputTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/trusted-output.test.mjs')], {
-    encoding: 'utf8',
-    timeout: 60000
-})
+const trustedOutputTests = spawnSync(
+    process.execPath,
+    [
+        '--test',
+        path.join(root, 'packages/harness/trusted-output.test.mjs'),
+        path.join(root, 'packages/harness/retrieval-capture.test.mjs'),
+        path.join(root, 'packages/harness/retrieval-capture-bridge.test.mjs')
+    ],
+    {
+        encoding: 'utf8',
+        timeout: 60000
+    }
+)
 check(
     'trusted output runtime and authoritative-source tests',
     trustedOutputTests.status === 0,
