@@ -11,6 +11,7 @@ git fetch origin
 git switch -c <short-topic> origin/main     # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
 pnpm install --frozen-lockfile
 pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
+pnpm --filter './packages/node-pack-*' build   # verify-test also loads the built node packs (components package alias test)
 ```
 
 -   One concern per pull request, against `main`. Commit messages are one plain sentence describing the user-visible change, then a short body.

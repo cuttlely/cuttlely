@@ -57,7 +57,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 
 // utils
-import { generateExportFlowData } from '@/utils/genericHelper'
+import { generateExportFlowData, showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from '@/utils/genericHelper'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
@@ -157,7 +157,10 @@ const CanvasHeader = ({
     onChatflowUpdated = () => undefined,
     onApplyCanvas = () => undefined,
     draftExpected = () => ({}),
-    onDraftConflict = () => undefined
+    onDraftConflict = () => undefined,
+    catalogLoading = false,
+    catalogError = null,
+    onRetryCatalog
 }) => {
     const theme = useTheme()
     // Below md the actions sit on a second row. Below sm the draft label uses the short word.
@@ -207,6 +210,7 @@ const CanvasHeader = ({
     const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled)
     const canvas = useSelector((state) => state.canvas)
     const isDark = useSelector((state) => state.customization.isDarkMode)
+    const nodeSpecsReady = Array.isArray(canvas.componentNodes) && canvas.componentNodes.length > 0
 
     const [scheduleEnabled, setScheduleEnabled] = useState(false)
     const [scheduleCanEnable, setScheduleCanEnable] = useState(false)
@@ -962,6 +966,12 @@ const CanvasHeader = ({
             />
             <FlowiseMigrationWizard
                 open={migrationOpen}
+                specs={canvas.componentNodes}
+                updateNodeData={updateOutdatedNodeData}
+                showHide={{ params: showHideInputParams, anchors: showHideInputAnchors }}
+                catalogPending={!nodeSpecsReady && (catalogLoading || !catalogError)}
+                catalogFailed={!nodeSpecsReady && !catalogLoading && Boolean(catalogError)}
+                onRetryCatalog={onRetryCatalog}
                 onClose={() => setMigrationOpen(false)}
                 onOpen={({ canvas, name, route }) => {
                     setMigrationOpen(false)
@@ -1062,7 +1072,10 @@ CanvasHeader.propTypes = {
     onChatflowUpdated: PropTypes.func,
     onApplyCanvas: PropTypes.func,
     draftExpected: PropTypes.func,
-    onDraftConflict: PropTypes.func
+    onDraftConflict: PropTypes.func,
+    catalogLoading: PropTypes.bool,
+    catalogError: PropTypes.any,
+    onRetryCatalog: PropTypes.func
 }
 
 export default CanvasHeader

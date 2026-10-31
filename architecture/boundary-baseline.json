@@ -1974,6 +1974,11 @@
             "reason": "credential dialog save values helper reads the blank placeholder value"
         },
         {
+            "from": "packages/ui/src/utils/edgeRefs.test.js",
+            "to": "packages/ui/src/utils/genericHelper.js",
+            "reason": "The import heal test runs the real node updater so it proves a chosen output survives a node update"
+        },
+        {
             "from": "packages/ui/src/utils/flowDraftsMerge.js",
             "to": "packages/ui/src/utils/genericHelper.js",
             "reason": "The draft merge writes kept tool connections in the same order the canvas uses when you connect a tool"
