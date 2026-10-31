@@ -35,7 +35,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   WorkOS sign-out ends the hosted AuthKit session again. The provider session id stays on the Cuttlely session row; sign-out deletes that row before creating the hosted logout URL and falls back to `/signin` if URL creation does not complete.
 
--   Creating the first owner on a fresh owner-only installation selects Local login in the same database transaction. `/signin` then shows the owner password form, and `POST /api/v1/auth/login` creates an ordinary Local session without recovery auditing, alerts, or owner notifications. Existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login.
+-   Creating the first owner on a fresh owner-only installation, through browser setup or `pnpm user`, selects Local login in the same database transaction. `/signin` then shows the owner password form, and `POST /api/v1/auth/login` creates an ordinary Local session without recovery auditing, alerts, or owner notifications. An already-selected durable method is left unchanged, and existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login.
 
 -   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.
 
