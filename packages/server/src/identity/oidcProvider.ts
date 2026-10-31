@@ -407,6 +407,7 @@ interface JwksCacheEntry {
 }
 const jwksCache = new Map<string, JwksCacheEntry>()
 const unknownKidRefresh = new Map<string, number>()
+const missingKidRefresh = new Map<string, number>()
 
 function cacheAge(header: string | null): number {
     const match = header?.match(/(?:^|,)\s*max-age=(\d+)/i)
@@ -462,6 +463,40 @@ async function signingKey(config: OidcConfiguration, discovery: OidcDiscovery, k
     return key
 }
 
+function compatibleSigningKeys(keys: Record<string, unknown>[], algorithm: string): Record<string, unknown>[] {
+    return keys.filter((candidate) => {
+        if (candidate.use !== undefined && candidate.use !== 'sig') return false
+        if (candidate.key_ops !== undefined && (!Array.isArray(candidate.key_ops) || !candidate.key_ops.includes('verify'))) return false
+        if (candidate.alg !== undefined && candidate.alg !== algorithm) return false
+        if (algorithm === 'RS256' || algorithm === 'PS256') return candidate.kty === 'RSA'
+        return algorithm === 'ES256' && candidate.kty === 'EC' && candidate.crv === 'P-256'
+    })
+}
+
+async function signingKeyWithoutKid(
+    config: OidcConfiguration,
+    discovery: OidcDiscovery,
+    algorithm: string
+): Promise<Record<string, unknown>> {
+    const cached = jwksCache.get(discovery.jwks_uri)
+    const usedCurrentCache = Boolean(cached && cached.expiresAt > Date.now())
+    let set = await jwks(config, discovery)
+    let candidates = compatibleSigningKeys(set.keys, algorithm)
+    if (candidates.length !== 1 && usedCurrentCache) {
+        const now = Date.now()
+        const refreshedAt = missingKidRefresh.get(discovery.jwks_uri) || 0
+        if (now - refreshedAt >= UNKNOWN_KID_REFRESH_MS) {
+            missingKidRefresh.set(discovery.jwks_uri, now)
+            set = await jwks(config, discovery, true)
+            candidates = compatibleSigningKeys(set.keys, algorithm)
+        }
+    }
+    if (candidates.length !== 1) {
+        throw new OidcError('response', 'The signing set is ambiguous for an ID token without a key id.', 'token_validation_failed')
+    }
+    return candidates[0]
+}
+
 export async function validateIdToken(
     token: string,
     config: OidcConfiguration,
@@ -477,10 +512,10 @@ export async function validateIdToken(
     const claims = jsonPart(parts[1])
     const algorithm = String(header.alg || '')
     const kid = String(header.kid || '')
-    if (!ALGORITHMS.has(algorithm) || !discovery.id_token_signing_alg_values_supported.includes(algorithm) || !kid) {
+    if (!ALGORITHMS.has(algorithm) || !discovery.id_token_signing_alg_values_supported.includes(algorithm)) {
         throw new OidcError('response', 'The ID token algorithm or key id is not accepted.', 'token_validation_failed')
     }
-    const key = await signingKey(config, discovery, kid)
+    const key = kid ? await signingKey(config, discovery, kid) : await signingKeyWithoutKid(config, discovery, algorithm)
     if (key.alg && key.alg !== algorithm)
         throw new OidcError('response', 'The signing key algorithm does not match the ID token.', 'token_validation_failed')
     if (
@@ -643,4 +678,5 @@ export async function completeOidcAuthorization(input: {
 export function clearOidcCachesForTest(): void {
     jwksCache.clear()
     unknownKidRefresh.clear()
+    missingKidRefresh.clear()
 }

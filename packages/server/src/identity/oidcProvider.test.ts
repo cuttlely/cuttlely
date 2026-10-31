@@ -67,6 +67,7 @@ function database(): { source: DataSource; close(): void } {
 }
 
 type Claims = Record<string, unknown>
+type TestJwksEntry = { source: 'first' | 'second'; fields?: Record<string, unknown> }
 
 class TestIdp {
     private readonly first = generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -86,6 +87,8 @@ class TestIdp {
     lastTokenAuthorization = ''
     lastUserInfoAuthorization = ''
     lastAccessToken = ''
+    jwksEntries: TestJwksEntry[] | null = null
+    jwksRequests = 0
 
     async start(): Promise<void> {
         await new Promise<void>((resolve, reject) => {
@@ -119,9 +122,14 @@ class TestIdp {
         }
     }
 
-    token(overrides: Partial<Claims> = {}, algorithm = 'RS256', kid = this.key): string {
+    token(
+        overrides: Partial<Claims> = {},
+        algorithm = 'RS256',
+        kid: 'first' | 'second' | null = this.key,
+        signer: 'first' | 'second' = kid || this.key
+    ): string {
         const now = Math.floor(Date.now() / 1000)
-        const header = Buffer.from(JSON.stringify({ alg: algorithm, typ: 'JWT', kid })).toString('base64url')
+        const header = Buffer.from(JSON.stringify({ alg: algorithm, typ: 'JWT', ...(kid ? { kid } : {}) })).toString('base64url')
         const payload = Buffer.from(
             JSON.stringify({
                 iss: this.issuer,
@@ -139,7 +147,7 @@ class TestIdp {
         const input = `${header}.${payload}`
         if (algorithm === 'none') return `${input}.unsigned`
         if (algorithm === 'HS256') return `${input}.${createHmac('sha256', 'not-a-provider-key').update(input).digest('base64url')}`
-        const pair = kid === 'second' ? this.second : this.first
+        const pair = signer === 'second' ? this.second : this.first
         return `${input}.${sign('RSA-SHA256', Buffer.from(input), pair.privateKey).toString('base64url')}`
     }
 
@@ -158,9 +166,14 @@ class TestIdp {
             return this.json(response, this.discoveryMode === 'malformed' ? { issuer: this.issuer } : this.discovery())
         }
         if (path === '/jwks') {
-            const pair = this.key === 'first' ? this.first : this.second
-            const key = pair.publicKey.export({ format: 'jwk' }) as Record<string, unknown>
-            return this.json(response, { keys: [{ ...key, kid: this.key, use: 'sig', alg: 'RS256' }] }, { 'cache-control': 'max-age=3600' })
+            this.jwksRequests += 1
+            const entries = this.jwksEntries || [{ source: this.key }]
+            const keys = entries.map(({ source, fields }) => {
+                const pair = source === 'first' ? this.first : this.second
+                const key = pair.publicKey.export({ format: 'jwk' }) as Record<string, unknown>
+                return { ...key, kid: source, use: 'sig', alg: 'RS256', ...fields }
+            })
+            return this.json(response, { keys }, { 'cache-control': 'max-age=3600' })
         }
         if (path === '/token') {
             this.lastTokenAuthorization = String(request.headers.authorization || '')
@@ -355,6 +368,50 @@ describe('generic OIDC provider', () => {
         idp.key = 'second'
         await expect(validateIdToken(idp.token(), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
             subject: 'subject-1'
+        })
+    })
+
+    it('accepts a token without a key id when exactly one signing entry is compatible', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.nonce = 'nonce'
+        await expect(validateIdToken(idp.token({}, 'RS256', null), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
+            subject: 'subject-1'
+        })
+    })
+
+    it('refuses a token without a key id when two signing entries are compatible', async () => {
+        idp.jwksEntries = [{ source: 'first' }, { source: 'second' }]
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.jwksRequests = 0
+        idp.nonce = 'nonce'
+        await expect(validateIdToken(idp.token({}, 'RS256', null), config, discovery, idp.nonce, 'provider')).rejects.toMatchObject({
+            outcome: 'token_validation_failed',
+            message: expect.stringContaining('ambiguous')
+        })
+        expect(idp.jwksRequests).toBe(1)
+    })
+
+    it('ignores an incompatible signing entry when a token has no key id', async () => {
+        idp.jwksEntries = [{ source: 'first' }, { source: 'second', fields: { alg: 'ES256' } }]
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.nonce = 'nonce'
+        await expect(validateIdToken(idp.token({}, 'RS256', null), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
+            subject: 'subject-1'
+        })
+    })
+
+    it('refuses a bad signature when a token without a key id has one compatible signing entry', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.nonce = 'nonce'
+        await expect(
+            validateIdToken(idp.token({}, 'RS256', null, 'second'), config, discovery, idp.nonce, 'provider')
+        ).rejects.toMatchObject({
+            outcome: 'token_validation_failed',
+            message: expect.stringContaining('signature')
         })
     })
 
