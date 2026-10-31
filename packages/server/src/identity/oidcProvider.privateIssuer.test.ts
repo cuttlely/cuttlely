@@ -1,10 +1,10 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
+const mockSecureFetch = jest.fn()
 jest.mock('@cuttlely/components', () => ({
     ...jest.requireActual('../../../components/src/httpSecurity'),
-    secureFetch: jest.fn()
+    secureFetch: (...args: unknown[]) => mockSecureFetch(...args)
 }))
 
-import * as httpSecurity from '@cuttlely/components'
 import { Readable } from 'stream'
 import type { Response } from 'node-fetch'
 import { checkOidcConfiguration, clearOidcCachesForTest } from './oidcProvider'
@@ -13,12 +13,12 @@ import { oidcConfigurationFingerprint, OidcConfiguration } from './oidcStore'
 describe('OIDC discovery through a private issuer host', () => {
     beforeEach(() => {
         clearOidcCachesForTest()
-        jest.mocked(httpSecurity.secureFetch).mockReset()
+        mockSecureFetch.mockReset()
     })
 
     it('uses a listed shared-address host for discovery and signing material', async () => {
         const issuer = 'https://100.64.0.1'
-        const guardedFetch = jest.mocked(httpSecurity.secureFetch).mockImplementation(async (url) => {
+        const guardedFetch = mockSecureFetch.mockImplementation(async (url) => {
             const value = String(url).endsWith('/jwks')
                 ? { keys: [{ kty: 'RSA', kid: 'shared-address-test' }] }
                 : {

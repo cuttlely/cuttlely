@@ -176,6 +176,11 @@
             "reason": "The test drives the inherited HTTP guard with the localhost switch on and off"
         },
         {
+            "from": "packages/components/src/httpSecurity.privateIssuer.test.ts",
+            "to": "packages/components/src/httpSecurity.ts",
+            "reason": "The test drives the inherited HTTP guard with a private issuer host allowlist"
+        },
+        {
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
             "to": "packages/components/src/handler.ts",
             "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
