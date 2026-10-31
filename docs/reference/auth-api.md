@@ -2,13 +2,13 @@
 
 How a browser signs in with a local account, AuthKit, or generic OIDC, and how the server reports which methods are on. The owner break-glass route is unchanged. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
 
-An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with AuthKit on, to sign in with WorkOS and join. A pending user is never activated by an AuthKit email match alone. See [One-time links](#one-time-links) and the summary in [Security](../../SECURITY.md#invites).
+An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with a remote method active, to sign in and join. A pending user is never activated by an email match alone. See [One-time links](#one-time-links) and the summary in [Security](../../SECURITY.md#invites).
 
 ## Which methods are on
 
 `GET /api/v1/auth/options`
 
-Public. No session and no `x-request-from` header. The body lists only methods that are on:
+Public. No session and no `x-request-from` header. The durable active-method selector stored in the database decides the ordinary method. Method configuration remains in the environment or the OIDC configuration rows, but it does not override that selector after initialization. The owner break-glass flag remains independent. The body lists only methods that are on:
 
 ```json
 {
@@ -25,18 +25,18 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 
 | Method       | Present when                                                                                        |
 | ------------ | --------------------------------------------------------------------------------------------------- |
-| `authKit`    | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                |
+| `authKit`    | WorkOS is the active ordinary method and `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set       |
 | `oidc`       | Generic OIDC is the active ordinary sign-in method                                                  |
 | `localAdmin` | `CUTTLELY_LOCAL_ADMIN` is exactly `true`                                                            |
-| `localUsers` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                              |
+| `localUsers` | Local is the active ordinary method and `CUTTLELY_LOCAL_USERS` is exactly `true`                    |
 | `mail`       | Omitted. Admin links can email a URL when SMTP is set. The sign-in page has no Forgot password form |
 
 `status` is the AuthKit switch for this server. It is not per team.
 
 | Field                 | Meaning                                                                                                                                                   |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `authKit`             | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                                                      |
-| `localPasswordSignIn` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                                                                                    |
+| `authKit`             | WorkOS is active and `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                                 |
+| `localPasswordSignIn` | Local is active and `CUTTLELY_LOCAL_USERS` is exactly `true`                                                                                              |
 | `breakGlassOwner`     | `CUTTLELY_LOCAL_ADMIN` is exactly `true`. The owner password route stays on its own flag                                                                  |
 | `localSessions`       | `open` when AuthKit is off. `ended` after the switch deleted existing local sessions. `pending` when AuthKit is on and that deletion is not recorded yet  |
 | `sessionsEnded`       | How many local sessions were deleted the last time AuthKit became configured. `0` until that happens. Turning AuthKit off does not restore those sessions |
@@ -55,26 +55,26 @@ Both OIDC start routes require the derived callback to use HTTPS. HTTP is accept
 
 ## Flag combinations
 
-`POST /api/v1/auth/local/login` is 404 unless local users mode is on: `CUTTLELY_LOCAL_USERS=true` and AuthKit is not configured. The owner route `POST /api/v1/auth/login` stays on its own flag and still accepts only the owner.
+`POST /api/v1/auth/local/login` is 404 unless Local is active and `CUTTLELY_LOCAL_USERS=true`. The owner route `POST /api/v1/auth/login` stays on its own flag and still accepts only the owner.
 
-| `CUTTLELY_LOCAL_ADMIN` | `CUTTLELY_LOCAL_USERS` | AuthKit | `POST /api/v1/auth/login` | `POST /api/v1/auth/local/login` | Sign-in page                                                       |
-| ---------------------- | ---------------------- | ------- | ------------------------- | ------------------------------- | ------------------------------------------------------------------ |
-| off                    | off                    | off     | 404                       | 404                             | Sign-in is not configured. A server with no account opens `/setup` |
-| on                     | off                    | off     | Owner password            | 404                             | Owner email and password                                           |
-| off                    | on                     | off     | 404                       | Any user with a password        | Email and password                                                 |
-| on                     | on                     | off     | Owner password            | Any user with a password        | Email and password (local users)                                   |
-| off                    | off                    | on      | 404                       | 404                             | Sign in with WorkOS                                                |
-| on                     | off                    | on      | Owner password            | 404                             | WorkOS, plus the owner password form                               |
-| off                    | on                     | on      | 404                       | 404                             | Sign in with WorkOS                                                |
-| on                     | on                     | on      | Owner password            | 404                             | WorkOS, plus the owner password form                               |
+| Active ordinary method | `CUTTLELY_LOCAL_ADMIN` | `CUTTLELY_LOCAL_USERS` | WorkOS configured | `POST /api/v1/auth/login` | `POST /api/v1/auth/local/login` | Sign-in page                                           |
+| ---------------------- | ---------------------- | ---------------------- | ----------------- | ------------------------- | ------------------------------- | ------------------------------------------------------ |
+| Local                  | off                    | off                    | either            | 404                       | 404                             | Sign-in is not configured                              |
+| Local                  | on                     | off                    | either            | Owner password            | 404                             | Owner email and password                               |
+| Local                  | off                    | on                     | either            | 404                       | Any user with a password        | Email and password                                     |
+| Local                  | on                     | on                     | either            | Owner password            | Any user with a password        | Email and password, plus the owner recovery route      |
+| WorkOS                 | off                    | either                 | yes               | 404                       | 404                             | Sign in with WorkOS                                    |
+| WorkOS                 | on                     | either                 | yes               | Owner password            | 404                             | WorkOS, plus the owner password form                   |
+| OIDC                   | off                    | either                 | either            | 404                       | 404                             | Sign in with OIDC; WorkOS and local sign-in suppressed |
+| OIDC                   | on                     | either                 | either            | Owner password            | 404                             | OIDC, plus the owner password form                     |
 
-AuthKit turns local users mode off even when `CUTTLELY_LOCAL_USERS` is set. The owner break-glass path still works when `CUTTLELY_LOCAL_ADMIN=true`. A restart applies either flag.
+The active selector suppresses the other ordinary methods even when their environment settings remain present. The owner break-glass path still works when `CUTTLELY_LOCAL_ADMIN=true`. A restart applies the two flags; an ordinary-method change is applied from **Admin** > **Auth / SSO**.
 
 `POST /api/v1/auth/login` is 404 when `CUTTLELY_LOCAL_ADMIN` is not `true`, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Neither counts as a failure. A wrong email or password is 401. Too many failures for this client address or the owner email, or too many unsuccessful responses from this client across the password routes, is 429 `{ "message": "Too many sign-in attempts. Try again later." }`. The limits are the ones in [Sign in](#sign-in).
 
 ## Turning AuthKit on
 
-Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` and restart the web server. On that start, Cuttlely deletes every row in `identity_local_session`, including the owner break-glass session, and records the switch. A later restart of the web server while AuthKit stays configured does not delete sessions created after that. Only the web server records AuthKit as turned off. A queue worker that starts without those variables leaves the record as it is, so the next web start does not delete local sessions again. Turning AuthKit off on the web server does not put the deleted sessions back. The owner signs in again with `POST /api/v1/auth/login` when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else uses AuthKit.
+Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, restart the web server, then select WorkOS under **Admin** > **Auth / SSO**. Compatibility initialization infers WorkOS once for an existing installation that does not yet have durable method state. After that state exists, environment configuration alone does not change the active method. Activating WorkOS ends interactive sessions and records the switch. A later restart while WorkOS stays active does not repeat that action. Turning WorkOS off does not restore earlier sessions. The owner signs in again with `POST /api/v1/auth/login` when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else uses WorkOS.
 
 The first verified AuthKit sign-in links an existing user when the mailbox matches exactly. Comparison ignores letter case and spaces around the address. A plus tag, a dot in the name, or a different domain does not match. The stored address is left as it is, and the password hash is left in place so it still works if AuthKit is turned off later. An unverified email is refused and links nobody. Two users with the same mailbox, including in different teams, are refused and neither is linked. A user who is already linked to a different AuthKit id is not rebound.
 
@@ -172,18 +172,18 @@ The token is 32 random bytes, encoded so it can sit in a fragment. The database 
 
 Requires `users:manage` or `workspace:add-user`. Returning or emailing a link requires `users:manage` or the organization owner, or `workspace:add-user` when the invite is into the caller's own active team. A `workspace:add-user` caller asking for a link for another team gets 403 `{ "message": "Forbidden" }`, and an invite into another team without a link is 404 `{ "message": "Team not found" }`. With AuthKit on an invite always carries a link, so this is the rule for every AuthKit invite. The body is the same user, team, and role object the invite already accepts, plus optional `link`.
 
-| `link`  | Mail configured | Status | Body                                                                                                                              |
-| ------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| omitted | either          | 200    | `{ "id" }` only, when invite delivery is follow the request (the default) and AuthKit is off. No token and no email.              |
-| `true`  | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                               |
-| `true`  | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                            |
-| `false` | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                          |
-| `false` | no              | 400    | `{ "message": "Mail is not configured. Set link to true to receive a one-time link, or configure mail first." }` Nothing is saved |
-| other   | either          | 400    | `{ "message": "link must be true or false" }`                                                                                     |
+| `link`  | Mail configured | Status | Body                                                                                                                                                 |
+| ------- | --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| omitted | either          | 200    | With Local active and delivery set to follow the request, `{ "id" }` only. With WorkOS or OIDC active, a usable invite link is created and returned. |
+| `true`  | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                                                  |
+| `true`  | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                                               |
+| `false` | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                                             |
+| `false` | no              | 400    | `{ "message": "Mail is not configured. Set link to true to receive a one-time link, or configure mail first." }` Nothing is saved                    |
+| other   | either          | 400    | `{ "message": "link must be true or false" }`                                                                                                        |
 
 A caller cannot grant a role that contains a permission they do not hold, unless they are the organization owner. The owner role cannot be granted. A password field on the user is ignored.
 
-Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response while AuthKit is off. With AuthKit on they behave like `link`, because the invite link is the only way a pending user can join. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
+Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response with Local active. With WorkOS or OIDC active they behave like `link`, because the invite link is the only way a pending user can join. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
 
 `POST /api/v1/users/:id/reset-link`
 
@@ -205,13 +205,13 @@ Requires `users:manage`. `:id` must be a user in the caller's current team. Anot
 
 Public. No session. Send `{ "token", "password" }` in the JSON body. A `token` query parameter is ignored. The route is rate limited: 10 failures from one client address in 15 minutes, then 429 `{ "message": "Too many attempts. Try again later." }`.
 
-| Status | When                                                                                                                                                        | Body                                                                                                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules                                | `{ "message": "Password saved." }`                                                                                                                                            |
-| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible (without AuthKit, an owner invite is not eligible here) | `{ "message": "This link is not valid." }`                                                                                                                                    |
-| 400    | A token is present and the password fails a strength rule                                                                                                   | `{ "message": "<the rule>" }` The token stays unused                                                                                                                          |
-| 400    | AuthKit is configured and the token is a live invite, including an owner invite (a used, expired, or revoked one gets `This link is not valid.`)            | `{ "message": "This invite is accepted by signing in with WorkOS, not with a password. Open your invite link and select Accept invite with WorkOS." }` The token stays unused |
-| 429    | Too many failures from this client address                                                                                                                  | `{ "message": "Too many attempts. Try again later." }`                                                                                                                        |
+| Status | When                                                                                                                                                               | Body                                                                                                                                                                   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules                                       | `{ "message": "Password saved." }`                                                                                                                                     |
+| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible (without AuthKit, an owner invite is not eligible here)        | `{ "message": "This link is not valid." }`                                                                                                                             |
+| 400    | A token is present and the password fails a strength rule                                                                                                          | `{ "message": "<the rule>" }` The token stays unused                                                                                                                   |
+| 400    | The active ordinary method is not Local and the token is a live invite, including an owner invite (a used, expired, or revoked one gets `This link is not valid.`) | `{ "message": "This invite is accepted with the active sign-in method, not with a password. Open your invite link and select Accept invite." }` The token stays unused |
+| 429    | Too many failures from this client address                                                                                                                         | `{ "message": "Too many attempts. Try again later." }`                                                                                                                 |
 
 An empty or missing token always returns `{ "message": "This link is not valid." }`, including when the password is also weak. When a token is present and the password fails a strength rule, the response is that rule. The token is not read and is not consumed, so a valid token stays unused and the response does not show that the token is live.
 

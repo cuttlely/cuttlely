@@ -517,18 +517,71 @@ describe('generic OIDC provider', () => {
 
         idp.claims = { email: 'id-token@example.com', email_verified: undefined }
         idp.userInfo = { sub: 'subject-1', email_verified: true }
-        const verificationFromUserInfo = await start()
+        const incompleteUserInfo = await start()
         await expect(
             completeOidcAuthorization({
                 dataSource: db.source,
-                state: verificationFromUserInfo.state,
+                state: incompleteUserInfo.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
                 callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
-                browserNonce: verificationFromUserInfo.browserNonce,
+                browserNonce: incompleteUserInfo.browserNonce,
                 currentEpoch: 7
             })
-        ).resolves.toMatchObject({ identity: { email: 'id-token@example.com', emailVerified: true } })
+        ).resolves.toMatchObject({ identity: { email: undefined, emailVerified: true, emailVerificationPresent: true } })
+
+        idp.claims = { email: 'id-token@example.com', email_verified: undefined }
+        idp.userInfo = { sub: 'subject-1', email: 'userinfo@example.com', email_verified: true }
+        const userInfoPair = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: userInfoPair.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserNonce: userInfoPair.browserNonce,
+                currentEpoch: 7
+            })
+        ).resolves.toMatchObject({
+            identity: { email: 'userinfo@example.com', emailVerified: true, emailVerificationPresent: true }
+        })
+
+        idp.claims = { email: 'id-token@example.com', email_verified: false }
+        idp.userInfo = { sub: 'subject-1', email: 'id-token@example.com', email_verified: true }
+        idp.lastUserInfoAuthorization = ''
+        const idTokenPair = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: idTokenPair.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserNonce: idTokenPair.browserNonce,
+                currentEpoch: 7
+            })
+        ).resolves.toMatchObject({
+            identity: { email: 'id-token@example.com', emailVerified: false, emailVerificationPresent: true }
+        })
+        expect(idp.lastUserInfoAuthorization).toBe('')
+
+        idp.claims = { email: undefined, email_verified: undefined }
+        idp.userInfo = { sub: 'subject-1', email: 'userinfo@example.com', email_verified: false }
+        const falseUserInfoPair = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: falseUserInfoPair.state,
+                code: 'code',
+                responseIssuer: idp.issuer,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                browserNonce: falseUserInfoPair.browserNonce,
+                currentEpoch: 7
+            })
+        ).resolves.toMatchObject({
+            identity: { email: 'userinfo@example.com', emailVerified: false, emailVerificationPresent: true }
+        })
 
         const completeReauthentication = async (authTime?: number) => {
             idp.claims = { auth_time: authTime, email: 'ada@example.com', email_verified: true }

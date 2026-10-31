@@ -445,13 +445,19 @@ oidcAuthRouter.get(
             }
             if (!linked.ok) return void res.redirect(302, signinErrorUrl('This identity cannot sign in.'))
             if (completed.envelope.purpose === 'reauth' && linked.user.id !== completed.envelope.initiatingUserId) {
-                throw new OidcError('transaction', 'Reauthentication must use the account that started it.')
+                throw new OidcError(
+                    'transaction',
+                    'Reauthentication must use the account that started it.',
+                    'reauthentication_account_mismatch'
+                )
             }
             const ctx = await buildAuthContext(req)
             ctx.authenticationEpoch = completed.envelope.authEpoch
             ctx.secure = oidcCookieIsSecure(req)
             const issued = await issueDatabaseSession(ctx, linked.user.id)
-            if (issued.type !== 'json' || issued.status !== 200) throw new OidcError('response', 'Session creation failed.')
+            if (issued.type !== 'json' || issued.status !== 200) {
+                throw new OidcError('response', 'Session creation failed.', 'session_creation_failed')
+            }
             for (const cookie of issued.cookies || []) res.cookie(cookie.name, cookie.value, cookie.options)
             for (const name of issued.clearCookies || [])
                 res.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: issued.secure })

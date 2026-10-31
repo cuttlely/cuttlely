@@ -71,6 +71,8 @@ const OIDC_CALLBACK_OUTCOMES = new Set([
     'authorization_response_invalid',
     'token_validation_failed',
     'userinfo_invalid',
+    'reauthentication_account_mismatch',
+    'session_creation_failed',
     'upstream_unavailable',
     'rate_limited',
     'unexpected_error'

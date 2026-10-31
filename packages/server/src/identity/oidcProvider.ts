@@ -74,6 +74,8 @@ export type OidcFailureOutcome =
     | 'authorization_response_invalid'
     | 'token_validation_failed'
     | 'userinfo_invalid'
+    | 'reauthentication_account_mismatch'
+    | 'session_creation_failed'
     | 'upstream_unavailable'
     | 'rate_limited'
     | 'unexpected_error'
@@ -529,16 +531,16 @@ function claimsIdentity(claims: Record<string, unknown>, base: ValidatedOidcIden
     const verificationPresent = Object.prototype.hasOwnProperty.call(claims, 'email_verified')
     return {
         ...base,
-        email: typeof claims.email === 'string' ? claims.email : base.email,
+        email: typeof claims.email === 'string' ? claims.email : undefined,
         emailVerified: verificationPresent
             ? claims.email_verified === true
                 ? true
                 : claims.email_verified === false
                 ? false
                 : undefined
-            : base.emailVerified,
-        emailVerificationPresent: verificationPresent || base.emailVerificationPresent,
-        xmsEdov: Object.prototype.hasOwnProperty.call(claims, 'xms_edov') ? claims.xms_edov === true : base.xmsEdov,
+            : undefined,
+        emailVerificationPresent: verificationPresent,
+        xmsEdov: Object.prototype.hasOwnProperty.call(claims, 'xms_edov') ? claims.xms_edov === true : undefined,
         name: typeof claims.name === 'string' ? claims.name : base.name
     }
 }
@@ -558,7 +560,16 @@ async function completeIdentityFromUserInfo(
     if (typeof response.value.sub !== 'string' || !safeEqual(response.value.sub, identity.subject)) {
         throw new OidcError('response', 'The UserInfo subject does not match the ID token subject.', 'userinfo_invalid')
     }
-    return claimsIdentity(response.value, identity)
+    const fromUserInfo = claimsIdentity(response.value, identity)
+    if (
+        fromUserInfo.email &&
+        identity.email &&
+        fromUserInfo.email.trim().toLowerCase() === identity.email.trim().toLowerCase() &&
+        identity.emailVerified === false
+    ) {
+        return { ...fromUserInfo, emailVerified: false, emailVerificationPresent: true }
+    }
+    return fromUserInfo
 }
 
 export async function completeOidcAuthorization(input: {

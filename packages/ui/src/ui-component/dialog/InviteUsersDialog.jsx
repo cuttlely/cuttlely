@@ -26,6 +26,7 @@ import { autocompleteClasses } from '@mui/material/Autocomplete'
 // Project imports
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import { invitationPayload } from '@/ui-component/dialog/invitePayload'
 
 // Icons
 import { IconX, IconCircleCheck, IconUser } from '@tabler/icons-react'
@@ -311,31 +312,12 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         try {
             const responses = await Promise.all(
                 selectedUsers.map(async (item) => {
-                    const saveObj = item.isNewUser
-                        ? {
-                              user: {
-                                  email: item.email,
-                                  createdBy: currentUser.id
-                              },
-                              workspace: {
-                                  id: selectedWorkspace.id
-                              },
-                              role: {
-                                  id: selectedRole.id
-                              }
-                          }
-                        : {
-                              user: {
-                                  email: item.user.email,
-                                  createdBy: currentUser.id
-                              },
-                              workspace: {
-                                  id: selectedWorkspace.id
-                              },
-                              role: {
-                                  id: selectedRole.id
-                              }
-                          }
+                    const saveObj = invitationPayload({
+                        email: item.isNewUser ? item.email : item.user.email,
+                        createdBy: currentUser.id,
+                        workspaceId: selectedWorkspace.id,
+                        roleId: selectedRole.id
+                    })
 
                     // An existing account is linked to the team. Only a new email gets an invite.
                     const response = item.isNewUser
