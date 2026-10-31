@@ -41,7 +41,7 @@ The repository never calls the Render API. You apply the Blueprint in the Dashbo
     | `WORKOS_API_KEY`           | From WorkOS.                                                                                                      |
     | `WORKOS_CLIENT_ID`         | From WorkOS.                                                                                                      |
     | `WORKOS_REDIRECT_URI`      | `https://<your-service>.onrender.com/api/v1/auth/callback`. Fix it after the first deploy if the address differs. |
-    | `WORKOS_COOKIE_PASSWORD`   | A random value of at least 32 characters. It seals the session cookie.                                            |
+    | `WORKOS_COOKIE_PASSWORD`   | A random value of at least 32 characters for the AuthKit setup test. Current sessions use the database.           |
     | `CUTTLELY_BOOTSTRAP_EMAIL` | The verified email of the first owner.                                                                            |
 
     Render asks only now, when the Blueprint is created. Later Blueprint syncs ignore `sync: false` variables. To change one, edit it on the service's **Environment** page.

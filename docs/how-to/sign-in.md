@@ -151,7 +151,7 @@ While WorkOS is the durable active method, `/signin` shows the WorkOS button and
 
 To add people, see [Invite people](#invite-people). Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
 
-The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the session seal, and runs a real test sign-in with the new values before anything is saved. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
+The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the value used to seal one temporary setup-test session, and runs a real test sign-in with the new values before anything is saved. Application sessions remain database-backed. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
 
 Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md).
 
