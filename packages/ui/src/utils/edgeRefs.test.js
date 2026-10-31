@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { applyEdgeRefs, fillSpecDefaults, healImportedFlow, needsSync, wizardHeal } from './edgeRefs'
+import { applyEdgeRefs, fillSpecDefaults, healImportedFlow, needsSync, stageCanvasPayload, wizardHeal } from './edgeRefs'
 import { scanFlowiseMigration } from './flowiseMigration.mjs'
 import { normalizeCanvasFlow, specsByName } from './normalizeCanvasFlow'
 
@@ -93,6 +93,13 @@ describe('edge-backed node references', () => {
         expect(result.changed).toBe(false)
         expect(result.nodes[0].data.inputs.model).toBe('{{other.data.instance}}')
         expect(result.unmatched[0]).toContain('already uses a different node')
+    })
+
+    it('overwrites a different single value for a manual connection', () => {
+        const result = applyEdgeRefs(oneTarget(model, '{{other.data.instance}}'), oneEdge(), { overwrite: true })
+        expect(result.changed).toBe(true)
+        expect(result.unmatched).toEqual([])
+        expect(result.nodes[0].data.inputs.model).toBe('{{source-with-hyphen.data.instance}}')
     })
 
     it('adds list values once, preserves order, and orders tools on a copy', () => {
@@ -207,6 +214,17 @@ describe('sync availability', () => {
     it('excludes raw nodes and a missing specification', () => {
         expect(needsSync({ data: { cuttlelyRawNode: true } }, spec)).toBe(false)
         expect(needsSync({ data: {} })).toBe(false)
+    })
+})
+
+describe('staged canvas readiness', () => {
+    it('waits for node specifications before releasing the payload', () => {
+        const payload = { flow: { nodes: [{ id: 'node-1' }], edges: [] } }
+        const waiting = stageCanvasPayload(payload)
+        expect(waiting).toEqual({ ready: null, pending: payload })
+
+        const released = stageCanvasPayload(waiting.pending, [])
+        expect(released).toEqual({ ready: payload, pending: null })
     })
 })
 

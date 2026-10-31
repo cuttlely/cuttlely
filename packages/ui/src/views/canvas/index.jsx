@@ -63,7 +63,7 @@ import {
 
 // utils
 import { getUniqueNodeId, initNode, getUpsertDetails, updateOutdatedNodeData } from '@/utils/genericHelper'
-import { applyEdgeRefs, healImportedFlow, needsSync } from '@/utils/edgeRefs'
+import { applyEdgeRefs, healImportedFlow, needsSync, stageCanvasPayload } from '@/utils/edgeRefs'
 import { readyToFit, FIT_ON_OPEN } from '@/utils/canvasFit'
 import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
@@ -164,6 +164,7 @@ const Canvas = () => {
     const pendingDraftRef = useRef(null)
     const [builtResult, setBuiltResult] = useState(null)
     const pendingLangflow = useRef(null)
+    const pendingMigration = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
     const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteSelection, applyingDelete, bindCanvasState, duplicateNode } =
@@ -235,7 +236,10 @@ const Canvas = () => {
         }
 
         setNodes((currentNodes) => {
-            const result = applyEdgeRefs(currentNodes, [newEdge], { canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW' })
+            const result = applyEdgeRefs(currentNodes, [newEdge], {
+                canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
+                overwrite: true
+            })
             for (const message of result.unmatched) showImportError(message)
             return result.nodes
         })
@@ -299,6 +303,12 @@ const Canvas = () => {
         setTimeout(() => setDirty(), 0)
     }
 
+    const queueMigration = (payload) => {
+        const staged = stageCanvasPayload(payload, getNodesApi.data)
+        pendingMigration.current = staged.pending
+        if (staged.ready) applyFlowiseCanvas(JSON.stringify(staged.ready.flow))
+    }
+
     const handleLoadFlow = (file, expect = 'either') => {
         let parsed
         try {
@@ -313,7 +323,7 @@ const Canvas = () => {
             return
         }
         if (parsed && parsed.cuttlelyMigration && parsed.flow) {
-            applyFlowiseCanvas(JSON.stringify(parsed.flow))
+            queueMigration(parsed)
             return
         }
         const langflow = isLangflowExport(parsed)
@@ -1112,6 +1122,13 @@ const Canvas = () => {
         const payload = pendingLangflow.current
         pendingLangflow.current = null
         commitLangflow(payload, getNodesApi.data)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getNodesApi.data])
+
+    useEffect(() => {
+        const staged = stageCanvasPayload(pendingMigration.current, getNodesApi.data)
+        pendingMigration.current = staged.pending
+        if (staged.ready) applyFlowiseCanvas(JSON.stringify(staged.ready.flow))
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [getNodesApi.data])
 

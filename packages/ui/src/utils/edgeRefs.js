@@ -42,6 +42,11 @@ const specsByName = (specs) => {
 export const needsSync = (node, spec) =>
     Boolean(spec && !node?.data?.cuttlelyRawNode && (node?.data?.version == null || spec.version > node.data.version))
 
+export const stageCanvasPayload = (payload, specs) => {
+    const ready = Boolean(payload && Array.isArray(specs))
+    return { ready: ready ? payload : null, pending: ready ? null : payload }
+}
+
 export const fillSpecDefaults = (data, spec, edges = []) => {
     if (!data || !spec || data.cuttlelyRawNode) return data
     const next = cloneDeep(data)
@@ -105,6 +110,8 @@ export const applyEdgeRefs = (nodes, edges, options = {}) => {
             else values.push(ref)
             value = values
         } else if (current == null || current === '') {
+            value = ref
+        } else if (current !== ref && options.overwrite) {
             value = ref
         } else if (current !== ref) {
             unmatched.push(

@@ -126,7 +126,6 @@ export function normalizeNodeData(data, spec) {
         if (missingOutputs) data.outputAnchors = outputAnchorsFor(nodeId, data, spec)
         data.inputs = { ...split.defaults, ...saved }
         if (!Array.isArray(data.baseClasses) && spec.baseClasses) data.baseClasses = spec.baseClasses
-        if (data.version == null && spec.version != null) data.version = spec.version
         delete data.cuttlelyRawNode
         return data
     }
