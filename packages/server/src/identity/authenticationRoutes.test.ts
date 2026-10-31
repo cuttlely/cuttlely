@@ -161,7 +161,7 @@ describe('authentication settings routes', () => {
     it('does not let a separate recent-auth cookie make a WorkOS session recent', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'workos' })
         const response = await request(app({ 'local-session': 'workos-session', 'recent-auth': 'old-cookie' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('REAUTH_REQUIRED')
