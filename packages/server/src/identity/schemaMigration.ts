@@ -686,10 +686,18 @@ export async function addOidcProvider(runner: QueryRunner): Promise<void> {
     }
 
     if (!(await tableExists(runner, dialect, 'identity_provider_link'))) {
+        const providerKey =
+            dialect === 'mysql' || dialect === 'mariadb'
+                ? `${q(dialect, 'providerKey')} varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL`
+                : `${q(dialect, 'providerKey')} varchar(64) NOT NULL`
+        const subject =
+            dialect === 'mysql' || dialect === 'mariadb'
+                ? `${q(dialect, 'subject')} varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL`
+                : `${q(dialect, 'subject')} varchar(512) NOT NULL`
         await runner.query(
             `CREATE TABLE ${q(dialect, 'identity_provider_link')} (` +
-                `${q(dialect, 'providerKey')} varchar(64) NOT NULL, ` +
-                `${q(dialect, 'subject')} varchar(512) NOT NULL, ` +
+                `${providerKey}, ` +
+                `${subject}, ` +
                 `${q(dialect, 'userId')} ${userId} NOT NULL, ` +
                 `${q(dialect, 'emailAtLink')} varchar(254) NULL, ` +
                 `${q(dialect, 'assuranceBasis')} varchar(64) NOT NULL, ` +

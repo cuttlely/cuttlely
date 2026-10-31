@@ -570,12 +570,53 @@ describe('generic OIDC provider', () => {
             })
         ).rejects.toMatchObject({ category: 'transaction' })
 
+        const wrongCallbackError = await start()
+        const wrongCallbackUrl = new URL(wrongCallbackError.callbackUrl)
+        wrongCallbackUrl.searchParams.set('provider', 'different-provider')
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: wrongCallbackError.state,
+                error: 'access_denied',
+                responseIssuer: idp.issuer,
+                callbackUrl: wrongCallbackUrl.toString(),
+                browserNonce: wrongCallbackError.browserNonce,
+                currentEpoch: 7
+            })
+        ).rejects.toMatchObject({ category: 'response', outcome: 'authorization_response_invalid' })
+
+        const wrongIssuerError = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: wrongIssuerError.state,
+                error: 'access_denied',
+                responseIssuer: 'https://other.example',
+                callbackUrl: wrongIssuerError.callbackUrl,
+                browserNonce: wrongIssuerError.browserNonce,
+                currentEpoch: 7
+            })
+        ).rejects.toMatchObject({ category: 'response', outcome: 'authorization_response_invalid' })
+
+        const missingIssuerError = await start()
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: missingIssuerError.state,
+                error: 'access_denied',
+                callbackUrl: missingIssuerError.callbackUrl,
+                browserNonce: missingIssuerError.browserNonce,
+                currentEpoch: 7
+            })
+        ).rejects.toMatchObject({ category: 'response', outcome: 'authorization_response_invalid' })
+
         const denied = await start()
         await expect(
             completeOidcAuthorization({
                 dataSource: db.source,
                 state: denied.state,
                 error: 'access_denied',
+                responseIssuer: idp.issuer,
                 callbackUrl: denied.callbackUrl,
                 browserNonce: denied.browserNonce,
                 currentEpoch: 7

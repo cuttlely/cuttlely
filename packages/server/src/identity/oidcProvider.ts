@@ -590,6 +590,18 @@ async function completeIdentityFromUserInfo(
     return fromUserInfo
 }
 
+function validateAuthorizationResponseBinding(envelope: OidcEnvelope, callbackUrl: string, responseIssuer: string | undefined): void {
+    if (!safeEqual(callbackUrl, envelope.redirectUri)) {
+        throw new OidcError('response', 'The authorization response callback is invalid.', 'authorization_response_invalid')
+    }
+    if (responseIssuer !== undefined && responseIssuer !== envelope.expectedIssuer) {
+        throw new OidcError('response', 'The authorization response issuer is invalid.', 'authorization_response_invalid')
+    }
+    if (envelope.authorizationResponseIssuer && responseIssuer === undefined) {
+        throw new OidcError('response', 'The authorization response issuer is missing.', 'authorization_response_invalid')
+    }
+}
+
 export async function completeOidcAuthorization(input: {
     dataSource: DataSource
     state: string
@@ -606,19 +618,14 @@ export async function completeOidcAuthorization(input: {
     if (!input.browserNonce || !safeEqual(envelope.browserNonceHash, sha256(input.browserNonce))) {
         throw new OidcError('transaction', 'This sign-in must finish in the browser that started it.', 'browser_binding_failed')
     }
-    if (input.error) throw new OidcError('denied', 'The identity provider denied sign-in.', 'provider_denied')
+    if (input.error) {
+        validateAuthorizationResponseBinding(envelope, input.callbackUrl, input.responseIssuer)
+        throw new OidcError('denied', 'The identity provider denied sign-in.', 'provider_denied')
+    }
     if (!input.code) throw new OidcError('response', 'The authorization response has no code.', 'authorization_response_invalid')
     if (envelope.authEpoch !== input.currentEpoch)
         throw new OidcError('transaction', 'Authentication settings changed during sign-in.', 'settings_changed')
-    if (!safeEqual(input.callbackUrl, envelope.redirectUri)) {
-        throw new OidcError('response', 'The authorization response callback is invalid.', 'authorization_response_invalid')
-    }
-    if (input.responseIssuer !== undefined && input.responseIssuer !== envelope.expectedIssuer) {
-        throw new OidcError('response', 'The authorization response issuer is invalid.', 'authorization_response_invalid')
-    }
-    if (envelope.authorizationResponseIssuer && input.responseIssuer === undefined) {
-        throw new OidcError('response', 'The authorization response issuer is missing.', 'authorization_response_invalid')
-    }
+    validateAuthorizationResponseBinding(envelope, input.callbackUrl, input.responseIssuer)
     const slot = envelope.purpose === 'test' ? 'draft' : 'active'
     const config = await readOidcConfiguration(input.dataSource, slot)
     if (!config || config.fingerprint !== envelope.configFingerprint) {

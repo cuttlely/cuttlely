@@ -14,7 +14,7 @@ The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The
 ## Set up generic OIDC
 
 1. Open **Admin** > **Auth / SSO**. Enter the exact issuer URL, client id, and the environment variable name. The card starts with `CUTTLELY_OIDC_CLIENT_SECRET`. Set that variable on every server, then save the draft.
-2. Register the exact callback URL and post-logout URL shown after the draft is saved. The callback URL is stable when that draft becomes active. Changing the issuer or client id derives a different callback URL. The requested scopes are fixed to `openid email profile`.
+2. Register the exact **Draft callback URL** and post-logout URL shown after the draft is saved. If a provider is already active, keep the separate **Active callback URL** registered until the new draft is activated. The two URLs differ when the draft changes the issuer or client id; after activation, the draft URL becomes the active URL. When there is no draft, the card still shows the active URL. The requested scopes are fixed to `openid email profile`.
 3. The save reads provider metadata through the guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time.
 4. Choose **Test sign-in** in the same administrator browser. The test expires after ten minutes, is single use, creates no application session, and does not change the active method. A successful result shows the returned email and assurance basis.
 5. Choose **Activate**, review the session impact, type `END SESSIONS`, and apply.

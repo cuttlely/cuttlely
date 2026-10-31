@@ -9,6 +9,12 @@ const buildAuthContext = jest.fn()
 const issueDatabaseSession = jest.fn()
 const resolveOidcUser = jest.fn()
 const organizationsForUser = jest.fn()
+const recentlyAuthenticated = jest.fn()
+const readOidcConfiguration = jest.fn()
+const providerLinkMigrationStatus = jest.fn()
+const migrateLegacyProviderLinks = jest.fn()
+const saveOidcDraft = jest.fn()
+const checkOidcConfiguration = jest.fn()
 
 jest.mock('./production', () => ({
     applicationDataSource: () => ({}),
@@ -20,7 +26,8 @@ jest.mock('./handlers', () => {
     const actual = jest.requireActual('./handlers')
     return { ...actual, issueDatabaseSession, establishSession: jest.fn() }
 })
-jest.mock('./authenticationRoutes', () => ({ recentlyAuthenticated: jest.fn() }))
+jest.mock('./authenticationRoutes', () => ({ recentlyAuthenticated }))
+jest.mock('./rbac', () => ({ requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next() }))
 jest.mock('./authenticationState', () => ({
     readAuthenticationState,
     recordRecentAuthentication: jest.fn()
@@ -31,20 +38,29 @@ jest.mock('./auditLog', () => {
 })
 jest.mock('./oidcStore', () => {
     const actual = jest.requireActual('./oidcStore')
-    return { ...actual, resolveOidcUser }
+    return {
+        ...actual,
+        resolveOidcUser,
+        readOidcConfiguration,
+        providerLinkMigrationStatus,
+        migrateLegacyProviderLinks,
+        saveOidcDraft
+    }
 })
 jest.mock('./oidcProvider', () => {
     const actual = jest.requireActual('./oidcProvider')
     return {
         ...actual,
         beginOidcAuthorization: jest.fn(),
-        checkOidcConfiguration: jest.fn(),
+        checkOidcConfiguration,
         completeOidcAuthorization
     }
 })
 
+import { oidcCallbackUrl } from './cookies'
 import { OidcError } from './oidcProvider'
-import { oidcAuthRouter } from './oidcRoutes'
+import { oidcProviderKey } from './oidcStore'
+import { oidcAdminRouter, oidcAuthRouter } from './oidcRoutes'
 
 function app() {
     const server = express()
@@ -55,6 +71,37 @@ function app() {
     })
     server.use('/api/v1/auth/oidc', oidcAuthRouter)
     return server
+}
+
+function adminApp() {
+    const server = express()
+    server.use(express.json())
+    server.use((req, _res, next) => {
+        req.user = { id: 'admin-1', activeOrganizationId: 'org-1' } as Express.User
+        next()
+    })
+    server.use('/api/v1/authentication-settings/oidc', oidcAdminRouter)
+    return server
+}
+
+function oidcConfig(slot: 'draft' | 'active', issuer: string, clientId: string, fingerprint: string) {
+    return {
+        slot,
+        issuer,
+        clientId,
+        clientSecretEnvVar: 'CUTTLELY_OIDC_CLIENT_SECRET',
+        trustMissingEmailVerification: false,
+        privateIssuerHosts: [],
+        fingerprint,
+        discovery: {},
+        health: 'ready',
+        healthError: null,
+        checkedAt: '2026-10-31T12:00:00.000Z',
+        testedFingerprint: fingerprint,
+        testedAt: '2026-10-31T12:00:00.000Z',
+        testResult: null,
+        version: 1
+    }
 }
 
 describe('OIDC callback audit outcomes', () => {
@@ -172,5 +219,60 @@ describe('OIDC callback audit outcomes', () => {
         const error = new URL(throttled.headers.location, 'http://localhost').searchParams.get('error')
         expect(JSON.parse(error || '{}')).toEqual({ message: 'Too many attempts. Try again later.' })
         expect(completeOidcAuthorization).toHaveBeenCalledTimes(20)
+    })
+})
+
+describe('OIDC administrator callback URLs', () => {
+    const originalAppUrl = process.env.APP_URL
+    const state = { installationId: 'installation-1', authenticationEpoch: 4, activeMethod: 'oidc' }
+    const draft = oidcConfig('draft', 'https://new-id.example', 'new-client', 'draft-fingerprint')
+    const active = oidcConfig('active', 'https://old-id.example', 'old-client', 'active-fingerprint')
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        process.env.APP_URL = 'https://app.example'
+        readAuthenticationState.mockResolvedValue(state)
+        migrateLegacyProviderLinks.mockResolvedValue(undefined)
+        providerLinkMigrationStatus.mockResolvedValue({ complete: true, migrated: 0, inert: 0, error: null })
+        readOidcConfiguration.mockImplementation(async (_dataSource, slot) => (slot === 'draft' ? draft : active))
+        recentlyAuthenticated.mockResolvedValue(true)
+        checkOidcConfiguration.mockResolvedValue({ issuer: draft.issuer })
+        saveOidcDraft.mockResolvedValue(draft)
+    })
+
+    afterAll(() => {
+        if (originalAppUrl === undefined) delete process.env.APP_URL
+        else process.env.APP_URL = originalAppUrl
+    })
+
+    it('returns distinct draft and active callback URLs during provider rotation', async () => {
+        const response = await request(adminApp()).get('/api/v1/authentication-settings/oidc')
+        expect(response.status).toBe(200)
+        expect(response.body.callbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)))
+        expect(response.body.activeCallbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)))
+        expect(response.body.callbackUrl).not.toBe(response.body.activeCallbackUrl)
+    })
+
+    it('returns the active callback URL when there is no draft', async () => {
+        readOidcConfiguration.mockImplementation(async (_dataSource, slot) => (slot === 'draft' ? null : active))
+        const response = await request(adminApp()).get('/api/v1/authentication-settings/oidc')
+        expect(response.status).toBe(200)
+        expect(response.body.callbackUrl).toBeNull()
+        expect(response.body.activeCallbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)))
+    })
+
+    it('returns both callback URLs after saving a rotating draft', async () => {
+        readOidcConfiguration.mockResolvedValue(active)
+        const response = await request(adminApp()).put('/api/v1/authentication-settings/oidc').send({
+            issuer: draft.issuer,
+            clientId: draft.clientId,
+            clientSecretEnvVar: draft.clientSecretEnvVar,
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: [],
+            version: 0
+        })
+        expect(response.status).toBe(200)
+        expect(response.body.callbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)))
+        expect(response.body.activeCallbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)))
     })
 })

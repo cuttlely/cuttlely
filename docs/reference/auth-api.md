@@ -59,6 +59,12 @@ Both OIDC start routes require the derived callback to use HTTPS. HTTP is accept
 
 These OIDC limits are per client address and per server process, over 15 minutes: 600 ordinary starts, 300 reauthentication starts, and 1,200 callbacks. All start paths share one 20-failure limit, and callbacks have a separate 20-failure limit. A restart clears the counts. With several replicas, each replica has its own complete limits, so the effective total can be multiplied by the replica count. `TRUST_PROXY` controls which address the server counts behind a proxy.
 
+## OIDC administrator settings
+
+`GET /api/v1/authentication-settings/oidc` requires **Authentication: Manage** and returns the saved `draft` and `active` configuration summaries. `callbackUrl` is the exact callback URL derived for the draft, or `null` when no draft exists. `activeCallbackUrl` is the exact callback URL derived for the active configuration, or `null` when no active configuration exists. During provider rotation both can be present and can differ. The response also includes `postLogoutUrl`, the fixed `scopes`, callback-origin status, and provider-link migration status.
+
+`PUT /api/v1/authentication-settings/oidc` requires the same permission and recent authentication. A successful save returns the saved `draft`, `callbackUrl`, and `activeCallbackUrl` with the same meanings as the GET response. Saving a draft does not replace the active configuration or its callback URL.
+
 ## Flag combinations
 
 `POST /api/v1/auth/local/login` is 404 unless Local is active and `CUTTLELY_LOCAL_USERS=true`. The owner route `POST /api/v1/auth/login` stays on its own flag and still accepts only the owner.

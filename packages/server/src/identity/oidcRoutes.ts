@@ -176,6 +176,8 @@ oidcAdminRouter.get('/', async (_req, res) => {
             draft: configurationBody(draft),
             active: configurationBody(active),
             callbackUrl: draft && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)) : null,
+            activeCallbackUrl:
+                active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null,
             callbackError: configuredCallbackError(),
             postLogoutUrl: oidcPostLogoutUrl(),
             scopes: ['openid', 'email', 'profile'],
@@ -248,10 +250,15 @@ oidcAdminRouter.put('/', identityRouteLimit(OIDC_ADMIN_WRITE_LIMIT), async (req,
             version
         )
         await auditConfiguration(req, 'saved', saved.fingerprint)
-        const state = await readAuthenticationState(applicationDataSource())
+        const [state, active] = await Promise.all([
+            readAuthenticationState(applicationDataSource()),
+            readOidcConfiguration(applicationDataSource(), 'active')
+        ])
         res.status(200).json({
             draft: configurationBody(saved),
-            callbackUrl: state ? oidcCallbackUrl(oidcProviderKey(state.installationId, saved.issuer, saved.clientId)) : null
+            callbackUrl: state ? oidcCallbackUrl(oidcProviderKey(state.installationId, saved.issuer, saved.clientId)) : null,
+            activeCallbackUrl:
+                active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null
         })
     } catch (error) {
         const category = error instanceof OidcError ? error.category : 'configuration'
@@ -262,7 +269,16 @@ oidcAdminRouter.put('/', identityRouteLimit(OIDC_ADMIN_WRITE_LIMIT), async (req,
                 version
             )
             await auditConfiguration(req, 'saved_with_error', saved.fingerprint)
-            res.status(200).json({ draft: configurationBody(saved) })
+            const [state, active] = await Promise.all([
+                readAuthenticationState(applicationDataSource()),
+                readOidcConfiguration(applicationDataSource(), 'active')
+            ])
+            res.status(200).json({
+                draft: configurationBody(saved),
+                callbackUrl: state ? oidcCallbackUrl(oidcProviderKey(state.installationId, saved.issuer, saved.clientId)) : null,
+                activeCallbackUrl:
+                    active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null
+            })
         } catch (saveError) {
             res.status(saveError instanceof Error && saveError.message === 'OIDC_CONFIG_CHANGED' ? 409 : 500).json({
                 message:

@@ -155,6 +155,8 @@ describe.each([
         const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE \`${table}\``))?.sql || ''
         const provider = create('identity_provider_link')
         expect(provider).toContain('`userId` varchar(36) NOT NULL')
+        expect(provider).toContain('`providerKey` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL')
+        expect(provider).toContain('`subject` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL')
         expect(provider).toContain('UNIQUE (`providerKey`, `subject`)')
         expect(provider).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
 
