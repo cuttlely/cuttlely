@@ -47,7 +47,7 @@ What the scan checks, rule by rule: [Flowise migration wizard](./flowise-migrati
 
 ### What carries over
 
--   **Nodes.** A node whose name is in Cuttlely's node catalog opens as it is, with its settings. The catalog has about 300 nodes. On a chatflow, a node saved with no version or an older one is refreshed to the current node, empty settings get their defaults, and each connection is written into the input it feeds. Older nodes that are being retired still open, and the wizard lists them.
+-   **Nodes.** A node whose name is in Cuttlely's node catalog opens as it is, with its settings. The catalog has about 300 nodes. On a chatflow, a node saved with no version or an older one is refreshed to the current node, settings with no saved value get their defaults (a blank number, on/off or choice setting counts as no value; blank text is kept), and each connection into a node input is written into that input. A connection into a text field that accepts variables leaves the text as it is. Older nodes that are being retired still open, and the wizard lists them.
 -   **Connections.** Every edge between two nodes that exist. An edge that points at a missing node, or at an input or output the refreshed node no longer has, is dropped, and the wizard says so.
 -   **Chatflows and agentflows.** Both open on their own canvas. Older multi-agent and sequential-agent flows open on the legacy agentflow canvas. They run and save there, but the app no longer offers that canvas for new work.
 -   **The prediction API.** A chatflow answers on `POST /api/v1/prediction/:id` with the same request body, so code that already calls that route keeps working once you point it at Cuttlely and use the new flow id.

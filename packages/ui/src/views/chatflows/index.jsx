@@ -353,7 +353,9 @@ const Chatflows = () => {
                 specs={nodeSpecsReady ? getNodesApi.data : undefined}
                 updateNodeData={updateOutdatedNodeData}
                 showHide={{ params: showHideInputParams, anchors: showHideInputAnchors }}
-                catalogPending={!nodeSpecsReady && !getNodesApi.error}
+                catalogPending={!nodeSpecsReady && (getNodesApi.loading || !getNodesApi.error)}
+                catalogFailed={!nodeSpecsReady && !getNodesApi.loading && Boolean(getNodesApi.error)}
+                onRetryCatalog={() => getNodesApi.request()}
                 onClose={() => setMigrationOpen(false)}
                 onOpen={({ canvas, name, route }) => {
                     localStorage.setItem('duplicatedFlowData', JSON.stringify({ cuttlelyMigration: true, name, flow: canvas }))

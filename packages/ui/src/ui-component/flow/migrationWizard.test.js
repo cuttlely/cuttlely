@@ -85,6 +85,30 @@ describe('import wizard attention list', () => {
         expect([...document.body.querySelectorAll('button')].some((item) => item.textContent.trim() === 'Next')).toBe(false)
     })
 
+    it('keeps file selection off and offers a retry when the node catalog fails', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const retry = jest.fn()
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(Wizard, { open: true, catalogFailed: true, onRetryCatalog: retry, onClose() {}, onOpen() {} })
+                )
+            )
+        })
+
+        expect(document.body.textContent).toContain('The node catalog did not load')
+        expect(document.body.querySelector('input[type="file"]').disabled).toBe(true)
+        const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent.trim() === 'Retry')
+        await act(async () => {
+            button.click()
+        })
+        expect(retry).toHaveBeenCalledTimes(1)
+    })
+
     it('shows a tool id on the scan step and the result step', async () => {
         const container = document.createElement('div')
         document.body.appendChild(container)

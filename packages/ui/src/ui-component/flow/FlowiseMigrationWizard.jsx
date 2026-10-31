@@ -58,7 +58,18 @@ ListBlock.propTypes = {
     renderItem: PropTypes.func
 }
 
-const FlowiseMigrationWizard = ({ open, onClose, onOpen, specs, updateNodeData, showHide, catalogPending = false }) => {
+const FlowiseMigrationWizard = ({
+    open,
+    onClose,
+    onOpen,
+    specs,
+    updateNodeData,
+    showHide,
+    catalogPending = false,
+    catalogFailed = false,
+    onRetryCatalog
+}) => {
+    const fileBlocked = catalogPending || catalogFailed
     const [step, setStep] = useState(0)
     const [fileName, setFileName] = useState('')
     const [report, setReport] = useState(null)
@@ -77,7 +88,7 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen, specs, updateNodeData, 
     }
 
     const onFile = (event) => {
-        if (catalogPending) return
+        if (fileBlocked) return
         const file = event.target.files?.[0]
         event.target.value = ''
         if (!file) return
@@ -136,6 +147,20 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen, specs, updateNodeData, 
                         {catalogPending && (
                             <Alert severity='info'>The node catalog is loading. File selection will be available shortly.</Alert>
                         )}
+                        {catalogFailed && (
+                            <Alert
+                                severity='error'
+                                action={
+                                    onRetryCatalog ? (
+                                        <Button color='inherit' size='small' onClick={onRetryCatalog}>
+                                            Retry
+                                        </Button>
+                                    ) : null
+                                }
+                            >
+                                The node catalog did not load, so the file cannot be checked yet.
+                            </Alert>
+                        )}
                         <Typography variant='body2'>
                             Choose a Flowise chatflow JSON file. The scan lists what will import, which credentials to reconnect, and which
                             nodes Cuttlely will not place. API keys are not copied.
@@ -143,11 +168,11 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen, specs, updateNodeData, 
                         <Button
                             variant='outlined'
                             component='label'
-                            disabled={catalogPending}
+                            disabled={fileBlocked}
                             sx={{ textTransform: 'none', alignSelf: 'flex-start' }}
                         >
                             Choose Flowise JSON
-                            <input type='file' hidden disabled={catalogPending} accept='.json,application/json' onChange={onFile} />
+                            <input type='file' hidden disabled={fileBlocked} accept='.json,application/json' onChange={onFile} />
                         </Button>
                         {fileName && (
                             <Typography variant='caption' color='text.secondary'>
@@ -268,7 +293,9 @@ FlowiseMigrationWizard.propTypes = {
     specs: PropTypes.array,
     updateNodeData: PropTypes.func,
     showHide: PropTypes.shape({ params: PropTypes.func, anchors: PropTypes.func }),
-    catalogPending: PropTypes.bool
+    catalogPending: PropTypes.bool,
+    catalogFailed: PropTypes.bool,
+    onRetryCatalog: PropTypes.func
 }
 
 export default FlowiseMigrationWizard
