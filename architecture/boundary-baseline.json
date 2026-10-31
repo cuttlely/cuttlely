@@ -176,6 +176,11 @@
             "reason": "The test drives the inherited HTTP guard with the localhost switch on and off"
         },
         {
+            "from": "packages/components/src/httpSecurity.privateIssuer.test.ts",
+            "to": "packages/components/src/httpSecurity.ts",
+            "reason": "The test drives the inherited HTTP guard with a private issuer host allowlist"
+        },
+        {
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
             "to": "packages/components/src/handler.ts",
             "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
@@ -527,6 +532,11 @@
         {
             "from": "packages/server/src/identity/http.ts",
             "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/identity/oidcProvider.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "OIDC discovery, token, and signing-key retrieval must use the existing guarded request implementation."
         },
         {
             "from": "packages/server/src/identity/ossPlatform.ts",

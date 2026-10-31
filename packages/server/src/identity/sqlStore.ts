@@ -21,7 +21,7 @@ import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
 import { runtimeNumber } from '../settings/runtime'
 import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
-import { utcEpoch } from './dbTime'
+import { utcDbTime, utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { isBcryptHash } from './password'
 import { IdentityStore } from './store'
@@ -307,6 +307,23 @@ export class SqlIdentityStore implements IdentityStore {
                 )}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [userId, input.name, input.email, input.credential, 'active', input.externalId, userId, userId]
             )
+            if (options?.providerLink) {
+                await query(
+                    runner,
+                    `INSERT INTO ${quote(d, 'identity_provider_link')} (${quote(d, 'providerKey')}, ${quote(d, 'subject')}, ${quote(
+                        d,
+                        'userId'
+                    )}, ${quote(d, 'emailAtLink')}, ${quote(d, 'assuranceBasis')}, ${quote(d, 'createdAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [
+                        options.providerLink.providerKey,
+                        options.providerLink.subject,
+                        userId,
+                        options.providerLink.emailAtLink,
+                        options.providerLink.assuranceBasis,
+                        utcDbTime(d, options.now ?? Date.now())
+                    ]
+                )
+            }
             await query(
                 runner,
                 `INSERT INTO ${quote(d, 'organization')} (${quote(d, 'id')}, ${quote(d, 'name')}, ${quote(d, 'createdBy')}, ${quote(

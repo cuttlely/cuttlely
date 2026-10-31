@@ -20,6 +20,9 @@ import {
     INVITE_COOKIE_MS,
     INVITE_COOKIE_PATH,
     LOCAL_SESSION_COOKIE,
+    OIDC_BROWSER_COOKIE,
+    OIDC_BROWSER_COOKIE_MS,
+    OIDC_BROWSER_COOKIE_PATH,
     REAUTH_STATE_COOKIE,
     REAUTH_STATE_COOKIE_MS,
     RECENT_AUTH_COOKIE,
@@ -27,6 +30,17 @@ import {
     WOS_SESSION_COOKIE
 } from './constants'
 import { SetCookie } from './types'
+import { publicOrigin } from './setupCode'
+
+export function oidcCallbackUrl(providerKey?: string, env: NodeJS.ProcessEnv = process.env): string {
+    const url = new URL(`${publicOrigin(env.PORT || '3000', env)}/api/v1/auth/oidc/callback`)
+    if (providerKey) url.searchParams.set('provider', providerKey)
+    return url.toString()
+}
+
+export function oidcSessionCookieSecure(httpsRequest: boolean, env: NodeJS.ProcessEnv = process.env): boolean {
+    return cookieSecure(oidcCallbackUrl(undefined, env), httpsRequest)
+}
 
 export function cookieSecure(redirectUri: string | undefined, httpsRequest: boolean): boolean {
     if (redirectUri?.startsWith('https://')) return true
@@ -75,6 +89,22 @@ export function inviteCookie(value: string, secure: boolean): SetCookie {
 /** Expires the invite cookie on its own path. A clear on `/` would not reach it. */
 export function expiredInviteCookie(secure: boolean): SetCookie {
     return { name: INVITE_COOKIE, value: '', options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: 0 } }
+}
+
+export function oidcBrowserCookie(value: string, secure: boolean): SetCookie {
+    return {
+        name: OIDC_BROWSER_COOKIE,
+        value,
+        options: { httpOnly: true, sameSite: 'lax', path: OIDC_BROWSER_COOKIE_PATH, secure, maxAge: OIDC_BROWSER_COOKIE_MS }
+    }
+}
+
+export function expiredOidcBrowserCookie(secure: boolean): SetCookie {
+    return {
+        name: OIDC_BROWSER_COOKIE,
+        value: '',
+        options: { httpOnly: true, sameSite: 'lax', path: OIDC_BROWSER_COOKIE_PATH, secure, maxAge: 0 }
+    }
 }
 
 export function localCookie(value: string, secure: boolean, maxAge: number): SetCookie {

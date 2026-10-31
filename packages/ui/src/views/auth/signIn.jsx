@@ -42,7 +42,7 @@ const SignInPage = () => {
     }
     const [usernameVal, setUsernameVal] = useState('')
     const [passwordVal, setPasswordVal] = useState('')
-    const [options, setOptions] = useState({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+    const [options, setOptions] = useState({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false })
     const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
     const currentUser = useSelector((state) => state.auth.user)
     const [authError, setAuthError] = useState(undefined)
@@ -77,11 +77,12 @@ const SignInPage = () => {
                     authKit: response.data?.authKit === true,
                     localAdmin: response.data?.localAdmin === true,
                     localUsers: response.data?.localUsers === true,
+                    oidc: response.data?.oidc === true,
                     mail: response.data?.mail === true
                 })
             })
             .catch(() => {
-                if (!cancelled) setOptions({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+                if (!cancelled) setOptions({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false })
             })
         return () => {
             cancelled = true
@@ -147,6 +148,11 @@ const SignInPage = () => {
                         {options.authKit && (
                             <Button id='workos-sign-in' variant='contained' component='a' href='/api/v1/auth/login'>
                                 Sign in with WorkOS
+                            </Button>
+                        )}
+                        {options.oidc && (
+                            <Button id='oidc-sign-in' variant='contained' component='a' href='/api/v1/auth/oidc/login'>
+                                Sign in with OIDC
                             </Button>
                         )}
                         {options.localUsers && (
@@ -224,7 +230,7 @@ const SignInPage = () => {
                                 </Stack>
                             </form>
                         )}
-                        {!options.authKit && !options.localAdmin && !options.localUsers && (
+                        {!options.authKit && !options.oidc && !options.localAdmin && !options.localUsers && (
                             <Stack gap={1.25} alignItems='flex-start'>
                                 <Typography variant='body2' sx={{ color: theme.palette.grey[600] }}>
                                     {t('signIn.notConfigured')}

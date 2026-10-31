@@ -661,6 +661,7 @@ export async function deleteOrganizationUser(
                  WHERE ${q(sql, 'id')} = ?`,
                 [`deleted.${userId}@users.invalid`, 'deleted', userId]
             )
+            await query(`DELETE FROM ${q(sql, 'identity_provider_link')} WHERE ${q(sql, 'userId')} = ?`, [userId])
             await endLocalSessions(query, sql, userId)
         }
         return { id: userId }

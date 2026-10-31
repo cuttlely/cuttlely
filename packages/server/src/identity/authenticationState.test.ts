@@ -19,9 +19,11 @@ import {
     switchAuthenticationMethod,
     usableLocalOwnerReady
 } from './authenticationState'
-import { addAuthenticationState, addAuthenticationSwitchStage } from './schemaMigration'
+import { addAuthenticationState, addAuthenticationSwitchStage, addOidcProvider } from './schemaMigration'
 import { workosEpochCookie, workosEpochCookieValid } from './cookies'
 import { applyAuthKitSwitchOnBoot } from './production'
+import { oidcConfigurationFingerprint, readOidcConfiguration } from './oidcStore'
+import { beginOidcAuthorization } from './oidcProvider'
 
 async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Promise<DataSource> {
     const candidates = [
@@ -50,6 +52,7 @@ async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Prom
     const runner = db.createQueryRunner()
     await addAuthenticationState(runner)
     await addAuthenticationSwitchStage(runner)
+    await addOidcProvider(runner)
     await runner.query(
         `CREATE TABLE "identity_authkit_switch" ("id" integer PRIMARY KEY, "configured" integer NOT NULL, "sessionsEnded" integer NOT NULL, "switchedAt" ${
             type === 'postgres' ? 'timestamp' : 'datetime'
@@ -152,6 +155,195 @@ describe('authentication provider foundation', () => {
             expect(JSON.parse(audit[0].detail)).toMatchObject({ outcome: 'applied', configurationFingerprint: expect.any(String) })
             await db.destroy()
         })
+    })
+
+    it('activates a tested private-host allowlist change while OIDC remains selected', async () => {
+        const db = await database()
+        const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+        const configuration = (privateIssuerHosts: string[]) => {
+            const safe = {
+                issuer: 'https://id.example',
+                clientId: 'client',
+                clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+                trustMissingEmailVerification: false,
+                privateIssuerHosts
+            }
+            return { ...safe, fingerprint: oidcConfigurationFingerprint(safe) }
+        }
+        const first = configuration([])
+        await db.query(
+            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, NULL, ?)`,
+            [
+                'draft',
+                first.issuer,
+                first.clientId,
+                first.clientSecretEnvVar,
+                0,
+                JSON.stringify(first.privateIssuerHosts),
+                first.fingerprint,
+                'ready',
+                first.fingerprint,
+                1
+            ]
+        )
+        await db.query(
+            `INSERT INTO "identity_provider_link_migration" ("id", "providerKey", "migratedCount", "inertCount", "completedAt", "error") VALUES (?, NULL, 0, 0, ?, NULL)`,
+            [1, Date.now()]
+        )
+        const active = await switchAuthenticationMethod(db, 'oidc', before.version)
+        const changed = configuration(['127.0.0.1'])
+        await db.query(
+            `UPDATE "identity_oidc_configuration" SET "privateIssuerHosts" = ?, "fingerprint" = ?, "testedFingerprint" = ?, "version" = "version" + 1 WHERE "slot" = 'draft'`,
+            [JSON.stringify(changed.privateIssuerHosts), changed.fingerprint, changed.fingerprint]
+        )
+        const after = await switchAuthenticationMethod(db, 'oidc', active.version)
+        const [stored] = await db.query(
+            `SELECT "privateIssuerHosts", "fingerprint" FROM "identity_oidc_configuration" WHERE "slot" = 'active'`
+        )
+        expect(JSON.parse(stored.privateIssuerHosts)).toEqual(['127.0.0.1'])
+        expect(stored.fingerprint).toBe(changed.fingerprint)
+        expect(after.version).toBeGreaterThan(active.version)
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+        await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+        await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+        await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['keep-session', 'owner', 'keep-token'])
+        await withEnvironment({ CUTTLELY_LOCAL_ADMIN: 'true' }, async () => {
+            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'oidc', after.version, changed.fingerprint)
+            const unchanged = await switchAuthenticationMethod(db, 'oidc', after.version, undefined, {
+                id: staged.id,
+                actorId: 'owner',
+                version: staged.version
+            })
+            expect(unchanged).toMatchObject({
+                version: after.version,
+                authenticationEpoch: after.authenticationEpoch,
+                sessionsEnded: after.sessionsEnded
+            })
+        })
+        expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
+        expect(await db.query(`SELECT * FROM "identity_oidc_configuration" WHERE "slot" = 'active'`)).toHaveLength(1)
+        await db.destroy()
+    })
+
+    it('applies refreshed tested OIDC metadata without ending sessions or changing the epoch', async () => {
+        const db = await database()
+        const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+        const base = {
+            issuer: 'https://id.example',
+            clientId: 'client',
+            clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: [] as string[]
+        }
+        const fingerprint = oidcConfigurationFingerprint(base)
+        const discovery = (authorization_endpoint: string) => ({
+            issuer: base.issuer,
+            authorization_endpoint,
+            token_endpoint: 'https://id.example/token',
+            jwks_uri: 'https://id.example/jwks',
+            response_types_supported: ['code'],
+            id_token_signing_alg_values_supported: ['RS256']
+        })
+        await db.query(
+            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'ready', NULL, NULL, ?, NULL, NULL, 1)`,
+            [
+                'draft',
+                base.issuer,
+                base.clientId,
+                base.clientSecretEnvVar,
+                '[]',
+                fingerprint,
+                JSON.stringify(discovery('https://id.example/old')),
+                fingerprint
+            ]
+        )
+        await db.query(
+            `INSERT INTO "identity_provider_link_migration" ("id", "providerKey", "migratedCount", "inertCount", "completedAt", "error") VALUES (?, NULL, 0, 0, ?, NULL)`,
+            [1, Date.now()]
+        )
+        const active = await switchAuthenticationMethod(db, 'oidc', before.version)
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
+        await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
+        await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
+        await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['keep-session', 'owner', 'keep-token'])
+
+        await db.query(`UPDATE "identity_oidc_configuration" SET "discovery" = ?, "version" = "version" + 1 WHERE "slot" = 'draft'`, [
+            JSON.stringify(discovery('https://id.example/new'))
+        ])
+        await withEnvironment({ CUTTLELY_LOCAL_ADMIN: 'true' }, async () => {
+            const stale = await stageAuthenticationMethodSwitch(db, 'owner', 'oidc', active.version, fingerprint)
+            await db.query(`UPDATE "identity_oidc_configuration" SET "discovery" = ?, "version" = "version" + 1 WHERE "slot" = 'draft'`, [
+                JSON.stringify(discovery('https://id.example/refreshed'))
+            ])
+            await expect(
+                switchAuthenticationMethod(
+                    db,
+                    'oidc',
+                    active.version,
+                    { organizationId: 'org', actorId: 'owner' },
+                    { id: stale.id, actorId: 'owner', version: stale.version }
+                )
+            ).rejects.toThrow('AUTH_STAGE_STALE')
+
+            const staged = await stageAuthenticationMethodSwitch(db, 'owner', 'oidc', active.version, fingerprint)
+            const refreshed = await switchAuthenticationMethod(
+                db,
+                'oidc',
+                active.version,
+                { organizationId: 'org', actorId: 'owner' },
+                { id: staged.id, actorId: 'owner', version: staged.version }
+            )
+            expect(refreshed).toMatchObject({
+                change: 'oidc_refresh',
+                version: active.version,
+                authenticationEpoch: active.authenticationEpoch,
+                sessionsEnded: active.sessionsEnded
+            })
+            expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
+            expect((await readOidcConfiguration(db, 'active'))?.discovery).toMatchObject({
+                authorization_endpoint: 'https://id.example/refreshed'
+            })
+            const audit = await db.query('SELECT "type", "summary", "detail" FROM "audit_event"')
+            expect(audit).toHaveLength(1)
+            expect(audit[0]).toMatchObject({ type: 'auth_config_change', summary: 'OIDC provider settings applied' })
+            expect(JSON.parse(audit[0].detail)).toMatchObject({ outcome: 'applied_to_active', configurationFingerprint: fingerprint })
+
+            const again = await stageAuthenticationMethodSwitch(db, 'owner', 'oidc', active.version, fingerprint)
+            await expect(
+                switchAuthenticationMethod(
+                    db,
+                    'oidc',
+                    active.version,
+                    { organizationId: 'org', actorId: 'owner' },
+                    {
+                        id: again.id,
+                        actorId: 'owner',
+                        version: again.version
+                    }
+                )
+            ).resolves.toMatchObject({ change: 'none', version: active.version, authenticationEpoch: active.authenticationEpoch })
+            expect(await db.query('SELECT * FROM "audit_event"')).toHaveLength(1)
+        })
+
+        await withEnvironment({ TOKEN_HASH_SECRET: 'test-transaction-secret' }, async () => {
+            const begun = await beginOidcAuthorization({
+                dataSource: db,
+                slot: 'active',
+                installationId: active.installationId,
+                authenticationEpoch: active.authenticationEpoch,
+                callbackUrl: 'http://127.0.0.1:3000/api/v1/auth/oidc/callback',
+                redirectTarget: '/',
+                purpose: 'signin'
+            })
+            expect(begun.url).toContain('https://id.example/refreshed?')
+        })
+
+        await db.query(
+            `UPDATE "identity_oidc_configuration" SET "testedFingerprint" = NULL, "version" = "version" + 1 WHERE "slot" = 'draft'`
+        )
+        await expect(switchAuthenticationMethod(db, 'oidc', active.version)).rejects.toThrow('OIDC_TEST_REQUIRED')
+        expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)
+        await db.destroy()
     })
 
     it('refuses a staged WorkOS activation when recovery stopped being ready after staging', async () => {

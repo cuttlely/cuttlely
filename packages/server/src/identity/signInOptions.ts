@@ -11,13 +11,15 @@
  */
 
 import { AuthKitSwitchState } from './authKitSwitch'
-import { localAdminEnabled, localUsersMode, workosConfigured } from './constants'
+import { localAdminEnabled, localUsersMode, localUsersSetting, workosConfigured } from './constants'
+import { selectedAuthenticationMethod } from './authenticationState'
 
 export interface SignInOptions {
     authKit: boolean
     localAdmin: boolean
     /** True only when CUTTLELY_LOCAL_USERS is exactly true and AuthKit is not configured. */
     localUsers: boolean
+    oidc: boolean
     mail: boolean
 }
 
@@ -25,6 +27,7 @@ export const SIGN_IN_METHOD = {
     authKit: 'authKit',
     localAdmin: 'localAdmin',
     localUsers: 'localUsers',
+    oidc: 'oidc',
     mail: 'mail'
 } as const
 
@@ -39,10 +42,12 @@ export function mailConfigured(_env: NodeJS.ProcessEnv = process.env): boolean {
 
 /** Public flags for the sign-in screen. The password form is on only when the break-glass flag is exactly true. */
 export function signInOptionsBody(env: NodeJS.ProcessEnv = process.env): SignInOptions {
+    const selected = env === process.env ? selectedAuthenticationMethod() : null
     return {
-        authKit: workosConfigured(env),
+        authKit: selected ? selected === 'workos' && workosConfigured(env) : workosConfigured(env),
         localAdmin: localAdminEnabled(env),
-        localUsers: localUsersMode(env),
+        localUsers: selected ? selected === 'local' && localUsersSetting(env) : localUsersMode(env),
+        oidc: selected === 'oidc',
         mail: mailConfigured(env)
     }
 }
@@ -54,6 +59,7 @@ export function enabledSignInMethods(env: NodeJS.ProcessEnv = process.env): { me
     if (options.authKit) methods.push(SIGN_IN_METHOD.authKit)
     if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
     if (options.localUsers) methods.push(SIGN_IN_METHOD.localUsers)
+    if (options.oidc) methods.push(SIGN_IN_METHOD.oidc)
     if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return { methods }
 }

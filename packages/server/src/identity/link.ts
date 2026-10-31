@@ -42,6 +42,9 @@ export interface LinkOptions {
     now?: number
     /** A durable subject link may sign in; new mailbox matches wait for administrator review when false. */
     automaticEmailLinking?: boolean
+    providerKey?: string
+    providerLinkedUser?: UserRow | null
+    recordProviderLink?: (user: UserRow, basis: string) => Promise<boolean>
 }
 
 async function acceptLinkedUser(store: IdentityStore, row: UserRow, identity: WorkosIdentity, options: LinkOptions): Promise<LinkResult> {
@@ -54,7 +57,15 @@ async function acceptLinkedUser(store: IdentityStore, row: UserRow, identity: Wo
             userId: row.id,
             email: identity.email,
             externalId: identity.id,
-            now: options.now ?? Date.now()
+            now: options.now ?? Date.now(),
+            ...(options.providerKey
+                ? {
+                      providerKey: options.providerKey,
+                      subject: identity.id,
+                      assuranceBasis: 'invitation',
+                      retainExternalId: true
+                  }
+                : {})
         })
         if (accepted !== 'accepted') return { ok: false, reason: 'invite-invalid' }
         return { ok: true, user: { ...row, externalId: identity.id, status: 'active' }, bootstrapped: false }
@@ -88,12 +99,18 @@ export function displayName(identity: WorkosIdentity): string {
  * Unknown emails do not create a row once any user exists.
  */
 export async function linkWorkosUser(store: IdentityStore, identity: WorkosIdentity, options: LinkOptions = {}): Promise<LinkResult> {
+    if (options.providerLinkedUser) return acceptLinkedUser(store, options.providerLinkedUser, identity, options)
+
     if (identity.emailVerified !== true) return { ok: false, reason: 'unverified' }
     const wanted = mailboxKey(identity.email)
     if (!wanted) return { ok: false, reason: 'unknown' }
 
     const byExternal = await store.findUserByExternalId(identity.id)
-    if (byExternal) return acceptLinkedUser(store, byExternal, identity, options)
+    if (byExternal) {
+        const result = await acceptLinkedUser(store, byExternal, identity, options)
+        if (result.ok && options.recordProviderLink) await options.recordProviderLink(result.user, 'workos_legacy')
+        return result
+    }
 
     if (options.automaticEmailLinking === false) return { ok: false, reason: 'review-required' }
 
@@ -102,7 +119,9 @@ export async function linkWorkosUser(store: IdentityStore, identity: WorkosIdent
     if (byEmail.length === 1) {
         const row = byEmail[0]
         if (row.externalId && row.externalId !== identity.id) return { ok: false, reason: 'rebind' }
-        return acceptLinkedUser(store, row, identity, options)
+        const result = await acceptLinkedUser(store, row, identity, options)
+        if (result.ok && options.recordProviderLink) await options.recordProviderLink(result.user, 'email_verified')
+        return result
     }
 
     if ((await store.countUsers()) === 0) {
@@ -117,6 +136,7 @@ export async function linkWorkosUser(store: IdentityStore, identity: WorkosIdent
                 credential: null,
                 externalId: identity.id
             })
+            if (options.recordProviderLink) await options.recordProviderLink(user, 'email_verified')
             return { ok: true, user, bootstrapped: true }
         } catch (error) {
             if (error instanceof NotEmptyError) return { ok: false, reason: 'unknown' }

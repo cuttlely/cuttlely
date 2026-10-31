@@ -237,6 +237,7 @@ const REDACTED_COOKIE_NAMES = new Set([
     'cuttlely_session',
     'cuttlely-local-session',
     'cuttlely-invite',
+    'cuttlely-oidc-browser',
     'cuttlely-setup',
     'wos-session',
     'code',

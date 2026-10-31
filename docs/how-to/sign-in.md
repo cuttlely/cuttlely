@@ -155,15 +155,15 @@ Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS A
 
 ### Invite people
 
-An invited person joins only through their own invite link. Signing in with WorkOS with the invited email is not enough, even when WorkOS has verified that email.
+An invited person joins only through their own invite link. Signing in through the active remote method with the invited email is not enough, even when the provider has verified that email.
 
 1. Open **Admin**, then **Users**, and select **Add User**. Give the person a name, an email, a team and a role, then select **Create User**.
 2. The dialog shows a one-time invite link, once. Select **Copy link** and send it to that person. When the mail server is set in **Server Settings**, Cuttlely also emails it. With **Invite delivery** set to **Email**, Cuttlely only emails it and the dialog closes.
-3. The person opens the link, selects **Accept invite with WorkOS**, and signs in with the email the invite was sent to.
+3. The person opens the link, selects the remote acceptance action, and signs in with the email the invite was sent to. The action uses WorkOS or generic OIDC, whichever method is active.
 
-That first sign-in through the link makes the person active and binds their WorkOS account to them. After that they use **Sign in with WorkOS** like everyone else. If AuthKit public sign-up is off, also create them in the WorkOS Users directory.
+That first sign-in through the link makes the person active and creates their provider link in the same transaction that consumes the invitation. After that they use the active remote sign-in method like everyone else. If AuthKit public sign-up is off, also create them in the WorkOS Users directory.
 
-Until they accept, the person is a pending invite: the Users list shows them as `invited`, and they have no access to any team. Signing in with WorkOS without the link shows `You have a pending invite. Open the invite link from your email to join.` and leaves them pending.
+Until they accept, the person is a pending invite: the Users list shows them as `invited`, and they have no access to any team. Signing in through WorkOS or generic OIDC without the link shows `You have a pending invite. Open the invite link from your email to join.` and leaves them pending.
 
 An invite link:
 
@@ -172,7 +172,7 @@ An invite link:
 -   works only for the person it was made for, signed in with that email;
 -   stops working when a newer link is made for that person, when they are disabled, and when they are removed from the team or the organization. Adding them back does not bring the old link back.
 
-With WorkOS on, the link cannot be used to set a password instead: the password route refuses an invite token and leaves it unused. A link that fails any of these shows `This invite link is not valid. Ask for a new invite.` To make a new link for someone who is still pending, call `POST /api/v1/users/:id/reset-link` from their team. For a pending invite it returns a new invite link and the older one stops working. On the Users page, editing a pending person offers **Invited (pending)** or **Inactive**. Turning a disabled pending invite back on with **Invited (pending)** does not make them active: they still need a new link.
+With WorkOS or generic OIDC active, the link cannot be used to set a password instead: the password route refuses an invite token and leaves it unused. A link that fails any of these shows `This invite link is not valid. Ask for a new invite.` To make a new link for someone who is still pending, call `POST /api/v1/users/:id/reset-link` from their team. For a pending invite it returns a new invite link and the older one stops working. On the Users page, editing a pending person offers **Invited (pending)** or **Inactive**. Turning a disabled pending invite back on with **Invited (pending)** does not make them active: they still need a new link.
 
 Field names and status codes are in [One-time links](../reference/auth-api.md#one-time-links).
 

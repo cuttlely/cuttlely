@@ -20,6 +20,7 @@ import {
 
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import { invitationPayload } from '@/ui-component/dialog/invitePayload'
 import { IconX, IconUserPlus } from '@tabler/icons-react'
 
 import accountApi from '@/api/account.api'
@@ -149,15 +150,15 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                 }
             } else {
                 try {
-                    response = await accountApi.inviteAccount({
-                        user: {
+                    response = await accountApi.inviteAccount(
+                        invitationPayload({
                             name: name.trim(),
                             email: email.trim(),
-                            createdBy: currentUser.id
-                        },
-                        workspace: { id: teamId },
-                        role: { id: roleId }
-                    })
+                            createdBy: currentUser.id,
+                            workspaceId: teamId,
+                            roleId
+                        })
+                    )
                 } catch (error) {
                     // The account exists but was not in the list this caller can see: add it to the team instead.
                     if (error.response?.status !== 409) throw error

@@ -33,10 +33,70 @@ export const AUDIT_TYPES = [
     // 19 characters. audit_event.type is varchar(32) with no check constraint, so this needs no migration.
     'pinned_query_change',
     'auth_method_change',
-    'auth_config_warning_ack'
+    'auth_config_warning_ack',
+    'auth_config_change'
 ] as const
 
 export type AuditType = (typeof AUDIT_TYPES)[number]
+
+export function oidcLinkAuditDetail(input: {
+    issuer: string
+    subject: string
+    matchedUser: string | null
+    basis: string | null
+    outcome: string
+}): Record<string, string | null> {
+    return {
+        issuer: input.issuer,
+        subject: input.subject,
+        matchedUser: input.matchedUser,
+        basis: input.basis,
+        outcome: input.outcome
+    }
+}
+
+/** A bounded diagnostic for OIDC failures. Error messages can contain authorization material and are intentionally omitted. */
+export function oidcFailureLogDetail(error: unknown): { category: string; kind: string } {
+    const candidate = error && typeof error === 'object' && 'category' in error ? String((error as { category: unknown }).category) : ''
+    const category = ['configuration', 'denied', 'transaction', 'response', 'upstream'].includes(candidate) ? candidate : 'unexpected'
+    return { category, kind: error instanceof Error && error.name === 'OidcError' ? 'OidcError' : 'Error' }
+}
+
+const OIDC_CALLBACK_OUTCOMES = new Set([
+    'browser_binding_failed',
+    'configuration_unavailable',
+    'provider_denied',
+    'state_expired_or_unknown',
+    'settings_changed',
+    'authorization_response_invalid',
+    'token_validation_failed',
+    'userinfo_invalid',
+    'reauthentication_account_mismatch',
+    'session_creation_failed',
+    'upstream_unavailable',
+    'rate_limited',
+    'unexpected_error'
+])
+
+export function oidcCallbackFailureAuditDetail(error: unknown): { method: 'oidc'; category: string; outcome: string } {
+    const logged = oidcFailureLogDetail(error)
+    const candidate = error && typeof error === 'object' && 'outcome' in error ? String((error as { outcome?: unknown }).outcome || '') : ''
+    const knownOutcome = OIDC_CALLBACK_OUTCOMES.has(candidate)
+    const outcome = knownOutcome
+        ? candidate
+        : logged.category === 'denied'
+        ? 'provider_denied'
+        : logged.category === 'transaction'
+        ? 'state_expired_or_unknown'
+        : logged.category === 'upstream'
+        ? 'upstream_unavailable'
+        : logged.category === 'configuration'
+        ? 'configuration_unavailable'
+        : logged.category === 'response'
+        ? 'token_validation_failed'
+        : 'unexpected_error'
+    return { method: 'oidc', category: logged.category, outcome }
+}
 
 export const AUDIT_RETENTION_KEY = 'CUTTLELY_AUDIT_RETENTION_DAYS'
 export const AUDIT_PAGE_DEFAULT = 50
@@ -193,6 +253,7 @@ export function auditSummary(type: AuditType): string {
     if (type === 'pinned_query_change') return 'Pinned query changed'
     if (type === 'auth_method_change') return 'Sign-in method changed'
     if (type === 'auth_config_warning_ack') return 'Authentication warning acknowledged'
+    if (type === 'auth_config_change') return 'OIDC configuration changed'
     return 'Settings changed'
 }
 

@@ -100,7 +100,7 @@ The generic OIDC card contains:
 -   Discovery and key-set status, last successful check, and sanitized error state.
 -   **Test sign-in** and **Activate** actions.
 
-Saving a draft fetches discovery metadata from the issuer's well-known endpoint over TLS. The server validates issuer equality, authorization and token endpoints, supported code flow, signing algorithms, and a usable key-set URL. Issuers on loopback, link-local, LAN, or other private-network addresses are rejected unless an administrator has explicitly added the issuer host to the private-issuer allowlist. The allowlist is host-based and does not relax URL, port, or resolved-address validation for unrelated hosts.
+Saving a draft fetches discovery metadata from the issuer's well-known endpoint over TLS. The server validates issuer equality, authorization and token endpoints, supported code flow, signing algorithms, and a usable signing-material URL. Public addresses require no entry. An exact allowlisted issuer host, including `localhost` or `ip6-localhost`, may additionally resolve to `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `::1`, or `fc00::/7`. It remains refused if any answer is `0.0.0.0`, `::`, in `169.254.0.0/16`, `fe80::/10`, `224.0.0.0/4`, `240.0.0.0/4`, or `ff00::/8`, or is `255.255.255.255`. The specific service addresses `100.100.100.200`, `169.254.169.253`, `169.254.169.254`, `192.0.0.192`, and `fd00:ec2::254` also remain refused. An `::ffff:` address follows the decision for its embedded IPv4 address. Every answer is checked, the selected address is pinned, unrelated hosts are unchanged, and `HTTP_DENY_LIST` remains authoritative.
 
 Discovery and JWKS retrieval both reuse the single outbound request guard introduced in PR #350. That guard validates every resolved IP, pins the connection to the validated address, sends the intended host for TLS and HTTP, forbids redirects, and applies scheme, credential, port, size, and timeout limits. No second outbound-fetch implementation is permitted. This supports explicitly allowed private-network issuers, such as other OIDC providers hosted on a LAN, while retaining DNS-rebinding protection.
 
@@ -245,7 +245,7 @@ The release gate includes schema migration checks, route contract checks, securi
 -   Run the disposable test IdP in this phase's CI instead of waiting for Phase D.
 -   Derive the epoch-binding HMAC secret with HKDF and its own label instead of reusing `WORKOS_COOKIE_PASSWORD`.
 -   Use outcome-specific audit summaries, so a failed attempt is not recorded as refused.
--   Pin the authorization-response `iss` per sign-in transaction (RFC 9700 mix-up defense), and rate-limit the switch stage and apply routes with a 429 test.
+-   Identify the authorization issuer before code exchange: verify `iss` when returned, require it when advertised, and otherwise use a distinct redirect URI per configured issuer. Rate-limit the switch stage and apply routes with a 429 test.
 
 ### Phase C: SCIM v2
 

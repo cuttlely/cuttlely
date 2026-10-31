@@ -12,8 +12,9 @@ import { createHash, randomBytes, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { isUsablePasswordHash } from './password'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
+import { oidcProviderKey, oidcRuntimeConfigurationDigest } from './oidcStore'
 
-export type AuthenticationMethod = 'local' | 'workos'
+export type AuthenticationMethod = 'local' | 'workos' | 'oidc'
 export type AuthenticationWarningKind = 'configuration-ambiguous' | 'method-missing' | 'workos-client-mismatch'
 const AMBIGUOUS_CONFIGURATION_WARNING =
     'Both ordinary sign-in settings are enabled. WorkOS remains active until an administrator reviews the configuration.'
@@ -60,6 +61,7 @@ export interface AuthenticationSwitchStage {
     stateVersion: number
     expiresAt: string
     version: number
+    configurationFingerprint: string | null
 }
 
 function publishState(state: AuthenticationState): AuthenticationState {
@@ -105,6 +107,34 @@ function value(row: Record<string, unknown>, name: string): unknown {
     return key ? row[key] : undefined
 }
 
+function parsedJson<T>(input: unknown, fallback: T): T {
+    if (typeof input !== 'string' || !input) return fallback
+    try {
+        return JSON.parse(input) as T
+    } catch {
+        return fallback
+    }
+}
+
+function oidcRuntimeDigest(row: Record<string, unknown>): string {
+    return oidcRuntimeConfigurationDigest({
+        issuer: String(value(row, 'issuer') || ''),
+        clientId: String(value(row, 'clientId') || ''),
+        clientSecretEnvVar: String(value(row, 'clientSecretEnvVar') || ''),
+        trustMissingEmailVerification:
+            value(row, 'trustMissingEmailVerification') === true || Number(value(row, 'trustMissingEmailVerification')) === 1,
+        privateIssuerHosts: parsedJson<string[]>(value(row, 'privateIssuerHosts'), []),
+        fingerprint: String(value(row, 'fingerprint') || ''),
+        discovery: parsedJson<Record<string, unknown> | null>(value(row, 'discovery'), null),
+        health: String(value(row, 'health') || 'unchecked') as 'unchecked' | 'ready' | 'error',
+        healthError: value(row, 'healthError') ? String(value(row, 'healthError')) : null
+    })
+}
+
+function oidcStageRevision(fingerprint: string, version: number): string {
+    return createHash('sha256').update(`oidc-stage-v1\n${fingerprint}\n${version}`).digest('hex')
+}
+
 function databaseDate(runner: QueryRunner, valueToWrite: Date): Date | number {
     return dialect(runner) === 'sqlite' ? valueToWrite.getTime() : valueToWrite
 }
@@ -123,7 +153,7 @@ function fromRow(row: Record<string, unknown>): AuthenticationState {
     const warning = value(row, 'warning') ? String(value(row, 'warning')) : null
     return {
         installationId: String(value(row, 'installationId')),
-        activeMethod: method === 'local' || method === 'workos' ? method : null,
+        activeMethod: method === 'local' || method === 'workos' || method === 'oidc' ? method : null,
         authenticationEpoch: Number(value(row, 'authenticationEpoch') || 0),
         authenticationBaselineEpoch: Number(value(row, 'authenticationBaselineEpoch') || 0),
         configurationFingerprint: value(row, 'configurationFingerprint') ? String(value(row, 'configurationFingerprint')) : null,
@@ -393,6 +423,7 @@ export async function stageAuthenticationMethodSwitch(
     actorId: string,
     method: AuthenticationMethod,
     stateVersion: number,
+    configurationFingerprint: string | null = null,
     now = Date.now()
 ): Promise<AuthenticationSwitchStage> {
     const runner = dataSource.createQueryRunner()
@@ -401,15 +432,41 @@ export async function stageAuthenticationMethodSwitch(
         const d = dialect(runner)
         const id = randomUUID()
         const expiresAt = new Date(now + 10 * 60 * 1000)
+        let stagedFingerprint =
+            configurationFingerprint === null && method === 'workos' ? workosConfigurationFingerprint() : configurationFingerprint
+        if (method === 'oidc' && configurationFingerprint) {
+            const rows = await query(
+                runner,
+                `SELECT ${q(d, 'fingerprint')}, ${q(d, 'version')} FROM ${q(d, 'identity_oidc_configuration')} WHERE ${q(
+                    d,
+                    'slot'
+                )} = 'draft'`
+            )
+            if (!rows[0] || String(value(rows[0], 'fingerprint') || '') !== configurationFingerprint) {
+                throw new Error('AUTH_STATE_CHANGED')
+            }
+            stagedFingerprint = oidcStageRevision(configurationFingerprint, Number(value(rows[0], 'version')))
+        }
         await query(
             runner,
             `INSERT INTO ${q(d, 'identity_authentication_switch_stage')} (${q(d, 'id')}, ${q(d, 'actorId')}, ${q(d, 'method')}, ${q(
                 d,
                 'stateVersion'
-            )}, ${q(d, 'expiresAt')}, ${q(d, 'consumedAt')}, ${q(d, 'version')}) VALUES (?, ?, ?, ?, ?, NULL, 1)`,
-            [id, actorId, method, stateVersion, databaseDate(runner, expiresAt)]
+            )}, ${q(d, 'expiresAt')}, ${q(d, 'consumedAt')}, ${q(d, 'version')}, ${q(
+                d,
+                'configurationFingerprint'
+            )}) VALUES (?, ?, ?, ?, ?, NULL, 1, ?)`,
+            [id, actorId, method, stateVersion, databaseDate(runner, expiresAt), stagedFingerprint]
         )
-        return { id, actorId, method, stateVersion, expiresAt: expiresAt.toISOString(), version: 1 }
+        return {
+            id,
+            actorId,
+            method,
+            stateVersion,
+            expiresAt: expiresAt.toISOString(),
+            version: 1,
+            configurationFingerprint: stagedFingerprint
+        }
     } finally {
         await runner.release()
     }
@@ -442,19 +499,89 @@ async function usableLocalOwnerExists(runner: QueryRunner): Promise<boolean> {
     return rows.some((row) => isUsablePasswordHash(String(value(row, 'credential') ?? '')))
 }
 
+async function consumeAuthenticationStage(runner: QueryRunner, stage: { id: string; version: number; now?: number }): Promise<void> {
+    const d = dialect(runner)
+    const consumed = await affectedRows(
+        runner,
+        `UPDATE ${q(d, 'identity_authentication_switch_stage')} SET ${q(d, 'consumedAt')} = ?, ${q(d, 'version')} = ${q(
+            d,
+            'version'
+        )} + 1 WHERE ${q(d, 'id')} = ? AND ${q(d, 'version')} = ? AND ${q(d, 'consumedAt')} IS NULL`,
+        [databaseDate(runner, new Date(stage.now ?? Date.now())), stage.id, stage.version]
+    )
+    if (consumed === 0) throw new Error('AUTH_STAGE_STALE')
+}
+
+async function copyOidcDraftToActive(runner: QueryRunner): Promise<void> {
+    const d = dialect(runner)
+    await query(runner, `DELETE FROM ${q(d, 'identity_oidc_configuration')} WHERE ${q(d, 'slot')} = 'active'`)
+    await query(
+        runner,
+        `INSERT INTO ${q(d, 'identity_oidc_configuration')} (${q(d, 'slot')}, ${q(d, 'issuer')}, ${q(d, 'clientId')}, ${q(
+            d,
+            'clientSecretEnvVar'
+        )}, ${q(d, 'trustMissingEmailVerification')}, ${q(d, 'privateIssuerHosts')}, ${q(d, 'fingerprint')}, ${q(d, 'discovery')}, ${q(
+            d,
+            'health'
+        )}, ${q(d, 'healthError')}, ${q(d, 'checkedAt')}, ${q(d, 'testedFingerprint')}, ${q(d, 'testedAt')}, ${q(d, 'testResult')}, ${q(
+            d,
+            'version'
+        )}) SELECT 'active', ${q(d, 'issuer')}, ${q(d, 'clientId')}, ${q(d, 'clientSecretEnvVar')}, ${q(
+            d,
+            'trustMissingEmailVerification'
+        )}, ${q(d, 'privateIssuerHosts')}, ${q(d, 'fingerprint')}, ${q(d, 'discovery')}, ${q(d, 'health')}, ${q(d, 'healthError')}, ${q(
+            d,
+            'checkedAt'
+        )}, ${q(d, 'testedFingerprint')}, ${q(d, 'testedAt')}, ${q(d, 'testResult')}, ${q(d, 'version')} FROM ${q(
+            d,
+            'identity_oidc_configuration'
+        )} WHERE ${q(d, 'slot')} = 'draft'`
+    )
+}
+
+export type AuthenticationSwitchChange = 'method' | 'oidc_refresh' | 'none'
+export type AuthenticationSwitchResult = AuthenticationState & { change: AuthenticationSwitchChange }
+
 export async function switchAuthenticationMethod(
     dataSource: DataSource,
     method: AuthenticationMethod,
     expectedVersion: number,
     audit?: { organizationId: string; actorId: string },
     stage?: { id: string; actorId: string; version: number; now?: number }
-): Promise<AuthenticationState> {
+): Promise<AuthenticationSwitchResult> {
     const runner = dataSource.createQueryRunner()
     await runner.connect()
     await runner.startTransaction()
     try {
         const current = await selectState(runner, true)
         if (!current || current.version !== expectedVersion) throw new Error('AUTH_STATE_CHANGED')
+        let oidcDraft: Record<string, unknown> | null = null
+        let oidcActive: Record<string, unknown> | null = null
+        if (method === 'oidc') {
+            const d = dialect(runner)
+            const rows = await query(
+                runner,
+                `SELECT * FROM ${q(d, 'identity_oidc_configuration')} WHERE ${q(d, 'slot')} = 'draft'${d === 'sqlite' ? '' : ' FOR UPDATE'}`
+            )
+            oidcDraft = rows[0] || null
+            const activeRows = await query(
+                runner,
+                `SELECT * FROM ${q(d, 'identity_oidc_configuration')} WHERE ${q(d, 'slot')} = 'active'${
+                    d === 'sqlite' ? '' : ' FOR UPDATE'
+                }`
+            )
+            oidcActive = activeRows[0] || null
+        }
+        const fingerprint =
+            method === 'workos'
+                ? workosConfigurationFingerprint()
+                : method === 'oidc' && oidcDraft
+                ? String(value(oidcDraft, 'fingerprint') || '') || null
+                : null
+        const stagedFingerprint =
+            method === 'oidc' && oidcDraft && fingerprint
+                ? oidcStageRevision(fingerprint, Number(value(oidcDraft, 'version')))
+                : fingerprint
         if (stage) {
             const d = dialect(runner)
             const rows = await query(
@@ -472,39 +599,85 @@ export async function switchAuthenticationMethod(
                 String(value(row, 'method')) !== method ||
                 Number(value(row, 'stateVersion')) !== expectedVersion ||
                 Number(value(row, 'version')) !== stage.version ||
+                String(value(row, 'configurationFingerprint') || '') !== (stagedFingerprint || '') ||
                 value(row, 'consumedAt') !== null ||
                 expiresAt <= (stage.now ?? Date.now())
             )
                 throw new Error('AUTH_STAGE_STALE')
         }
-        const fingerprint = method === 'workos' ? workosConfigurationFingerprint() : null
         if (method === 'workos' && (!workosEnvironmentConfigured() || !fingerprint)) throw new Error('METHOD_NOT_READY')
+        if (
+            method === 'oidc' &&
+            (!oidcDraft ||
+                !fingerprint ||
+                String(value(oidcDraft, 'health')) !== 'ready' ||
+                String(value(oidcDraft, 'testedFingerprint') || '') !== fingerprint)
+        )
+            throw new Error('OIDC_TEST_REQUIRED')
         if (method === 'local' && !localUsersSetting()) throw new Error('METHOD_NOT_READY')
-        if (stage && method === 'workos' && !(localAdminEnabled() && (await usableLocalOwnerExists(runner)))) {
+        if (stage && (method === 'workos' || method === 'oidc') && !(localAdminEnabled() && (await usableLocalOwnerExists(runner)))) {
             throw new Error('RECOVERY_REQUIRED')
+        }
+        if (method === 'oidc') {
+            const d = dialect(runner)
+            const migration = await query(
+                runner,
+                `SELECT ${q(d, 'completedAt')} AS ${q(d, 'completedAt')}, ${q(d, 'error')} AS ${q(d, 'error')} FROM ${q(
+                    d,
+                    'identity_provider_link_migration'
+                )} WHERE ${q(d, 'id')} = 1`
+            )
+            if (!migration[0] || !value(migration[0], 'completedAt') || value(migration[0], 'error')) {
+                throw new Error('LINK_MIGRATION_REQUIRED')
+            }
         }
         if (current.activeMethod === 'workos' && method === 'local' && !(await usableLocalOwnerExists(runner))) {
             throw new Error('LOCAL_OWNER_REQUIRED')
         }
-        if (current.activeMethod === method && current.configurationFingerprint === fingerprint) {
-            await runner.commitTransaction()
-            return current
-        }
         const d = dialect(runner)
-        if (stage) {
-            const consumed = await affectedRows(
-                runner,
-                `UPDATE ${q(d, 'identity_authentication_switch_stage')} SET ${q(d, 'consumedAt')} = ?, ${q(d, 'version')} = ${q(
-                    d,
-                    'version'
-                )} + 1 WHERE ${q(d, 'id')} = ? AND ${q(d, 'version')} = ? AND ${q(d, 'consumedAt')} IS NULL`,
-                [databaseDate(runner, new Date(stage.now ?? Date.now())), stage.id, stage.version]
+        const unchanged = current.activeMethod === method && current.configurationFingerprint === fingerprint
+        if (unchanged) {
+            if (stage) await consumeAuthenticationStage(runner, stage)
+            const refresh = Boolean(
+                method === 'oidc' && oidcDraft && (!oidcActive || oidcRuntimeDigest(oidcDraft) !== oidcRuntimeDigest(oidcActive))
             )
-            if (consumed === 0) throw new Error('AUTH_STAGE_STALE')
+            if (refresh) {
+                await copyOidcDraftToActive(runner)
+                if (audit) {
+                    const now = new Date()
+                    await query(
+                        runner,
+                        `INSERT INTO ${q(d, 'audit_event')} (${q(d, 'id')}, ${q(d, 'type')}, ${q(d, 'organizationId')}, ${q(
+                            d,
+                            'workspaceId'
+                        )}, ${q(d, 'userId')}, ${q(d, 'actorId')}, ${q(d, 'summary')}, ${q(d, 'detail')}, ${q(
+                            d,
+                            'createdAt'
+                        )}) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+                        [
+                            randomUUID(),
+                            'auth_config_change',
+                            audit.organizationId,
+                            audit.actorId,
+                            audit.actorId,
+                            'OIDC provider settings applied',
+                            JSON.stringify({
+                                configurationFingerprint: fingerprint,
+                                outcome: 'applied_to_active'
+                            }),
+                            now.getTime()
+                        ]
+                    )
+                }
+            }
+            await runner.commitTransaction()
+            return { ...current, change: refresh ? 'oidc_refresh' : 'none' }
         }
+        if (stage) await consumeAuthenticationStage(runner, stage)
         const counted = await query(runner, `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${q(d, 'identity_local_session')}`)
         const ended = Number(value(counted[0] || {}, 'count') || 0)
         await query(runner, `DELETE FROM ${q(d, 'identity_local_session')}`)
+        if (method === 'oidc') await copyOidcDraftToActive(runner)
         const now = new Date()
         await query(
             runner,
@@ -518,7 +691,11 @@ export async function switchAuthenticationMethod(
             [
                 method,
                 fingerprint,
-                fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null,
+                method === 'workos' && fingerprint
+                    ? stableWorkosProviderKey(current.installationId, fingerprint)
+                    : method === 'oidc' && oidcDraft
+                    ? oidcProviderKey(current.installationId, String(value(oidcDraft, 'issuer')), String(value(oidcDraft, 'clientId')))
+                    : null,
                 ended,
                 databaseDate(runner, now)
             ]
@@ -551,7 +728,7 @@ export async function switchAuthenticationMethod(
         }
         await runner.commitTransaction()
         const result = (await readAuthenticationState(dataSource)) as AuthenticationState
-        return publishState(result)
+        return { ...publishState(result), change: 'method' }
     } catch (error) {
         if (runner.isTransactionActive) await runner.rollbackTransaction()
         throw error

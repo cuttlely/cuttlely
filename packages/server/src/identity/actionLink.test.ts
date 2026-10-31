@@ -26,6 +26,7 @@ import { resetAccountLinksForTests } from '../settings/accountLinks'
 import { writeSettingsFile } from '../settings/store'
 import {
     LINK_INVALID,
+    INVITE_NEEDS_AUTHKIT,
     MAIL_FAILED,
     MAIL_REQUIRED,
     PASSWORD_SAVED,
@@ -201,7 +202,8 @@ function deps(
             if (extra.failMail) throw new Error('mail send failed')
             sent.push(message)
         },
-        rateLimit: extra.rateLimit || new LoginRateLimit()
+        rateLimit: extra.rateLimit || new LoginRateLimit(),
+        activeMethod: extra.activeMethod || (() => undefined)
     }
 }
 
@@ -337,6 +339,78 @@ describe('invite and reset links', () => {
                 .prepare('SELECT email FROM "user" WHERE email IN (?, ?, ?)')
                 .all('kitchen@example.com', 'wide@example.com', 'boss@example.com')
         ).toEqual([])
+    })
+
+    it('uses the durable active method for omitted links across OIDC and local method switches', async () => {
+        const { sql, db } = memoryDb()
+        const oidc = await inviteAccount(sql, manager, inviteBody('oidc@example.com'), deps({ activeMethod: () => 'oidc' }))
+        expect(oidc.link).toContain('#token=')
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_action_link').all()).toEqual([{ count: 1 }])
+        await expect(
+            acceptLocalPassword(
+                sql,
+                { body: { token: tokenOf(oidc.link || ''), password: GOOD }, query: {}, ip: '203.0.113.50', now: NOW },
+                deps({ activeMethod: () => 'local' })
+            )
+        ).resolves.toMatchObject({ status: 200, body: { message: PASSWORD_SAVED } })
+
+        const local = await inviteAccount(
+            sql,
+            manager,
+            inviteBody('local@example.com'),
+            deps({
+                env: { WORKOS_API_KEY: 'sk_test_example', WORKOS_CLIENT_ID: 'client_example' },
+                activeMethod: () => 'local'
+            })
+        )
+        expect(local).toEqual({ id: expect.any(String) })
+        expect(local).not.toHaveProperty('link')
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_action_link').all()).toEqual([{ count: 1 }])
+
+        const sent: { to: string; subject: string; text: string }[] = []
+        const mailed = await inviteAccount(
+            sql,
+            manager,
+            { ...inviteBody('mailed@example.com'), link: false },
+            deps({ activeMethod: () => 'oidc', mail: true, sent })
+        )
+        expect(mailed).toEqual({ id: expect.any(String), mailed: true })
+        expect(sent).toEqual([
+            expect.objectContaining({ to: 'mailed@example.com', subject: 'Join Cuttlely', text: expect.stringContaining('#token=') })
+        ])
+    })
+
+    it('blocks password invite acceptance for OIDC before and inside the transaction without consuming the link', async () => {
+        const { sql, db } = memoryDb()
+        const first = await inviteAccount(sql, owner, { ...inviteBody('first@example.com'), link: true }, deps())
+        const precheck = await acceptLocalPassword(
+            sql,
+            { body: { token: tokenOf(first.link || ''), password: GOOD }, query: {}, ip: '203.0.113.51', now: NOW },
+            deps({ activeMethod: () => 'oidc' })
+        )
+        expect(precheck).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
+
+        const second = await inviteAccount(sql, owner, { ...inviteBody('second@example.com'), link: true }, deps())
+        let reads = 0
+        const recheck = await acceptLocalPassword(
+            sql,
+            { body: { token: tokenOf(second.link || ''), password: GOOD }, query: {}, ip: '203.0.113.52', now: NOW },
+            deps({ activeMethod: () => (++reads === 1 ? 'local' : 'oidc') })
+        )
+        expect(recheck).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
+        expect(reads).toBe(2)
+        expect(
+            db
+                .prepare('SELECT email, credential, status FROM "user" WHERE email IN (?, ?) ORDER BY email')
+                .all('first@example.com', 'second@example.com')
+        ).toEqual([
+            { email: 'first@example.com', credential: null, status: 'invited' },
+            { email: 'second@example.com', credential: null, status: 'invited' }
+        ])
+        expect(db.prepare('SELECT "usedAt" AS "usedAt", "consumeId" AS "consumeId" FROM identity_action_link').all()).toEqual([
+            { usedAt: null, consumeId: null },
+            { usedAt: null, consumeId: null }
+        ])
     })
 
     it('uses the configured lifetime and falls back when the setting is unusable', () => {

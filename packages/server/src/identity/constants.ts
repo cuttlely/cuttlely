@@ -34,6 +34,11 @@ export const INVITE_COOKIE_PATH = '/api/v1/auth/callback'
 /** randomToken output is far shorter. Anything longer is not a token. */
 export const INVITE_TOKEN_MAX_LENGTH = 256
 
+/** Per-transaction browser binding sent only to the generic OIDC callback. */
+export const OIDC_BROWSER_COOKIE = 'cuttlely-oidc-browser'
+export const OIDC_BROWSER_COOKIE_MS = 10 * 60 * 1000
+export const OIDC_BROWSER_COOKIE_PATH = '/api/v1/auth/oidc/callback'
+
 /** Defaults used before these could be changed, and the fallback when a session row has no issue time. */
 export const IDLE_MS = 12 * 60 * 60 * 1000
 export const ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000

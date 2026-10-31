@@ -30,6 +30,8 @@ export const WHITELIST_URLS = [
     '/api/v1/auth/local/password',
     '/api/v1/auth/local/accept',
     '/api/v1/auth/invite/start',
+    '/api/v1/auth/oidc/login',
+    '/api/v1/auth/oidc/callback',
     '/api/v1/auth/callback',
     // The one-time setup link guards itself (routes/server-setup).
     '/api/v1/server-setup',
@@ -52,7 +54,13 @@ export const WHITELIST_URLS = [
 ]
 
 // Public only for GET and HEAD: the API-key lookups take the key from the Authorization header.
-export const READ_ONLY_WHITELIST_URLS = ['/api/v1/verify/apikey/', '/api/v1/chatflows/apikey/']
+export const READ_ONLY_WHITELIST_URLS = [
+    '/api/v1/verify/apikey/',
+    '/api/v1/chatflows/apikey/',
+    // OIDC sign-in start and the provider's return are browser navigations.
+    '/api/v1/auth/oidc/login',
+    '/api/v1/auth/oidc/callback'
+]
 
 export const API_KEY_BLACKLIST_URLS = [
     '/api/v1/nvidia-nim',
@@ -64,6 +72,7 @@ export const API_KEY_BLACKLIST_URLS = [
     '/api/v1/workspaceuser',
     '/api/v1/server-settings',
     '/api/v1/server-setup',
+    '/api/v1/authentication-settings',
     // In-app chat runs the draft canvas. An app calls /api/v1/prediction, which runs Live under the flow's own key.
     '/api/v1/internal-prediction'
 ]

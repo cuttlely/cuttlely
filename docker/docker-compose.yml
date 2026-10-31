@@ -75,6 +75,8 @@ services:
             # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
             METRICS_SERVICE_NAME: ${METRICS_SERVICE_NAME:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
+            APP_URL: ${APP_URL:-}
+            CUTTLELY_OIDC_CLIENT_SECRET: ${CUTTLELY_OIDC_CLIENT_SECRET:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}
             WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
             WORKOS_REDIRECT_URI: ${WORKOS_REDIRECT_URI:-}

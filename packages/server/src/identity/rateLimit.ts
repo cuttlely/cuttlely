@@ -18,6 +18,7 @@ import { createHmac } from 'crypto'
 import { LOGIN_FAILURE_WINDOW_MS } from './constants'
 import { runtimeNumber } from '../settings/runtime'
 import { authSecret } from './authSecrets'
+import { rateLimit as expressRateLimit } from 'express-rate-limit'
 
 /**
  * 10 failed sign-ins per client address and per email per 15 minutes.
@@ -34,6 +35,12 @@ type FailureRow = { scope: 'ip' | 'account'; key: string; at: number }
 
 /** How many distinct email keys to keep. Older ones are dropped first. */
 export const ACCOUNT_LOCK_CAP = 1024
+export const OIDC_LOGIN_START_LIMIT = 600
+export const OIDC_CALLBACK_LIMIT = 1200
+export const OIDC_FAILURE_LIMIT = 20
+export const OIDC_FAILURE_ADDRESS_CAP = 1024
+export const OIDC_ADMIN_WRITE_LIMIT = 10
+export const OIDC_TEST_START_LIMIT = 10
 
 const LOCK_PURPOSE = 'cuttlely-login-failure-v1'
 
@@ -111,4 +118,62 @@ export class LoginRateLimit implements LoginLimiter {
         const drop = new Set(oldest.slice(0, extra))
         this.rows = this.rows.filter((row) => row.scope !== 'account' || !drop.has(row.key))
     }
+}
+
+/** Failure-only process limit for OIDC starts and callbacks; successful shared-address traffic is not recorded. */
+export class IdentityFailureRateLimit {
+    private readonly failures = new Map<string, number[]>()
+
+    constructor(
+        private readonly limit: number,
+        private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
+        private readonly addressCap = OIDC_FAILURE_ADDRESS_CAP
+    ) {}
+
+    blocked(address: string, now = Date.now()): boolean {
+        this.sweep(now)
+        return (this.failures.get(address) || []).length >= this.limit
+    }
+
+    recordFailure(address: string, now = Date.now()): void {
+        this.sweep(now)
+        const current = this.failures.get(address) || []
+        if (!this.failures.has(address) && this.failures.size >= Math.max(1, this.addressCap)) {
+            const oldest = this.failures.keys().next().value as string | undefined
+            if (oldest !== undefined) this.failures.delete(oldest)
+        }
+        current.push(now)
+        // Map order tracks the most recent failure, so the first entry is the eviction candidate.
+        this.failures.delete(address)
+        this.failures.set(address, current)
+    }
+
+    retained(address: string, now = Date.now()): number {
+        this.sweep(now)
+        return (this.failures.get(address) || []).length
+    }
+
+    addressBuckets(now = Date.now()): number {
+        this.sweep(now)
+        return this.failures.size
+    }
+
+    private sweep(now: number): void {
+        for (const [address, failures] of this.failures) {
+            const current = failures.filter((at) => now - at < this.windowMs)
+            if (current.length) this.failures.set(address, current)
+            else this.failures.delete(address)
+        }
+    }
+}
+
+/** Small per-route process limit for browser OIDC and configuration endpoints. */
+export function identityRouteLimit(max: number, windowMs = LOGIN_FAILURE_WINDOW_MS) {
+    return expressRateLimit({
+        windowMs,
+        max,
+        standardHeaders: false,
+        legacyHeaders: false,
+        message: { message: 'Too many attempts. Try again later.' }
+    })
 }

@@ -89,6 +89,10 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
             id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
             userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
         );
+        CREATE TABLE identity_provider_link (
+            providerKey text, subject text, userId text, emailAtLink text, assuranceBasis text, createdAt text,
+            primary key (providerKey, subject)
+        );
     `)
     const query = async (statement: string, params: unknown[] = []) => {
         const prepared = db.prepare(statement)
@@ -214,6 +218,34 @@ describe('directory users', () => {
         expect(String(removed[0].email)).not.toBe('ada@example.com')
     })
 
+    it('removes provider links only when the final organization membership is removed', async () => {
+        const { sql, db } = memorySql()
+        const created = await createEmailUser(sql, actor, {
+            user: { name: 'Ada Lovelace', email: 'ada@example.com' },
+            workspace: { id: TEAM },
+            role: { id: ROLE }
+        })
+        db.exec(`
+            INSERT INTO identity_provider_link (providerKey, subject, userId, emailAtLink, assuranceBasis, createdAt)
+            VALUES ('provider-1', 'subject-1', '${created.id}', 'ada@example.com', 'invitation', CURRENT_TIMESTAMP);
+            INSERT INTO organization (id, name) VALUES ('org-2', 'Second');
+            INSERT INTO organization_user (organizationId, userId, roleId, status)
+            VALUES ('org-2', '${created.id}', '${ROLE}', 'active');
+        `)
+        await deleteOrganizationUser(sql, actor, ORG, created.id)
+        expect(db.prepare('SELECT userId FROM identity_provider_link').all()).toEqual([{ userId: created.id }])
+
+        db.exec(`DELETE FROM organization_user WHERE organizationId = 'org-2' AND userId = '${created.id}'`)
+        db.exec(`
+            INSERT INTO organization_user (organizationId, userId, roleId, status)
+            VALUES ('${ORG}', '${created.id}', '${ROLE}', 'active');
+            INSERT INTO workspace_user (workspaceId, userId, roleId, status)
+            VALUES ('${TEAM}', '${created.id}', '${ROLE}', 'active');
+        `)
+        await deleteOrganizationUser(sql, actor, ORG, created.id)
+        expect(db.prepare('SELECT userId FROM identity_provider_link').all()).toEqual([])
+    })
+
     it('opens an invited team for the caller', async () => {
         const { sql, db } = memorySql()
         db.exec(
@@ -279,12 +311,14 @@ describe('sign-in screen contract', () => {
             authKit: true,
             localAdmin: false,
             localUsers: false,
+            oidc: false,
             mail: false
         })
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_ADMIN: 'true' })).toEqual({
             authKit: true,
             localAdmin: true,
             localUsers: false,
+            oidc: false,
             mail: false
         })
         expect(
@@ -296,14 +330,21 @@ describe('sign-in screen contract', () => {
         ).toBe(false)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'true' }).localUsers).toBe(true)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'TRUE' }).localUsers).toBe(false)
-        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, oidc: false, mail: false })
         expect(signInOptionsBody({ SMTP_HOST: 'smtp.example.com' })).toEqual({
             authKit: false,
             localAdmin: false,
             localUsers: false,
+            oidc: false,
             mail: false
         })
-        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({
+            authKit: false,
+            localAdmin: false,
+            localUsers: false,
+            oidc: false,
+            mail: false
+        })
     })
 
     it('puts the WorkOS button on the sign-in page and hides the password form unless local admin is on', () => {
