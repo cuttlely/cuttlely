@@ -39,8 +39,8 @@ export function applyDocumentFrameHeaders(
     for (const [name, value] of Object.entries(otherHeaders)) res.setHeader(name, value)
 }
 
-/** True for the setup page and the older first-run addresses. */
+/** True for setup and owner-recovery documents that must never be framed or cached. */
 export function isSetupDocumentPath(path: string): boolean {
     const name = path.split('?')[0].replace(/\/+$/, '') || '/'
-    return name === '/setup' || name === '/organization-setup' || name === '/server-setup'
+    return name === '/setup' || name === '/organization-setup' || name === '/server-setup' || name === '/owner-recovery'
 }

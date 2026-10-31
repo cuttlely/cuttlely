@@ -17,8 +17,9 @@
  * (JWT_AUTH_TOKEN_SECRET, JWT_REFRESH_TOKEN_SECRET, JWT_ISSUER, JWT_AUDIENCE,
  * EXPRESS_SESSION_SECRET, TOKEN_HASH_SECRET). A set environment value wins. Otherwise
  * the value is read or created under SECRETKEY_PATH. Cuttlely does not require AWS
- * Secrets Manager for these values. AuthKit uses WORKOS_COOKIE_PASSWORD and does not
- * read them.
+ * Secrets Manager for these values. Legacy sealed-session compatibility uses
+ * WORKOS_COOKIE_PASSWORD separately; authentication state signing derives from
+ * TOKEN_HASH_SECRET.
  */
 
 import { randomBytes } from 'crypto'

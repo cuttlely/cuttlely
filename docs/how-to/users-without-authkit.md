@@ -4,7 +4,7 @@ Use this when several people sign in with email and password on a server you run
 
 Inviting someone in the app creates a pending (`invited`) user with no password. Only that person's one-time invite link makes them active: here it lets them choose a password, and with AuthKit on it lets them sign in with WorkOS. To let that person choose a password, ask for a one-time link. The link is shown once. It is as strong as a password: do not share it, and do not paste it into a chat. If it is lost, issue a new one. The old one stops working.
 
-The owner password form (`CUTTLELY_LOCAL_ADMIN`) is a separate switch. [Sign in](./sign-in.md) covers that one account. This page is the switch for every other user who already has a password.
+The owner-only password form also requires `CUTTLELY_LOCAL_ADMIN`, but `/signin` uses the shared local-user form while this mode is on. [Sign in](./sign-in.md) covers the owner-only default. This page turns on ordinary password sign-in for every active local user who already has a password, including the owner.
 
 **Admin** > **Users** lists the people on this server. Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.
 
@@ -18,7 +18,7 @@ The owner password form (`CUTTLELY_LOCAL_ADMIN`) is a separate switch. [Sign in]
 
 Set `CUTTLELY_LOCAL_USERS` to exactly `true` and restart. In **Admin** > **Server Settings** > **Sign-in & identity**, the switch is **Local user passwords**. It is off unless you set it.
 
-Leave AuthKit unset. If `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set, this mode stays off. The owner break-glass form can still be on. The combinations are in the [Auth API](../reference/auth-api.md#flag-combinations).
+On an existing installation, `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` may be configured while Local login remains selected. The shared local-user form remains the ordinary sign-in page until the durable method changes. The combinations are in the [Auth API](../reference/auth-api.md#active-method-and-compatibility-flags).
 
 ## Sign in
 
@@ -38,13 +38,13 @@ Sign out with `POST /api/v1/auth/local/logout` and the same header. Calling it t
 
 ## Turn AuthKit on
 
-Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, then restart. Local password sign-in turns off. The owner break-glass form stays on only when `CUTTLELY_LOCAL_ADMIN` is exactly `true`.
+Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, restart, then open **Admin** > **Auth / SSO** and switch the ordinary method to WorkOS. `/signin` then shows the WorkOS button and the **Owner recovery** link, not a password form.
 
-On that start, every existing local session ends, including the owner's. People sign in again. The owner uses the break-glass password. Everyone else uses AuthKit. A later restart of the web server does not end the sessions created after the switch. Only that web server records AuthKit as turned off. A queue worker that does not have the AuthKit environment does not change that record, so it cannot make the next web start end sessions again. Turning AuthKit off on the web server does not bring the ended sessions back.
+The switch transaction ends every interactive session, including the owner's. People sign in again. The owner can use owner recovery. Everyone else uses AuthKit. A later restart does not repeat the session change, and switching back does not restore ended sessions. Environment-only inference selects WorkOS only on a fresh installation or the first boot after this upgrade when no durable authentication state exists. Once that state exists, restarts keep its selected method.
 
 AuthKit links an existing active user when the email AuthKit sends is verified and matches that user's mailbox exactly. Letter case and spaces around the address are ignored. `Ada@Example.com` matches `ada@example.com`. `ada+notes@example.com` does not match `ada@example.com`, and neither does a different domain. An unverified email is refused. If two users have that mailbox, including in two teams, neither is linked and the sign-in stops. The password already stored is kept. A pending invite is never linked by email: that person needs their invite link. See [Invite people](./sign-in.md#invite-people).
 
-`GET /api/v1/auth/options` reports the switch. After the restart, `status.localSessions` is `ended` and `status.localPasswordSignIn` is false. `status.sessionsEnded` is how many sessions that start deleted. The field names are in the [Auth API](../reference/auth-api.md#turning-authkit-on).
+`GET /api/v1/auth/options` reports the switch. After it completes, `status.localSessions` is `ended` and `status.localPasswordSignIn` is false. `status.sessionsEnded` is how many sessions the method change ended. The field names are in the [Auth API](../reference/auth-api.md#turning-authkit-on).
 
 ## Invite and reset links
 

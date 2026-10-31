@@ -69,6 +69,8 @@ export interface LoggedInUser {
     isSSO?: boolean
     /** Present for an API key. This is the key id, never the key secret. */
     apiKeyId?: string
+    /** Recorded owner of an API key, used when that key creates another key. */
+    apiKeyOwnerUserId?: string
 }
 
 export interface LocalSession {
@@ -85,6 +87,14 @@ export interface LocalSession {
     permissionVersion?: number
     /** Version on the user row when the session was read. */
     currentPermissionVersion?: number
+    /** Method that completed authentication for this database session. */
+    authenticationMethod?: 'local' | 'workos' | 'recovery'
+    /** Global authentication epoch copied when the session was issued. */
+    authenticationEpoch?: number
+    /** True for the always-available owner recovery path. */
+    recoveryUse?: boolean
+    /** Provider session identifier used only by the server to end a WorkOS session. */
+    workosSessionId?: string
 }
 
 export interface CreateOwnerInput {
@@ -101,6 +111,8 @@ export interface CreateOwnerInput {
 export interface CreateOwnerOptions {
     consumeSetupHmac?: string
     now?: number
+    /** Select Local login in the same transaction as first-owner setup. */
+    activateLocalAuthentication?: boolean
 }
 
 export interface WorkosIdentity {
@@ -135,9 +147,7 @@ export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { 
 
 export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
-    reauthorizationUrl?(redirectUri: string, state: string): string
-    /** authTime is the provider's auth_time claim, in Unix seconds, when the provider supplies a verified value. */
-    authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string; authTime?: number }>
+    authenticate(code: string): Promise<{ user: WorkosIdentity; sessionId?: string }>
     authenticateSession(
         sealed: string
     ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>
@@ -146,7 +156,7 @@ export interface WorkosPort {
     ): Promise<
         { authenticated: true; sealedSession: string; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }
     >
-    logoutUrl(sealed: string, returnTo?: string): Promise<string>
+    logoutUrl(sessionId: string, returnTo?: string): Promise<string>
     setExternalId(workosUserId: string, ourUserId: string): Promise<void>
 }
 

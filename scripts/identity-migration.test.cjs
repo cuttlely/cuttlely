@@ -155,6 +155,35 @@ describe('identity sqlite migrations', () => {
         assert.equal(stillUsers.length, 1)
     })
 
+    it('backfills an API key owner only from a directly recorded creator', async () => {
+        await runner.query(
+            `CREATE TABLE "apikey" (
+                "id" varchar(20) PRIMARY KEY,
+                "apiKey" text,
+                "apiSecret" text,
+                "keyName" text,
+                "workspaceId" varchar(36),
+                "createdBy" varchar(36)
+            )`
+        )
+        await runner.query(
+            `INSERT INTO "user" ("id", "name", "email", "status") VALUES ('key-owner', 'Key Owner', 'key-owner@example.com', 'active')`
+        )
+        await runner.query(
+            `INSERT INTO "apikey" ("id", "apiKey", "apiSecret", "keyName", "workspaceId", "createdBy") VALUES
+                ('owned-key', 'one', 'one', 'Owned', 'team-a', 'key-owner'),
+                ('unowned-key', 'two', 'two', 'Unowned', 'team-a', NULL)`
+        )
+
+        await migration.addSessionConvergence(runner)
+
+        const rows = await runner.query(`SELECT "id" AS id, "ownerUserId" AS ownerUserId FROM "apikey" ORDER BY "id"`)
+        assert.deepEqual(rows, [
+            { id: 'owned-key', ownerUserId: 'key-owner' },
+            { id: 'unowned-key', ownerUserId: null }
+        ])
+    })
+
     it('links one verified mailbox and ends local sessions once when AuthKit is turned on', async () => {
         await migration.addAuthKitSwitchTable(runner)
         await migration.addAuthKitSwitchTable(runner)

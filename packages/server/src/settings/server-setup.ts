@@ -24,7 +24,10 @@ const EMAIL = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
 
 export interface SetupUsers {
     countUsers(): Promise<number>
-    createOwner(input: CreateOwnerInput, options?: { consumeSetupHmac?: string; now?: number }): Promise<UserRow>
+    createOwner(
+        input: CreateOwnerInput,
+        options?: { consumeSetupHmac?: string; now?: number; activateLocalAuthentication?: boolean }
+    ): Promise<UserRow>
 }
 
 export interface SetupDeps {
@@ -138,7 +141,7 @@ export async function createOwnerFromSetup(
             .users()
             .createOwner(
                 { email, name, credential: await hashPassword(password), externalId: null },
-                { consumeSetupHmac: hmac, now: Date.now() }
+                { consumeSetupHmac: hmac, now: Date.now(), activateLocalAuthentication: true }
             )
     } catch (error) {
         if (error instanceof NotEmptyError) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE['has-account'])

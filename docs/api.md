@@ -39,6 +39,8 @@ Keep the API key on your server. Never put it in a web page, a mobile app or a p
 2. Give the key a name, such as `Bakery website`, and choose at least one permission. Permissions decide what the key can do on Cuttlely's management API (for example `chatflows:view`). Asking a flow does not need a permission; see the next step.
 3. Copy the key when it is shown. Cuttlely stores only a hash, so it cannot show the key again.
 
+A new key records the signed-in user as its owner. If an API key creates another key, the new key inherits the creating key's recorded owner. Disabling that user refuses both keys on their next request. Keys from before 1.5.0 that have no recorded owner remain usable and are not tied to a user; the API Keys page marks them so you can review or rotate them.
+
 ![The API Keys page with one key, Bakery website. The API Key column says Hidden, Permissions is chatflows:view, Usage is 3, and Updated shows the day the key was last changed, with edit and delete buttons at the end of the row.](./images/api/api-keys-page.png)
 
 Then choose which flows the key can call. On each flow's canvas, open **API Endpoint** (`</>`), and pick the key in the drop-down at the top right.
@@ -75,7 +77,7 @@ On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=tru
     CUTTLELY_LOCAL_ADMIN=true pnpm user --email you@example.com
     ```
 
-2. Sign in as the owner and keep the session cookie. This route signs in the owner only. Other local users sign in at `/api/v1/auth/local/login`, which answers 404 unless the server also runs with `CUTTLELY_LOCAL_USERS=true` and WorkOS is not configured (it counts as configured when both `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set). The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
+2. Sign in as the owner and keep the session cookie. This route signs in the owner only. Other local users sign in at `/api/v1/auth/local/login`, which is available when `CUTTLELY_LOCAL_USERS=true` and the durable selected method is Local login, even when WorkOS is configured. It answers 404 when local-user passwords are off or another method is selected. The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
 
     Read the same password into `CUTTLELY_PASSWORD` first. `read -s` keeps it off the screen and out of your shell history:
 
@@ -432,7 +434,7 @@ If step 1 fails, the answer is `500` `Harness "bakery-team" was not deleted, bec
 
 ### How the API reads a path
 
-Before it decides whether a route is public, or refused to an API key, the server reads the path the way its routes do: decoded, in lower case (ASCII letters only), and with repeated slashes collapsed. So `/api/v1/Internal-Prediction`, `/api/v1//internal-prediction` and `/api/v1/%69nternal-prediction` are refused to an API key exactly like `/api/v1/internal-prediction`, and `/api/v1/Ping` is public like `/api/v1/ping`. An encoded slash (`%2F`) is not decoded, so it does not split a path segment and cannot reach a different route. `DENYLIST_URLS` entries are compared the same way, with spaces around each entry ignored. The schedule write routes (`PUT`, `DELETE`, `.../pause`, `.../resume`) refuse an API key in the route itself, so a path spelled in another case is refused too.
+Before it decides whether a route is public or refused to an API credential, the server reads the path the way its routes do: decoded, in lower case (ASCII letters only), and with repeated slashes collapsed. So `/api/v1/Internal-Prediction`, `/api/v1//internal-prediction` and `/api/v1/%69nternal-prediction` are refused to an API credential exactly like `/api/v1/internal-prediction`, and `/api/v1/Ping` is public like `/api/v1/ping`. An encoded slash (`%2F`) is not decoded, so it does not split a path segment and cannot reach a different route. `DENYLIST_URLS` entries are compared the same way, with spaces around each entry ignored. `/api/v1/authentication-settings` and every path below it require a signed-in session, including when an older stored credential contains `authentication:manage`. The schedule write routes (`PUT`, `DELETE`, `.../pause`, `.../resume`) refuse an API credential in the route itself, so a path spelled in another case is refused too.
 
 ### Known limits
 
