@@ -27,6 +27,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. Owner recovery also satisfies this check. The epoch-binding and reauthentication-state secrets are derived from `TOKEN_HASH_SECRET` with separate HKDF labels.
 
+-   **Auth / SSO** now shows when the sign-in method last changed and how many sessions that change ended. A changed saved WorkOS client identity pauses automatic email and invitation linking until an administrator signs in again and acknowledges the warning; acknowledgment ends interactive sessions, records the outcome, and restores linking. A mixed Local login and WorkOS configuration remains informational and does not pause linking.
+
 ### Fixed
 
 -   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.

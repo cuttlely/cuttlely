@@ -42,7 +42,7 @@ The active ordinary method is stored in `identity_authentication_state`; environ
 
 The body has no emails, cookies, or session ids. A missing session is still 200. `POST /api/v1/auth/options` is 404 and does not end sessions.
 
-`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`, `ownerRecovery`) for the sign-in page. `ownerRecovery` is always true. A false boolean is still returned for the other fields. It does not include `status`. `/auth/options` leaves the off ordinary methods out.
+`GET /api/v1/auth/signin-options` returns booleans (`authKit`, `localAdmin`, `localUsers`, `mail`, `ownerRecovery`) for the sign-in page. `ownerRecovery` is always true. A false boolean is still returned for the other fields. It does not include `status`. `/auth/options` lists only enabled ordinary and compatibility methods in `methods`; owner recovery stays available separately and is not a member of that array.
 
 ## Active method and compatibility flags
 

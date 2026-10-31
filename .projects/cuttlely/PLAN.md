@@ -28,8 +28,9 @@
 
 ## Next concrete tasks
 
-1. **Orchestrate live test.** The `external_chat` route is built (D101). The live tenant check in the architect's section 2.12 is a separate run: no tunnel or IBM tenant from the PR1 builder.
-2. **After v1.0.1.** Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
-3. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
-4. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.
-5. **Hand-picked questions for the other stores.** Chat question history and `questionIds` are on the drafts check API, and the Publish dialog can choose from that list. Recorded form, webhook, and schedule inputs, and harness turns, are not listed yet. The execution table and the harness session table do not yet have the keyset index those lists would use.
+1. **Auth / SSO Phase B2 review.** Database-session convergence and always-available owner recovery are implemented on `feat/auth-sso-phase-b2` and in review in [#360](https://github.com/cuttlely/cuttlely/pull/360), not on `main`. Generic OIDC is in separate review in [#359](https://github.com/cuttlely/cuttlely/pull/359); SCIM remains later work.
+2. **Orchestrate live test.** The `external_chat` route is built (D101). The live tenant check in the architect's section 2.12 is a separate run: no tunnel or tenant from the PR1 builder.
+3. **After v1.0.1.** Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
+4. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Use a maintainer's test credentials.
+5. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.
+6. **Hand-picked questions for the other stores.** Chat question history and `questionIds` are on the drafts check API, and the Publish dialog can choose from that list. Recorded form, webhook, and schedule inputs, and harness turns, are not listed yet. The execution table and the harness session table do not yet have the keyset index those lists would use.
