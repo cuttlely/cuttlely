@@ -472,13 +472,13 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     }
 }
 
-type OwnerPasswordMode = 'ordinary' | 'recovery'
+type OwnerSignInMode = 'ordinary' | 'recovery'
 
-function ownerPasswordMode(ctx: AuthContext): OwnerPasswordMode {
+function ownerSignInMode(ctx: AuthContext): OwnerSignInMode {
     return requestAuthenticationMethod(ctx) === 'local' ? 'ordinary' : 'recovery'
 }
 
-async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode): Promise<HandlerResult> {
+async function handleOwnerSignInPost(ctx: AuthContext, mode: OwnerSignInMode): Promise<HandlerResult> {
     if (!ctx.internal) return json(401, { message: INVALID_LOGIN })
     const email = typeof ctx.body.email === 'string' ? ctx.body.email.trim().toLowerCase().slice(0, EMAIL_MAX_LENGTH) : ''
     const password = typeof ctx.body.password === 'string' ? ctx.body.password : ''
@@ -542,12 +542,12 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
 
 /** Compatibility owner route: ordinary under Local, recovery under any other active method. */
 export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> {
-    return handleOwnerPasswordPost(ctx, ownerPasswordMode(ctx))
+    return handleOwnerSignInPost(ctx, ownerSignInMode(ctx))
 }
 
 /** The dedicated owner recovery route always uses recovery treatment. */
 export async function handleRecoveryLoginPost(ctx: AuthContext): Promise<HandlerResult> {
-    return handleOwnerPasswordPost(ctx, 'recovery')
+    return handleOwnerSignInPost(ctx, 'recovery')
 }
 
 export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
