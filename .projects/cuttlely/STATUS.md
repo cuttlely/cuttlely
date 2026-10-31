@@ -1,6 +1,6 @@
 # Status
 
-On this feature branch, the 13 affected chat model nodes omit `temperature` from the settings passed to the model library when its input is empty, missing, or does not parse to a finite number, so the library default applies (the Groq library uses 0.7). Finite values, including zero, are preserved. The focused helper and node-matrix tests pass 73 assertions, and the components package typecheck passes.
+On this feature branch, the 15 affected chat model nodes omit `temperature` from the settings passed to the model library when its input is empty, missing, or does not parse to a finite number, so the library default applies (the Groq library uses 0.7). Finite values, including zero, are preserved. The focused helper and node-matrix tests pass 83 assertions, and the components package typecheck passes.
 
 On this feature branch, protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, validates calendar/order and both source endpoints without deriving inclusive endpoints or guessing years, and treats own-line bold numbered Markdown markers as formatting; it does not expand the source numeric set or relax unrelated amount, count or percentage checks, and full verification or deployment are not claimed here.
 

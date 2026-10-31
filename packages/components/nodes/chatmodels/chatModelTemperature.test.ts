@@ -27,6 +27,14 @@ jest.mock('@langchain/deepseek', () => ({ ChatDeepSeek: MockProvider }))
 jest.mock('@langchain/ollama', () => ({ ChatOllama: MockProvider }))
 jest.mock('@langchain/community/chat_models/togetherai', () => ({ ChatTogetherAI: MockProvider }))
 jest.mock('@langchain/groq', () => ({ ChatGroq: MockProvider }))
+jest.mock('@langchain/anthropic', () => ({ ChatAnthropic: MockProvider }))
+jest.mock('@langchain/google-vertexai', () => ({ ChatVertexAI: MockProvider }))
+jest.mock('../../src/google-utils', () => ({
+    buildGoogleCredentials: jest.fn().mockResolvedValue({})
+}))
+jest.mock('../../src/anthropicUtils', () => ({
+    supportsSamplingParams: jest.fn().mockReturnValue(true)
+}))
 jest.mock('../../src/modelLoader', () => ({
     MODEL_TYPE: { CHAT: 'chat' },
     getModels: jest.fn().mockResolvedValue([])
@@ -51,7 +59,8 @@ jest.mock('../../src/utils', () => {
             groqApiKey: 'made-up-key',
             localAIApiKey: 'made-up-key',
             litellmApiKey: 'made-up-key',
-            cerebrasApiKey: 'made-up-key'
+            cerebrasApiKey: 'made-up-key',
+            anthropicApiKey: 'made-up-key'
         })
     }
 })
@@ -69,7 +78,9 @@ const nodeClasses = [
     require('./Groq/Groq').nodeClass,
     require('./ChatLocalAI/ChatLocalAI').nodeClass,
     require('./ChatLitellm/ChatLitellm').nodeClass,
-    require('./ChatCerebras/ChatCerebras').nodeClass
+    require('./ChatCerebras/ChatCerebras').nodeClass,
+    require('./ChatAnthropic/ChatAnthropic').nodeClass,
+    require('./ChatGoogleVertexAI/ChatGoogleVertexAI').nodeClass
 ]
 
 const temperatureCases: [unknown, number | undefined][] = [

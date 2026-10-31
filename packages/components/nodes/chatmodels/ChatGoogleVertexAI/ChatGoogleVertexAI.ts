@@ -14,6 +14,7 @@ import {
 import { getModels, getRegions, MODEL_TYPE } from '../../../src/modelLoader'
 import { getBaseClasses } from '../../../src/utils'
 import { supportsSamplingParams } from '../../../src/anthropicUtils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatVertexAI extends LcChatVertexAI implements IVisionChatModal {
     configuredModel: string
@@ -243,8 +244,9 @@ class GoogleVertexAI_ChatModels implements INode {
             streaming: streaming ?? true
         }
 
-        if (samplingSupported) {
-            obj.temperature = parseFloat(temperature)
+        const parsedTemperature = parseOptionalNumber(temperature)
+        if (samplingSupported && parsedTemperature !== undefined) {
+            obj.temperature = parsedTemperature
         }
 
         const authOptions = await buildGoogleCredentials(nodeData, options)

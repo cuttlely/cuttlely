@@ -6,6 +6,7 @@ import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../
 import { ChatAnthropic } from './FlowiseChatAnthropic'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { supportsSamplingParams } from '../../../src/anthropicUtils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 // Models that take adaptive thinking and an effort level instead of a manual thinking budget
 const ADAPTIVE_THINKING_MODELS = [
@@ -224,8 +225,9 @@ class ChatAnthropic_ChatModels implements INode {
 
         // Temperature is incompatible with thinking modes and with models that
         // don't support sampling parameters.
-        if (samplingSupported && !thinkingEnabled) {
-            obj.temperature = parseFloat(temperature)
+        const parsedTemperature = parseOptionalNumber(temperature)
+        if (samplingSupported && !thinkingEnabled && parsedTemperature !== undefined) {
+            obj.temperature = parsedTemperature
         }
 
         if (maxTokens) obj.maxTokens = parseInt(maxTokens, 10)
