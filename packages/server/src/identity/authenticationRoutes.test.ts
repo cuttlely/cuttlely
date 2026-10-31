@@ -48,7 +48,10 @@ jest.mock('./constants', () => ({
     workosEnvironmentConfigured: () => true
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
-jest.mock('./oidcStore', () => ({ readOidcConfiguration, providerLinkMigrationComplete, testedOidcDraftDiffersFromActive }))
+jest.mock('./oidcStore', () => {
+    const actual = jest.requireActual('./oidcStore')
+    return { ...actual, readOidcConfiguration, providerLinkMigrationComplete, testedOidcDraftDiffersFromActive }
+})
 jest.mock('./oidcProvider', () => ({ oidcCallbackError }))
 jest.mock('./recovery', () => ({
     acknowledgeRecoveryAlert: jest.fn(),
@@ -193,7 +196,8 @@ describe('authentication settings routes', () => {
         readOidcConfiguration.mockResolvedValue({
             health: 'ready',
             fingerprint: 'oidc-fingerprint',
-            testedFingerprint: 'oidc-fingerprint'
+            testedFingerprint: 'oidc-fingerprint',
+            testResult: { identityAccepted: true }
         })
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'oidc' })
         const cookies = 'fresh'
@@ -268,6 +272,16 @@ describe('authentication settings routes', () => {
             fingerprint: 'oidc-fingerprint',
             testedFingerprint: 'oidc-fingerprint'
         })
+        const oldFalsePositive = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        expect(oldFalsePositive.status).toBe(409)
+        expect(oldFalsePositive.body.code).toBe('OIDC_TEST_REQUIRED')
+
+        readOidcConfiguration.mockResolvedValue({
+            health: 'ready',
+            fingerprint: 'oidc-fingerprint',
+            testedFingerprint: 'oidc-fingerprint',
+            testResult: { identityAccepted: true }
+        })
         providerLinkMigrationComplete.mockResolvedValue(false)
         const migrating = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
         expect(migrating.status).toBe(409)
@@ -283,7 +297,8 @@ describe('authentication settings routes', () => {
         readOidcConfiguration.mockResolvedValue({
             health: 'ready',
             fingerprint: 'oidc-fingerprint',
-            testedFingerprint: 'oidc-fingerprint'
+            testedFingerprint: 'oidc-fingerprint',
+            testResult: { identityAccepted: true }
         })
         oidcCallbackError.mockReturnValue('Set APP_URL to the public HTTPS address before activating OIDC.')
         const response = await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
@@ -370,7 +385,8 @@ describe('authentication settings routes', () => {
         readOidcConfiguration.mockResolvedValue({
             health: 'ready',
             fingerprint: 'oidc-fingerprint',
-            testedFingerprint: 'oidc-fingerprint'
+            testedFingerprint: 'oidc-fingerprint',
+            testResult: { identityAccepted: true }
         })
         hasRecentAuthentication.mockResolvedValue(true)
         testedOidcDraftDiffersFromActive.mockReturnValue(true)

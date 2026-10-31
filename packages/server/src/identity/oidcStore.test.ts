@@ -16,6 +16,8 @@ import {
     oidcProviderKey,
     providerLinkMigrationComplete,
     readOidcConfiguration,
+    recordOidcTestFailure,
+    recordOidcTestResult,
     resolveOidcUser,
     saveOidcDraft,
     testedOidcDraftDiffersFromActive,
@@ -371,6 +373,27 @@ describe('provider-scoped identity links', () => {
         db.close()
     })
 
+    it('checks an active mailbox without creating its subject link', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store([user('user-1', 'ada@example.com')]),
+                {
+                    providerKey: 'provider',
+                    subject: 'subject',
+                    issuer: 'https://id.example',
+                    email: 'ada@example.com',
+                    emailVerified: true
+                },
+                { trustMissing: false, linkIdentity: false }
+            )
+        ).resolves.toMatchObject({ ok: true, user: { id: 'user-1' }, basis: 'email_verified' })
+        await expect(findProviderLink(db.source, 'provider', 'subject')).resolves.toBeNull()
+        db.close()
+    })
+
     it.each(['login.microsoftonline.com', 'login.microsoftonline.us', 'login.chinacloudapi.cn', 'login.partner.microsoftonline.cn'])(
         'accepts xms_edov from the HTTPS Entra authority host %s',
         async (host) => {
@@ -570,6 +593,7 @@ describe('provider-scoped identity links', () => {
             slot: 'draft',
             checkedAt: '2026-10-31T12:00:00.000Z',
             testedAt: '2026-10-31T12:00:00.000Z',
+            testResult: { identityAccepted: true },
             version: 2
         }
         expect(testedOidcDraftDiffersFromActive(draft, active)).toBe(false)
@@ -577,6 +601,36 @@ describe('provider-scoped identity links', () => {
             testedOidcDraftDiffersFromActive({ ...draft, discovery: { authorization_endpoint: 'https://id.example/refreshed' } }, active)
         ).toBe(true)
         expect(testedOidcDraftDiffersFromActive({ ...draft, testedFingerprint: null }, active)).toBe(false)
+        expect(testedOidcDraftDiffersFromActive({ ...draft, testResult: null }, active)).toBe(false)
+    })
+
+    it('clears the tested fingerprint when an identity test fails', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const saved = await saveOidcDraft(
+            db.source,
+            {
+                issuer: 'https://id.example',
+                clientId: 'client',
+                clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+                trustMissingEmailVerification: false,
+                privateIssuerHosts: [],
+                fingerprint: 'fingerprint',
+                discovery: {},
+                health: 'ready',
+                healthError: null,
+                checkedAt: '2026-10-31T12:00:00.000Z'
+            },
+            0
+        )
+        await recordOidcTestResult(db.source, saved.fingerprint, { identityAccepted: true })
+        expect((await readOidcConfiguration(db.source, 'draft'))?.testedFingerprint).toBe(saved.fingerprint)
+
+        await recordOidcTestFailure(db.source, saved.fingerprint, { passed: false, reason: 'No matching user.' })
+        const failed = await readOidcConfiguration(db.source, 'draft')
+        expect(failed?.testedFingerprint).toBeNull()
+        expect(failed?.testResult).toEqual({ passed: false, reason: 'No matching user.' })
+        db.close()
     })
 
     it('keeps authorization and token material out of logs and audit detail', () => {

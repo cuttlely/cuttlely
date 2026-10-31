@@ -24,7 +24,12 @@ import type { IdentityStore } from './store'
 import { applicationDataSource, applicationSql, identityStore } from './production'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
-import { providerLinkMigrationComplete, readOidcConfiguration, testedOidcDraftDiffersFromActive } from './oidcStore'
+import {
+    oidcConfigurationTestPassed,
+    providerLinkMigrationComplete,
+    readOidcConfiguration,
+    testedOidcDraftDiffersFromActive
+} from './oidcStore'
 import { oidcCallbackError } from './oidcProvider'
 import { publicOrigin } from './setupCode'
 import { acknowledgeRecoveryAlert, currentRecoveryAlert } from './recovery'
@@ -175,7 +180,7 @@ identityAuthenticationRouter.post('/stage', switchStageLimit, async (req: Reques
                 message: 'A remote sign-in method cannot be activated until owner recovery is ready.'
             })
         }
-        if (method === 'oidc' && oidc && oidc.testedFingerprint !== oidc.fingerprint) {
+        if (method === 'oidc' && oidc && !oidcConfigurationTestPassed(oidc)) {
             return void res.status(409).json({ code: 'OIDC_TEST_REQUIRED', message: 'Test this OIDC configuration before activation.' })
         }
         if (method === 'oidc' && !(await providerLinkMigrationComplete(applicationDataSource()))) {

@@ -239,7 +239,7 @@ describe('authentication provider foundation', () => {
         }
         const first = configuration([])
         await db.query(
-            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, NULL, ?)`,
+            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, ?, ?)`,
             [
                 'draft',
                 first.issuer,
@@ -250,6 +250,7 @@ describe('authentication provider foundation', () => {
                 first.fingerprint,
                 'ready',
                 first.fingerprint,
+                JSON.stringify({ identityAccepted: true }),
                 1
             ]
         )
@@ -316,7 +317,7 @@ describe('authentication provider foundation', () => {
             id_token_signing_alg_values_supported: ['RS256']
         })
         await db.query(
-            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'ready', NULL, NULL, ?, NULL, NULL, 1)`,
+            `INSERT INTO "identity_oidc_configuration" ("slot", "issuer", "clientId", "clientSecretEnvVar", "trustMissingEmailVerification", "privateIssuerHosts", "fingerprint", "discovery", "health", "healthError", "checkedAt", "testedFingerprint", "testedAt", "testResult", "version") VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'ready', NULL, NULL, ?, NULL, ?, 1)`,
             [
                 'draft',
                 base.issuer,
@@ -325,7 +326,8 @@ describe('authentication provider foundation', () => {
                 '[]',
                 fingerprint,
                 JSON.stringify(discovery('https://id.example/old')),
-                fingerprint
+                fingerprint,
+                JSON.stringify({ identityAccepted: true })
             ]
         )
         await db.query(
@@ -413,8 +415,11 @@ describe('authentication provider foundation', () => {
             expect(begun.url).toContain('https://id.example/refreshed?')
         })
 
+        await db.query(`UPDATE "identity_oidc_configuration" SET "testResult" = NULL WHERE "slot" = 'draft'`)
+        await expect(switchAuthenticationMethod(db, 'oidc', active.version)).rejects.toThrow('OIDC_TEST_REQUIRED')
         await db.query(
-            `UPDATE "identity_oidc_configuration" SET "testedFingerprint" = NULL, "version" = "version" + 1 WHERE "slot" = 'draft'`
+            `UPDATE "identity_oidc_configuration" SET "testedFingerprint" = NULL, "testResult" = ?, "version" = "version" + 1 WHERE "slot" = 'draft'`,
+            [JSON.stringify({ identityAccepted: true })]
         )
         await expect(switchAuthenticationMethod(db, 'oidc', active.version)).rejects.toThrow('OIDC_TEST_REQUIRED')
         expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(1)

@@ -65,11 +65,12 @@ import {
 import {
     getUniqueNodeId,
     initNode,
-    rearrangeToolsOrdering,
     getUpsertDetails,
-    updateOutdatedNodeData,
-    updateOutdatedNodeEdge
+    showHideInputAnchors,
+    showHideInputParams,
+    updateOutdatedNodeData
 } from '@/utils/genericHelper'
+import { anyNeedsSync, applyEdgeRefs, healImportedFlow, stageCanvasPayload } from '@/utils/edgeRefs'
 import { readyToFit, FIT_ON_OPEN } from '@/utils/canvasFit'
 import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
@@ -170,6 +171,7 @@ const Canvas = () => {
     const pendingDraftRef = useRef(null)
     const [builtResult, setBuiltResult] = useState(null)
     const pendingLangflow = useRef(null)
+    const pendingMigration = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
     const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteSelection, applyingDelete, bindCanvasState, duplicateNode } =
@@ -240,44 +242,17 @@ const Canvas = () => {
             id: `${params.source}-${params.sourceHandle}-${params.target}-${params.targetHandle}`
         }
 
-        const targetNodeId = params.targetHandle.split('-')[0]
-        const sourceNodeId = params.sourceHandle.split('-')[0]
-        const targetInput = params.targetHandle.split('-')[2]
-
-        setNodes((nds) =>
-            nds.map((node) => {
-                if (node.id === targetNodeId) {
-                    setTimeout(() => setDirty(), 0)
-                    let value
-                    const inputAnchor = node.data.inputAnchors.find((ancr) => ancr.name === targetInput)
-                    const inputParam = node.data.inputParams.find((param) => param.name === targetInput)
-
-                    if (inputAnchor && inputAnchor.list) {
-                        const newValues = node.data.inputs[targetInput] || []
-                        if (targetInput === 'tools') {
-                            rearrangeToolsOrdering(newValues, sourceNodeId)
-                        } else {
-                            newValues.push(`{{${sourceNodeId}.data.instance}}`)
-                        }
-                        value = newValues
-                    } else if (inputParam && inputParam.acceptVariable) {
-                        value = node.data.inputs[targetInput] || ''
-                    } else {
-                        value = `{{${sourceNodeId}.data.instance}}`
-                    }
-                    node.data = {
-                        ...node.data,
-                        inputs: {
-                            ...node.data.inputs,
-                            [targetInput]: value
-                        }
-                    }
-                }
-                return node
+        setNodes((currentNodes) => {
+            const result = applyEdgeRefs(currentNodes, [newEdge], {
+                canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
+                overwrite: true
             })
-        )
+            for (const message of result.unmatched) showImportError(message)
+            return result.nodes
+        })
 
         setEdges((eds) => addEdge(newEdge, eds))
+        setTimeout(() => setDirty(), 0)
     }
 
     const showImportError = (message) => {
@@ -322,10 +297,23 @@ const Canvas = () => {
     const canvasSpecs = () => specsByName(Array.isArray(getNodesApi.data) ? getNodesApi.data : canvas.componentNodes)
 
     const applyFlowiseCanvas = (canvasText) => {
-        const flowData = normalizeCanvasFlow(JSON.parse(canvasText), canvasSpecs())
-        setNodes(flowData.nodes || [])
-        setEdges(flowData.edges || [])
+        const specs = canvasSpecs()
+        const flowData = normalizeCanvasFlow(JSON.parse(canvasText), specs)
+        const healed = healImportedFlow(flowData.nodes || [], flowData.edges || [], specs, {
+            canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData,
+            showHide: { params: showHideInputParams, anchors: showHideInputAnchors }
+        })
+        setNodes(healed.nodes)
+        setEdges(healed.edges)
+        for (const message of healed.attention) showImportError(message)
         setTimeout(() => setDirty(), 0)
+    }
+
+    const queueMigration = (payload) => {
+        const staged = stageCanvasPayload(payload, getNodesApi.data)
+        pendingMigration.current = staged.pending
+        if (staged.ready) applyFlowiseCanvas(JSON.stringify(staged.ready.flow))
     }
 
     const handleLoadFlow = (file, expect = 'either') => {
@@ -342,7 +330,7 @@ const Canvas = () => {
             return
         }
         if (parsed && parsed.cuttlelyMigration && parsed.flow) {
-            applyFlowiseCanvas(JSON.stringify(parsed.flow))
+            queueMigration(parsed)
             return
         }
         const langflow = isLangflowExport(parsed)
@@ -631,24 +619,14 @@ const Canvas = () => {
     )
 
     const syncNodes = () => {
-        const componentNodes = canvas.componentNodes
-
-        const cloneNodes = cloneDeep(nodes)
-        const cloneEdges = cloneDeep(edges)
-        let toBeRemovedEdges = []
-
-        for (let i = 0; i < cloneNodes.length; i++) {
-            const node = cloneNodes[i]
-            const componentNode = componentNodes.find((cn) => cn.name === node.data.name)
-            if (componentNode && componentNode.version > node.data.version) {
-                const clonedComponentNode = cloneDeep(componentNode)
-                cloneNodes[i].data = updateOutdatedNodeData(clonedComponentNode, node.data)
-                toBeRemovedEdges.push(...updateOutdatedNodeEdge(cloneNodes[i].data, cloneEdges))
-            }
-        }
-
-        setNodes(cloneNodes)
-        setEdges(cloneEdges.filter((edge) => !toBeRemovedEdges.includes(edge)))
+        const healed = healImportedFlow(nodes, edges, canvas.componentNodes, {
+            canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData,
+            showHide: { params: showHideInputParams, anchors: showHideInputAnchors }
+        })
+        setNodes(healed.nodes)
+        setEdges(healed.edges)
+        for (const message of healed.attention) showImportError(message)
         setDirty()
         setIsSyncNodesButtonEnabled(false)
     }
@@ -733,21 +711,6 @@ const Canvas = () => {
         const upsertNodeDetails = getUpsertDetails(nodes, edges)
         if (upsertNodeDetails.length) setIsUpsertButtonEnabled(true)
         else setIsUpsertButtonEnabled(false)
-    }
-
-    const checkIfSyncNodesAvailable = (nodes) => {
-        const componentNodes = canvas.componentNodes
-
-        for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i]
-            const componentNode = componentNodes.find((cn) => cn.name === node.data.name)
-            if (componentNode && componentNode.version > node.data.version) {
-                setIsSyncNodesButtonEnabled(true)
-                return
-            }
-        }
-
-        setIsSyncNodesButtonEnabled(false)
     }
 
     // ==============================|| useEffect ||============================== //
@@ -1075,11 +1038,14 @@ const Canvas = () => {
         if (canvasDataStore.chatflow) {
             const flowData = canvasDataStore.chatflow.flowData ? JSON.parse(canvasDataStore.chatflow.flowData) : []
             checkIfUpsertAvailable(flowData.nodes || [], flowData.edges || [])
-            checkIfSyncNodesAvailable(flowData.nodes || [])
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canvasDataStore.chatflow])
+
+    useEffect(() => {
+        setIsSyncNodesButtonEnabled(anyNeedsSync(nodes, canvas.componentNodes))
+    }, [nodes, canvas.componentNodes])
 
     // Initialization
     useEffect(() => {
@@ -1152,6 +1118,13 @@ const Canvas = () => {
         const payload = pendingLangflow.current
         pendingLangflow.current = null
         commitLangflow(payload, getNodesApi.data)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getNodesApi.data])
+
+    useEffect(() => {
+        const staged = stageCanvasPayload(pendingMigration.current, getNodesApi.data)
+        pendingMigration.current = staged.pending
+        if (staged.ready) applyFlowiseCanvas(JSON.stringify(staged.ready.flow))
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [getNodesApi.data])
 
@@ -1302,6 +1275,9 @@ const Canvas = () => {
                             handleSaveFlow={handleSaveFlow}
                             handleDeleteFlow={handleDeleteFlow}
                             handleLoadFlow={handleLoadFlow}
+                            catalogLoading={getNodesApi.loading}
+                            catalogError={getNodesApi.error}
+                            onRetryCatalog={() => getNodesApi.request()}
                             onApplyMigration={({ canvas, name }) => {
                                 applyFlowiseCanvas(JSON.stringify(canvas))
                                 if (!chatflowRef.current?.id && name) {

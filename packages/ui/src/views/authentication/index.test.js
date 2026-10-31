@@ -35,6 +35,8 @@ const oidcResponse = {
         checkedAt: '2026-10-30T12:00:00.000Z',
         tested: true,
         testResult: {
+            passed: true,
+            identityAccepted: true,
             steps: ['discovery', 'authorization', 'token', 'signature', 'claims'],
             email: 'person@example.test',
             assuranceBasis: 'email_verified'
@@ -124,6 +126,27 @@ it('shows owner-only Local login but disables its method control', async () => {
     const { container, root } = await renderSettings()
     expect(container.textContent).toContain('Local login — owner only')
     expect(container.querySelector('input[value="local"]')?.disabled).toBe(true)
+    act(() => root.unmount())
+})
+
+it('shows the reason an OIDC identity test failed and keeps activation disabled', async () => {
+    api.getOidc.mockResolvedValueOnce({
+        data: {
+            ...oidcResponse,
+            draft: {
+                ...oidcResponse.draft,
+                tested: false,
+                testResult: {
+                    passed: false,
+                    reason: 'No Cuttlely user matches the returned email address.'
+                }
+            }
+        }
+    })
+    const { container, root } = await renderSettings()
+    expect(container.textContent).toContain('Test failed. No Cuttlely user matches the returned email address.')
+    expect(container.textContent).not.toContain('Test passed.')
+    expect([...container.querySelectorAll('button')].find((button) => button.textContent === 'Activate')?.disabled).toBe(true)
     act(() => root.unmount())
 })
 

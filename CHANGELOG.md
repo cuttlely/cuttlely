@@ -33,6 +33,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Generic OIDC **Test sign-in** now passes only when the returned identity would be accepted by ordinary sign-in. Missing or unassured email and an email with no matching Cuttlely user show a clear failure, clear the tested fingerprint, and keep activation unavailable. OIDC drafts tested before this correction must be tested again. Startup also recognizes the durable active OIDC method instead of reporting that no sign-in method is available.
+
+-   Chatflow import now refreshes node versions and defaults, restores connected input references, and reports connections that need attention. If you imported a flow through the migration wizard in 1.4.8, open it, click **Sync Nodes**, select **Save**, then **Publish** so Live serves the repaired version. Sync Nodes changes only the open canvas until you save, and a save goes to the draft. A flow served only through the API or an embed remains broken until someone does all three steps.
+
 -   Chat model nodes no longer send `NaN` as the temperature when the field is empty or not a number. ChatOpenAI and 26 other chat models leave it out, so the model library's default applies (Part of [#362](https://github.com/cuttlely/cuttlely/issues/362)).
 
 -   API credentials can no longer be created or updated with `authentication:` permissions. The complete `/api/v1/authentication-settings` route family now requires a signed-in session, so a previously stored credential with `authentication:manage` receives 401 before route permissions are evaluated.

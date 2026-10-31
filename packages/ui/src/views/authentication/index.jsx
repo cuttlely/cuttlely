@@ -332,7 +332,10 @@ export default function AuthenticationSettings() {
                             />
                             {oidc?.draft?.checkedAt && <Typography color='text.secondary'>Last check: {oidc.draft.checkedAt}</Typography>}
                         </Stack>
-                        {oidc?.draft?.testResult && (
+                        {oidc?.draft?.testResult?.passed === false && (
+                            <Alert severity='error'>Test failed. {oidc.draft.testResult.reason || 'This identity cannot sign in.'}</Alert>
+                        )}
+                        {oidc?.draft?.tested && oidc?.draft?.testResult && (
                             <Alert severity='success'>
                                 Test passed. Steps: {(oidc.draft.testResult.steps || []).join(', ')}. Returned email:{' '}
                                 {oidc.draft.testResult.email || 'not returned'}. Assurance: {oidc.draft.testResult.assuranceBasis}.

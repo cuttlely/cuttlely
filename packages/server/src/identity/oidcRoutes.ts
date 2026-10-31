@@ -30,12 +30,13 @@ import {
     OidcError
 } from './oidcProvider'
 import {
-    isEntraAuthorityIssuer,
     migrateLegacyProviderLinks,
+    oidcConfigurationTestPassed,
     oidcConfigurationFingerprint,
     oidcProviderKey,
     providerLinkMigrationStatus,
     readOidcConfiguration,
+    recordOidcTestFailure,
     recordOidcTestResult,
     resolveOidcUser,
     saveOidcDraft,
@@ -119,10 +120,32 @@ function configurationBody(config: Awaited<ReturnType<typeof readOidcConfigurati
         health: config.health,
         healthError: config.healthError,
         checkedAt: config.checkedAt,
-        tested: config.testedFingerprint === config.fingerprint,
+        tested: oidcConfigurationTestPassed(config),
         testedAt: config.testedAt,
         testResult: config.testResult,
         version: config.version
+    }
+}
+
+function oidcTestFailureReason(reason: string): string {
+    switch (reason) {
+        case 'email_required':
+            return 'The provider did not return an email address, and this identity has no existing subject link.'
+        case 'email_not_assured':
+            return 'The provider did not assure the returned email address.'
+        case 'unknown':
+        case 'bootstrap_denied':
+            return 'No Cuttlely user matches the returned email address.'
+        case 'ambiguous':
+            return 'More than one Cuttlely user matches the returned email address.'
+        case 'invite_required':
+            return 'The matching Cuttlely user has a pending invitation. Complete the invitation before testing sign-in.'
+        case 'inactive':
+            return 'The matching Cuttlely user is not active.'
+        case 'link_conflict':
+            return 'This provider identity conflicts with an existing Cuttlely identity link.'
+        default:
+            return 'This identity would not be accepted by ordinary sign-in.'
     }
 }
 
@@ -427,20 +450,26 @@ oidcAuthRouter.get(
                 if (!current.user || current.user.id !== completed.envelope.initiatingUserId) {
                     throw new OidcError('transaction', 'The test sign-in binding is invalid.')
                 }
-                const basis =
-                    completed.identity.emailVerified === true
-                        ? 'email_verified'
-                        : completed.identity.xmsEdov === true && isEntraAuthorityIssuer(completed.identity.issuer)
-                        ? 'xms_edov'
-                        : completed.identity.emailVerified === undefined &&
-                          completed.identity.emailVerificationPresent !== true &&
-                          completed.config.trustMissingEmailVerification
-                        ? 'issuer_trusted'
-                        : 'not_assured'
+                const linked = await resolveOidcUser(applicationDataSource(), identityStore(), completed.identity, {
+                    trustMissing: completed.config.trustMissingEmailVerification,
+                    bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL,
+                    linkIdentity: false
+                })
+                if (!linked.ok) {
+                    await recordOidcTestFailure(applicationDataSource(), completed.config.fingerprint, {
+                        passed: false,
+                        steps: ['discovery', 'authorization', 'token', 'signature', 'claims', 'identity'],
+                        email: completed.identity.email || null,
+                        reason: oidcTestFailureReason(linked.reason)
+                    })
+                    return void res.redirect(302, '/authentication-settings?oidcTest=failed')
+                }
                 await recordOidcTestResult(applicationDataSource(), completed.config.fingerprint, {
-                    steps: ['discovery', 'authorization', 'token', 'signature', 'claims'],
+                    passed: true,
+                    identityAccepted: true,
+                    steps: ['discovery', 'authorization', 'token', 'signature', 'claims', 'identity'],
                     email: completed.identity.email || null,
-                    assuranceBasis: basis
+                    assuranceBasis: linked.basis
                 })
                 return void res.redirect(302, '/authentication-settings?oidcTest=passed')
             }

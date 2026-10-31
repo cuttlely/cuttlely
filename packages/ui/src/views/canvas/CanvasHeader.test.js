@@ -27,7 +27,7 @@ jest.mock('@/api/flowDrafts', () => ({
     default: { discardDraft: jest.fn(), publish: jest.fn() }
 }))
 jest.mock('@/views/settings', () => () => null)
-jest.mock('@/ui-component/flow/FlowiseMigrationWizard', () => () => null)
+jest.mock('@/ui-component/flow/FlowiseMigrationWizard', () => jest.fn(() => null))
 jest.mock('@/ui-component/dialog/SaveChatflowDialog', () => () => null)
 jest.mock('@/views/chatflows/APICodeDialog', () => () => null)
 jest.mock('@/ui-component/dialog/ViewMessagesDialog', () => () => null)
@@ -44,6 +44,7 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
+import FlowiseMigrationWizard from '@/ui-component/flow/FlowiseMigrationWizard'
 import CanvasHeader from './CanvasHeader'
 
 const { confirm } = jest.requireMock('@/hooks/useConfirm').default()
@@ -76,7 +77,7 @@ describe('Canvas header discard', () => {
         document.body.innerHTML = ''
     })
 
-    const open = async (flowData, type = 'ETL') => {
+    const open = async (flowData, type = 'ETL', headerProps = {}) => {
         const onApplyCanvas = jest.fn()
         const container = document.createElement('div')
         document.body.appendChild(container)
@@ -98,7 +99,8 @@ describe('Canvas header discard', () => {
                             mode: 'draft',
                             draft: { flowData: graph('Streaming Files', 'draft.csv'), stale: true }
                         },
-                        onApplyCanvas
+                        onApplyCanvas,
+                        ...headerProps
                     })
                 )
             )
@@ -140,6 +142,20 @@ describe('Canvas header discard', () => {
         await discard()
         expect(flowDraftsApi.discardDraft).toHaveBeenCalledWith('flow-1')
         expect(view.onApplyCanvas).not.toHaveBeenCalled()
+        act(() => view.root.unmount())
+    })
+
+    it('passes a catalog failure and retry action to the wizard', async () => {
+        const retry = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', {
+            catalogLoading: false,
+            catalogError: new Error('catalog unavailable'),
+            onRetryCatalog: retry
+        })
+        const props = FlowiseMigrationWizard.mock.calls.at(-1)[0]
+        expect(props.catalogPending).toBe(false)
+        expect(props.catalogFailed).toBe(true)
+        expect(props.onRetryCatalog).toBe(retry)
         act(() => view.root.unmount())
     })
 })

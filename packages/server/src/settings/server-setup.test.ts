@@ -4,6 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import request from 'supertest'
+import * as authenticationState from '../identity/authenticationState'
 import {
     announceFirstRunSetup,
     bindSetupCodeStore,
@@ -201,6 +202,25 @@ describe('the setup link in the log', () => {
         const authKitOn = { ...env, ...FAKE }
         expect(await announceFirstRunSetup(3000, async () => 0, log, false, authKitOn)).toBe('none')
         expect(lines).toEqual([])
+    })
+
+    it('does not announce recovery while the durable OIDC method is active', async () => {
+        const selected = jest.spyOn(authenticationState, 'selectedAuthenticationMethod').mockReturnValue('oidc')
+        const lines: string[] = []
+        try {
+            expect(
+                await announceFirstRunSetup(
+                    3000,
+                    async () => 1,
+                    (line) => lines.push(line),
+                    false,
+                    env
+                )
+            ).toBe('none')
+            expect(lines).toEqual([])
+        } finally {
+            selected.mockRestore()
+        }
     })
 
     it('falls back to APP_URL, then this machine', () => {

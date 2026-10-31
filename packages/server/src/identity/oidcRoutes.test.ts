@@ -7,7 +7,10 @@ const readAuthenticationState = jest.fn()
 const safeRecordAudit = jest.fn()
 const buildAuthContext = jest.fn()
 const issueDatabaseSession = jest.fn()
+const establishSession = jest.fn()
 const resolveOidcUser = jest.fn()
+const recordOidcTestFailure = jest.fn()
+const recordOidcTestResult = jest.fn()
 const organizationsForUser = jest.fn()
 const recentlyAuthenticated = jest.fn()
 const readOidcConfiguration = jest.fn()
@@ -24,7 +27,7 @@ jest.mock('./production', () => ({
 }))
 jest.mock('./handlers', () => {
     const actual = jest.requireActual('./handlers')
-    return { ...actual, issueDatabaseSession, establishSession: jest.fn() }
+    return { ...actual, issueDatabaseSession, establishSession }
 })
 jest.mock('./authenticationRoutes', () => ({ recentlyAuthenticated }))
 jest.mock('./rbac', () => ({ requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next() }))
@@ -41,6 +44,8 @@ jest.mock('./oidcStore', () => {
     return {
         ...actual,
         resolveOidcUser,
+        recordOidcTestFailure,
+        recordOidcTestResult,
         readOidcConfiguration,
         providerLinkMigrationStatus,
         migrateLegacyProviderLinks,
@@ -99,7 +104,7 @@ function oidcConfig(slot: 'draft' | 'active', issuer: string, clientId: string, 
         checkedAt: '2026-10-31T12:00:00.000Z',
         testedFingerprint: fingerprint,
         testedAt: '2026-10-31T12:00:00.000Z',
-        testResult: null,
+        testResult: { identityAccepted: true },
         version: 1
     }
 }
@@ -219,6 +224,80 @@ describe('OIDC callback audit outcomes', () => {
         const error = new URL(throttled.headers.location, 'http://localhost').searchParams.get('error')
         expect(JSON.parse(error || '{}')).toEqual({ message: 'Too many attempts. Try again later.' })
         expect(completeOidcAuthorization).toHaveBeenCalledTimes(20)
+    })
+})
+
+describe('OIDC administrator test callback', () => {
+    const completion = {
+        envelope: { purpose: 'test', initiatingUserId: 'admin-1', authEpoch: 4, redirectTarget: '/authentication-settings' },
+        config: { fingerprint: 'draft-fingerprint', trustMissingEmailVerification: false },
+        identity: {
+            providerKey: 'provider-1',
+            subject: 'subject-1',
+            issuer: 'https://issuer.example',
+            email: 'ada@example.com',
+            emailVerified: true,
+            emailVerificationPresent: true
+        }
+    }
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        readAuthenticationState.mockResolvedValue({ authenticationEpoch: 4, activeMethod: 'local' })
+        establishSession.mockResolvedValue({ user: { id: 'admin-1' } })
+        completeOidcAuthorization.mockResolvedValue(completion)
+    })
+
+    it('passes only after the identity is accepted by ordinary sign-in rules', async () => {
+        resolveOidcUser.mockResolvedValue({ ok: true, user: { id: 'user-1' }, basis: 'email_verified' })
+
+        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+
+        expect(response.status).toBe(302)
+        expect(response.headers.location).toBe('/authentication-settings?oidcTest=passed')
+        expect(resolveOidcUser).toHaveBeenCalledWith(expect.anything(), expect.anything(), completion.identity, {
+            trustMissing: false,
+            bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL,
+            linkIdentity: false
+        })
+        expect(recordOidcTestResult).toHaveBeenCalledWith(
+            expect.anything(),
+            'draft-fingerprint',
+            expect.objectContaining({ passed: true, identityAccepted: true, assuranceBasis: 'email_verified' })
+        )
+        expect(recordOidcTestFailure).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'a missing email',
+            { email: undefined },
+            'email_required',
+            'The provider did not return an email address, and this identity has no existing subject link.'
+        ],
+        [
+            'an email without assurance',
+            { emailVerified: false },
+            'email_not_assured',
+            'The provider did not assure the returned email address.'
+        ],
+        ['an email with no matching user', {}, 'unknown', 'No Cuttlely user matches the returned email address.']
+    ])('fails for %s without recording a tested fingerprint', async (_name, identityPatch, reason, message) => {
+        const identity = { ...completion.identity, ...identityPatch }
+        completeOidcAuthorization.mockResolvedValueOnce({ ...completion, identity })
+        resolveOidcUser.mockResolvedValue({ ok: false, reason })
+
+        const response = await request(app()).get('/api/v1/auth/oidc/callback?state=callback-state&code=callback-code')
+
+        expect(response.status).toBe(302)
+        expect(response.headers.location).toBe('/authentication-settings?oidcTest=failed')
+        expect(recordOidcTestFailure).toHaveBeenCalledWith(expect.anything(), 'draft-fingerprint', {
+            passed: false,
+            steps: ['discovery', 'authorization', 'token', 'signature', 'claims', 'identity'],
+            email: identity.email || null,
+            reason: message
+        })
+        expect(recordOidcTestResult).not.toHaveBeenCalled()
     })
 })
 

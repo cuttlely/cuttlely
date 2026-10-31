@@ -12,7 +12,7 @@ import { createHash, randomBytes, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { isUsablePasswordHash } from './password'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
-import { oidcProviderKey, oidcRuntimeConfigurationDigest } from './oidcStore'
+import { oidcProviderKey, oidcRuntimeConfigurationDigest, oidcTestResultAccepted } from './oidcStore'
 
 export type AuthenticationMethod = 'local' | 'workos' | 'oidc'
 export type AuthenticationWarningKind = 'configuration-ambiguous' | 'method-missing' | 'workos-client-mismatch'
@@ -740,7 +740,8 @@ export async function switchAuthenticationMethod(
             (!oidcDraft ||
                 !fingerprint ||
                 String(value(oidcDraft, 'health')) !== 'ready' ||
-                String(value(oidcDraft, 'testedFingerprint') || '') !== fingerprint)
+                String(value(oidcDraft, 'testedFingerprint') || '') !== fingerprint ||
+                !oidcTestResultAccepted(value(oidcDraft, 'testResult')))
         )
             throw new Error('OIDC_TEST_REQUIRED')
         if (method === 'local' && !localUsersSetting()) throw new Error('METHOD_NOT_READY')

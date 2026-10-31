@@ -1,0 +1,107 @@
+{
+    "name": "Made-up older support chat",
+    "type": "CHATFLOW",
+    "flowData": {
+        "nodes": [
+            {
+                "id": "chatOpenAI_0",
+                "position": { "x": 80, "y": 40 },
+                "data": {
+                    "id": "chatOpenAI_0",
+                    "label": "Model",
+                    "name": "chatOpenAI",
+                    "version": 7,
+                    "type": "ChatOpenAI",
+                    "category": "Chat Models",
+                    "baseClasses": ["ChatOpenAI", "BaseChatModel", "BaseLanguageModel", "Runnable"],
+                    "credential": "made-up-credential-id",
+                    "inputParams": [{ "label": "Connect Credential", "name": "credential", "type": "credential" }],
+                    "inputAnchors": [],
+                    "inputs": { "modelName": "made-up-model" },
+                    "outputAnchors": [
+                        {
+                            "id": "chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel|BaseLanguageModel|Runnable",
+                            "name": "chatOpenAI",
+                            "type": "ChatOpenAI | BaseChatModel | BaseLanguageModel | Runnable"
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "bufferMemory_0",
+                "position": { "x": 80, "y": 260 },
+                "data": {
+                    "id": "bufferMemory_0",
+                    "label": "Memory",
+                    "name": "bufferMemory",
+                    "version": 1,
+                    "type": "BufferMemory",
+                    "category": "Memory",
+                    "baseClasses": ["BufferMemory", "BaseMemory"],
+                    "inputParams": [],
+                    "inputAnchors": [],
+                    "inputs": {},
+                    "outputAnchors": [
+                        {
+                            "id": "bufferMemory_0-output-bufferMemory-BufferMemory|BaseMemory",
+                            "name": "bufferMemory",
+                            "type": "BufferMemory | BaseMemory"
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "conversationChain_0",
+                "position": { "x": 480, "y": 140 },
+                "data": {
+                    "id": "conversationChain_0",
+                    "label": "Conversation",
+                    "name": "conversationChain",
+                    "version": 2,
+                    "type": "ConversationChain",
+                    "category": "Chains",
+                    "baseClasses": ["ConversationChain", "BaseChain", "Runnable"],
+                    "inputParams": [],
+                    "inputAnchors": [
+                        {
+                            "id": "conversationChain_0-input-model-BaseChatModel",
+                            "label": "Chat Model",
+                            "name": "model",
+                            "type": "BaseChatModel"
+                        },
+                        {
+                            "id": "conversationChain_0-input-memory-BaseMemory",
+                            "label": "Memory",
+                            "name": "memory",
+                            "type": "BaseMemory"
+                        }
+                    ],
+                    "inputs": {},
+                    "outputAnchors": [
+                        {
+                            "id": "conversationChain_0-output-conversationChain-ConversationChain|BaseChain|Runnable",
+                            "name": "conversationChain",
+                            "type": "ConversationChain | BaseChain | Runnable"
+                        }
+                    ]
+                }
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge-model-chain",
+                "source": "chatOpenAI_0",
+                "sourceHandle": "chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel|BaseLanguageModel|Runnable",
+                "target": "conversationChain_0",
+                "targetHandle": "conversationChain_0-input-model-BaseChatModel"
+            },
+            {
+                "id": "edge-memory-chain",
+                "source": "bufferMemory_0",
+                "sourceHandle": "bufferMemory_0-output-bufferMemory-BufferMemory|BaseMemory",
+                "target": "conversationChain_0",
+                "targetHandle": "conversationChain_0-input-memory-BaseMemory"
+            }
+        ]
+    }
+}

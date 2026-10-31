@@ -603,7 +603,15 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
 
     const name = unwrapped.name || 'Imported Flowise chatflow'
     const route = migrationRoute(prepared.length ? prepared : sourceNodes, type)
-    if (!unsupported.length && route === '/canvas' && !chatflowWouldChat(prepared, edges)) {
+    let finalNodes = prepared
+    let finalEdges = edges
+    if (!unsupported.length && typeof options.heal === 'function') {
+        const healed = options.heal({ nodes: prepared, edges, route })
+        if (Array.isArray(healed?.nodes)) finalNodes = healed.nodes
+        if (Array.isArray(healed?.edges)) finalEdges = healed.edges
+        if (Array.isArray(healed?.attention)) attention.push(...healed.attention)
+    }
+    if (!unsupported.length && route === '/canvas' && !chatflowWouldChat(finalNodes, finalEdges)) {
         attention.push(CHATFLOW_NEEDS_ENDING_NODE)
     }
 
@@ -627,8 +635,8 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
     }
 
     const canvas = {
-        nodes: prepared,
-        edges
+        nodes: finalNodes,
+        edges: finalEdges
     }
     if (graph.viewport && typeof graph.viewport === 'object') canvas.viewport = graph.viewport
 
@@ -641,7 +649,7 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
         reason: null,
         name,
         route,
-        counts: { nodes: prepared.length, edges: edges.length, clean },
+        counts: { nodes: finalNodes.length, edges: finalEdges.length, clean },
         credentials,
         deprecated,
         unsupported,

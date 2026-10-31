@@ -26,6 +26,19 @@ export interface OidcConfiguration {
     version: number
 }
 
+export function oidcTestResultAccepted(result: unknown): boolean {
+    try {
+        const parsed = typeof result === 'string' ? JSON.parse(result) : result
+        return Boolean(parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).identityAccepted === true)
+    } catch {
+        return false
+    }
+}
+
+export function oidcConfigurationTestPassed(config: Pick<OidcConfiguration, 'fingerprint' | 'testedFingerprint' | 'testResult'>): boolean {
+    return config.testedFingerprint === config.fingerprint && oidcTestResultAccepted(config.testResult)
+}
+
 export interface ProviderLink {
     providerKey: string
     subject: string
@@ -210,7 +223,7 @@ export function oidcRuntimeConfigurationDigest(
 }
 
 export function testedOidcDraftDiffersFromActive(draft: OidcConfiguration | null, active: OidcConfiguration | null): boolean {
-    if (!draft || draft.health !== 'ready' || draft.testedFingerprint !== draft.fingerprint) return false
+    if (!draft || draft.health !== 'ready' || !oidcConfigurationTestPassed(draft)) return false
     return !active || oidcRuntimeConfigurationDigest(draft) !== oidcRuntimeConfigurationDigest(active)
 }
 
@@ -325,6 +338,29 @@ export async function recordOidcTestResult(
                 'testResult'
             )} = ?, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'slot')} = 'draft' AND ${q(d, 'fingerprint')} = ?`,
             [fingerprint, dateValue(runner, now), JSON.stringify(result), fingerprint]
+        )
+    } finally {
+        await runner.release()
+    }
+}
+
+export async function recordOidcTestFailure(
+    dataSource: DataSource,
+    fingerprint: string,
+    result: Record<string, unknown>,
+    now = Date.now()
+): Promise<void> {
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    try {
+        const d = dialect(runner)
+        await query(
+            runner,
+            `UPDATE ${q(d, 'identity_oidc_configuration')} SET ${q(d, 'testedFingerprint')} = NULL, ${q(d, 'testedAt')} = ?, ${q(
+                d,
+                'testResult'
+            )} = ?, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'slot')} = 'draft' AND ${q(d, 'fingerprint')} = ?`,
+            [dateValue(runner, now), JSON.stringify(result), fingerprint]
         )
     } finally {
         await runner.release()
@@ -673,7 +709,7 @@ export async function resolveOidcUser(
         xmsEdov?: boolean
         issuer: string
     },
-    options: { trustMissing: boolean; invitationToken?: string; bootstrapEmail?: string; now?: number }
+    options: { trustMissing: boolean; invitationToken?: string; bootstrapEmail?: string; now?: number; linkIdentity?: boolean }
 ): Promise<{ ok: true; user: UserRow; basis: string } | { ok: false; reason: string; basis?: string }> {
     const linked = await findProviderLink(dataSource, identity.providerKey, identity.subject)
     if (linked) {
@@ -745,6 +781,7 @@ export async function resolveOidcUser(
     }
     if (String(user.status).toLowerCase() !== 'active') return { ok: false, reason: 'inactive' }
     if (!basis) return { ok: false, reason: 'email_not_assured' }
+    if (options.linkIdentity === false) return { ok: true, user, basis }
     const created = await createProviderLink(dataSource, {
         providerKey: identity.providerKey,
         subject: identity.subject,
