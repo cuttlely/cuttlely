@@ -20,12 +20,14 @@ import {
     groupResourceType,
     groupSchema,
     mutateUser,
+    operationCategoryForGroupChanges,
     operationCategoryForUserChanges,
     pageUsers,
     userResourceType,
     userSchema,
     usersForOrganization
 } from './scim'
+import { groupPatchChanges } from './scimGroups'
 
 const { DatabaseSync } = require('node:sqlite') as {
     DatabaseSync: new (path: string) => {
@@ -390,6 +392,40 @@ describe('SCIM users', () => {
         expect(operationCategoryForUserChanges(patchChanges({ Operations: [{ op: 'Replace', path: 'displayName', value: 'New' }] }))).toBe(
             'usersUpdated'
         )
+    })
+
+    it('classifies group membership operations from parsed PATCH changes', () => {
+        expect(
+            operationCategoryForGroupChanges(
+                groupPatchChanges({ Operations: [{ op: 'Replace', path: 'displayName', value: 'Board Members' }] })
+            )
+        ).toBe('groupOperations')
+        expect(
+            operationCategoryForGroupChanges(
+                groupPatchChanges({ Operations: [{ op: 'Add', path: 'members', value: [{ value: 'scim-user-1' }] }] })
+            )
+        ).toBe('membershipOperations')
+    })
+
+    it('audits PATCH and PUT active-state transitions with their resulting actions', async () => {
+        const { sql, db } = directoryStore()
+        const created = await createUser(sql, actor, { userName: 'audit-transition@example.com' })
+
+        await mutateUser(sql, actor, created.id, { active: false }, 'updated')
+        await mutateUser(sql, actor, created.id, { active: true }, 'updated')
+        await mutateUser(sql, actor, created.id, { active: false }, 'replaced')
+        await mutateUser(sql, actor, created.id, { active: true }, 'replaced')
+        await mutateUser(sql, actor, created.id, { displayName: 'Updated name' }, 'updated')
+        await mutateUser(sql, actor, created.id, { displayName: 'Replaced name' }, 'replaced')
+
+        const operations = db
+            .prepare("SELECT detail FROM audit_event WHERE type = 'scim_user'")
+            .all()
+            .map((row) => JSON.parse(String(row.detail)).operation)
+        expect(operations.filter((operation) => operation === 'deactivated')).toHaveLength(2)
+        expect(operations.filter((operation) => operation === 'reactivated')).toHaveLength(2)
+        expect(operations).toEqual(expect.arrayContaining(['updated', 'replaced']))
+        db.close()
     })
 
     it.each([

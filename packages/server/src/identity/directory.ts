@@ -1296,6 +1296,13 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
             await assertSameWorkspace(query, sql, actor, id)
             await lockOrgOwners(query, sql, actor.organizationId, actor.id)
             const current = await workspaceInOrg(query, sql, id, actor.organizationId)
+            for (const item of TEAM_OWNED_ROWS) {
+                if (!item.message) continue
+                if ((await workspaceRowCount(query, sql, item.table, id)) > 0) {
+                    scimMappingRefused = true
+                    throw new DirectoryError(item.status || 409, item.message)
+                }
+            }
             if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be deleted')
             const members = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [
                 id
@@ -1304,11 +1311,8 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
             if ((await chatflowCount(query, sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
             const owned: string[] = []
             for (const item of TEAM_OWNED_ROWS) {
+                if (item.message) continue
                 if ((await workspaceRowCount(query, sql, item.table, id)) > 0) {
-                    if (item.message) {
-                        scimMappingRefused = true
-                        throw new DirectoryError(item.status || 409, item.message)
-                    }
                     owned.push(item.label)
                 }
             }

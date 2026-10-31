@@ -12,6 +12,7 @@ import {
     deleteGroup,
     groupPatchChanges,
     groupsForOrganization,
+    GroupChanges,
     GroupRecord,
     mutateGroup,
     pageGroups,
@@ -868,11 +869,16 @@ export async function mutateUser(
     now = Date.now()
 ): Promise<UserRecord> {
     let internalId = ''
+    let auditedOperation = operation
     try {
         await sql.transaction(async (query) => {
             const current = (await usersForOrganization(query, sql, actor.organizationId)).find((item) => item.id === resourceId)
             if (!current) throw new ScimError(404, 'User not found.', 'noTarget')
             internalId = current.userId
+            const currentlyActive = current.userStatus === 'active' && current.membershipStatus === 'active'
+            if (changes.active !== undefined && changes.active !== currentlyActive) {
+                auditedOperation = changes.active ? 'reactivated' : 'deactivated'
+            }
             const userName = changes.userName === undefined ? current.userName : changes.userName
             if (!validUserName(userName)) throw new ScimError(400, 'userName must be a valid email address.', 'invalidValue')
             if (changes.active === false) await deactivateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
@@ -928,14 +934,14 @@ export async function mutateUser(
         })
     } catch (error) {
         if (error instanceof DirectoryError && error.status === 409) {
-            await auditUser(sql, actor, operation, internalId || null, 'refused')
+            await auditUser(sql, actor, auditedOperation, internalId || null, 'refused')
             throw new ScimError(409, error.message, 'mutability')
         }
         const message = error instanceof Error ? error.message : ''
         if (/unique|duplicate/i.test(message)) throw new ScimError(409, 'A matching value already exists.', 'uniqueness')
         throw error
     }
-    await auditUser(sql, actor, operation, internalId)
+    await auditUser(sql, actor, auditedOperation, internalId)
     const updated = (await usersForOrganization(sql.query, sql, actor.organizationId)).find((item) => item.id === resourceId)
     if (!updated) throw new ScimError(404, 'User not found.', 'noTarget')
     return updated
@@ -1324,10 +1330,13 @@ function operationCategory(req: Request, status: number): string {
         return 'userRequests'
     }
     if (path.startsWith('/groups')) {
-        if (req.method === 'PATCH' && /members/i.test(JSON.stringify(req.body || {}))) return 'membershipOperations'
         return 'groupOperations'
     }
     return 'discoveryRequests'
+}
+
+export function operationCategoryForGroupChanges(changes: GroupChanges): 'membershipOperations' | 'groupOperations' {
+    return changes.memberOperations?.length ? 'membershipOperations' : 'groupOperations'
 }
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): (req: Request, res: Response, next: NextFunction) => void {
@@ -1433,7 +1442,9 @@ identityScimRouter.put(
 identityScimRouter.patch(
     '/Groups/:id',
     asyncRoute(async (req, res) => {
-        const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, groupPatchChanges(req.body))
+        const changes = groupPatchChanges(req.body)
+        res.locals.scimOperationCategory = operationCategoryForGroupChanges(changes)
+        const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, changes)
         res.status(200).json(scimGroup(updated, requestedAttributes(req.query)))
     })
 )

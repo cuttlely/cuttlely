@@ -677,7 +677,11 @@ describe('local directory rules', () => {
         db.exec(`
             INSERT INTO workspace (id, name, "organizationId") VALUES ('team-mapped', 'Mapped', '${ORG}');
             INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
-                VALUES ('team-mapped', '${OWNER}', 'role-owner', 'active');
+                VALUES
+                    ('team-mapped', '${OWNER}', 'role-owner', 'active'),
+                    ('team-mapped', 'member-1', 'role-member', 'active');
+            INSERT INTO identity_scim_user (id, organizationId, userId, deletedAt)
+                VALUES ('scim-team-member', '${ORG}', 'member-1', NULL);
             INSERT INTO identity_scim_group (id, organizationId, deletedAt) VALUES ('group-team', '${ORG}', NULL);
             INSERT INTO identity_scim_mapping (id, organizationId, groupId, workspaceId, roleId)
                 VALUES ('mapping-team', '${ORG}', 'group-team', 'team-mapped', NULL);
