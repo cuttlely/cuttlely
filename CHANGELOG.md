@@ -23,6 +23,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Chat model nodes no longer send `NaN` as the temperature when the field is empty or not a number. ChatOpenAI and 12 other chat models leave it out, so the model library's default applies (Part of [#362](https://github.com/cuttlely/cuttlely/issues/362)).
+
 -   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.
 
 ## [1.4.8] - 2026-10-30
