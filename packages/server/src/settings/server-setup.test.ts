@@ -342,6 +342,7 @@ describe('use a password for now', () => {
         expect(created[0].credential).not.toBe(GOOD_PASSWORD)
         expect(lastOwnerOptions?.consumeSetupHmac).toMatch(/^[0-9a-f]{64}$/i)
         expect(typeof lastOwnerOptions?.now).toBe('number')
+        expect(lastOwnerOptions?.activateLocalAuthentication).toBe(true)
         expect(cookiePathList(res.headers['set-cookie']).sort()).toEqual(['/', '/api/v1/auth/callback', '/api/v1/server-setup'])
         expect(readSettingsFile(dir, KEY).values.CUTTLELY_LOCAL_ADMIN).toBe('true')
         expect(readHistory(dir).map((entry) => entry.by)).toContain('setup link')

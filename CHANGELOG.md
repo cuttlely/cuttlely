@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   **Owner recovery** is always available from the sign-in page for any active owner with a usable local password. It creates a normal Cuttlely session marked as recovery use, uses stricter source and account throttling, and records every outcome as a high-severity audit event. A successful recovery also creates an administrator banner until audited acknowledgment and writes a structured warning. When SMTP is configured, owner alert email is best effort and an email delivery problem does not undo recovery. `CUTTLELY_LOCAL_ADMIN` continues to control the older compatibility route but is no longer required for recovery readiness.
+
 -   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.
 
 -   Trusted-output contracts can declare an optional monetary reporting symbol for verified readouts. Explicit source denominations take precedence, compact K/M/B values must match decimal-safe rounding of actual monetary source fields, and unchanged factual sections retain their original values. Counts and percentages stay in their source units.
@@ -15,15 +17,27 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Upgraded WorkOS installations now warn administrators on **Auth / SSO** and in an application banner until `CUTTLELY_LOCAL_ADMIN` is enabled and `pnpm user --email owner@example.com` has created an active owner recovery credential. Phase A does not enable recovery or change sign-in behavior. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until an active owner has a usable local password; the latter is checked again in the switch transaction.
+-   WorkOS, local login, and owner recovery now use the same Cuttlely database session and browser cookie. On the first start after upgrading, a durable database marker ends the older sealed WorkOS browser sessions once, so those users sign in again one time. Existing local-user installs are unchanged, and API keys continue working.
 
--   Every sign-in method switch increments the authentication epoch. Valid existing sealed WorkOS sessions remain accepted until the first method switch and gain an epoch cookie after successful validation; epoch-bound sessions become invalid after a switch. Staged switches are durable, expiring, single-use database records that can be applied by another server process.
+-   Every session request and every owned API credential request checks the current user status, so disabling a user refuses the next call. A key created through another API key inherits its recorded owner. Keys from before 1.5.0 without a recorded owner remain usable but are not tied to a user and should be reviewed or rotated. WorkOS deactivation ends Cuttlely access immediately only when the Cuttlely user is also disabled; automatic IdP deactivation awaits SCIM.
 
--   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. The current integration cannot provide that proof, so administrators use a local owner password for this check. Ordinary WorkOS sign-in never records the evidence.
+-   Recovery readiness now means that any active owner has a usable local password. Administrators see a warning until `pnpm user --email owner@example.com` creates one; `CUTTLELY_LOCAL_ADMIN` is not required. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until recovery is ready.
+
+-   Every sign-in method switch increments the authentication epoch and ends all interactive database sessions. Staged switches are durable, expiring, single-use database records that can be applied by another server process. The stage and apply routes now have request limits (10 per client address in 15 minutes, counted in each server process).
+
+-   A WorkOS sign-in never counts as recent authentication. **Auth / SSO** directs a WorkOS administrator to **Owner recovery** for a method change; while Local login is active, **Sign in again** opens the local password form. A local password or owner recovery session satisfies the check for ten minutes. Authentication epoch binding is derived from `TOKEN_HASH_SECRET`.
+
+-   **Auth / SSO** now shows when the sign-in method last changed and how many sessions that change ended. A changed saved WorkOS client identity pauses automatic email and invitation linking until an administrator signs in again and acknowledges the warning; acknowledgment ends interactive sessions, records the outcome, and restores linking. A mixed Local login and WorkOS configuration remains informational and does not pause linking.
 
 ### Fixed
 
 -   Chatflow import now refreshes node versions and defaults, restores connected input references, and reports connections that need attention. If you imported a flow through the migration wizard in 1.4.8, open it and click **Sync Nodes** once. A flow served only through the API or an embed remains broken until someone opens it and does that.
+
+-   API credentials can no longer be created or updated with `authentication:` permissions. The complete `/api/v1/authentication-settings` route family now requires a signed-in session, so a previously stored credential with `authentication:manage` receives 401 before route permissions are evaluated.
+
+-   WorkOS sign-out ends the hosted AuthKit session again. The provider session id stays on the Cuttlely session row; sign-out deletes that row before creating the hosted logout URL and falls back to `/signin` if URL creation does not complete.
+
+-   Creating the first owner on a fresh owner-only installation, through browser setup or `pnpm user`, selects Local login in the same database transaction. `/signin` then shows the owner password form, and `POST /api/v1/auth/login` creates an ordinary Local session without recovery auditing, alerts, or owner notifications. An already-selected durable method is left unchanged, and existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login.
 
 -   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.
 

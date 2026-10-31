@@ -30,7 +30,11 @@ livePg('finds a local session on postgres, where user.id is a uuid and the sessi
             "absoluteExpiresAt" TIMESTAMP NOT NULL,
             "createdDate" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "lastSeenAt" TIMESTAMP,
-            "permissionVersion" integer NOT NULL DEFAULT 0
+            "permissionVersion" integer NOT NULL DEFAULT 0,
+            "authenticationMethod" varchar(32) NULL,
+            "authenticationEpoch" integer NULL,
+            "recoveryUse" integer NOT NULL DEFAULT 0,
+            "workosSessionId" varchar(255) NULL
         )`)
         const userId = '6f1d3a52-2c4b-4c1e-9a57-0d3b8f6e2a10'
         await db.query(`INSERT INTO "user" (id, "permissionVersion") VALUES ($1, 3)`, [userId])
@@ -47,16 +51,93 @@ livePg('finds a local session on postgres, where user.id is a uuid and the sessi
             userId,
             token: 'hashed-token',
             idleExpires: new Date(now + 60_000),
-            absoluteExpires: new Date(now + 120_000)
+            absoluteExpires: new Date(now + 120_000),
+            authenticationMethod: 'workos',
+            workosSessionId: 'workos-session-1'
         })
         const found = await store.findLocalSession('hashed-token')
-        expect(found).toEqual(expect.objectContaining({ id: 'session-1', userId, permissionVersion: 3, currentPermissionVersion: 3 }))
+        expect(found).toEqual(
+            expect.objectContaining({
+                id: 'session-1',
+                userId,
+                permissionVersion: 3,
+                currentPermissionVersion: 3,
+                authenticationMethod: 'workos',
+                workosSessionId: 'workos-session-1'
+            })
+        )
     } finally {
         await db.end()
         const drop = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
         await drop.connect()
         await drop.query(`DROP DATABASE IF EXISTS ${name}`)
         await drop.end()
+    }
+})
+
+it('stores and finds a WorkOS session id on sqlite', async () => {
+    const { DatabaseSync } = require('node:sqlite') as {
+        DatabaseSync: new (path: string) => {
+            exec(sql: string): void
+            close(): void
+            prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+        }
+    }
+    const db = new DatabaseSync(':memory:')
+    db.exec(`
+        CREATE TABLE "user" (id text PRIMARY KEY, "permissionVersion" integer NOT NULL DEFAULT 0);
+        CREATE TABLE identity_local_session (
+            id text NOT NULL PRIMARY KEY,
+            "userId" text NOT NULL,
+            token text NOT NULL UNIQUE,
+            "expiresAt" datetime NOT NULL,
+            "absoluteExpiresAt" datetime NOT NULL,
+            "createdDate" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "lastSeenAt" datetime,
+            "permissionVersion" integer NOT NULL DEFAULT 0,
+            "authenticationMethod" varchar(32),
+            "authenticationEpoch" integer,
+            "recoveryUse" integer NOT NULL DEFAULT 0,
+            "workosSessionId" varchar(255)
+        );
+        INSERT INTO "user" (id, "permissionVersion") VALUES ('user-1', 4);
+    `)
+    const runner = {
+        connection: { options: { type: 'sqlite' } },
+        connect: async () => undefined,
+        release: async () => undefined,
+        query: async (statement: string, params: unknown[] = []) => {
+            const prepared = db.prepare(statement)
+            const values = params.map((value) => (value instanceof Date ? value.toISOString() : value))
+            if (/^\s*(select|with|pragma)\b/i.test(statement)) return prepared.all(...values)
+            prepared.run(...values)
+            return []
+        }
+    }
+    const store = new SqlIdentityStore({ createQueryRunner: () => runner } as unknown as DataSource)
+    try {
+        const now = Date.now()
+        await store.insertLocalSession({
+            id: 'session-1',
+            userId: 'user-1',
+            token: 'hashed-token',
+            idleExpires: new Date(now + 60_000),
+            absoluteExpires: new Date(now + 120_000),
+            authenticationMethod: 'workos',
+            workosSessionId: 'workos-session-1'
+        })
+        expect(await store.findLocalSession('hashed-token')).toEqual(
+            expect.objectContaining({
+                id: 'session-1',
+                userId: 'user-1',
+                permissionVersion: 4,
+                currentPermissionVersion: 4,
+                authenticationMethod: 'workos',
+                workosSessionId: 'workos-session-1'
+            })
+        )
+    } finally {
+        db.close()
     }
 })
 

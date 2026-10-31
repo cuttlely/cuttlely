@@ -568,6 +568,11 @@
             "to": "packages/server/src/DataSource.ts"
         },
         {
+            "from": "packages/server/src/identity/recovery.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
             "from": "packages/server/src/identity/sqlStore.mysql.test.ts",
             "to": "packages/server/src/database/migrations/mariadb/index.ts",
             "reason": "the live MySQL and MariaDB setup-code test runs each dialect's migration list"
@@ -1846,6 +1851,41 @@
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
             "to": "packages/ui/src/utils/usePrompt.js"
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/api/auth.js",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/store/index.jsx",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/store/reducers/authSlice.js",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/ui-component/extended/Logo.jsx",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
+        },
+        {
+            "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
+            "to": "packages/ui/src/ui-component/input/Input.jsx",
+            "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
         },
         {
             "from": "packages/ui/src/views/auth/signIn.test.js",

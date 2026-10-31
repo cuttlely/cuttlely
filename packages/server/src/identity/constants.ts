@@ -24,7 +24,6 @@ export const LOCAL_SESSION_COOKIE = 'cuttlely-local-session'
 /** Opaque handle for a server-side fresh-sign-in record. */
 export const RECENT_AUTH_COOKIE = 'cuttlely-recent-auth'
 export const REAUTH_STATE_COOKIE = 'cuttlely-reauth-state'
-export const REAUTH_STATE_COOKIE_MS = 10 * 60 * 1000
 
 /** Raw invite token held only for the AuthKit round trip. The callback always clears it. */
 export const INVITE_COOKIE = 'cuttlely-invite'

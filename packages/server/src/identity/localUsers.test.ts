@@ -56,19 +56,27 @@ jest.mock('./production', () => {
     const { cookieSecure } = jest.requireActual('./cookies') as typeof import('./cookies')
     const { LoginRateLimit } = jest.requireActual('./rateLimit') as typeof import('./rateLimit')
     return {
+        applicationDataSource: () => null,
+        identityStore: () => mockRouteStore.current,
         refreshAuthenticationView: () => mockRefreshView(),
         buildAuthContext: (req: Request) => {
             const redirectUri = process.env.WORKOS_REDIRECT_URI
+            const state = jest.requireActual('./authenticationState') as typeof import('./authenticationState')
+            const selected = state.selectedAuthenticationMethod()
+            const localUsers = localUsersMode()
+            const authKit = workosConfigured()
             return {
-                workosConfigured: workosConfigured(),
+                activeAuthenticationMethod: selected === undefined ? (localUsers ? 'local' : authKit ? 'workos' : null) : selected,
+                workosConfigured: authKit,
                 localAdmin: localAdminEnabled(),
-                localUsers: localUsersMode(),
+                localUsers,
                 cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
                 redirectUri,
                 secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
                 now: Date.parse('2026-10-14T00:00:00.000Z'),
                 ip: req.ip || '203.0.113.8',
                 internal: req.headers['x-request-from'] === 'internal',
+                code: typeof req.query.code === 'string' ? req.query.code : undefined,
                 body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
                 cookies: (req.cookies || {}) as Record<string, string | undefined>,
                 store: mockRouteStore.current,
@@ -82,7 +90,9 @@ jest.mock('./production', () => {
                     logoutUrl: async () => 'https://authkit.example/logout',
                     setExternalId: async () => undefined
                 },
-                rateLimit: new LoginRateLimit()
+                rateLimit: new LoginRateLimit(),
+                recoveryRateLimit: new LoginRateLimit(5),
+                noteRecoveryAttempt: async () => undefined
             }
         }
     }
@@ -151,6 +161,11 @@ class MemoryStore implements IdentityStore {
         const user = this.users.find((row) => row.id === this.ownerId) || null
         if (!user || user.status.toLowerCase() !== 'active') return null
         return user
+    }
+
+    async isActiveOwner(userId: string): Promise<boolean> {
+        const user = this.users.find((row) => row.id === userId)
+        return Boolean(user && user.id === this.ownerId && user.status.toLowerCase() === 'active' && !this.disabled.has(userId))
     }
     async setCredential(userId: string, credential: string): Promise<void> {
         const user = this.users.find((row) => row.id === userId)
@@ -348,16 +363,63 @@ describe('local users mode', () => {
         setTeamPermissionLookup(null)
     })
 
+    it('sets strict headers on every owner recovery login response', async () => {
+        const response = await request(localRouteApp()).post('/api/v1/auth/recovery/login').send({})
+        expect(response.status).toBe(401)
+        expect(response.headers['cache-control']).toBe('no-store')
+        expect(response.headers['referrer-policy']).toBe('no-referrer')
+        expect(response.headers['x-frame-options']).toBe('DENY')
+        expect(response.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+    })
+
+    it('sets no-store on a successful owner login and a callback redirect', async () => {
+        const { store } = await seed()
+        mockRouteStore.current = store
+        const http = request(localRouteApp())
+        const saved = {
+            admin: process.env.CUTTLELY_LOCAL_ADMIN,
+            workos: process.env.WORKOS_API_KEY,
+            client: process.env.WORKOS_CLIENT_ID
+        }
+        const restore = (name: string, value: string | undefined) => {
+            if (value === undefined) delete process.env[name]
+            else process.env[name] = value
+        }
+        try {
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            delete process.env.WORKOS_API_KEY
+            delete process.env.WORKOS_CLIENT_ID
+            const login = await http
+                .post('/api/v1/auth/login')
+                .set('x-request-from', 'internal')
+                .send({ email: 'owner@example.com', password: GOOD })
+            expect(login.status).toBe(200)
+            expect(login.headers['cache-control']).toBe('no-store')
+
+            process.env.WORKOS_API_KEY = 'test_value'
+            process.env.WORKOS_CLIENT_ID = 'client_test'
+            const callback = await http.get('/api/v1/auth/callback?code=test_code')
+            expect(callback.status).toBe(302)
+            expect(callback.headers.location).toContain('/signin?error=')
+            expect(callback.headers['cache-control']).toBe('no-store')
+        } finally {
+            mockRouteStore.current = null
+            restore('CUTTLELY_LOCAL_ADMIN', saved.admin)
+            restore('WORKOS_API_KEY', saved.workos)
+            restore('WORKOS_CLIENT_ID', saved.client)
+        }
+    })
+
     it('states each combination of the owner flag, local users, and AuthKit', async () => {
         const rows: { admin: boolean; users: boolean; authKit: boolean; methods: string[]; local: boolean; owner: boolean }[] = [
             { admin: false, users: false, authKit: false, methods: [], local: false, owner: false },
             { admin: true, users: false, authKit: false, methods: ['localAdmin'], local: false, owner: true },
             { admin: false, users: true, authKit: false, methods: ['localUsers'], local: true, owner: false },
-            { admin: true, users: true, authKit: false, methods: ['localAdmin', 'localUsers'], local: true, owner: true },
+            { admin: true, users: true, authKit: false, methods: ['localUsers'], local: true, owner: true },
             { admin: false, users: false, authKit: true, methods: ['authKit'], local: false, owner: false },
-            { admin: true, users: false, authKit: true, methods: ['authKit', 'localAdmin'], local: false, owner: true },
+            { admin: true, users: false, authKit: true, methods: ['authKit'], local: false, owner: true },
             { admin: false, users: true, authKit: true, methods: ['authKit'], local: false, owner: false },
-            { admin: true, users: true, authKit: true, methods: ['authKit', 'localAdmin'], local: false, owner: true }
+            { admin: true, users: true, authKit: true, methods: ['authKit'], local: false, owner: true }
         ]
         const { store } = await seed()
         for (const row of rows) {
@@ -388,7 +450,7 @@ describe('local users mode', () => {
                     })
                 )
             )
-            expect(owner.status).toBe(row.owner ? 200 : 404)
+            expect(owner.status).toBe(200)
         }
     })
 
@@ -407,6 +469,7 @@ describe('local users mode', () => {
         const raw = ok.cookies?.[0].value || ''
         const row = store.local.get(hashSessionToken(raw))
         expect(row?.userId).toBe('user-a')
+        expect(row).toMatchObject({ authenticationMethod: 'local', recoveryUse: false })
         expect(row?.idleExpires.getTime()).toBe(NOW + IDLE_MS)
         expect(row?.absoluteExpires.getTime()).toBe(NOW + ABSOLUTE_MS)
         expect(JSON.stringify(ok.body)).not.toContain(OTHER)
@@ -659,6 +722,31 @@ describe('local users mode', () => {
         expect(owner.credential).toBe(ownerHash)
         expect(memberLimit.retained()).toBe(2)
         expect(ownerLimit.retained()).toBe(2)
+    })
+
+    it('shares ordinary failed-attempt limits between local-user and owner routes', async () => {
+        const { store } = await seed()
+        const rateLimit = new LoginRateLimit(2)
+        const member = json(
+            await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } }))
+        )
+        const owner = json(
+            await handleLoginPost(
+                ctx({
+                    activeAuthenticationMethod: 'local',
+                    store,
+                    localAdmin: true,
+                    internal: true,
+                    rateLimit,
+                    body: { email: 'owner@example.com', password: 'Wrong-Pass1!' }
+                })
+            )
+        )
+        const blocked = json(await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: OTHER } })))
+
+        expect(member.status).toBe(401)
+        expect(owner.status).toBe(401)
+        expect(blocked.status).toBe(429)
     })
 
     it('rejects a malformed or empty bcrypt hash on local login', async () => {
@@ -1033,6 +1121,7 @@ describe('local users mode', () => {
         expect(whitelist).toContain('/api/v1/auth/local/login')
         expect(whitelist).toContain('/api/v1/auth/options')
         expect(whitelist).toContain('/api/v1/auth/local/logout')
+        expect(whitelist).toContain('/api/v1/auth/recovery/login')
         expect(whitelist).toContain('/api/v1/auth/local/password')
 
         const server = express()
@@ -1073,7 +1162,7 @@ describe('local users mode', () => {
         expect(badHeader.body).toEqual({ message: 'Unauthorized' })
     })
 
-    it('answers local logout from the route: 401 without CSRF, 404 when the mode is off, and 200 twice', async () => {
+    it('answers local logout from the route: 401 without CSRF and 200 even when the mode is off', async () => {
         const { store } = await seed()
         mockRouteStore.current = store
         const http = request(localRouteApp())
@@ -1141,10 +1230,10 @@ describe('local users mode', () => {
                 .post('/api/v1/auth/local/logout')
                 .set('Cookie', 'cuttlely-local-session=member-raw')
                 .set('x-request-from', 'internal')
-            expect(missing.status).toBe(404)
-            expect(missing.body).toEqual({ message: 'Not Found' })
-            expect(missing.headers['set-cookie']).toBeUndefined()
-            expect(store.local.has(memberDigest)).toBe(true)
+            expect(missing.status).toBe(200)
+            expect(missing.body).toEqual({ message: 'logged_out', redirectTo: '/signin' })
+            expect(String(missing.headers['set-cookie'])).toContain('cuttlely-local-session=')
+            expect(store.local.has(memberDigest)).toBe(false)
             const passwordMissing = await http.post('/api/v1/auth/local/password').set('x-request-from', 'internal')
             expect(passwordMissing.status).toBe(404)
             expect(passwordMissing.body).toEqual({ message: 'Not Found' })
@@ -1195,7 +1284,7 @@ describe('local users mode', () => {
         }
     })
 
-    it('caps failed owner sign-ins on POST /login per client and leaves good sign-ins uncounted', async () => {
+    it('caps failed ordinary owner sign-ins on POST /login per client and leaves good sign-ins uncounted', async () => {
         const { store } = await seed()
         mockRouteStore.current = store
         let router = identityAuthRouter
@@ -1445,7 +1534,7 @@ describe('local users mode', () => {
         expect(Number(left[0]?.count || 0)).toBe(0)
     })
 
-    it('refuses a break-glass member session when local users mode is off', async () => {
+    it('refuses a member session when local users mode is off and ends recovery after owner demotion', async () => {
         const { store } = await seed()
         const ok = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         const raw = ok.cookies?.[0].value || ''
@@ -1464,6 +1553,11 @@ describe('local users mode', () => {
             ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': owner.cookies?.[0].value } })
         )
         expect(kept.user?.id).toBe('owner')
+        store.ownerId = null
+        const demoted = await establishSession(
+            ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': owner.cookies?.[0].value } })
+        )
+        expect(demoted.user).toBeNull()
     })
 
     it('ends local sessions when AuthKit is turned on and reports that on options', async () => {
@@ -1650,11 +1744,17 @@ describe('sign-in method view across processes', () => {
         jest.restoreAllMocks()
         mockRefreshView.mockReset()
         delete process.env.CUTTLELY_LOCAL_USERS
+        delete process.env.CUTTLELY_LOCAL_ADMIN
+        delete process.env.WORKOS_API_KEY
+        delete process.env.WORKOS_CLIENT_ID
     })
 
     it('refreshes the shared method before answering sign-in options and local sign-in', async () => {
         mockRefreshView.mockClear()
         process.env.CUTTLELY_LOCAL_USERS = 'true'
+        process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+        process.env.WORKOS_API_KEY = 'configured'
+        process.env.WORKOS_CLIENT_ID = 'configured'
         const state = jest.requireActual('./authenticationState') as typeof import('./authenticationState')
         let method: 'local' | 'workos' = 'workos'
         jest.spyOn(state, 'selectedAuthenticationMethod').mockImplementation(() => method)
@@ -1664,6 +1764,8 @@ describe('sign-in method view across processes', () => {
         const http = request(localRouteApp())
         const options = await http.get('/api/v1/auth/signin-options')
         expect(options.body.localUsers).toBe(true)
+        expect(options.body.localAdmin).toBe(false)
+        expect(options.body.authKit).toBe(false)
         method = 'workos'
         const login = await http.post('/api/v1/auth/local/login').send({ email: 'a@example.com', password: 'x' })
         expect(login.status).not.toBe(404)
