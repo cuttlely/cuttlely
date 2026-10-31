@@ -409,6 +409,11 @@ const jwksCache = new Map<string, JwksCacheEntry>()
 const unknownKidRefresh = new Map<string, number>()
 const missingKidRefresh = new Map<string, number>()
 
+interface MissingKidSigningSelection {
+    key: Record<string, unknown>
+    fromCurrentCache: boolean
+}
+
 function cacheAge(header: string | null): number {
     const match = header?.match(/(?:^|,)\s*max-age=(\d+)/i)
     if (!match) return JWKS_DEFAULT_AGE_MS
@@ -473,28 +478,44 @@ function compatibleSigningKeys(keys: Record<string, unknown>[], algorithm: strin
     })
 }
 
+function ambiguousMissingKid(): OidcError {
+    return new OidcError(
+        'response',
+        'The signing set is ambiguous for an ID token without a signing material identifier.',
+        'token_validation_failed'
+    )
+}
+
+async function refreshSigningKeyWithoutKid(
+    config: OidcConfiguration,
+    discovery: OidcDiscovery,
+    algorithm: string
+): Promise<Record<string, unknown> | undefined> {
+    const now = Date.now()
+    const refreshedAt = missingKidRefresh.get(discovery.jwks_uri) || 0
+    if (now - refreshedAt < UNKNOWN_KID_REFRESH_MS) return undefined
+    missingKidRefresh.set(discovery.jwks_uri, now)
+    const set = await jwks(config, discovery, true)
+    const candidates = compatibleSigningKeys(set.keys, algorithm)
+    if (candidates.length !== 1) throw ambiguousMissingKid()
+    return candidates[0]
+}
+
 async function signingKeyWithoutKid(
     config: OidcConfiguration,
     discovery: OidcDiscovery,
     algorithm: string
-): Promise<Record<string, unknown>> {
+): Promise<MissingKidSigningSelection> {
     const cached = jwksCache.get(discovery.jwks_uri)
-    const usedCurrentCache = Boolean(cached && cached.expiresAt > Date.now())
-    let set = await jwks(config, discovery)
-    let candidates = compatibleSigningKeys(set.keys, algorithm)
+    const set = await jwks(config, discovery)
+    const usedCurrentCache = set === cached
+    const candidates = compatibleSigningKeys(set.keys, algorithm)
     if (candidates.length !== 1 && usedCurrentCache) {
-        const now = Date.now()
-        const refreshedAt = missingKidRefresh.get(discovery.jwks_uri) || 0
-        if (now - refreshedAt >= UNKNOWN_KID_REFRESH_MS) {
-            missingKidRefresh.set(discovery.jwks_uri, now)
-            set = await jwks(config, discovery, true)
-            candidates = compatibleSigningKeys(set.keys, algorithm)
-        }
+        const refreshed = await refreshSigningKeyWithoutKid(config, discovery, algorithm)
+        if (refreshed) return { key: refreshed, fromCurrentCache: false }
     }
-    if (candidates.length !== 1) {
-        throw new OidcError('response', 'The signing set is ambiguous for an ID token without a key id.', 'token_validation_failed')
-    }
-    return candidates[0]
+    if (candidates.length !== 1) throw ambiguousMissingKid()
+    return { key: candidates[0], fromCurrentCache: usedCurrentCache }
 }
 
 export async function validateIdToken(
@@ -515,32 +536,41 @@ export async function validateIdToken(
     if (!ALGORITHMS.has(algorithm) || !discovery.id_token_signing_alg_values_supported.includes(algorithm)) {
         throw new OidcError('response', 'The ID token algorithm or key id is not accepted.', 'token_validation_failed')
     }
-    const key = kid ? await signingKey(config, discovery, kid) : await signingKeyWithoutKid(config, discovery, algorithm)
-    if (key.alg && key.alg !== algorithm)
-        throw new OidcError('response', 'The signing key algorithm does not match the ID token.', 'token_validation_failed')
-    if (
-        ((algorithm === 'RS256' || algorithm === 'PS256') && key.kty !== 'RSA') ||
-        (algorithm === 'ES256' && (key.kty !== 'EC' || key.crv !== 'P-256'))
-    ) {
-        throw new OidcError('response', 'The signing key type does not match the ID token algorithm.', 'token_validation_failed')
-    }
-    let publicKey
-    try {
-        publicKey = createPublicKey({ key: key as any, format: 'jwk' })
-    } catch {
-        throw new OidcError('response', 'The ID token signing key is invalid.', 'token_validation_failed')
-    }
     const data = Buffer.from(`${parts[0]}.${parts[1]}`)
     const signature = Buffer.from(parts[2], 'base64url')
     const verifyAlgorithm = algorithm === 'ES256' ? 'sha256' : algorithm === 'PS256' ? 'sha256' : 'RSA-SHA256'
-    const keyOptions: any =
-        algorithm === 'PS256'
-            ? { key: publicKey, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }
-            : algorithm === 'ES256'
-            ? { key: publicKey, dsaEncoding: 'ieee-p1363' }
-            : publicKey
-    if (!verifySignature(verifyAlgorithm, data, keyOptions, signature))
-        throw new OidcError('response', 'The ID token signature is invalid.', 'token_validation_failed')
+    const signatureMatches = (key: Record<string, unknown>): boolean => {
+        if (key.alg && key.alg !== algorithm)
+            throw new OidcError('response', 'The signing material algorithm does not match the ID token.', 'token_validation_failed')
+        if (
+            ((algorithm === 'RS256' || algorithm === 'PS256') && key.kty !== 'RSA') ||
+            (algorithm === 'ES256' && (key.kty !== 'EC' || key.crv !== 'P-256'))
+        ) {
+            throw new OidcError('response', 'The signing material type does not match the ID token algorithm.', 'token_validation_failed')
+        }
+        let publicKey
+        try {
+            publicKey = createPublicKey({ key: key as any, format: 'jwk' })
+        } catch {
+            throw new OidcError('response', 'The ID token signing material is invalid.', 'token_validation_failed')
+        }
+        const keyOptions: any =
+            algorithm === 'PS256'
+                ? { key: publicKey, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }
+                : algorithm === 'ES256'
+                ? { key: publicKey, dsaEncoding: 'ieee-p1363' }
+                : publicKey
+        return verifySignature(verifyAlgorithm, data, keyOptions, signature)
+    }
+    const selection = kid
+        ? { key: await signingKey(config, discovery, kid), fromCurrentCache: false }
+        : await signingKeyWithoutKid(config, discovery, algorithm)
+    let signatureValid = signatureMatches(selection.key)
+    if (!signatureValid && !kid && selection.fromCurrentCache) {
+        const refreshed = await refreshSigningKeyWithoutKid(config, discovery, algorithm)
+        if (refreshed) signatureValid = signatureMatches(refreshed)
+    }
+    if (!signatureValid) throw new OidcError('response', 'The ID token signature is invalid.', 'token_validation_failed')
     const seconds = Math.floor(now / 1000)
     const exp = typeof claims.exp === 'number' ? claims.exp : Number.NaN
     const iat = typeof claims.iat === 'number' ? claims.iat : Number.NaN

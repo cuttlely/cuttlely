@@ -380,6 +380,50 @@ describe('generic OIDC provider', () => {
         })
     })
 
+    it('refreshes cached signing material when a token without kid has a new signature', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.jwksRequests = 0
+        idp.key = 'second'
+        idp.nonce = 'nonce'
+        await expect(validateIdToken(idp.token({}, 'RS256', null), config, discovery, idp.nonce, 'provider')).resolves.toMatchObject({
+            subject: 'subject-1'
+        })
+        expect(idp.jwksRequests).toBe(1)
+    })
+
+    it('keeps refusing ambiguous signing material after a signature-triggered refresh', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.jwksEntries = [{ source: 'first' }, { source: 'second' }]
+        idp.jwksRequests = 0
+        idp.nonce = 'nonce'
+        await expect(
+            validateIdToken(idp.token({}, 'RS256', null, 'second'), config, discovery, idp.nonce, 'provider')
+        ).rejects.toMatchObject({
+            outcome: 'token_validation_failed',
+            message: expect.stringContaining('ambiguous')
+        })
+        expect(idp.jwksRequests).toBe(1)
+    })
+
+    it('throttles repeated signature-triggered refreshes for tokens without kid', async () => {
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        idp.jwksRequests = 0
+        idp.nonce = 'nonce'
+        const token = idp.token({}, 'RS256', null, 'second')
+        await expect(validateIdToken(token, config, discovery, idp.nonce, 'provider')).rejects.toMatchObject({
+            outcome: 'token_validation_failed',
+            message: expect.stringContaining('signature')
+        })
+        await expect(validateIdToken(token, config, discovery, idp.nonce, 'provider')).rejects.toMatchObject({
+            outcome: 'token_validation_failed',
+            message: expect.stringContaining('signature')
+        })
+        expect(idp.jwksRequests).toBe(1)
+    })
+
     it('refuses a token without a key id when two signing entries are compatible', async () => {
         idp.jwksEntries = [{ source: 'first' }, { source: 'second' }]
         const config = configuration(idp)
