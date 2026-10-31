@@ -51,6 +51,10 @@ jest.mock('./scimGroups', () => ({
     readScimOperations: jest.fn(async () => ({ counts: {}, recentErrors: [], retentionDays: 30 })),
     removeMapping: jest.fn()
 }))
+jest.mock('./scim', () => ({
+    ...jest.requireActual('./scim'),
+    readScimTokenState: jest.fn(async () => ({ status: 'none', lastUsedAt: null }))
+}))
 jest.mock('./recovery', () => ({
     acknowledgeRecoveryAlert: jest.fn(),
     currentRecoveryAlert: jest.fn(async () => null)
@@ -130,7 +134,7 @@ describe('authentication settings routes', () => {
 
     it('reports owner-only Local login as configured but unavailable for switching', async () => {
         mockLocalUsersSetting.mockReturnValue(false)
-        const response = await request(app({ 'local-session': 'fresh' })).get('/api/v1/authentication')
+        const response = await request(app({ 'local-session': 'fresh' })).get('/api/v1/authentication-settings')
         expect(response.status).toBe(200)
         expect(response.body.methods.local).toEqual({ configured: true, selectable: false, scope: 'owner-only', label: 'Local login' })
     })
@@ -140,7 +144,7 @@ describe('authentication settings routes', () => {
         readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'recovery' })
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'local', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body).toEqual({
@@ -154,7 +158,7 @@ describe('authentication settings routes', () => {
         readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'workos' })
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'recovery' })
         const response = await request(app({ 'local-session': 'fresh' }))
-            .post('/api/v1/authentication/stage')
+            .post('/api/v1/authentication-settings/stage')
             .send({ method: 'local', version: 4 })
         expect(response.status).toBe(200)
         expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'local', 4)
