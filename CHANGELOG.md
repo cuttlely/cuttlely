@@ -31,7 +31,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Chatflow import now refreshes node versions and defaults, restores connected input references, and reports connections that need attention. If you imported a flow through the migration wizard in 1.4.8, open it and click **Sync Nodes** once. A flow served only through the API or an embed remains broken until someone opens it and does that.
+-   Chatflow import now refreshes node versions and defaults, restores connected input references, and reports connections that need attention. If you imported a flow through the migration wizard in 1.4.8, open it, click **Sync Nodes**, select **Save**, then **Publish** so Live serves the repaired version. Sync Nodes changes only the open canvas until you save, and a save goes to the draft. A flow served only through the API or an embed remains broken until someone does all three steps.
 
 -   API credentials can no longer be created or updated with `authentication:` permissions. The complete `/api/v1/authentication-settings` route family now requires a signed-in session, so a previously stored credential with `authentication:manage` receives 401 before route permissions are evaluated.
 
