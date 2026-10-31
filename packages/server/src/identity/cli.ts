@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
+import type { DataSource } from 'typeorm'
+import { initializeAuthenticationState } from './authenticationState'
 import { hashPassword, passwordErrors } from './password'
+import { SqlIdentityStore } from './sqlStore'
 import { IdentityStore } from './store'
 
 export interface UserCliInput {
@@ -26,6 +29,11 @@ export interface UserCliInput {
 export interface UserCliResult {
     ok: boolean
     lines: string[]
+}
+
+export async function runUserCommand(dataSource: DataSource, input: UserCliInput): Promise<UserCliResult> {
+    await initializeAuthenticationState(dataSource)
+    return runUserCli(new SqlIdentityStore(dataSource), input)
 }
 
 export async function runUserCli(store: IdentityStore, input: UserCliInput): Promise<UserCliResult> {

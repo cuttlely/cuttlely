@@ -85,7 +85,7 @@ Every route under `/api/v1/authentication-settings` requires a signed-in session
 
 `POST /api/v1/auth/recovery/login` requires `x-request-from: internal`, accepts any active owner with a usable local password, and returns the same generic 401 for an unknown address, a non-owner, a disabled owner, or a wrong password. It has a five-attempt source and account lockout. Every outcome is audited. Success creates a persistent administrator alert and recent-authentication evidence.
 
-A WorkOS sign-in never counts as recent authentication. On **Auth / SSO**, an administrator with a WorkOS session is directed to `/owner-recovery`; while Local login is active, **Sign in again** opens the local password form. Only a local password or owner recovery session issued in the last 10 minutes satisfies method staging and apply.
+A WorkOS sign-in never counts as recent authentication. On **Auth / SSO**, an administrator with a WorkOS session is directed to `/owner-recovery`; while Local login is active, **Sign in again** opens the local password form. Only a local password or owner recovery session issued in the last 10 minutes satisfies method staging and apply. Staging or applying a change to Local also requires `CUTTLELY_LOCAL_USERS=true`; `CUTTLELY_LOCAL_ADMIN` alone does not satisfy that requirement.
 
 ## Sign in
 

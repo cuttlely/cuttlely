@@ -13,7 +13,7 @@ jest.mock('@/api/authenticationSettings', () => ({
                     changedAt: '2026-10-30T12:00:00.000Z',
                     sessionsEnded: 7,
                     warning: null,
-                    methods: { local: { configured: true }, workos: { configured: true } },
+                    methods: { local: { configured: true, selectable: true, scope: 'local-users' }, workos: { configured: true } },
                     recovery: { available: true, alert: null }
                 }
             })
@@ -51,6 +51,32 @@ it('shows the last method change and the number of sessions ended', async () => 
     expect(container.querySelector('[data-testid="authentication-sessions-ended"]')?.textContent).toContain('7')
     expect(container.textContent).toContain('A WorkOS sign-in never counts as recent authentication.')
     expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Use Owner recovery')).toBe(true)
+    expect(container.querySelector('input[value="local"]')?.disabled).toBe(false)
+    act(() => root.unmount())
+})
+
+it('shows owner-only Local login but disables its control', async () => {
+    api.get.mockResolvedValueOnce({
+        data: {
+            activeMethod: 'workos',
+            version: 2,
+            changedAt: null,
+            sessionsEnded: 0,
+            warning: null,
+            methods: { local: { configured: true, selectable: false, scope: 'owner-only' }, workos: { configured: true } },
+            recovery: { available: true, alert: null }
+        }
+    })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
+        await Promise.resolve()
+    })
+    expect(container.textContent).toContain('Local login — owner only')
+    expect(container.textContent).not.toContain('Local login — not configured')
+    expect(container.querySelector('input[value="local"]')?.disabled).toBe(true)
     act(() => root.unmount())
 })
 
@@ -63,7 +89,7 @@ it('requires confirmation that acknowledging the client identity warning ends al
             sessionsEnded: 0,
             warning: 'The WorkOS client identity differs from the saved installation.',
             warningKind: 'workos-client-mismatch',
-            methods: { local: { configured: true }, workos: { configured: true } },
+            methods: { local: { configured: true, selectable: true, scope: 'local-users' }, workos: { configured: true } },
             recovery: { available: true, alert: null }
         }
     })

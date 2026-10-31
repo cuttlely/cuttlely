@@ -11,11 +11,13 @@ Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The
 
 This release supports **Local login** and **WorkOS**. Their existing environment settings remain authoritative. Generic OIDC and SCIM are shown as unavailable and cannot be configured yet.
 
+The Local login choice says **owner only** when `CUTTLELY_LOCAL_ADMIN=true` provides ordinary sign-in for the owner, and **local users** when `CUTTLELY_LOCAL_USERS=true` provides sign-in for active local users with passwords. Owner-only Local remains visible, but changing from another method to Local requires `CUTTLELY_LOCAL_USERS=true`. The local directory routes also require that setting and Local as the durable selected method.
+
 On a fresh owner-only install, creating the first owner through browser setup or `pnpm user` selects Local login in the owner-creation transaction. A durable method that is already selected is left unchanged, including WorkOS.
 
 ## Change the method
 
-1. Configure the candidate method through the existing server settings.
+1. Configure the candidate method through the existing server settings. Before changing to Local, set `CUTTLELY_LOCAL_USERS=true` and restart.
 2. Complete a fresh local password sign-in or owner recovery. While Local login is active, choose **Sign in again** to use the local password form. While WorkOS is active, choose **Use Owner recovery**. A WorkOS sign-in never counts as recent authentication. A local password or owner recovery session counts for 10 minutes; an older session never satisfies the requirement. Both staging and applying the change require recent authentication, so repeat the local password or owner recovery sign-in if more than 10 minutes pass before you apply.
 3. Select the method and choose **Review change**.
 4. Read the impact statement, type `END SESSIONS`, and apply the change.
@@ -28,7 +30,7 @@ The separate `/owner-recovery` page is always available, regardless of the selec
 
 Recovery currently uses a password only; it does not add a second factor. Treat the password as an emergency credential, store it with the same care as other operator credentials, and test it periodically. To create or replace it, run `pnpm user --email owner@example.com` on the server and enter the password at the prompt.
 
-WorkOS activation returns `409 Conflict` until at least one active owner has a usable local password. Switching from WorkOS to Local login has the same requirement, checked during staging and again in the switch transaction. The **Auth / SSO** page and application banner show when recovery is not ready.
+WorkOS activation returns `409 Conflict` until at least one active owner has a usable local password. Changing from WorkOS to Local login requires both `CUTTLELY_LOCAL_USERS=true` and an active owner with a usable local password. Those requirements are checked during staging and again in the change transaction. The **Auth / SSO** page and application banner show when recovery is not ready.
 
 Every recovery attempt creates a high-severity audit entry for success, wrong credentials, or throttling. A success also writes a structured warning and creates an administrator alert shown on **Auth / SSO** and in the application banner. When SMTP is configured, the server makes a best-effort attempt to email every active owner; an email delivery problem does not undo the recovery sign-in or alert. A user with **Authentication: Manage** must acknowledge the alert; that acknowledgment is audited.
 
