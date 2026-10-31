@@ -76,6 +76,7 @@ jest.mock('./production', () => {
                 now: Date.parse('2026-10-14T00:00:00.000Z'),
                 ip: req.ip || '203.0.113.8',
                 internal: req.headers['x-request-from'] === 'internal',
+                code: typeof req.query.code === 'string' ? req.query.code : undefined,
                 body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
                 cookies: (req.cookies || {}) as Record<string, string | undefined>,
                 store: mockRouteStore.current,
@@ -369,6 +370,44 @@ describe('local users mode', () => {
         expect(response.headers['referrer-policy']).toBe('no-referrer')
         expect(response.headers['x-frame-options']).toBe('DENY')
         expect(response.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+    })
+
+    it('sets no-store on a successful owner login and a callback redirect', async () => {
+        const { store } = await seed()
+        mockRouteStore.current = store
+        const http = request(localRouteApp())
+        const saved = {
+            admin: process.env.CUTTLELY_LOCAL_ADMIN,
+            workos: process.env.WORKOS_API_KEY,
+            client: process.env.WORKOS_CLIENT_ID
+        }
+        const restore = (name: string, value: string | undefined) => {
+            if (value === undefined) delete process.env[name]
+            else process.env[name] = value
+        }
+        try {
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            delete process.env.WORKOS_API_KEY
+            delete process.env.WORKOS_CLIENT_ID
+            const login = await http
+                .post('/api/v1/auth/login')
+                .set('x-request-from', 'internal')
+                .send({ email: 'owner@example.com', password: GOOD })
+            expect(login.status).toBe(200)
+            expect(login.headers['cache-control']).toBe('no-store')
+
+            process.env.WORKOS_API_KEY = 'test_value'
+            process.env.WORKOS_CLIENT_ID = 'client_test'
+            const callback = await http.get('/api/v1/auth/callback?code=test_code')
+            expect(callback.status).toBe(302)
+            expect(callback.headers.location).toContain('/signin?error=')
+            expect(callback.headers['cache-control']).toBe('no-store')
+        } finally {
+            mockRouteStore.current = null
+            restore('CUTTLELY_LOCAL_ADMIN', saved.admin)
+            restore('WORKOS_API_KEY', saved.workos)
+            restore('WORKOS_CLIENT_ID', saved.client)
+        }
     })
 
     it('states each combination of the owner flag, local users, and AuthKit', async () => {
