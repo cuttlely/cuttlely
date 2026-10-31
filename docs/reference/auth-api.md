@@ -61,9 +61,11 @@ These OIDC limits are per client address and per server process, over 15 minutes
 
 ## OIDC administrator settings
 
-`GET /api/v1/authentication-settings/oidc` requires **Authentication: Manage** and returns the saved `draft` and `active` configuration summaries. `callbackUrl` is the exact callback URL derived for the draft, or `null` when no draft exists. `activeCallbackUrl` is the exact callback URL derived for the active configuration, or `null` when no active configuration exists. During provider rotation both can be present and can differ. The response also includes `postLogoutUrl`, the fixed `scopes`, callback-origin status, and provider-link migration status.
+`GET /api/v1/authentication-settings/oidc` requires **Authentication: Manage** and returns the saved `draft` and `active` configuration summaries. `callbackUrl` is the exact callback URL derived for the draft, or `null` when no draft exists. `activeCallbackUrl` is the exact callback URL derived for the active configuration, or `null` when no active configuration exists. During provider rotation both can be present and can differ. The response also includes `postLogoutUrl`, the fixed `scopes`, callback-origin status, provider-link migration status, and `testedDraftDiffersFromActive`. That last field is true only when the ready, tested draft has runtime provider settings that differ from the active snapshot.
 
 `PUT /api/v1/authentication-settings/oidc` requires the same permission and recent authentication. A successful save returns the saved `draft`, `callbackUrl`, and `activeCallbackUrl` with the same meanings as the GET response. Saving a draft does not replace the active configuration or its callback URL.
+
+When OIDC is already active and the tested draft keeps the same configuration fingerprint, `POST /api/v1/authentication-settings/stage` can stage an `oidc_refresh`. The usual management permission, recent-authentication, request-origin, request-limit, recovery, provider-link migration, draft health, and test checks still apply. `POST /api/v1/authentication-settings/apply` accepts `APPLY SETTINGS` for that stage. It copies the tested draft, including its discovery snapshot, into the active slot in one transaction. The response has `refreshed: true`, `redirectTo: null`, and `sessionsEnded: 0`; existing sessions and the authentication epoch are unchanged. A draft edit after staging makes the stage stale, and applying the current active snapshot again is a no-op.
 
 ## Flag combinations
 

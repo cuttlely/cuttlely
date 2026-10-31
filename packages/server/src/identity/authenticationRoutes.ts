@@ -15,7 +15,7 @@ import { hashSessionToken } from './password'
 import { applicationDataSource, applicationSql, identityStore } from './production'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
-import { providerLinkMigrationComplete, readOidcConfiguration } from './oidcStore'
+import { providerLinkMigrationComplete, readOidcConfiguration, testedOidcDraftDiffersFromActive } from './oidcStore'
 import { oidcCallbackError } from './oidcProvider'
 import { publicOrigin } from './setupCode'
 
@@ -142,16 +142,30 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
             method === 'oidc' && oidc
                 ? await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version, oidc.fingerprint)
                 : await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version)
+        const oidcRefresh = Boolean(
+            method === 'oidc' &&
+                oidc &&
+                state.activeMethod === 'oidc' &&
+                state.configurationFingerprint === oidc.fingerprint &&
+                testedOidcDraftDiffersFromActive(oidc, await readOidcConfiguration(applicationDataSource(), 'active'))
+        )
         res.status(200).json({
             stage: staged.id,
             stageVersion: staged.version,
             method,
+            action: oidcRefresh ? 'oidc_refresh' : 'method_change',
             sessionsWillEnd: state.activeMethod !== method || (method === 'oidc' && state.configurationFingerprint !== oidc?.fingerprint),
             apiKeysWillRemain: true,
             expiresAt: staged.expiresAt
         })
-    } catch {
-        res.status(500).json({ message: 'The sign-in method could not be staged.' })
+    } catch (error) {
+        const code = error instanceof Error ? error.message : ''
+        res.status(code === 'AUTH_STATE_CHANGED' ? 409 : 500).json({
+            message:
+                code === 'AUTH_STATE_CHANGED'
+                    ? 'Authentication settings changed. Reload and try again.'
+                    : 'The sign-in method could not be staged.'
+        })
     }
 })
 
@@ -168,9 +182,23 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
         await auditAttempt(who, { outcome: 'refused', reason: 'stage_expired' })
         return void res.status(409).json({ message: 'The staged change expired. Start again.' })
     }
-    if (body.confirm !== 'END SESSIONS') {
+    const current = await readAuthenticationState(applicationDataSource())
+    const oidcDraft = body.method === 'oidc' ? await readOidcConfiguration(applicationDataSource(), 'draft') : null
+    const oidcRefreshConfirmation = Boolean(
+        body.method === 'oidc' &&
+            current?.activeMethod === 'oidc' &&
+            current.version === Number(body.stateVersion) &&
+            oidcDraft &&
+            current.configurationFingerprint === oidcDraft.fingerprint
+    )
+    const expectedConfirmation = oidcRefreshConfirmation ? 'APPLY SETTINGS' : 'END SESSIONS'
+    if (body.confirm !== expectedConfirmation) {
         await auditAttempt(who, { newMethod: body.method, outcome: 'refused', reason: 'confirmation_missing' })
-        return void res.status(400).json({ message: 'Type END SESSIONS to apply this change.' })
+        return void res.status(400).json({
+            message: oidcRefreshConfirmation
+                ? 'Confirm that you want to apply these provider settings.'
+                : 'Type END SESSIONS to apply this change.'
+        })
     }
     if (!(await recentlyAuthenticated(req))) {
         await auditAttempt(who, { newMethod: body.method, outcome: 'refused', reason: 'reauth_required' })
@@ -186,10 +214,11 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
         )
         res.status(200).json({
             applied: true,
-            redirectTo: '/signin',
+            refreshed: after.change === 'oidc_refresh',
+            redirectTo: after.change === 'method' ? '/signin' : null,
             activeMethod: after.activeMethod,
             authenticationEpoch: after.authenticationEpoch,
-            sessionsEnded: after.sessionsEnded
+            sessionsEnded: after.change === 'method' ? after.sessionsEnded : 0
         })
     } catch (error) {
         const code = error instanceof Error ? error.message : ''

@@ -251,6 +251,16 @@ describe('OIDC administrator callback URLs', () => {
         expect(response.body.callbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)))
         expect(response.body.activeCallbackUrl).toBe(oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)))
         expect(response.body.callbackUrl).not.toBe(response.body.activeCallbackUrl)
+        expect(response.body.testedDraftDiffersFromActive).toBe(true)
+    })
+
+    it('reports a tested same-fingerprint discovery refresh', async () => {
+        const refreshed = oidcConfig('draft', active.issuer, active.clientId, active.fingerprint)
+        refreshed.discovery = { authorization_endpoint: 'https://active-id.example/new-authorize' }
+        readOidcConfiguration.mockImplementation(async (_dataSource, slot) => (slot === 'draft' ? refreshed : active))
+        const response = await request(adminApp()).get('/api/v1/authentication-settings/oidc')
+        expect(response.status).toBe(200)
+        expect(response.body.testedDraftDiffersFromActive).toBe(true)
     })
 
     it('returns the active callback URL when there is no draft', async () => {

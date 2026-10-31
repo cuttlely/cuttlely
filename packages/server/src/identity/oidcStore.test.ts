@@ -2,6 +2,7 @@
 import type { DataSource, QueryRunner } from 'typeorm'
 import type { IdentityStore } from './store'
 import type { UserRow } from './types'
+import type { OidcConfiguration } from './oidcStore'
 import { addOidcProvider } from './schemaMigration'
 import { oidcFailureLogDetail, oidcLinkAuditDetail } from './auditLog'
 import {
@@ -17,6 +18,7 @@ import {
     readOidcConfiguration,
     resolveOidcUser,
     saveOidcDraft,
+    testedOidcDraftDiffersFromActive,
     validatedOidcIssuer
 } from './oidcStore'
 
@@ -543,6 +545,38 @@ describe('provider-scoped identity links', () => {
         expect(oidcProviderKey('installation-a', base.issuer, base.clientId)).not.toBe(
             oidcProviderKey('installation-b', base.issuer, base.clientId)
         )
+    })
+
+    it('reports only a ready, tested runtime snapshot change', () => {
+        const active: OidcConfiguration = {
+            slot: 'active',
+            issuer: 'https://id.example',
+            clientId: 'client',
+            clientSecretEnvVar: 'OIDC_CLIENT_SECRET',
+            trustMissingEmailVerification: false,
+            privateIssuerHosts: [],
+            fingerprint: 'fingerprint',
+            discovery: { authorization_endpoint: 'https://id.example/old' },
+            health: 'ready',
+            healthError: null,
+            checkedAt: '2026-10-30T12:00:00.000Z',
+            testedFingerprint: 'fingerprint',
+            testedAt: '2026-10-30T12:00:00.000Z',
+            testResult: null,
+            version: 1
+        }
+        const draft: OidcConfiguration = {
+            ...active,
+            slot: 'draft',
+            checkedAt: '2026-10-31T12:00:00.000Z',
+            testedAt: '2026-10-31T12:00:00.000Z',
+            version: 2
+        }
+        expect(testedOidcDraftDiffersFromActive(draft, active)).toBe(false)
+        expect(
+            testedOidcDraftDiffersFromActive({ ...draft, discovery: { authorization_endpoint: 'https://id.example/refreshed' } }, active)
+        ).toBe(true)
+        expect(testedOidcDraftDiffersFromActive({ ...draft, testedFingerprint: null }, active)).toBe(false)
     })
 
     it('keeps authorization and token material out of logs and audit detail', () => {

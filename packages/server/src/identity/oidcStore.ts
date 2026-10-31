@@ -166,6 +166,54 @@ export function oidcConfigurationFingerprint(input: {
         .digest('hex')
 }
 
+function canonicalJson(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalJson)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, entry]) => [key, canonicalJson(entry)])
+    )
+}
+
+export function oidcRuntimeConfigurationDigest(
+    input: Pick<
+        OidcConfiguration,
+        | 'issuer'
+        | 'clientId'
+        | 'clientSecretEnvVar'
+        | 'trustMissingEmailVerification'
+        | 'privateIssuerHosts'
+        | 'fingerprint'
+        | 'discovery'
+        | 'health'
+        | 'healthError'
+    >
+): string {
+    return createHash('sha256')
+        .update(
+            JSON.stringify(
+                canonicalJson({
+                    issuer: input.issuer,
+                    clientId: input.clientId,
+                    clientSecretEnvVar: input.clientSecretEnvVar,
+                    trustMissingEmailVerification: input.trustMissingEmailVerification,
+                    privateIssuerHosts: input.privateIssuerHosts,
+                    fingerprint: input.fingerprint,
+                    discovery: input.discovery,
+                    health: input.health,
+                    healthError: input.healthError
+                })
+            )
+        )
+        .digest('hex')
+}
+
+export function testedOidcDraftDiffersFromActive(draft: OidcConfiguration | null, active: OidcConfiguration | null): boolean {
+    if (!draft || draft.health !== 'ready' || draft.testedFingerprint !== draft.fingerprint) return false
+    return !active || oidcRuntimeConfigurationDigest(draft) !== oidcRuntimeConfigurationDigest(active)
+}
+
 export function oidcProviderKey(installationId: string, issuer: string, clientId: string): string {
     const identity = createHash('sha256').update(`oidc-provider-v1\n${issuer}\n${clientId}`).digest('hex')
     return createHash('sha256').update(`oidc\n${installationId}\n${identity}`).digest('hex')

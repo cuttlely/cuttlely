@@ -22,6 +22,7 @@ jest.mock('@/api/authenticationSettings', () => ({
                     callbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-1',
                     activeCallbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-active',
                     postLogoutUrl: 'https://app.example/signin',
+                    testedDraftDiffersFromActive: false,
                     linkMigrationComplete: true,
                     linkMigration: { complete: true, migrated: 0, inert: 2, error: null },
                     draft: {
@@ -140,5 +141,47 @@ it('labels and disables activation when the tested draft is already active', asy
     })
     const active = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Already active')
     expect(active?.disabled).toBe(true)
+    act(() => root.unmount())
+})
+
+it('offers to apply tested provider settings that differ without ending sessions', async () => {
+    const auth = (await api.get()).data
+    const oidc = (await api.getOidc()).data
+    api.get.mockResolvedValueOnce({ data: { ...auth, activeMethod: 'oidc', configurationFingerprint: 'same-fingerprint' } })
+    api.getOidc.mockResolvedValueOnce({
+        data: {
+            ...oidc,
+            testedDraftDiffersFromActive: true,
+            draft: { ...oidc.draft, fingerprint: 'same-fingerprint' },
+            active: { configured: true, fingerprint: 'same-fingerprint' }
+        }
+    })
+    api.stage.mockResolvedValueOnce({
+        data: {
+            stage: 'stage-refresh',
+            stageVersion: 1,
+            method: 'oidc',
+            action: 'oidc_refresh',
+            sessionsWillEnd: false
+        }
+    })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
+        await Promise.resolve()
+        await Promise.resolve()
+    })
+    const refresh = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Apply refreshed provider settings')
+    expect(refresh?.disabled).toBe(false)
+    await act(async () => {
+        refresh.click()
+        await Promise.resolve()
+    })
+    expect(api.stage).toHaveBeenCalledWith('oidc', 4)
+    expect(document.body.textContent).toContain('Apply refreshed provider settings?')
+    expect(document.body.textContent).toContain('Existing sessions stay signed in.')
+    expect(document.body.textContent).not.toContain('Type END SESSIONS')
     act(() => root.unmount())
 })

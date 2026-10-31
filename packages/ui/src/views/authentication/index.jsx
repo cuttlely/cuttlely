@@ -46,9 +46,9 @@ export default function AuthenticationSettings() {
                 setChoice(value.activeMethod || '')
             })
             .catch(() => setError('Authentication settings could not be loaded.'))
-    useEffect(() => {
-        load()
-        api.getOidc()
+    const loadOidc = () =>
+        api
+            .getOidc()
             .then(({ data: value }) => {
                 setOidc(value)
                 if (value.draft?.configured) {
@@ -62,6 +62,9 @@ export default function AuthenticationSettings() {
                 }
             })
             .catch(() => setError('OIDC settings could not be loaded.'))
+    useEffect(() => {
+        load()
+        loadOidc()
     }, [])
     const prepare = async () => {
         setError('')
@@ -73,8 +76,14 @@ export default function AuthenticationSettings() {
     }
     const apply = async () => {
         try {
-            const result = (await api.apply(stage, confirm)).data
-            window.location.assign(result.redirectTo)
+            const result = (await api.apply(stage, stage?.sessionsWillEnd ? confirm : 'APPLY SETTINGS')).data
+            if (result.redirectTo) {
+                window.location.assign(result.redirectTo)
+                return
+            }
+            setStage(null)
+            setConfirm('')
+            await Promise.all([load(), loadOidc()])
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The sign-in method was not changed.')
             setStage(null)
@@ -113,7 +122,8 @@ export default function AuthenticationSettings() {
                 ...current,
                 draft: result.data.draft,
                 callbackUrl: result.data.callbackUrl,
-                activeCallbackUrl: result.data.activeCallbackUrl
+                activeCallbackUrl: result.data.activeCallbackUrl,
+                testedDraftDiffersFromActive: result.data.testedDraftDiffersFromActive
             }))
             await load()
         } catch (cause) {
@@ -141,6 +151,7 @@ export default function AuthenticationSettings() {
     const oidcMatchesActive = Boolean(
         data?.activeMethod === 'oidc' && oidc?.draft?.fingerprint && oidc.draft.fingerprint === oidc?.active?.fingerprint
     )
+    const oidcRefreshAvailable = Boolean(oidcMatchesActive && oidc?.testedDraftDiffersFromActive)
     return (
         <MainCard title='Auth / SSO'>
             <Stack spacing={3} sx={{ maxWidth: 820 }}>
@@ -305,19 +316,29 @@ export default function AuthenticationSettings() {
                             >
                                 Test sign-in
                             </Button>
-                            <Button
-                                variant='contained'
-                                onClick={activateOidc}
-                                disabled={
-                                    !oidc?.draft?.tested ||
-                                    !oidc?.linkMigrationComplete ||
-                                    !data?.recovery.available ||
-                                    Boolean(oidc?.callbackError) ||
-                                    oidcMatchesActive
-                                }
-                            >
-                                {oidcMatchesActive ? 'Already active' : 'Activate'}
-                            </Button>
+                            {oidcRefreshAvailable ? (
+                                <Button
+                                    variant='contained'
+                                    onClick={activateOidc}
+                                    disabled={!oidc?.linkMigrationComplete || !data?.recovery.available || Boolean(oidc?.callbackError)}
+                                >
+                                    Apply refreshed provider settings
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant='contained'
+                                    onClick={activateOidc}
+                                    disabled={
+                                        !oidc?.draft?.tested ||
+                                        !oidc?.linkMigrationComplete ||
+                                        !data?.recovery.available ||
+                                        Boolean(oidc?.callbackError) ||
+                                        oidcMatchesActive
+                                    }
+                                >
+                                    {oidcMatchesActive ? 'Already active' : 'Activate'}
+                                </Button>
+                            )}
                         </Stack>
                     </Stack>
                 </Paper>
@@ -342,17 +363,30 @@ export default function AuthenticationSettings() {
                 </Paper>
             </Stack>
             <Dialog open={Boolean(stage)} onClose={() => setStage(null)}>
-                <DialogTitle>End all interactive sessions?</DialogTitle>
+                <DialogTitle>{stage?.sessionsWillEnd ? 'End all interactive sessions?' : 'Apply refreshed provider settings?'}</DialogTitle>
                 <DialogContent>
                     <Stack spacing={2} sx={{ mt: 1 }}>
-                        <Alert severity='warning'>Everyone, including you, must sign in again. API keys remain enabled.</Alert>
-                        <TextField label='Type END SESSIONS' value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                        {stage?.sessionsWillEnd ? (
+                            <>
+                                <Alert severity='warning'>Everyone, including you, must sign in again. API keys remain enabled.</Alert>
+                                <TextField label='Type END SESSIONS' value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+                            </>
+                        ) : (
+                            <Alert severity='info'>
+                                New sign-ins will use the refreshed provider settings. Existing sessions stay signed in.
+                            </Alert>
+                        )}
                     </Stack>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setStage(null)}>Cancel</Button>
-                    <Button color='error' variant='contained' disabled={confirm !== 'END SESSIONS'} onClick={apply}>
-                        Change method
+                    <Button
+                        color={stage?.sessionsWillEnd ? 'error' : 'primary'}
+                        variant='contained'
+                        disabled={Boolean(stage?.sessionsWillEnd) && confirm !== 'END SESSIONS'}
+                        onClick={apply}
+                    >
+                        {stage?.sessionsWillEnd ? 'Change method' : 'Apply settings'}
                     </Button>
                 </DialogActions>
             </Dialog>

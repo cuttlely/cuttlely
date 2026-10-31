@@ -39,6 +39,7 @@ import {
     recordOidcTestResult,
     resolveOidcUser,
     saveOidcDraft,
+    testedOidcDraftDiffersFromActive,
     validatedOidcIssuer
 } from './oidcStore'
 import { readAuthenticationState, recordRecentAuthentication } from './authenticationState'
@@ -181,6 +182,7 @@ oidcAdminRouter.get('/', async (_req, res) => {
             callbackError: configuredCallbackError(),
             postLogoutUrl: oidcPostLogoutUrl(),
             scopes: ['openid', 'email', 'profile'],
+            testedDraftDiffersFromActive: testedOidcDraftDiffersFromActive(draft, active),
             linkMigrationComplete: migration.complete,
             linkMigration: migration
         })
@@ -258,7 +260,8 @@ oidcAdminRouter.put('/', identityRouteLimit(OIDC_ADMIN_WRITE_LIMIT), async (req,
             draft: configurationBody(saved),
             callbackUrl: state ? oidcCallbackUrl(oidcProviderKey(state.installationId, saved.issuer, saved.clientId)) : null,
             activeCallbackUrl:
-                active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null
+                active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null,
+            testedDraftDiffersFromActive: testedOidcDraftDiffersFromActive(saved, active)
         })
     } catch (error) {
         const category = error instanceof OidcError ? error.category : 'configuration'
@@ -277,7 +280,8 @@ oidcAdminRouter.put('/', identityRouteLimit(OIDC_ADMIN_WRITE_LIMIT), async (req,
                 draft: configurationBody(saved),
                 callbackUrl: state ? oidcCallbackUrl(oidcProviderKey(state.installationId, saved.issuer, saved.clientId)) : null,
                 activeCallbackUrl:
-                    active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null
+                    active && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, active.issuer, active.clientId)) : null,
+                testedDraftDiffersFromActive: testedOidcDraftDiffersFromActive(saved, active)
             })
         } catch (saveError) {
             res.status(saveError instanceof Error && saveError.message === 'OIDC_CONFIG_CHANGED' ? 409 : 500).json({

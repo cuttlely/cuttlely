@@ -21,6 +21,8 @@ The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The
 
 Activation returns `409 Conflict` until the current configuration fingerprint has passed a test, owner recovery is ready, and the provider-link migration has completed. The callback URL comes from trusted server configuration, not request forwarding headers.
 
+If the issuer and client id stay the same but discovery changes an endpoint, JWKS location, or signing algorithm, save and test the draft again. **Apply refreshed provider settings** then copies the tested provider snapshot into the active configuration. Existing sessions stay signed in, and the authentication epoch does not change. The action appears only when the tested draft differs from the active configuration; applying the same snapshot again makes no change.
+
 Each configured provider has a distinct callback URL with a provider marker. The callback must match the sign-in transaction before Cuttlely sends the authorization code to the token endpoint. When an authorization response contains `iss`, Cuttlely requires it to match the transaction issuer. When provider metadata advertises the authorization-response issuer parameter, a response without `iss` is refused.
 
 Set `APP_URL` to the public origin before testing or activating OIDC. It must use HTTPS. For local development, HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`. When the origin uses HTTPS, the OIDC browser cookie and the application session cookie are both Secure.
@@ -48,7 +50,7 @@ Disabling a person only at the identity provider does not immediately end an exi
 3. Select the method and choose **Review change**.
 4. Read the impact statement, type `END SESSIONS`, and apply the change.
 
-Applying a different method ends every interactive session, including yours. API access credentials remain enabled. The browser returns to sign-in after the database transaction completes. Applying a tested OIDC draft that is identical to the active configuration makes no change and does not end sessions.
+Applying a different method ends every interactive session, including yours. API access credentials remain enabled. The browser returns to sign-in after the database transaction completes. Applying refreshed provider settings for the active OIDC method keeps sessions and the authentication epoch unchanged. Applying the same tested snapshot again makes no change.
 
 Phase A does not enable a new recovery route or change sign-in behavior. Until the existing recovery route is enabled and an active owner has a usable password, administrators see a blocking warning on **Auth / SSO** and an application banner. The exact server-side fix is to enable `CUTTLELY_LOCAL_ADMIN`, then run `pnpm user --email owner@example.com` on the server to create the owner recovery credential. With Docker, run `docker compose exec cuttlely pnpm user --email owner@example.com`. Enter the password at the prompt.
 
