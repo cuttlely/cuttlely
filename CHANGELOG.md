@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Generic OIDC can be configured, tested, and activated from **Admin** > **Auth / SSO**. It uses guarded discovery and signing-key retrieval, PKCE, one-time database transactions, provider-scoped identity links, and the existing Cuttlely database session. Existing WorkOS and local sign-in behavior stays unchanged.
+-   Generic OIDC can be configured, tested, and activated from **Admin** > **Auth / SSO**. It uses guarded discovery and signing-material retrieval, PKCE, one-time database transactions, provider-scoped identity links, and the existing Cuttlely database session. Public callbacks require HTTPS except on the three local development hosts. Email and its assurance come from the same response: complete ID-token claims stay authoritative, including a qualifying `xms_edov` claim, while matching-subject UserInfo supplies both when the ID token is incomplete. Invitation delivery and password acceptance follow the durable active method, and removing a person's final organization membership permits a later invitation to establish a new provider link.
 
 -   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.
 

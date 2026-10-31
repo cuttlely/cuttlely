@@ -9,7 +9,7 @@ you may not use this file except in compliance with the License.
 
 Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The page is available to an owner or a role with **Authentication: Manage**.
 
-This release supports **Local login**, **Generic OIDC**, and **WorkOS**. Existing WorkOS and local settings remain authoritative. SCIM is not available yet.
+The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The durable active method controls ordinary sign-in; the WorkOS and local settings remain available when their method is selected. SCIM is not available yet.
 
 ## Set up generic OIDC
 
