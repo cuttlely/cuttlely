@@ -41,7 +41,7 @@ The repository never calls the Render API. You apply the Blueprint in the Dashbo
     | `WORKOS_API_KEY`           | From WorkOS.                                                                                                      |
     | `WORKOS_CLIENT_ID`         | From WorkOS.                                                                                                      |
     | `WORKOS_REDIRECT_URI`      | `https://<your-service>.onrender.com/api/v1/auth/callback`. Fix it after the first deploy if the address differs. |
-    | `WORKOS_COOKIE_PASSWORD`   | A random value of at least 32 characters. It seals the session cookie.                                            |
+    | `WORKOS_COOKIE_PASSWORD`   | A random value of at least 32 characters for the AuthKit setup test. Current sessions use the database.           |
     | `CUTTLELY_BOOTSTRAP_EMAIL` | The verified email of the first owner.                                                                            |
 
     Render asks only now, when the Blueprint is created. Later Blueprint syncs ignore `sync: false` variables. To change one, edit it on the service's **Environment** page.
@@ -70,7 +70,7 @@ In WorkOS, set these URIs to the service's real address:
 2. Sign in with the email in `CUTTLELY_BOOTSTRAP_EMAIL`. You become the owner.
 3. Add other people under **Admin** > **Users**, then send each person the one-time invite link **Add User** shows. They join only through that link. See [Invite people](./sign-in.md#invite-people).
 
-`CUTTLELY_LOCAL_ADMIN` isn't in `render.yaml`, so the password form is off. See [Recover access](#recover-access).
+WorkOS is the durable selected method, so `/signin` has no ordinary password form. `CUTTLELY_LOCAL_ADMIN` is not in `render.yaml` and is not needed for [owner recovery](#recover-access).
 
 Model keys are not environment variables here. The Blueprint has no `OPENAI_API_KEY` or `XAI_API_KEY`. Save keys under **Credentials** in the app.
 
@@ -103,7 +103,7 @@ The app database is Postgres. Cuttlely does not read `DATABASE_URL`. It reads th
 | `FLOWISE_SECRETKEY_OVERWRITE`          | generated                   | The credential encryption key. Render generates it once and keeps it.                                                                                            |
 | `CUTTLELY_ANALYST`                     | not set                     | See [Analyst database](#analyst-database).                                                                                                                       |
 | `CUTTLELY_POSTGRES_URL`                | not set                     | See [Analyst database](#analyst-database).                                                                                                                       |
-| `CUTTLELY_LOCAL_ADMIN`                 | not set                     | The password form stays off.                                                                                                                                     |
+| `CUTTLELY_LOCAL_ADMIN`                 | not set                     | WorkOS stays the ordinary method; owner recovery remains available.                                                                                              |
 | `CUTTLELY_VERSIONS`                    | not set                     | Version history is on. Set `off` on the **Environment** page to turn it off.                                                                                     |
 | `CUTTLELY_DRAFTS`                      | not set                     | Drafts are on. Set `off` on the **Environment** page to save to Live.                                                                                            |
 
@@ -126,12 +126,11 @@ What auto mode creates, which URL wins, and the canvas steps are in [Analyst mod
 
 ## Recover access
 
-When WorkOS sign-in isn't working, use the local account for a while:
+When WorkOS sign-in isn't working, use the always-available owner recovery page. It does not require `CUTTLELY_LOCAL_ADMIN`:
 
-1. On the service's **Environment** page, add `CUTTLELY_LOCAL_ADMIN` with the value `true`, save, and redeploy.
-2. On the service's **Shell** page, in the app folder `/usr/src/cuttlely`, run `pnpm user --email you@example.com` and type a password. On an empty database this creates the owner. With an existing owner's email, it sets a new password.
-3. Sign in at `/signin` with **Sign in with password**.
-4. Fix WorkOS, then delete `CUTTLELY_LOCAL_ADMIN` again.
+1. On the service's **Shell** page, in the app folder `/usr/src/cuttlely`, run `pnpm user --email you@example.com` and type a password for the existing owner.
+2. Open `/owner-recovery` and sign in with that owner email and password. `/signin` continues to show **Sign in with WorkOS** and **Owner recovery** because WorkOS remains the durable selected method.
+3. Fix the WorkOS configuration and restart. Environment settings configure the WorkOS candidate; they do not change the durable selection. Change the ordinary method, when needed, under **Admin** > **Auth / SSO**.
 
 More about the local account: [Sign in](./sign-in.md).
 

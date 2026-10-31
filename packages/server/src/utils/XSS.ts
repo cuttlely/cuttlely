@@ -61,6 +61,7 @@ export function getAllowedAuthCorsOrigins(): string[] {
 const SESSION_ENDPOINTS = [
     '/api/v1/auth/login',
     '/api/v1/auth/local/login',
+    '/api/v1/auth/recovery/login',
     '/api/v1/auth/local/logout',
     '/api/v1/auth/local/password',
     '/api/v1/auth/refreshtoken',

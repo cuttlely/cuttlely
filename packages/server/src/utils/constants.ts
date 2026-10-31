@@ -26,6 +26,7 @@ export const WHITELIST_URLS = [
     '/api/v1/auth/signin-options',
     '/api/v1/auth/options',
     '/api/v1/auth/local/login',
+    '/api/v1/auth/recovery/login',
     '/api/v1/auth/local/logout',
     '/api/v1/auth/local/password',
     '/api/v1/auth/local/accept',
@@ -62,6 +63,7 @@ export const API_KEY_BLACKLIST_URLS = [
     '/api/v1/organizationuser',
     '/api/v1/workspace',
     '/api/v1/workspaceuser',
+    '/api/v1/authentication-settings',
     '/api/v1/server-settings',
     '/api/v1/server-setup',
     // In-app chat runs the draft canvas. An app calls /api/v1/prediction, which runs Live under the flow's own key.

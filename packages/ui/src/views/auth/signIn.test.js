@@ -11,6 +11,7 @@ jest.mock('react-redux', () => ({
 }))
 
 const mockNavigate = jest.fn()
+let mockSignInOptions = { authKit: false, localAdmin: false, localUsers: true, mail: false }
 jest.mock('react-router-dom', () => ({
     Link: ({ children }) => children,
     Navigate: () => <div data-testid='automatic-redirect' />,
@@ -19,7 +20,7 @@ jest.mock('react-router-dom', () => ({
 }))
 
 jest.mock('@/api/client', () => ({
-    get: jest.fn(() => Promise.resolve({ data: { authKit: false, localAdmin: false, localUsers: true, mail: false } }))
+    get: jest.fn(() => Promise.resolve({ data: mockSignInOptions }))
 }))
 jest.mock('@/api/auth', () => ({
     __esModule: true,
@@ -45,6 +46,11 @@ import useApi from '@/hooks/useApi'
 import SignInPage from './signIn'
 
 describe('local reauthentication', () => {
+    beforeEach(() => {
+        mockNavigate.mockClear()
+        mockSignInOptions = { authKit: false, localAdmin: false, localUsers: true, mail: false }
+    })
+
     it('shows the form to an authenticated user and returns to Auth / SSO after a successful sign-in', async () => {
         useApi.mockImplementation((operation) => ({
             data: operation === authApi.localLogin ? { user: { id: 'owner-1' } } : null,
@@ -63,6 +69,41 @@ describe('local reauthentication', () => {
         expect(container.querySelector('#local-users-form')).not.toBeNull()
         expect(container.querySelector('[data-testid="automatic-redirect"]')).toBeNull()
         expect(mockNavigate).toHaveBeenCalledWith('/authentication-settings')
+        act(() => root.unmount())
+    })
+
+    it('shows the owner password form for owner-only Local sign-in', async () => {
+        mockSignInOptions = { authKit: false, localAdmin: true, localUsers: false, mail: false }
+        useApi.mockReturnValue({ data: null, error: null, request: jest.fn() })
+
+        const container = document.createElement('div')
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(SignInPage)))
+            await Promise.resolve()
+        })
+
+        expect(container.querySelector('#owner-password-form')).not.toBeNull()
+        expect(container.querySelector('#workos-sign-in')).toBeNull()
+        expect(container.textContent).toContain('Owner recovery')
+        act(() => root.unmount())
+    })
+
+    it('does not show an owner password form while WorkOS is active', async () => {
+        mockSignInOptions = { authKit: true, localAdmin: false, localUsers: false, mail: false }
+        useApi.mockReturnValue({ data: null, error: null, request: jest.fn() })
+
+        const container = document.createElement('div')
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(SignInPage)))
+            await Promise.resolve()
+        })
+
+        expect(container.querySelector('#workos-sign-in')).not.toBeNull()
+        expect(container.querySelector('#owner-password-form')).toBeNull()
+        expect(container.querySelector('#local-users-form')).toBeNull()
+        expect(container.textContent).toContain('Owner recovery')
         act(() => root.unmount())
     })
 })

@@ -34,6 +34,7 @@ import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import TablePagination, { DEFAULT_ITEMS_PER_PAGE } from '@/ui-component/pagination/TablePagination'
 import { Available } from '@/ui-component/rbac/available'
 import APIKeyDialog from './APIKeyDialog'
+import { apiKeyOwnerNotice } from './ownerNotice'
 
 // API
 import apiKeyApi from '@/api/apikey'
@@ -82,7 +83,14 @@ function APIKeyRow(props) {
         <>
             <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                 <StyledTableCell scope='row' style={{ width: '15%' }}>
-                    {props.apiKey.keyName}
+                    <Stack>
+                        <Typography>{props.apiKey.keyName}</Typography>
+                        {apiKeyOwnerNotice(props.apiKey.ownerUserId) && (
+                            <Typography variant='caption' color='warning.main'>
+                                {apiKeyOwnerNotice(props.apiKey.ownerUserId)}
+                            </Typography>
+                        )}
+                    </Stack>
                 </StyledTableCell>
                 <StyledTableCell style={{ width: '25%' }}>
                     {props.apiKey.apiKey ? (
