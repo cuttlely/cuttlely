@@ -30,7 +30,10 @@ livePg('finds a local session on postgres, where user.id is a uuid and the sessi
             "absoluteExpiresAt" TIMESTAMP NOT NULL,
             "createdDate" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "lastSeenAt" TIMESTAMP,
-            "permissionVersion" integer NOT NULL DEFAULT 0
+            "permissionVersion" integer NOT NULL DEFAULT 0,
+            "authenticationMethod" varchar(32) NULL,
+            "authenticationEpoch" integer NULL,
+            "recoveryUse" integer NOT NULL DEFAULT 0
         )`)
         const userId = '6f1d3a52-2c4b-4c1e-9a57-0d3b8f6e2a10'
         await db.query(`INSERT INTO "user" (id, "permissionVersion") VALUES ($1, 3)`, [userId])
