@@ -256,19 +256,53 @@ function staleAuthenticationEpoch(row: LocalSession, current: number | undefined
     return typeof row.authenticationEpoch === 'number' && typeof current === 'number' && row.authenticationEpoch !== current
 }
 
-async function localCookieGate(ctx: AuthContext, row: LocalSession): Promise<'ok' | 'end' | 'reject'> {
+function requestAuthenticationMethod(ctx: AuthContext): 'local' | 'workos' | null {
+    return ctx.activeAuthenticationMethod !== undefined
+        ? ctx.activeAuthenticationMethod
+        : ctx.localUsers
+        ? 'local'
+        : ctx.workosConfigured
+        ? 'workos'
+        : null
+}
+
+function authenticationMethodMismatch(row: LocalSession, activeMethod: 'local' | 'workos' | null): boolean {
+    return (
+        (row.authenticationMethod === 'local' && activeMethod !== 'local') ||
+        (row.authenticationMethod === 'workos' && activeMethod !== 'workos')
+    )
+}
+
+/**
+ * A new session can reach this process before its two-second authentication-state cache observes the switch.
+ * Refresh only in that direction (or on a method mismatch), then compare against the durable state.
+ */
+async function currentAuthenticationForSession(
+    ctx: AuthContext,
+    row: LocalSession
+): Promise<{ epoch: number | undefined; method: 'local' | 'workos' | null }> {
+    let epoch = ctx.authenticationEpoch
+    let method = requestAuthenticationMethod(ctx)
+    const epochMayBeAhead = typeof row.authenticationEpoch === 'number' && (typeof epoch !== 'number' || row.authenticationEpoch > epoch)
+    if (ctx.dataSource && (epochMayBeAhead || authenticationMethodMismatch(row, method))) {
+        const { refreshAuthenticationState, selectedAuthenticationEpoch, selectedAuthenticationMethod } =
+            require('./authenticationState') as typeof import('./authenticationState')
+        const refreshed = await refreshAuthenticationState(ctx.dataSource, true)
+        epoch = refreshed?.authenticationEpoch ?? selectedAuthenticationEpoch() ?? epoch
+        const refreshedMethod = refreshed?.activeMethod ?? selectedAuthenticationMethod()
+        if (refreshedMethod !== undefined) method = refreshedMethod
+    }
+    return { epoch, method }
+}
+
+async function localCookieGate(
+    ctx: AuthContext,
+    row: LocalSession,
+    activeMethod: 'local' | 'workos' | null
+): Promise<'ok' | 'end' | 'reject'> {
     const open = await ctx.store.localAccountOpen(row.userId)
     if (!open) return 'end'
-    const activeMethod =
-        ctx.activeAuthenticationMethod !== undefined
-            ? ctx.activeAuthenticationMethod
-            : ctx.localUsers
-            ? 'local'
-            : ctx.workosConfigured
-            ? 'workos'
-            : null
-    if (row.authenticationMethod === 'local' && activeMethod !== 'local') return 'end'
-    if (row.authenticationMethod === 'workos' && activeMethod !== 'workos') return 'end'
+    if (authenticationMethodMismatch(row, activeMethod)) return 'end'
     if (row.authenticationMethod === 'recovery' || row.recoveryUse) {
         if (ctx.store.isActiveOwner) return (await ctx.store.isActiveOwner(row.userId)) ? 'ok' : 'end'
         const session = await ctx.store.sessionFor(row.userId)
@@ -561,11 +595,16 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
                 cleared(ctx, [LOCAL_SESSION_COOKIE])
             )
         }
-        if (stalePermission(row) || staleAuthenticationEpoch(row, ctx.authenticationEpoch)) {
+        if (stalePermission(row)) {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
-        const gate = await localCookieGate(ctx, row)
+        const currentAuthentication = await currentAuthenticationForSession(ctx, row)
+        if (staleAuthenticationEpoch(row, currentAuthentication.epoch)) {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
+            return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
+        }
+        const gate = await localCookieGate(ctx, row, currentAuthentication.method)
         if (gate === 'end') {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
@@ -752,7 +791,12 @@ export async function handleLocalPassword(ctx: AuthContext): Promise<HandlerResu
         await ctx.store.deleteLocalSession(digest)
         return json(401, { message: 'Unauthorized' })
     }
-    const gate = await localCookieGate(ctx, row)
+    const currentAuthentication = await currentAuthenticationForSession(ctx, row)
+    if (stalePermission(row) || staleAuthenticationEpoch(row, currentAuthentication.epoch)) {
+        await ctx.store.deleteLocalSessionsForUser(row.userId)
+        return json(401, { message: 'Unauthorized' })
+    }
+    const gate = await localCookieGate(ctx, row, currentAuthentication.method)
     if (gate === 'end') {
         await ctx.store.deleteLocalSessionsForUser(row.userId)
         return json(401, { message: 'Unauthorized' })
@@ -858,11 +902,16 @@ export async function establishSession(
             await ctx.store.deleteLocalSession(digest)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        if (stalePermission(row) || staleAuthenticationEpoch(row, ctx.authenticationEpoch)) {
+        if (stalePermission(row)) {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        const gate = await localCookieGate(ctx, row)
+        const currentAuthentication = await currentAuthenticationForSession(ctx, row)
+        if (staleAuthenticationEpoch(row, currentAuthentication.epoch)) {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
+        }
+        const gate = await localCookieGate(ctx, row, currentAuthentication.method)
         if (gate === 'end') {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }

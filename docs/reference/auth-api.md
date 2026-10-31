@@ -121,7 +121,7 @@ Requires the header `x-request-from: internal`. A missing or any other value is 
 
 With that header the route returns 200 `{ "message": "logged_out", "redirectTo": "/signin" }` and clears the cookie. Calling it again returns that same body. The session row for the cookie is deleted, so the old cookie no longer signs anyone in.
 
-The route is 404 when local users mode is off and remains only for compatibility. `POST /api/v1/account/logout` is the unified in-app sign-out for Local login, WorkOS, and owner recovery. With `x-request-from: internal`, it deletes the shared database session, clears every session cookie, and then attempts provider sign-out when applicable.
+The compatibility route remains available when local users mode is off and dispatches to the same unified sign-out. `POST /api/v1/account/logout` is the unified in-app sign-out for Local login, WorkOS, and owner recovery. With `x-request-from: internal`, either route deletes the shared database session, clears every session cookie, and then attempts provider sign-out when applicable.
 
 ## Change your own password
 

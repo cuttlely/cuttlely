@@ -812,6 +812,42 @@ describe('identity auth', () => {
         jest.restoreAllMocks()
     })
 
+    it.each([
+        { name: 'epoch and method', cachedEpoch: 4, sessionEpoch: 5 },
+        { name: 'method', cachedEpoch: 5, sessionEpoch: 5 }
+    ])('keeps a fresh cross-process session when the cached $name is behind', async ({ cachedEpoch, sessionEpoch }) => {
+        const store = new MemoryStore()
+        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: 'wos-1', credential: null }, true)
+        const raw = 'fresh-cross-process-session'
+        const digest = hashSessionToken(raw)
+        await store.insertLocalSession({
+            id: 'fresh-session',
+            userId: 'owner',
+            token: digest,
+            idleExpires: new Date(NOW + 60_000),
+            absoluteExpires: new Date(NOW + 120_000),
+            authenticationMethod: 'workos',
+            authenticationEpoch: sessionEpoch
+        })
+        const refreshed = jest.spyOn(authenticationState, 'refreshAuthenticationState').mockResolvedValue({
+            activeMethod: 'workos',
+            authenticationEpoch: 5
+        } as authenticationState.AuthenticationState)
+        const result = await establishSession(
+            ctx({
+                dataSource: {} as DataSource,
+                authenticationEpoch: cachedEpoch,
+                activeAuthenticationMethod: 'local',
+                store,
+                cookies: { 'cuttlely-local-session': raw }
+            })
+        )
+        expect(result.user?.id).toBe('owner')
+        expect(store.local.has(digest)).toBe(true)
+        expect(refreshed).toHaveBeenCalledWith(expect.anything(), true)
+        jest.restoreAllMocks()
+    })
+
     it('uses a secure cookie when the redirect URI is https', async () => {
         const store = new MemoryStore()
         const result = await handleCallback(
