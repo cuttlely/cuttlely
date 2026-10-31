@@ -18,7 +18,6 @@ jest.mock('../utils/logger', () => {
     return { __esModule: true, default: quiet }
 })
 
-import cookieParser from 'cookie-parser'
 import express, { Request } from 'express'
 import request from 'supertest'
 import type { DataSource, QueryRunner } from 'typeorm'
@@ -198,10 +197,28 @@ function cookieValue(response: request.Response): string {
     return String(cookie).split(';', 1)[0]
 }
 
+function parseTestCookies(req: Request, _res: express.Response, next: express.NextFunction): void {
+    const cookies = Object.create(null) as Record<string, string>
+    for (const part of (req.headers.cookie || '').split(';')) {
+        const cookie = part.trim()
+        const separator = cookie.indexOf('=')
+        if (separator <= 0) continue
+        const name = cookie.slice(0, separator).trim()
+        if (!name || Object.prototype.hasOwnProperty.call(cookies, name)) continue
+        try {
+            cookies[name] = decodeURIComponent(cookie.slice(separator + 1).trim())
+        } catch {
+            continue
+        }
+    }
+    req.cookies = cookies
+    next()
+}
+
 function application() {
     const server = express()
     server.use(express.json())
-    server.use(cookieParser())
+    server.use(parseTestCookies)
     server.use((req, _res, next) => {
         req.user = {
             id: OWNER,
