@@ -18,6 +18,7 @@ import {
 
 import { flowiseNodeCatalog } from '@/utils/flowiseCatalog'
 import { scanFlowiseMigration } from '@/utils/flowiseMigration.mjs'
+import { wizardHeal } from '@/utils/edgeRefs'
 
 const STEPS = ['Upload', 'Scan', 'Credentials', 'Nodes', 'Result']
 
@@ -57,7 +58,7 @@ ListBlock.propTypes = {
     renderItem: PropTypes.func
 }
 
-const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
+const FlowiseMigrationWizard = ({ open, onClose, onOpen, specs, updateNodeData }) => {
     const [step, setStep] = useState(0)
     const [fileName, setFileName] = useState('')
     const [report, setReport] = useState(null)
@@ -92,7 +93,10 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                 setStep(0)
                 return
             }
-            const next = scanFlowiseMigration(parsed, { catalog: flowiseNodeCatalog })
+            const next = scanFlowiseMigration(parsed, {
+                catalog: flowiseNodeCatalog,
+                heal: wizardHeal(specs, { updateNodeData })
+            })
             if (next.code === 'langflow' || next.code === 'not-flowise' || next.code === 'tool') {
                 setReport(null)
                 setParseError(next.reason)
@@ -251,7 +255,9 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
 FlowiseMigrationWizard.propTypes = {
     open: PropTypes.bool,
     onClose: PropTypes.func,
-    onOpen: PropTypes.func
+    onOpen: PropTypes.func,
+    specs: PropTypes.array,
+    updateNodeData: PropTypes.func
 }
 
 export default FlowiseMigrationWizard

@@ -11,6 +11,7 @@ import { Avatar, Box, Typography, Tooltip } from '@mui/material'
 import MainCard from '@/ui-component/cards/MainCard'
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 import { missingNodeInfo } from '@/utils/missingNode'
+import { needsSync } from '@/utils/edgeRefs'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 import NodeActionBar from '@/views/canvas/NodeActionBar'
 import { cardAccentChrome, cardAccentColor } from '@/utils/cardAccent'
@@ -170,9 +171,10 @@ const AgentFlowNode = ({ data }) => {
 
         const componentNode = canvas.componentNodes.find((nd) => nd.name === data.name)
         if (componentNode) {
-            if (!data.version) {
+            const syncNeeded = needsSync({ data: { version: data.version, cuttlelyRawNode: data.cuttlelyRawNode } }, componentNode)
+            if (syncNeeded && data.version == null) {
                 setWarningMessage(nodeVersionEmptyMessage(componentNode.version))
-            } else if (data.version && componentNode.version > data.version) {
+            } else if (syncNeeded) {
                 setWarningMessage(nodeOutdatedMessage(data.version, componentNode.version))
             } else if (componentNode.badge === 'DEPRECATING') {
                 setWarningMessage(
@@ -185,7 +187,7 @@ const AgentFlowNode = ({ data }) => {
                 setWarningMessage('')
             }
         }
-    }, [canvas.componentNodes, data.name, data.version])
+    }, [canvas.componentNodes, data.cuttlelyRawNode, data.name, data.version])
 
     const missing = missingNodeInfo(data, canvas.componentNodes)
     if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />

@@ -109,7 +109,7 @@ export const initializeDefaultNodeData = (nodeParams) => {
 
     for (let i = 0; i < nodeParams.length; i += 1) {
         const input = nodeParams[i]
-        initialValues[input.name] = input.default || ''
+        initialValues[input.name] = input.default ?? ''
     }
 
     return initialValues
@@ -358,30 +358,26 @@ export const updateOutdatedNodeData = (newComponentNodeData, existingComponentNo
     return initNewComponentNodeData
 }
 
+export const handlesEqual = (a, b) => {
+    if (a === b) return true
+    const withoutClassList = (value) => {
+        if (!value) return value
+        const lastDash = value.lastIndexOf('-')
+        if (lastDash === -1) return value
+        const suffix = value.substring(lastDash + 1)
+        return suffix.includes('|') ? value.substring(0, lastDash) : value
+    }
+    return withoutClassList(a) === withoutClassList(b)
+}
+
 export const updateOutdatedNodeEdge = (newComponentNodeData, edges) => {
     const removedEdges = []
 
     const isAgentFlowV2 = newComponentNodeData.category === 'Agent Flows'
 
-    // Helper to compare handle/anchor IDs while ignoring trailing base-class/type suffixes
-    // Example:
-    //   azureChatOpenAI_0-output-azureChatOpenAI-A|B|C  vs  azureChatOpenAI_0-output-azureChatOpenAI-A|B
-    // We compare by stripping the last "-..." segment if it contains pipes.
-    const handlesEqual = (a, b) => {
-        if (a === b) return true
-        const stripPipeSuffix = (s) => {
-            if (!s) return s
-            const lastDash = s.lastIndexOf('-')
-            if (lastDash === -1) return s
-            const suffix = s.substring(lastDash + 1)
-            return suffix.includes('|') ? s.substring(0, lastDash) : s
-        }
-        return stripPipeSuffix(a) === stripPipeSuffix(b)
-    }
-
     for (const edge of edges) {
-        const targetNodeId = edge.targetHandle.split('-')[0]
-        const sourceNodeId = edge.sourceHandle.split('-')[0]
+        const targetNodeId = edge.target
+        const sourceNodeId = edge.source
 
         if (targetNodeId === newComponentNodeData.id) {
             if (isAgentFlowV2) {
@@ -404,18 +400,13 @@ export const updateOutdatedNodeEdge = (newComponentNodeData, edges) => {
                 // AgentFlow v2 doesn't have specific output anchors, connections are directly from node
                 // No need to remove edges for AgentFlow v2 outputs
             } else if (newComponentNodeData.outputAnchors?.length) {
-                for (const outputAnchor of newComponentNodeData.outputAnchors) {
-                    const outputAnchorType = outputAnchor.type
-                    if (outputAnchorType === 'options') {
-                        if (!outputAnchor.options.find((outputOption) => handlesEqual(outputOption.id, edge.sourceHandle))) {
-                            removedEdges.push(edge)
-                        }
-                    } else {
-                        if (!handlesEqual(outputAnchor.id, edge.sourceHandle)) {
-                            removedEdges.push(edge)
-                        }
+                const outputExists = newComponentNodeData.outputAnchors.some((outputAnchor) => {
+                    if (outputAnchor.type === 'options') {
+                        return outputAnchor.options?.some((outputOption) => handlesEqual(outputOption.id, edge.sourceHandle))
                     }
-                }
+                    return handlesEqual(outputAnchor.id, edge.sourceHandle)
+                })
+                if (!outputExists) removedEdges.push(edge)
             }
         }
     }

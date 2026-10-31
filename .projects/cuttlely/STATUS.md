@@ -215,7 +215,7 @@ Cuttlely 1.4.8. The product version is the root `package.json`, `packages/server
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Hardened public config endpoints and template sanitizing are on `main` (#238).
--   Chatflow import checks (model and tool credentials, sticky notes, tool files, older card names, custom tools by id) are on `main` ([#245](https://github.com/cuttlely/cuttlely/pull/245)). Refreshing every imported card from the current spec and partial import of unsupported cards are still open.
+-   Chatflow import checks cover model and tool credentials, sticky notes, tool files, older card names and custom tools by id ([#245](https://github.com/cuttlely/cuttlely/pull/245)). Imported chatflow cards now refresh from the current specification, restore defaults and connected input references, and report connections that need attention (#362). Partial import of unsupported cards is still open.
 -   sanitize-html is 2.18.1 in `pnpm-lock.yaml` ([#250](https://github.com/cuttlely/cuttlely/pull/250)), which clears Dependabot alert 221.
 -   `npx cuttlely start` on Node 20: the health wait keeps the event loop alive, times out each try and retries through resets; the `cli-node` CI job runs the CLI tests on Node 20, 22 and 24 ([#252](https://github.com/cuttlely/cuttlely/pull/252), in the `v1.3.1` tag and its npm package).
 -   `npx cuttlely start` health timeout: the message points at `npx cuttlely logs` and no longer says Cuttlely is still starting (CHANGELOG Unreleased).

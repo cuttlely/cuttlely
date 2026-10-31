@@ -71,6 +71,7 @@ import {
     updateOutdatedNodeEdge,
     isValidConnectionAgentflowV2
 } from '@/utils/genericHelper'
+import { needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
@@ -581,7 +582,7 @@ const AgentflowCanvas = () => {
         for (let i = 0; i < cloneNodes.length; i++) {
             const node = cloneNodes[i]
             const componentNode = componentNodes.find((cn) => cn.name === node.data.name)
-            if (componentNode && componentNode.version > node.data.version) {
+            if (needsSync(node, componentNode)) {
                 const clonedComponentNode = cloneDeep(componentNode)
                 cloneNodes[i].data = updateOutdatedNodeData(clonedComponentNode, node.data, true)
                 toBeRemovedEdges.push(...updateOutdatedNodeEdge(cloneNodes[i].data, cloneEdges))
@@ -731,7 +732,7 @@ const AgentflowCanvas = () => {
         for (let i = 0; i < nodes.length; i++) {
             const node = nodes[i]
             const componentNode = componentNodes.find((cn) => cn.name === node.data.name)
-            if (componentNode && componentNode.version > node.data.version) {
+            if (needsSync(node, componentNode)) {
                 setIsSyncNodesButtonEnabled(true)
                 return
             }

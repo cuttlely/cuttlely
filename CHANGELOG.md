@@ -23,6 +23,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Chatflow import now refreshes node versions and defaults, restores connected input references, and reports connections that need attention. If you imported a flow through the migration wizard in 1.4.8, open it and click **Sync Nodes** once. A flow served only through the API or an embed remains broken until someone opens it and does that.
+
 -   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.
 
 ## [1.4.8] - 2026-10-30

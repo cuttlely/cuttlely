@@ -57,7 +57,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 
 // utils
-import { generateExportFlowData } from '@/utils/genericHelper'
+import { generateExportFlowData, updateOutdatedNodeData } from '@/utils/genericHelper'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
@@ -962,6 +962,8 @@ const CanvasHeader = ({
             />
             <FlowiseMigrationWizard
                 open={migrationOpen}
+                specs={canvas.componentNodes}
+                updateNodeData={updateOutdatedNodeData}
                 onClose={() => setMigrationOpen(false)}
                 onOpen={({ canvas, name, route }) => {
                     setMigrationOpen(false)
