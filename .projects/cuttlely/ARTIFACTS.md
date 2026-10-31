@@ -62,4 +62,6 @@ PR #324 review corrections reserve the trace question before fitting SQL preview
 
 Trusted pinned-query outputs: `docs/reference/trusted-outputs.md` documents the optional contracts. `packages/harness/trusted-output.test.mjs` covers source integrity and composition; `trusted-output-bridge.test.mjs` exercises the real local bridge/runtime-scope protocol. `packages/harness/test/trusted-output-fixture.mjs` provides only synthetic PNG and CSV data for native storage tests.
 
+Companion documentation provenance: `packages/harness/retrieval-capture.mjs` holds bounded active-turn retrieval receipts and checks cited destinations. `retrieval-capture.test.mjs` covers receipt isolation and guarded composition; `retrieval-capture-bridge.test.mjs` exercises the actual gateway. The mixed-answer test in `trusted-output.test.mjs` keeps a protected report and its native artifact alongside a separately cited documentation section.
+
 Agent team tuning: `docs/how-to/tune-agent-team.md` compares answer paths and connects row caps, native files, run limits, scoped capacity waiting, Live API sessions and source-backed QA.

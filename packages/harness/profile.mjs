@@ -1166,7 +1166,12 @@ function mcpServerBlocks(record) {
             ],
             // Hermes drops the parent environment when it starts this stdio bridge.
             // The data dir has to be in the profile env or the status file is never written.
-            env: hasAnalystTool(specialist) ? { CUTTLELY_ANALYST_BRIDGE: '1', CUTTLELY_DATA_DIR: dataRoot() } : {}
+            // The existing runtime hook also scopes retrieval calls. This flag
+            // injects a turn identity; it does not grant a query tool.
+            env:
+                hasAnalystTool(specialist) || specialist.modules?.some((binding) => binding.nodeName === 'retrieverTool')
+                    ? { CUTTLELY_ANALYST_BRIDGE: '1', CUTTLELY_DATA_DIR: dataRoot() }
+                    : {}
         })
         for (const mcp of specialist.mcpServers || []) {
             if (isFlowiseMcpBinding(mcp)) continue
@@ -2651,7 +2656,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '5'
+export const PROFILE_COMPILER_VERSION = '6'
 
 function compilerVersionOf(dir) {
     try {
