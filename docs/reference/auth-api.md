@@ -47,11 +47,11 @@ The body has no emails, cookies, or session ids. A missing session is still 200.
 
 ## OIDC sign in
 
-`GET /api/v1/auth/oidc/login` starts ordinary OIDC sign-in when generic OIDC is active. It returns `302` to the provider. The callback is `GET /api/v1/auth/oidc/callback`; it completes only in the browser that started the request, consumes the single-use transaction, and returns `302` to the application or to `/signin` with a short error message.
+`GET /api/v1/auth/oidc/login` and `GET /api/v1/auth/oidc/callback` are public and need no existing session. The login route starts ordinary OIDC sign-in when generic OIDC is active and returns `302` to the provider. The callback completes only in the browser that started the request, consumes the single-use transaction, and returns `302` to the application or to `/signin` with a short error message.
 
 For first-time identity linking, the email and its assurance come from the same response. An ID token with an email and an `email_verified` claim remains authoritative, including when that claim is false. A qualifying `xms_edov=true` claim on a recognized authority host also keeps the ID-token email authoritative. Otherwise, when the provider advertises UserInfo, Cuttlely uses it only after its `sub` matches the ID token, and evaluates its email and verification status together. An explicit false for the selected email is not overridden.
 
-`GET /api/v1/auth/oidc/reauthenticate` starts the fresh-authentication path for a signed-in user. The provider request includes `prompt=login` and `max_age=0`. Completion counts as recent authentication only when the ID token includes `auth_time` no earlier than 60 seconds before the request began. A missing or older value can still complete sign-in, but sensitive authentication settings continue to require a qualifying recent-auth record.
+`GET /api/v1/auth/oidc/reauthenticate` requires an existing session and starts the fresh-authentication path for that signed-in user. The provider request includes `prompt=login` and `max_age=0`. Completion counts as recent authentication only when the ID token includes `auth_time` no earlier than 60 seconds before the request began. A missing or older value can still complete sign-in, but sensitive authentication settings continue to require a qualifying recent-auth record.
 
 Both OIDC start routes require the derived callback to use HTTPS. HTTP is accepted only for a callback host of `localhost`, `127.0.0.1`, or `::1` during local development. Configure the origin with `APP_URL`.
 

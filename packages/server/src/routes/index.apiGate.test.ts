@@ -20,6 +20,10 @@ const mockChatflows = {
     updateChatflow: reached('chatflows.update')
 }
 const mockGetAllNodes = reached('nodes.list')
+const mockReadAuthenticationState = jest.fn()
+const mockBeginOidcAuthorization = jest.fn()
+const mockCompleteOidcAuthorization = jest.fn()
+const mockSafeRecordAudit = jest.fn()
 
 jest.mock('../controllers/nvidia-nim', () => {
     const actual = jest.requireActual('../controllers/nvidia-nim').default
@@ -32,6 +36,36 @@ jest.mock('../controllers/chatflows', () => {
 jest.mock('../controllers/nodes', () => {
     const actual = jest.requireActual('../controllers/nodes').default
     return { __esModule: true, default: { ...actual, getAllNodes: mockGetAllNodes } }
+})
+jest.mock('../identity/authenticationState', () => {
+    const actual = jest.requireActual('../identity/authenticationState')
+    return {
+        ...actual,
+        readAuthenticationState: mockReadAuthenticationState,
+        refreshAuthenticationState: jest.fn(),
+        selectedAuthenticationMethod: () => 'oidc'
+    }
+})
+jest.mock('../identity/oidcProvider', () => {
+    const actual = jest.requireActual('../identity/oidcProvider')
+    return {
+        ...actual,
+        beginOidcAuthorization: mockBeginOidcAuthorization,
+        completeOidcAuthorization: mockCompleteOidcAuthorization
+    }
+})
+jest.mock('../identity/auditLog', () => {
+    const actual = jest.requireActual('../identity/auditLog')
+    return { ...actual, safeRecordAudit: mockSafeRecordAudit }
+})
+jest.mock('../identity/production', () => {
+    const actual = jest.requireActual('../identity/production')
+    return {
+        ...actual,
+        applicationDataSource: () => ({}),
+        applicationSql: () => jest.fn(),
+        refreshAuthenticationView: jest.fn()
+    }
 })
 
 import apiRouter from './index'
@@ -57,6 +91,7 @@ const sessionUser = { permissions: ['chatflows:view'], activeOrganizationId: 'or
 
 function app() {
     const server = express()
+    server.use(express.json())
     server.use(sanitizeMiddleware)
     server.use(
         apiV1Auth({
@@ -90,7 +125,20 @@ const nimSpellings: Array<['get' | 'post', string, string]> = [
 ]
 
 describe('API key gate on the real API router', () => {
-    beforeEach(() => allControllers().forEach((handler) => handler.mockClear()))
+    beforeEach(() => {
+        allControllers().forEach((handler) => handler.mockClear())
+        mockReadAuthenticationState.mockReset().mockResolvedValue({
+            activeMethod: 'oidc',
+            installationId: 'install-1',
+            authenticationEpoch: 3
+        })
+        mockBeginOidcAuthorization.mockReset().mockResolvedValue({
+            browserNonce: 'browser-nonce',
+            url: 'https://id.example/authorize'
+        })
+        mockCompleteOidcAuthorization.mockReset().mockRejectedValue(new Error('deterministic callback stop'))
+        mockSafeRecordAudit.mockReset().mockResolvedValue(undefined)
+    })
 
     it.each(nimSpellings)('refuses a no-permission API key on %s %s before the router', async (method, path) => {
         const res = await app()[method](path).set('Authorization', 'Bearer no-permission-key')
@@ -182,5 +230,57 @@ describe('API key gate on the real API router', () => {
             .set('Content-Type', 'application/json')
             .send({ jsonrpc: '2.0', id: 1, method: 'message/send', params: { message: { kind: 'message' } } })
         expect(res.body).not.toEqual({ error: 'Unauthorized Access' })
+    })
+
+    it('lets signed-out OIDC login and callback requests reach their handlers', async () => {
+        const login = await app().get('/api/v1/auth/oidc/login')
+        expect(login.status).toBe(302)
+        expect(login.headers.location).toBe('https://id.example/authorize')
+
+        const callback = await app().get('/api/v1/auth/oidc/callback?state=state-1&code=code-1')
+        expect(callback.status).toBe(302)
+        expect(callback.headers.location).toContain('/signin?error=')
+        expect(mockCompleteOidcAuthorization).toHaveBeenCalledWith(expect.objectContaining({ state: 'state-1', code: 'code-1' }))
+    })
+
+    it('keeps non-browser methods on the public OIDC routes behind the session gate', async () => {
+        for (const path of ['/api/v1/auth/oidc/login', '/api/v1/auth/oidc/callback']) {
+            const res = await app().post(path)
+            expect({ path, status: res.status, body: res.body }).toEqual({
+                path,
+                status: 401,
+                body: { error: 'Unauthorized Access' }
+            })
+        }
+    })
+
+    it('keeps OIDC reauthentication and administration behind the session gate', async () => {
+        for (const [method, path] of [
+            ['get', '/api/v1/auth/oidc/reauthenticate'],
+            ['get', '/api/v1/authentication-settings/oidc'],
+            ['put', '/api/v1/authentication-settings/oidc'],
+            ['post', '/api/v1/authentication-settings/oidc/test']
+        ] as const) {
+            const res = await app()[method](path)
+            expect({ method, path, status: res.status, body: res.body }).toEqual({
+                method,
+                path,
+                status: 401,
+                body: { error: 'Unauthorized Access' }
+            })
+        }
+    })
+
+    it('keeps OIDC invite start and callback reachable while signed out', async () => {
+        const start = await app().post('/api/v1/auth/invite/start').set('x-request-from', 'internal').send({ token: 'invite-token' })
+        expect(start.status).toBe(200)
+        expect(start.body).toEqual({ url: 'https://id.example/authorize' })
+        expect(mockBeginOidcAuthorization).toHaveBeenCalledWith(
+            expect.objectContaining({ purpose: 'invite', invitationToken: 'invite-token' })
+        )
+
+        const callback = await app().get('/api/v1/auth/oidc/callback?state=invite-state&code=invite-code')
+        expect(callback.status).toBe(302)
+        expect(callback.body).not.toEqual({ error: 'Unauthorized Access' })
     })
 })
