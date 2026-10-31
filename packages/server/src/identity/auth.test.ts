@@ -372,7 +372,7 @@ function registerApp(trust: boolean | number, store: MemoryStore, seen?: { socke
             res.status(result.status).json(result.body)
         })
     })
-    app.get(['/setup', '/organization-setup', '/server-setup'], (req, res) => {
+    app.get(['/setup', '/organization-setup', '/server-setup', '/owner-recovery'], (req, res) => {
         if (isSetupDocumentPath(req.path)) applySetupHeaders(res)
         res.status(200).type('html').send('<!doctype html><title>setup</title>')
     })
@@ -2056,7 +2056,7 @@ describe('identity auth', () => {
         }
         expect(store.users).toHaveLength(0)
 
-        for (const pagePath of ['/setup', '/organization-setup', '/server-setup']) {
+        for (const pagePath of ['/setup', '/organization-setup', '/server-setup', '/owner-recovery']) {
             const page = await request(registerApp(false, store)).get(pagePath)
             expect(page.status).toBe(200)
             expect(page.headers['referrer-policy']).toBe('no-referrer')
@@ -2071,6 +2071,7 @@ describe('identity auth', () => {
         expect(isSetupDocumentPath('/setup/')).toBe(true)
         expect(isSetupDocumentPath('/setup?code=made-up')).toBe(true)
         expect(isSetupDocumentPath('/server-setup')).toBe(true)
+        expect(isSetupDocumentPath('/owner-recovery')).toBe(true)
         expect(isSetupDocumentPath('/signin')).toBe(false)
 
         const code = firstRunSetupCode(NOW)
@@ -2314,7 +2315,7 @@ describe('identity auth', () => {
     it('sends frame-ancestors none on setup documents only', () => {
         const headers = new Map<string, string>()
         const res = { setHeader: (name: string, value: string) => headers.set(name.toLowerCase(), value) }
-        for (const pagePath of ['/setup', '/organization-setup', '/server-setup']) {
+        for (const pagePath of ['/setup', '/organization-setup', '/server-setup', '/owner-recovery']) {
             headers.clear()
             applyDocumentFrameHeaders(pagePath, res, {
                 'Content-Security-Policy': "frame-ancestors 'self'",

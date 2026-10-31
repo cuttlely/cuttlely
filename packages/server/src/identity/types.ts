@@ -69,6 +69,8 @@ export interface LoggedInUser {
     isSSO?: boolean
     /** Present for an API key. This is the key id, never the key secret. */
     apiKeyId?: string
+    /** Recorded owner of an API key, used when that key creates another key. */
+    apiKeyOwnerUserId?: string
 }
 
 export interface LocalSession {

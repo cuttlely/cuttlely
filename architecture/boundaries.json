@@ -646,7 +646,9 @@
                 "packages/ui/src/views/authentication/index.test.js",
                 "packages/ui/src/views/auth/ownerRecovery.jsx",
                 "packages/ui/src/views/auth/signIn.test.js",
-                "packages/ui/src/views/authentication/RecoveryWarningBanner.test.js"
+                "packages/ui/src/views/authentication/RecoveryWarningBanner.test.js",
+                "packages/ui/src/views/apikey/index.test.js",
+                "packages/ui/src/views/apikey/ownerNotice.js"
             ],
             "entryPoints": [
                 "packages/server/src/database/entities/identity/IdentitySetupCode.ts",
@@ -780,6 +782,7 @@
                 "packages/ui/src/api/authenticationSettings.js",
                 "packages/ui/src/views/authentication/index.jsx",
                 "packages/ui/src/views/auth/ownerRecovery.jsx",
+                "packages/ui/src/views/apikey/ownerNotice.js",
                 "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
                 "packages/ui/src/utils/roleLabel.js",
                 "packages/ui/src/views/auth/resolveLogin.js"

@@ -628,6 +628,24 @@ function recoveryAlertSql(dialect: Dialect): string {
     )`
 }
 
+async function backfillApiKeyOwners(runner: QueryRunner, dialect: Dialect): Promise<void> {
+    if (!(await tableExists(runner, dialect, 'apikey')) || !(await tableExists(runner, dialect, 'user'))) return
+    const keyTable = q(dialect, 'apikey')
+    const userTable = q(dialect, 'user')
+    for (const source of ['createdBy', 'userId']) {
+        if (!(await columnExists(runner, dialect, 'apikey', source))) continue
+        await runner.query(
+            `UPDATE ${keyTable} SET ${q(dialect, 'ownerUserId')} = ${q(dialect, source)}
+             WHERE ${q(dialect, 'ownerUserId')} IS NULL
+               AND ${q(dialect, source)} IS NOT NULL
+               AND EXISTS (
+                   SELECT 1 FROM ${userTable}
+                    WHERE ${userTable}.${q(dialect, 'id')} = ${keyTable}.${q(dialect, source)}
+               )`
+        )
+    }
+}
+
 /** Database-session ownership, the one-time sealed-session cutoff, recovery alerts, and API-key ownership. */
 export async function addSessionConvergence(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
@@ -635,6 +653,7 @@ export async function addSessionConvergence(runner: QueryRunner): Promise<void> 
     await addColumn(runner, dialect, 'identity_local_session', 'authenticationEpoch', 'integer NULL')
     await addColumn(runner, dialect, 'identity_local_session', 'recoveryUse', 'integer NOT NULL DEFAULT 0')
     await addColumn(runner, dialect, 'apikey', 'ownerUserId', 'varchar(36) NULL')
+    await backfillApiKeyOwners(runner, dialect)
     if (!(await tableExists(runner, dialect, 'identity_session_convergence'))) await runner.query(sessionConvergenceSql(dialect))
     if (!(await tableExists(runner, dialect, 'identity_recovery_alert'))) await runner.query(recoveryAlertSql(dialect))
 }

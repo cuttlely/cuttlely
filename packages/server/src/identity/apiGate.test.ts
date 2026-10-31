@@ -240,4 +240,17 @@ describe('apiV1Auth', () => {
         expect(response.status).toBe(401)
         expect(response.body).toEqual({ error: 'Unauthorized Access' })
     })
+
+    it('carries an active API key owner separately from an interactive user id', async () => {
+        const validateAPIKey = async () => ({
+            isValid: true,
+            apiKey: { id: 'key-1', workspaceId: 'ws-1', ownerUserId: 'user-1', permissions: ['chatflows:view'] }
+        })
+        const response = await app({ validateAPIKey, dataSource: dataSource({ user: { id: 'user-1', status: 'active' } }) }, true)
+            .get('/api/v1/flow-drafts/flow-1/check/history')
+            .set('Authorization', 'Bearer good-key')
+        expect(response.status).toBe(200)
+        expect(response.body.user).toMatchObject({ apiKeyId: 'key-1', apiKeyOwnerUserId: 'user-1' })
+        expect(response.body.user.id).toBeUndefined()
+    })
 })

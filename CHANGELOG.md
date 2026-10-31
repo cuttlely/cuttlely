@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   **Owner recovery** is always available from the sign-in page for any active owner with a usable local password. It creates a normal Cuttlely session marked as recovery use, uses stricter source and account throttling, and records every outcome as a high-severity audit event. A successful recovery also creates an administrator banner until audited acknowledgment, writes a structured warning, and emails active owners when SMTP is configured. `CUTTLELY_LOCAL_ADMIN` continues to control the older compatibility route but is no longer required for recovery readiness.
+-   **Owner recovery** is always available from the sign-in page for any active owner with a usable local password. It creates a normal Cuttlely session marked as recovery use, uses stricter source and account throttling, and records every outcome as a high-severity audit event. A successful recovery also creates an administrator banner until audited acknowledgment and writes a structured warning. When SMTP is configured, owner alert email is best effort and an email delivery problem does not undo recovery. `CUTTLELY_LOCAL_ADMIN` continues to control the older compatibility route but is no longer required for recovery readiness.
 
 -   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.
 
@@ -19,7 +19,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   WorkOS, local login, and owner recovery now use the same Cuttlely database session and browser cookie. On the first start after upgrading, a durable database marker ends the older sealed WorkOS browser sessions once, so those users sign in again one time. Existing local-user installs are unchanged, and API keys continue working.
 
--   Every session request and every owned API credential request checks the current user status, so disabling a user refuses the next call. WorkOS deactivation ends Cuttlely access immediately only when the Cuttlely user is also disabled; automatic IdP deactivation awaits SCIM.
+-   Every session request and every owned API credential request checks the current user status, so disabling a user refuses the next call. A key created through another API key inherits its recorded owner. Keys from before 1.5.0 without a recorded owner remain usable but are not tied to a user and should be reviewed or rotated. WorkOS deactivation ends Cuttlely access immediately only when the Cuttlely user is also disabled; automatic IdP deactivation awaits SCIM.
 
 -   Recovery readiness now means that any active owner has a usable local password. Administrators see a warning until `pnpm user --email owner@example.com` creates one; `CUTTLELY_LOCAL_ADMIN` is not required. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until recovery is ready.
 

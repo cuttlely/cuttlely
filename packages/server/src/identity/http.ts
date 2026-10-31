@@ -223,6 +223,10 @@ identityAuthRouter.post(
 )
 identityAuthRouter.post(
     '/recovery/login',
+    (_req, res, next) => {
+        applySetupHeaders(res)
+        next()
+    },
     (req, res, next) => {
         if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Invalid email or password.' })
         next()

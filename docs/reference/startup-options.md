@@ -16,8 +16,6 @@ Pinned queries are `CUTTLELY_PINNED_QUERIES`. They are on only when the value is
 
 The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters each `content.input` and `content.output` span attribute keeps. The default is `4000`. Accepted values are a positive whole number, or `0` for no limit. No limit sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. [Run traces](../how-to/observability.md#full-question-and-answer-text).
 
-`TOKEN_HASH_SECRET` also supplies the base secret for separate HKDF-derived authentication epoch-binding and reauthentication-state signing values. When it is unset, Cuttlely uses the persisted instance-secret fallback under `SECRETKEY_PATH`. Rotating it invalidates outstanding epoch-binding and reauthentication-state values, so a user may need to begin those short-lived actions again.
-
 | Key                                          | Default                                     | Range             | Unit          | Where it can be set            | Restart |
 | -------------------------------------------- | ------------------------------------------- | ----------------- | ------------- | ------------------------------ | ------- |
 | `CUTTLELY_LOCAL_ADMIN`                       | On from source and in Docker, off on Render | —                 | —             | Host, then Server settings     | Yes     |

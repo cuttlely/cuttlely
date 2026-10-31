@@ -21,6 +21,11 @@ interface ApiKeyActor {
     activeOrganizationSubscriptionId?: string
     activeOrganizationCustomerId?: string
     activeWorkspaceId: string
+    apiKeyOwnerUserId?: string
+}
+
+export function ownerForCreatedApiKey(user: Pick<ApiKeyActor, 'id' | 'apiKeyOwnerUserId'>): string | null {
+    return user.id || user.apiKeyOwnerUserId || null
 }
 
 /**
@@ -236,7 +241,7 @@ const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: str
     newKey.permissions = permissions
     newKey.harnesses = harnesses
     newKey.workspaceId = user.activeWorkspaceId
-    newKey.ownerUserId = user.id || null
+    newKey.ownerUserId = ownerForCreatedApiKey(user)
     const key = appServer.AppDataSource.getRepository(ApiKey).create(newKey)
     await appServer.AppDataSource.getRepository(ApiKey).save(key)
     const listed = await getAllApiKeys(user)

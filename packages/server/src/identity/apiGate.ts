@@ -165,7 +165,8 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             isOrganizationAdmin: false,
             activeWorkspaceId: workspace.id,
             activeWorkspace: workspace.name,
-            ...(typeof apiKey.id === 'string' && apiKey.id ? { apiKeyId: apiKey.id } : {})
+            ...(typeof apiKey.id === 'string' && apiKey.id ? { apiKeyId: apiKey.id } : {}),
+            ...(typeof apiKey.ownerUserId === 'string' && apiKey.ownerUserId ? { apiKeyOwnerUserId: apiKey.ownerUserId } : {})
         }
         req.user = apiUser
         next()

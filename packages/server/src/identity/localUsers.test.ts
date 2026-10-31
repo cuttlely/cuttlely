@@ -355,6 +355,15 @@ describe('local users mode', () => {
         setTeamPermissionLookup(null)
     })
 
+    it('sets strict headers on every owner recovery login response', async () => {
+        const response = await request(localRouteApp()).post('/api/v1/auth/recovery/login').send({})
+        expect(response.status).toBe(401)
+        expect(response.headers['cache-control']).toBe('no-store')
+        expect(response.headers['referrer-policy']).toBe('no-referrer')
+        expect(response.headers['x-frame-options']).toBe('DENY')
+        expect(response.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+    })
+
     it('states each combination of the owner flag, local users, and AuthKit', async () => {
         const rows: { admin: boolean; users: boolean; authKit: boolean; methods: string[]; local: boolean; owner: boolean }[] = [
             { admin: false, users: false, authKit: false, methods: [], local: false, owner: false },

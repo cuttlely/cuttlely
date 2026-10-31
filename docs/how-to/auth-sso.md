@@ -28,9 +28,9 @@ Recovery currently uses a password only; it does not add a second factor. Treat 
 
 WorkOS activation returns `409 Conflict` until at least one active owner has a usable local password. Switching from WorkOS to Local login has the same requirement, checked during staging and again in the switch transaction. The **Auth / SSO** page and application banner show when recovery is not ready.
 
-Every recovery attempt creates a high-severity audit entry for success, wrong credentials, or throttling. A success also writes a structured warning, creates an administrator alert shown on **Auth / SSO** and in the application banner, and emails every active owner when SMTP is configured. A user with **Authentication: Manage** must acknowledge the alert; that acknowledgment is audited.
+Every recovery attempt creates a high-severity audit entry for success, wrong credentials, or throttling. A success also writes a structured warning and creates an administrator alert shown on **Auth / SSO** and in the application banner. When SMTP is configured, the server makes a best-effort attempt to email every active owner; an email delivery problem does not undo the recovery sign-in or alert. A user with **Authentication: Manage** must acknowledge the alert; that acknowledgment is audited.
 
-To offboard an owner manually, open **Admin** > **Users** while signed in as another owner and either disable the account or change its role. Disabling it ends its interactive sessions and refuses its owned API credentials on the next request. Confirm that another active owner has a tested local password before removing the last recovery-ready owner. SCIM cannot perform this owner offboarding in this release.
+To offboard an owner manually, open **Admin** > **Users** while signed in as another owner and either disable the account or change its role. Disabling it ends its interactive sessions and refuses its owned API credentials on the next request. Keys created before 1.5.0 without a recorded owner are not tied to a user; the API Keys page marks them for review or rotation. Confirm that another active owner has a tested local password before removing the last recovery-ready owner. SCIM cannot perform this owner offboarding in this release.
 
 ## Sessions and account status
 

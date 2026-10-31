@@ -37,12 +37,18 @@ function actor(req: Request): { id: string; organizationId: string } | null {
 
 async function recentlyAuthenticated(req: Request): Promise<boolean> {
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
+    const who = actor(req)
     const local = cookies[LOCAL_SESSION_COOKIE]
     if (local) {
         const session = await identityStore().findLocalSession(hashSessionToken(local))
-        return Boolean(session?.issuedAt && Date.now() - session.issuedAt.getTime() <= RECENT_MS)
+        if (
+            session?.issuedAt &&
+            (session.authenticationMethod === 'local' || session.authenticationMethod === 'recovery') &&
+            Date.now() - session.issuedAt.getTime() <= RECENT_MS
+        ) {
+            return true
+        }
     }
-    const who = actor(req)
     const recent = cookies[RECENT_AUTH_COOKIE]
     return Boolean(who && recent && (await hasRecentAuthentication(applicationDataSource(), who.id, recent)))
 }
