@@ -12,7 +12,7 @@ The owner password form shows when the durable active method is Local login, the
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | From source | On for the default owner-only Local method. `scripts/start-cuttlely.sh` sets the flag unless you set it yourself, `packages/server/.env` sets it, or `WORKOS_API_KEY` is set.                               |
 | Docker      | On for the default owner-only Local method. The start script turns the flag on when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, for a WorkOS deployment. |
-| Render      | Off. Set it in the Dashboard only to recover the account, then remove it.                                                                                                                                   |
+| Render      | Off. Owner recovery is always available at `/owner-recovery`; run `pnpm user` first if the owner needs a password.                                                                                          |
 
 With the flag off, Local users off, and no active WorkOS method, the sign-in page says `Sign-in is not configured.` and still offers **Owner recovery**. A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn an ordinary sign-in method back on.
 

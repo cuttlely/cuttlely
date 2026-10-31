@@ -114,7 +114,9 @@ export interface AuthContext {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
-async function authenticationEpochCurrent(ctx: AuthContext): Promise<boolean> {
+type ApplicationSessionContext = Pick<AuthContext, 'dataSource' | 'authenticationEpoch' | 'now' | 'store'>
+
+async function authenticationEpochCurrent(ctx: Pick<AuthContext, 'dataSource' | 'authenticationEpoch'>): Promise<boolean> {
     if (ctx.authenticationEpoch === undefined) return true
     if (!ctx.dataSource) return true
     const { refreshAuthenticationState, selectedAuthenticationEpoch } =
@@ -306,26 +308,27 @@ async function localCookieGate(
 }
 
 /** A method switch can commit between the epoch check and the insert. Recheck after the insert and remove a session that missed the switch. */
-async function sessionSurvivedSwitch(ctx: AuthContext, token: string): Promise<boolean> {
+async function sessionSurvivedSwitch(ctx: ApplicationSessionContext, tokenHash: string): Promise<boolean> {
     if (await authenticationEpochCurrent(ctx)) return true
-    await ctx.store.deleteLocalSession(hashSessionToken(token))
+    await ctx.store.deleteLocalSession(tokenHash)
     return false
 }
 
 export async function issueApplicationSession(
-    ctx: AuthContext,
+    ctx: ApplicationSessionContext,
     userId: string,
     authenticationMethod: LocalSession['authenticationMethod'],
     options: { recoveryUse?: boolean; workosSessionId?: string } = {}
-): Promise<{ token: string; session: SessionUser } | null> {
+): Promise<{ token: string; tokenHash: string; session: SessionUser } | null> {
     if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
+    const tokenHash = hashSessionToken(token)
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)
     await ctx.store.insertLocalSession({
         id: randomUUID(),
         userId,
-        token: hashSessionToken(token),
+        token: tokenHash,
         idleExpires: new Date(ctx.now + limits.idleMs),
         absoluteExpires: new Date(ctx.now + limits.absoluteMs),
         issuedAt: at,
@@ -335,17 +338,21 @@ export async function issueApplicationSession(
         recoveryUse: options.recoveryUse === true,
         workosSessionId: authenticationMethod === 'workos' ? options.workosSessionId : undefined
     })
-    if (!(await sessionSurvivedSwitch(ctx, token))) return null
+    if (!(await sessionSurvivedSwitch(ctx, tokenHash))) return null
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
     if (!session) {
-        await ctx.store.deleteLocalSession(hashSessionToken(token))
+        await ctx.store.deleteLocalSession(tokenHash)
         return null
     }
-    return { token, session }
+    return { token, tokenHash, session }
 }
 
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
-    return issueApplicationSession(ctx, userId, 'local')
+    return issueApplicationSession(
+        { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+        userId,
+        'local'
+    )
 }
 
 function loginFields(body: Record<string, unknown>): { ok: true; email: string; password: string } | { ok: false; message: string } {
@@ -440,7 +447,12 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
         } catch {
             // Optional. Sign-in still succeeds when WorkOS rejects the external id write.
         }
-        const issued = await issueApplicationSession(ctx, linked.user.id, 'workos', { workosSessionId: authenticated.sessionId })
+        const issued = await issueApplicationSession(
+            { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+            linked.user.id,
+            'workos',
+            { workosSessionId: authenticated.sessionId }
+        )
         if (!issued) {
             await noteSignIn(ctx, 'sign_in_failure', linked.user.id, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
@@ -502,7 +514,12 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
-    const issued = await issueApplicationSession(ctx, owner.id, recovery ? 'recovery' : 'local', { recoveryUse: recovery })
+    const issued = await issueApplicationSession(
+        { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+        owner.id,
+        recovery ? 'recovery' : 'local',
+        { recoveryUse: recovery }
+    )
     if (!issued) {
         if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in method changed. Try again.' })
         return json(401, { message: INVALID_LOGIN })
@@ -512,7 +529,7 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
             if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('success', owner.id)
             if (ctx.raiseRecoveryAlert) await ctx.raiseRecoveryAlert(owner.id)
         } catch (error) {
-            await ctx.store.deleteLocalSession(hashSessionToken(issued.token))
+            await ctx.store.deleteLocalSession(issued.tokenHash)
             throw error
         }
     }
