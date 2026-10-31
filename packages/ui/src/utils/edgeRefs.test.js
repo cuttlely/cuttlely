@@ -1,8 +1,9 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { applyEdgeRefs, fillSpecDefaults, healImportedFlow, needsSync, stageCanvasPayload, wizardHeal } from './edgeRefs'
+import { anyNeedsSync, applyEdgeRefs, fillSpecDefaults, healImportedFlow, needsSync, stageCanvasPayload, wizardHeal } from './edgeRefs'
 import { scanFlowiseMigration } from './flowiseMigration.mjs'
+import { updateOutdatedNodeData } from './genericHelper'
 import { normalizeCanvasFlow, specsByName } from './normalizeCanvasFlow'
 
 const copy = (value) => JSON.parse(JSON.stringify(value))
@@ -214,6 +215,89 @@ describe('sync availability', () => {
     it('excludes raw nodes and a missing specification', () => {
         expect(needsSync({ data: { cuttlelyRawNode: true } }, spec)).toBe(false)
         expect(needsSync({ data: {} })).toBe(false)
+    })
+
+    it('checks the displayed nodes against the current specifications', () => {
+        const nodeSpecs = [{ name: 'sampleNode', version: 3 }]
+        expect(anyNeedsSync([{ data: { name: 'sampleNode', version: 2 } }], nodeSpecs)).toBe(true)
+        expect(anyNeedsSync([{ data: { name: 'sampleNode', version: 3 } }], nodeSpecs)).toBe(false)
+        expect(anyNeedsSync([{ data: { name: 'sampleNode', cuttlelyRawNode: true } }], nodeSpecs)).toBe(false)
+    })
+})
+
+describe('healing output connections', () => {
+    const chainSpec = {
+        name: 'sampleChain',
+        label: 'Sample Chain',
+        version: 2,
+        type: 'SampleChain',
+        category: 'Chains',
+        baseClasses: ['SampleChain'],
+        inputs: [],
+        outputs: [
+            { label: 'Chain', name: 'llmChain', baseClasses: ['SampleChain'] },
+            { label: 'Prediction', name: 'outputPrediction', baseClasses: ['string', 'json'] }
+        ]
+    }
+    const sourceNode = {
+        id: 'chain_0',
+        data: {
+            id: 'chain_0',
+            name: 'sampleChain',
+            label: 'Sample Chain',
+            version: 1,
+            inputs: {},
+            outputs: {},
+            inputParams: [],
+            inputAnchors: [],
+            outputAnchors: []
+        }
+    }
+    const targetNode = {
+        id: 'target_0',
+        data: {
+            id: 'target_0',
+            name: 'targetNode',
+            label: 'Target',
+            inputs: {},
+            inputParams: [],
+            inputAnchors: [{ id: 'target_0-input-value-Value', name: 'value', type: 'Value' }],
+            outputAnchors: []
+        }
+    }
+
+    it('uses the outgoing non-default output after a node update', () => {
+        const edge = {
+            id: 'edge-1',
+            source: 'chain_0',
+            sourceHandle: 'chain_0-output-outputPrediction-string|json',
+            target: 'target_0',
+            targetHandle: 'target_0-input-value-Value'
+        }
+        const result = healImportedFlow([sourceNode, targetNode], [edge], [chainSpec], {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData
+        })
+        expect(result.edges).toEqual([edge])
+        expect(result.nodes.find((node) => node.id === 'chain_0').data.outputs.output).toBe('outputPrediction')
+    })
+
+    it('reports a removed source output on the source node', () => {
+        const edge = {
+            id: 'edge-1',
+            source: 'chain_0',
+            sourceHandle: 'chain_0-output-missing-string',
+            target: 'target_0',
+            targetHandle: 'target_0-input-value-Value'
+        }
+        const result = healImportedFlow([sourceNode, targetNode], [edge], [chainSpec], {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData
+        })
+        expect(result.edges).toEqual([])
+        expect(result.attention).toContain(
+            'Removed the edge from Sample Chain to Target: the output it came from is no longer on Sample Chain. Connect it again.'
+        )
     })
 })
 

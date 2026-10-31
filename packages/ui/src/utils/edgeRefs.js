@@ -42,6 +42,11 @@ const specsByName = (specs) => {
 export const needsSync = (node, spec) =>
     Boolean(spec && !node?.data?.cuttlelyRawNode && (node?.data?.version == null || spec.version > node.data.version))
 
+export const anyNeedsSync = (nodes, specs) => {
+    const byName = specsByName(specs)
+    return (Array.isArray(nodes) ? nodes : []).some((node) => needsSync(node, byName.get(node?.data?.name)))
+}
+
 export const stageCanvasPayload = (payload, specs) => {
     const ready = Boolean(payload && Array.isArray(specs))
     return { ready: ready ? payload : null, pending: ready ? null : payload }
@@ -139,28 +144,33 @@ export const applyEdgeRefs = (nodes, edges, options = {}) => {
     return { nodes: nextNodes, changed, unmatched }
 }
 
-const removedEdgeMessage = (edge, nodes) => {
+const removedEdgeMessage = (edge, nodes, side) => {
     const source = nodes.find((node) => node.id === edge.source)
     const target = nodes.find((node) => node.id === edge.target)
+    if (side === 'source') {
+        return `Removed the edge from ${displayName(source)} to ${displayName(
+            target
+        )}: the output it came from is no longer on ${displayName(source)}. Connect it again.`
+    }
     return `Removed the edge from ${displayName(source)} to ${displayName(target)}: the input it pointed at is no longer on ${displayName(
         target
     )}. Connect it again.`
 }
 
 const invalidEdges = (data, edges) =>
-    edges.filter((edge) => {
+    edges.flatMap((edge) => {
         if (edge.target === data.id) {
             const inputs = [...(data.inputParams || []), ...(data.inputAnchors || [])]
-            if (!inputs.some((input) => handlesEqual(input.id, edge.targetHandle))) return true
+            if (!inputs.some((input) => handlesEqual(input.id, edge.targetHandle))) return [{ edge, side: 'target' }]
         }
         if (edge.source === data.id && data.outputAnchors?.length) {
             const outputExists = data.outputAnchors.some((anchor) => {
                 if (anchor.type === 'options') return anchor.options?.some((option) => handlesEqual(option.id, edge.sourceHandle))
                 return handlesEqual(anchor.id, edge.sourceHandle)
             })
-            if (!outputExists) return true
+            if (!outputExists) return [{ edge, side: 'source' }]
         }
-        return false
+        return []
     })
 
 const mappedNodeData = (spec, data) => {
@@ -194,10 +204,16 @@ export const healImportedFlow = (nodes, edges, specs, options = {}) => {
         if (!needsSync(node, spec)) return node
 
         const updateNodeData = options.updateNodeData || mappedNodeData
+        const hadOutput = node.data?.outputs?.output != null && node.data.outputs.output !== ''
         const data = updateNodeData(cloneDeep(spec), node.data)
-        for (const edge of invalidEdges(data, nextEdges)) {
+        if (!hadOutput && data.outputs) {
+            data.outputs = { ...data.outputs }
+            delete data.outputs.output
+        }
+        for (const { edge, side } of invalidEdges(data, nextEdges)) {
+            if (removedEdges.has(edge)) continue
             removedEdges.add(edge)
-            attention.push(removedEdgeMessage(edge, nextNodes))
+            attention.push(removedEdgeMessage(edge, nextNodes, side))
         }
         return { ...node, data }
     })

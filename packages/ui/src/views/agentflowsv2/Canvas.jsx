@@ -71,7 +71,7 @@ import {
     updateOutdatedNodeEdge,
     isValidConnectionAgentflowV2
 } from '@/utils/genericHelper'
-import { needsSync } from '@/utils/edgeRefs'
+import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
@@ -726,21 +726,6 @@ const AgentflowCanvas = () => {
         dispatch({ type: SET_DIRTY })
     }
 
-    const checkIfSyncNodesAvailable = (nodes) => {
-        const componentNodes = canvas.componentNodes
-
-        for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i]
-            const componentNode = componentNodes.find((cn) => cn.name === node.data.name)
-            if (needsSync(node, componentNode)) {
-                setIsSyncNodesButtonEnabled(true)
-                return
-            }
-        }
-
-        setIsSyncNodesButtonEnabled(false)
-    }
-
     // ==============================|| useEffect ||============================== //
 
     const readGraph = (text) => {
@@ -845,13 +830,13 @@ const AgentflowCanvas = () => {
 
     useEffect(() => {
         setChatflow(canvasDataStore.chatflow)
-        if (canvasDataStore.chatflow) {
-            const flowData = canvasDataStore.chatflow.flowData ? JSON.parse(canvasDataStore.chatflow.flowData) : []
-            checkIfSyncNodesAvailable(flowData.nodes || [])
-        }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canvasDataStore.chatflow])
+
+    useEffect(() => {
+        setIsSyncNodesButtonEnabled(anyNeedsSync(nodes, canvas.componentNodes))
+    }, [nodes, canvas.componentNodes])
 
     // Initialization
     useEffect(() => {

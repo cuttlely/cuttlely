@@ -63,7 +63,7 @@ import {
 
 // utils
 import { getUniqueNodeId, initNode, getUpsertDetails, updateOutdatedNodeData } from '@/utils/genericHelper'
-import { applyEdgeRefs, healImportedFlow, needsSync, stageCanvasPayload } from '@/utils/edgeRefs'
+import { anyNeedsSync, applyEdgeRefs, healImportedFlow, stageCanvasPayload } from '@/utils/edgeRefs'
 import { readyToFit, FIT_ON_OPEN } from '@/utils/canvasFit'
 import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
@@ -298,7 +298,6 @@ const Canvas = () => {
         })
         setNodes(healed.nodes)
         setEdges(healed.edges)
-        checkIfSyncNodesAvailable(healed.nodes)
         for (const message of healed.attention) showImportError(message)
         setTimeout(() => setDirty(), 0)
     }
@@ -705,21 +704,6 @@ const Canvas = () => {
         else setIsUpsertButtonEnabled(false)
     }
 
-    const checkIfSyncNodesAvailable = (nodes) => {
-        const componentNodes = canvas.componentNodes
-
-        for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i]
-            const componentNode = componentNodes.find((cn) => cn.name === node.data.name)
-            if (needsSync(node, componentNode)) {
-                setIsSyncNodesButtonEnabled(true)
-                return
-            }
-        }
-
-        setIsSyncNodesButtonEnabled(false)
-    }
-
     // ==============================|| useEffect ||============================== //
 
     // Get specific chatflow successful
@@ -1045,11 +1029,14 @@ const Canvas = () => {
         if (canvasDataStore.chatflow) {
             const flowData = canvasDataStore.chatflow.flowData ? JSON.parse(canvasDataStore.chatflow.flowData) : []
             checkIfUpsertAvailable(flowData.nodes || [], flowData.edges || [])
-            checkIfSyncNodesAvailable(flowData.nodes || [])
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canvasDataStore.chatflow])
+
+    useEffect(() => {
+        setIsSyncNodesButtonEnabled(anyNeedsSync(nodes, canvas.componentNodes))
+    }, [nodes, canvas.componentNodes])
 
     // Initialization
     useEffect(() => {
