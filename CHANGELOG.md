@@ -31,6 +31,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Chat model nodes no longer send `NaN` as the temperature when the field is empty or not a number. ChatOpenAI and 26 other chat models leave it out, so the model library's default applies (Part of [#362](https://github.com/cuttlely/cuttlely/issues/362)).
+
 -   API credentials can no longer be created or updated with `authentication:` permissions. The complete `/api/v1/authentication-settings` route family now requires a signed-in session, so a previously stored credential with `authentication:manage` receives 401 before route permissions are evaluated.
 
 -   WorkOS sign-out ends the hosted AuthKit session again. The provider session id stays on the Cuttlely session row; sign-out deletes that row before creating the hosted logout URL and falls back to `/signin` if URL creation does not complete.

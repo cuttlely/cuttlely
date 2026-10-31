@@ -3,6 +3,7 @@ import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { ChatOpenAI, ChatOpenAIFields } from '@langchain/openai'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatSambanova_ChatModels implements INode {
     label: string
@@ -98,9 +99,10 @@ class ChatSambanova_ChatModels implements INode {
 
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const sambanovaApiKey = getCredentialParam('sambanovaApiKey', credentialData, nodeData)
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         const obj: ChatOpenAIFields = {
-            temperature: temperature ? parseFloat(temperature) : undefined,
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             model: modelName,
             apiKey: sambanovaApiKey,
             openAIApiKey: sambanovaApiKey,

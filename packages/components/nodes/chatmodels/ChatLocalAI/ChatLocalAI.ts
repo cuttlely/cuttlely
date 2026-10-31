@@ -3,6 +3,7 @@ import { BaseCache } from '@langchain/core/caches'
 import { ICommonObject, INode, INodeData, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { checkDenyList } from '../../../src/httpSecurity'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatLocalAI_ChatModels implements INode {
     label: string
@@ -108,8 +109,9 @@ class ChatLocalAI_ChatModels implements INode {
 
         const cache = nodeData.inputs?.cache as BaseCache
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             openAIApiKey: 'sk-',
             apiKey: 'sk-',

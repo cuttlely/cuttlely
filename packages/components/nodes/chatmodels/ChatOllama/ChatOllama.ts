@@ -5,6 +5,7 @@ import { ICommonObject, IMultiModalOption, INode, INodeData, INodeParams } from 
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { ChatOllama } from './FlowiseChatOllama'
 import { checkDenyList } from '../../../src/httpSecurity'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatOllama_ChatModels implements INode {
     label: string
@@ -256,9 +257,10 @@ class ChatOllama_ChatModels implements INode {
         const activeBaseUrl = baseUrl || 'http://localhost:11434'
         await checkDenyList(activeBaseUrl)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOllamaInput & BaseChatModelParams = {
             baseUrl: activeBaseUrl,
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             model: modelName,
             streaming: streaming ?? true
         }

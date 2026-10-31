@@ -4,6 +4,7 @@ import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from 
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { ChatPerplexity } from './FlowiseChatPerplexity'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatPerplexity_ChatModels implements INode {
     label: string
@@ -204,8 +205,9 @@ class ChatPerplexity_ChatModels implements INode {
             apiKey,
             streaming: streaming ?? true
         }
+        const parsedTemperature = parseOptionalNumber(temperature)
 
-        if (temperature) obj.temperature = parseFloat(temperature)
+        if (parsedTemperature !== undefined) obj.temperature = parsedTemperature
         if (maxTokens) obj.maxTokens = parseInt(maxTokens, 10)
         if (topP) obj.topP = parseFloat(topP)
         if (topK) obj.topK = parseInt(topK, 10)
