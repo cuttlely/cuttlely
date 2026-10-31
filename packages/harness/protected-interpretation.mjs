@@ -258,15 +258,50 @@ function isoDate(year, month, day) {
     return value.toISOString().slice(0, 10)
 }
 
-function dateLiterals(text) {
-    const result = []
-    for (const match of String(text).matchAll(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g)) result.push(isoDate(match[1], match[2], match[3]))
-    const pattern = new RegExp(`\\b(${monthPattern})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(\\d{4})\\b`, 'gi')
-    for (const match of String(text).matchAll(pattern)) {
-        const month = monthNames.findIndex((name) => name.startsWith(match[1].toLowerCase().replace(/\.$/, '')))
-        result.push(isoDate(match[3], month + 1, match[2]))
+function namedDate(year, month, day) {
+    const index = monthNames.findIndex((name) => name.startsWith(month.toLowerCase().replace(/\.$/, '')))
+    return year && index >= 0 ? isoDate(year, index + 1, day) : ''
+}
+
+// One parser owns both date provenance and the exact spans excluded from quantity checks.
+// Written ranges carry their explicit year to both endpoints, never a source-inferred
+// year or an end-exclusive minus one. Missing years, invalid and reversed ranges fail.
+function dateSpans(value) {
+    const text = String(value)
+    const spans = []
+    const day = '(\\d{1,2})(?:st|nd|rd|th)?'
+    const month = `(${monthPattern})\\.?`
+    const year = '(?:,\\s*|\\s+)(\\d{4})'
+    const monthYear = ',?\\s*(\\d{4})'
+    const separator = '\\s*(?:[-–—]|\\b(?:to|through)\\b)\\s*'
+    const bounded = (pattern) => new RegExp(`(?<![\\p{L}\\p{N}_])${pattern}(?![\\p{L}\\p{N}_])`, 'giu')
+    const add = (pattern, dates) => {
+        for (const match of text.matchAll(pattern)) {
+            const start = match.index
+            const end = start + match[0].length
+            if (spans.some((span) => start < span.end && end > span.start)) continue
+            const parsed = dates(match)
+            spans.push({ start, end, dates: parsed.length === 2 && parsed[0] > parsed[1] ? [''] : parsed })
+        }
     }
-    return result
+    add(bounded(`${month}\\s*${day}${separator}${day}(?:${year})?`), (m) => [namedDate(m[4], m[1], m[2]), namedDate(m[4], m[1], m[3])])
+    add(bounded(`${month}\\s*${day}${separator}${month}\\s*${day}(?:${year})?`), (m) => [
+        namedDate(m[5], m[1], m[2]),
+        namedDate(m[5], m[3], m[4])
+    ])
+    add(bounded(`${day}${separator}${day}\\s*${month}(?:${monthYear})?`), (m) => [namedDate(m[4], m[3], m[1]), namedDate(m[4], m[3], m[2])])
+    add(bounded(`${day}\\s*${month}${separator}${day}\\s*${month}(?:${monthYear})?`), (m) => [
+        namedDate(m[5], m[2], m[1]),
+        namedDate(m[5], m[4], m[3])
+    ])
+    add(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?:T[\d:.+-]+Z?)?(?!\d)/g, (m) => [isoDate(m[1], m[2], m[3])])
+    add(bounded(`${month}\\s*${day}${year}`), (m) => [namedDate(m[3], m[1], m[2])])
+    add(bounded(`${day}\\s*${month}${monthYear}`), (m) => [namedDate(m[3], m[2], m[1])])
+    return spans.sort((a, b) => a.start - b.start)
+}
+
+function dateLiterals(text) {
+    return dateSpans(text).flatMap((span) => span.dates)
 }
 
 const currencyCodes = new Set(
@@ -732,13 +767,19 @@ function unresolvedIdentity(sources) {
 function literalIssues(text, facts, diagnostic) {
     const issues = []
     // List markers and heading numbers are presentation, not quantitative claims.
-    const claims = text.replace(/^\s{0,3}\d+[.)]\s+/gm, '').replace(/^\s*#{1,6}\s*\d+[.)]?\s+/gm, '')
-    const claimDates = dateLiterals(claims)
+    const claims = text
+        .replace(/^\s{0,3}\d+[.)]\s+/gm, '')
+        .replace(/^\s*#{1,6}\s*\d+[.)]?\s+/gm, '')
+        .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)]\1[ \t]+/gm, '')
+        .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)][ \t]+(?=[^\n]*\1[ \t]*$)/gm, '')
+    const spans = dateSpans(claims)
+    const claimDates = spans.flatMap((span) => span.dates)
     if (claimDates.some((date) => !date || !facts.dates.has(date))) issues.push('unsupported_date')
     // Normalize human-form dates before checking remaining numeric literals.
-    const dateMasked = claims
-        .replace(/\b\d{4}-\d{2}-\d{2}(?:T[\d:.+-]+Z?)?\b/g, '')
-        .replace(new RegExp(`\\b${monthPattern}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+\\d{4}\\b`, 'gi'), '')
+    const dateMasked = spans.reduceRight(
+        (value, span) => value.slice(0, span.start) + ' '.repeat(span.end - span.start) + value.slice(span.end),
+        claims
+    )
     const compactMasked = facts.reportingCurrencySymbol ? compactClaims(dateMasked, facts, issues, diagnostic) : dateMasked
     if (numberLiterals(compactMasked).some((number) => !facts.numbers.has(number))) issues.push('unsupported_number')
     if (diagnostic) {

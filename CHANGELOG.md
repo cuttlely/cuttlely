@@ -21,6 +21,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. The current integration cannot provide that proof, so administrators use a local owner password for this check. Ordinary WorkOS sign-in never records the evidence.
 
+### Fixed
+
+-   Protected interpretation recognizes source-backed explicit-year English day-first dates and written date ranges, plus bold numbered Markdown markers. Calendar endpoints still need source evidence; unsupported amounts, percentages and counts remain checked. Author guidance now explains source-owned derived metrics and zero-denominator handling.
+
 ## [1.4.8] - 2026-10-30
 
 ### Added

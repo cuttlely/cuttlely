@@ -34,6 +34,96 @@ const paths = ['rows.0.report']
 const useful =
     'The workshop addressed the technical question, but procurement remains unresolved in the dated notes. Confirm the decision owner and ask whether the procurement review still blocks the renewal. This is a suggested follow-up, not evidence that approval has been obtained.'
 
+const calendarSource = {
+    rows: [{ start: '2032-05-03T00:00:00Z', observed: '2032-05-30T00:00:00Z', end: '2032-06-01T00:00:00Z', amount: '8.20', count: 31 }]
+}
+const calendarIssues = (claim, evidence = calendarSource) => protectedInterpretationIssues(useful + ' ' + claim, [evidence], [], '$')
+
+test('explicit-year day-first and month-first dates preserve the same actual source date', () => {
+    for (const date of ['3 May 2032', '3May2032', 'May 3, 2032', '3rd May, 2032']) {
+        assert.deepEqual(calendarIssues('The recorded date is ' + date + '.'), [], date)
+    }
+    const dayFirstSource = { rows: [{ observed: '3 May 2032' }] }
+    assert.deepEqual(calendarIssues('The recorded date is 2032-05-03.', dayFirstSource), [])
+})
+
+test('written calendar ranges require both actual source endpoints, with only an explicit shared year', () => {
+    for (const range of [
+        'May 3–30, 2032',
+        'May3-30,2032',
+        'May 3 through 30, 2032',
+        '30 May–1 June 2032',
+        '30May to 1June2032',
+        '3–30 May 2032',
+        'May 30 through June 1, 2032'
+    ]) {
+        assert.deepEqual(calendarIssues('The recorded interval is ' + range + '.'), [], range)
+    }
+    for (const range of [
+        'May 3–31, 2032',
+        'May 30–3, 2032',
+        '1 June–30 May 2032',
+        'May 3–30, 2033',
+        '3 May–30 May',
+        '30–3 May 2032',
+        'June 1–May 30, 2032',
+        '3–31 May 2032',
+        'May 3 through June 2, 2032'
+    ]) {
+        assert.ok(calendarIssues('The recorded interval is ' + range + '.').includes('unsupported_date'), range)
+    }
+    // An exclusive endpoint is not permission to calculate an unreturned inclusive endpoint.
+    const exclusive = { rows: [{ start_inclusive: '2032-05-03', end_exclusive: '2032-06-01' }] }
+    assert.ok(calendarIssues('The recorded interval is May 3–31, 2032.', exclusive).includes('unsupported_date'))
+})
+
+test('calendar parsing handles other months and leap years without guessing missing years or invalid days', () => {
+    const leap = { rows: [{ first: '2024-02-28', last: '2024-02-29' }] }
+    assert.deepEqual(calendarIssues('The observed interval was 28 February through 29 February 2024.', leap), [])
+    assert.deepEqual(calendarIssues('The observed interval was 28–29 February 2024.', leap), [])
+    assert.ok(calendarIssues('The observed interval was February 28–30, 2024.', leap).includes('unsupported_date'))
+    assert.ok(calendarIssues('The observed interval was February 28–29, 2023.', leap).includes('unsupported_date'))
+    const autumn = { rows: [{ first: '2031-11-01', last: '2031-12-02' }] }
+    assert.deepEqual(calendarIssues('The observed interval was 1 Nov. to 2 December 2031.', autumn), [])
+    assert.ok(calendarIssues('The observed interval was 2 December–1 November 2031.', autumn).includes('unsupported_date'))
+    assert.ok(calendarIssues('The observed interval was November 1–2.', autumn).includes('unsupported_date'))
+})
+
+test('source-backed date spans never authorize monetary, count or percentage literals outside the span', () => {
+    assert.ok(calendarIssues('The interval is May 3–30, 2032; the amount is $30.').includes('unsupported_currency'))
+    assert.ok(calendarIssues('The interval is May 3–30, 2032; there were 30 events.').includes('unsupported_number'))
+    assert.ok(calendarIssues('The interval is May 3–30, 2032; utilization was 42%.').includes('unsupported_percentage'))
+    const percent = { rows: [{ ...calendarSource.rows[0], utilization_pct: '42' }] }
+    assert.deepEqual(calendarIssues('The interval is May 3–30, 2032; utilization was 42%.', percent), [])
+    const composed = composeProtectedInterpretation({
+        interpretation: useful + ' The recorded interval is May 3–30, 2032.',
+        facts: 'EXACT SOURCE FACTS',
+        sources: [calendarSource],
+        reportingCurrencySymbol: '$'
+    })
+    assert.equal(composed.included, true)
+    assert.ok(composed.text.includes('May 3–30, 2032'))
+    assert.ok(composed.text.endsWith('EXACT SOURCE FACTS'))
+})
+
+test('only definite own-line bold numbered Markdown markers are excluded from quantity checks', () => {
+    for (const marker of ['**1.** ', '__1)__ ', '**1. Check the period.**', '__1) Check the period.__']) {
+        const line = marker.endsWith(' ') ? marker + 'Check the period.' : marker
+        assert.deepEqual(calendarIssues('\n' + line), [], line)
+    }
+    for (const claim of [
+        'Inline **1.** is still checked.',
+        '\n**30 events** were recorded.',
+        '\n**1.** Check $30 and 30 events.',
+        '\n**1. Check utilization of 42%.**'
+    ]) {
+        assert.ok(
+            calendarIssues(claim).some((issue) => issue.startsWith('unsupported_')),
+            claim
+        )
+    }
+})
+
 test('numeric claim diagnostics default off preserves exact composition objects and decisions', () => {
     for (const interpretation of [useful, useful + ' There are 918273 open tickets.', useful + ' ACV is $2.5M.']) {
         const args = { interpretation, facts: 'EXACT FACTUAL BLOCK', sources: [source], paths, reportingCurrencySymbol: '$' }
