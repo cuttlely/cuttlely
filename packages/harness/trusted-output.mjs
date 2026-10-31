@@ -679,6 +679,8 @@ export function composeTrustedOutputs(results) {
                 ? result.text
                 : result.trustedPassthrough
                 ? `Additional requested information:\n\n${result.text}`
+                : result.retrievedGuidance
+                ? `Additional requested guidance from retrieved documentation:\n\n${result.text}`
                 : 'An additional requested section could not be completed because its source output could not be validated.'
         )
         .join('\n\n')

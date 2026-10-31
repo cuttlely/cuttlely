@@ -256,6 +256,7 @@ async function runFixture({
     budgetMs,
     afterCaptureMs = 0,
     mixedUnprotected = false,
+    mixedDocs = false,
     policy,
     unmapped = false,
     createModelFile = true,
@@ -315,8 +316,11 @@ async function runFixture({
             specialists: people.map((person) => ({
                 name: person.name,
                 instructions: 'Use the source.',
-                codeExecution: true,
-                fileAccess: true,
+                ...(mixedDocs && person.name === 'report'
+                    ? { playbooks: [{ name: 'docs', content: 'Use retrieved documentation.' }] }
+                    : {}),
+                codeExecution: !(mixedDocs && person.name === 'report'),
+                fileAccess: !(mixedDocs && person.name === 'report'),
                 ...(capacityBusyOnce ? { capacityWaitSeconds: 5 } : {}),
                 ...(policy ? { trustedOutputPolicy: policy } : {}),
                 ...(interpretation ? { trustedInterpretation: true } : {}),
@@ -334,7 +338,7 @@ async function runFixture({
                           ]
                       }
                     : {}),
-                ...(enabled && !(mixedUnprotected && person.name === 'report')
+                ...(enabled && !((mixedUnprotected || mixedDocs) && person.name === 'report')
                     ? {
                           trustedOutputs: [
                               {
@@ -348,23 +352,45 @@ async function runFixture({
                           ]
                       }
                     : {}),
-                mcpServers: [
-                    {
-                        nodeName: 'postgreSQLMCP',
-                        nodeId: person.name,
-                        category: 'Tools (MCP)',
-                        inputs: {
-                            pinnedQueries: JSON.stringify([person.entry]),
-                            analystRowCap: queryRowCap,
-                            ...(freeQuery ? { allowPinDefinitions: true, mcpActions: ['query'], analystTimeoutSeconds: 15 } : {})
-                        }
-                    }
-                ]
+                ...(mixedDocs && person.name === 'report'
+                    ? {
+                          modules: [
+                              { nodeName: 'retrieverTool', nodeId: 'docs', inputs: { name: 'Retrieve_docs', returnSourceDocuments: true } }
+                          ]
+                      }
+                    : {}),
+                mcpServers:
+                    mixedDocs && person.name === 'report'
+                        ? []
+                        : [
+                              {
+                                  nodeName: 'postgreSQLMCP',
+                                  nodeId: person.name,
+                                  category: 'Tools (MCP)',
+                                  inputs: {
+                                      pinnedQueries: JSON.stringify([person.entry]),
+                                      analystRowCap: queryRowCap,
+                                      ...(freeQuery ? { allowPinDefinitions: true, mcpActions: ['query'], analystTimeoutSeconds: 15 } : {})
+                                  }
+                              }
+                          ]
             }))
         })
     const loadNode = async (nodeName) =>
         class {
             async init(nodeData) {
+                if (nodeName === 'retrieverTool')
+                    return {
+                        name: 'Retrieve_docs',
+                        invoke: async () =>
+                            'Source text.\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n' +
+                            JSON.stringify([
+                                {
+                                    pageContent: 'Use the documented authentication method.',
+                                    metadata: { source: 'https://example.org/docs/auth' }
+                                }
+                            ])
+                    }
                 if (nodeName === 'postgreSQLMCP') {
                     const pin = JSON.parse(nodeData.inputs.pinnedQueries)[0],
                         person = people.find((p) => p.entry.name === pin.name)
@@ -428,7 +454,12 @@ async function runFixture({
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } })
     const fetchImpl = async (url, init = {}) => {
         const pathname = new URL(url).pathname
-        const person = people.find((p) => pathname.includes(`--${p.name}/`)) || people[0]
+        const person =
+            people.find(
+                (p) =>
+                    pathname.includes(`--${p.name}/`) ||
+                    (mixedDocs && (pathname.endsWith(`/run-${p.name}`) || pathname.includes(`/run-${p.name}/`)))
+            ) || people[0]
         if (init.method === 'POST' && pathname.endsWith('/v1/runs')) {
             const request = JSON.parse(init.body)
             requests.push(request)
@@ -438,8 +469,8 @@ async function runFixture({
                     429
                 )
             const imageDir = /folder: ([^\n]+)/.exec(request.input)?.[1]
-            assert.ok(imageDir)
-            if (createModelFile) {
+            assert.ok(imageDir || (mixedDocs && person.name === 'report'))
+            if (createModelFile && imageDir) {
                 fs.writeFileSync(path.join(imageDir, 'model-wrong.csv'), 'wrong,source\nsku-b,sku-a\n')
                 const written = new Date(Date.now() + 1000)
                 fs.utimesSync(path.join(imageDir, 'model-wrong.csv'), written, written)
@@ -448,7 +479,7 @@ async function runFixture({
                 const record = getHarness(name),
                     profileName = `${name}--${person.name}`,
                     moduleOptions = { loadNode, flowOptions: { appDataSource: {} } }
-                if (freeQuery) {
+                if (freeQuery || (mixedDocs && person.name === 'report')) {
                     const prior = setGatewayContext(async () => moduleOptions)
                     const token = crypto.randomBytes(32).toString('base64url')
                     registerProfileToken({
@@ -464,8 +495,11 @@ async function runFixture({
                             method: 'POST',
                             headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
                             body: JSON.stringify({
-                                name: 'query',
-                                arguments: { sql: 'SELECT total_realized_churn, loss_events FROM example.losses LIMIT 100' },
+                                name: mixedDocs && person.name === 'report' ? 'Retrieve_docs' : 'query',
+                                arguments:
+                                    mixedDocs && person.name === 'report'
+                                        ? { input: 'authentication' }
+                                        : { sql: 'SELECT total_realized_churn, loss_events FROM example.losses LIMIT 100' },
                                 scope: request.session_id,
                                 callId: `actual-query-${invocation}`
                             })
@@ -518,7 +552,14 @@ async function runFixture({
                     .join('') + ': closed\n\n',
                 { headers: { 'content-type': 'text/event-stream' } }
             )
-        return json({ status: failWorker ? 'failed' : 'completed', output: prose, ...(failWorker ? { error: 'worker failed' } : {}) })
+        return json({
+            status: failWorker ? 'failed' : 'completed',
+            output:
+                mixedDocs && person.name === 'report'
+                    ? 'Use the documented authentication method. [Documentation][doc]\n\n[doc]: https://example.org/docs/auth'
+                    : prose,
+            ...(failWorker ? { error: 'worker failed' } : {})
+        })
     }
     let payload
     try {
@@ -565,6 +606,22 @@ test('multi-step composition preserves exact source Markdown and independent sco
     assert.equal(out.calls.length, 2)
     assert.equal(out.payload.artifacts.length, 1)
     assert.ok(out.payload.text.endsWith('## Outlook\n\nPipeline scope: [2026-10-30, 2027-01-01) UTC.\n\n\n' + markdown))
+    assert.ok(!out.prompts.some((messages) => String(messages[0]?.content).includes('You are Harness Prime')))
+})
+
+test('protected output retains separately requested, turn-scoped retrieved guidance without a chief rewrite', async () => {
+    const out = await runFixture({ multi: true, mixedDocs: true })
+    assert.equal(out.payload.trace.handoff.reason, 'trustedOutput')
+    assert.ok(out.payload.text.includes('13 source observations across 4 product/unit series'))
+    assert.ok(
+        out.payload.text.endsWith(
+            'Additional requested guidance from retrieved documentation:\n\nUse the documented authentication method. [Documentation][doc]\n\n[doc]: https://example.org/docs/auth'
+        )
+    )
+    assert.equal(out.payload.sources.length, 1)
+    assert.equal(out.payload.sources[0].metadata.source, 'https://example.org/docs/auth')
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.ok(!out.payload.text.includes('could not be completed'))
     assert.ok(!out.prompts.some((messages) => String(messages[0]?.content).includes('You are Harness Prime')))
 })
 

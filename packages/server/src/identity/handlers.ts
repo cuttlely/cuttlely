@@ -330,7 +330,7 @@ export async function issueApplicationSession(
     ctx: ApplicationSessionContext,
     userId: string,
     authenticationMethod: LocalSession['authenticationMethod'],
-    options: { recoveryUse?: boolean; workosSessionId?: string } = {}
+    options: { recoveryUse?: boolean; workosSessionId?: string; recentAuthenticationAt?: number } = {}
 ): Promise<{ token: string; tokenHash: string; session: SessionUser } | null> {
     if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
@@ -346,6 +346,7 @@ export async function issueApplicationSession(
         issuedAt: at,
         lastSeenAt: at,
         authenticationMethod,
+        recentAuthenticationAt: options.recentAuthenticationAt === undefined ? undefined : new Date(options.recentAuthenticationAt),
         authenticationEpoch: ctx.authenticationEpoch,
         recoveryUse: options.recoveryUse === true,
         workosSessionId: authenticationMethod === 'workos' ? options.workosSessionId : undefined
@@ -368,11 +369,12 @@ async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ to
 }
 
 /** Provider completions use the same database session and opaque cookie as local login. */
-export async function issueDatabaseSession(ctx: AuthContext, userId: string): Promise<HandlerResult> {
+export async function issueDatabaseSession(ctx: AuthContext, userId: string, recentAuthenticationAt?: number): Promise<HandlerResult> {
     const issued = await issueApplicationSession(
         { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
         userId,
-        'oidc'
+        'oidc',
+        { recentAuthenticationAt }
     )
     if (!issued) return json(401, { message: 'Sign-in could not be completed.' })
     return json(200, issued.session, {

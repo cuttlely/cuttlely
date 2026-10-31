@@ -18,7 +18,6 @@ const stageAuthenticationMethodSwitch = jest.fn()
 const switchAuthenticationMethod = jest.fn()
 const acknowledgeAuthenticationWarning = jest.fn()
 const usableLocalOwnerReady = jest.fn()
-const hasRecentAuthentication = jest.fn()
 const readOidcConfiguration = jest.fn()
 const providerLinkMigrationComplete = jest.fn()
 const testedOidcDraftDiffersFromActive = jest.fn()
@@ -31,7 +30,6 @@ jest.mock('./production', () => ({
 }))
 jest.mock('./authenticationState', () => ({
     acknowledgeAuthenticationWarning,
-    hasRecentAuthentication,
     initializeAuthenticationState: jest.fn(),
     readAuthenticationState,
     stageAuthenticationMethodSwitch,
@@ -102,7 +100,6 @@ describe('authentication settings routes', () => {
         readOidcConfiguration.mockResolvedValue(null)
         providerLinkMigrationComplete.mockResolvedValue(true)
         testedOidcDraftDiffersFromActive.mockReturnValue(false)
-        hasRecentAuthentication.mockResolvedValue(false)
         oidcCallbackError.mockReturnValue(null)
         mockLocalAdminEnabled.mockReturnValue(true)
         mockLocalUsersSetting.mockReturnValue(true)
@@ -119,17 +116,23 @@ describe('authentication settings routes', () => {
 
     afterAll(() => setTeamPermissionLookup(null))
 
-    it('counts only fresh local-password and owner-recovery sessions', async () => {
+    it('counts fresh local-password, OIDC, and owner-recovery sessions', async () => {
         const now = Date.parse('2026-10-31T12:00:00.000Z')
         const store = { findLocalSession }
-        for (const method of ['local', 'recovery'] as const) {
-            findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now), authenticationMethod: method })
+        for (const method of ['local', 'oidc', 'recovery'] as const) {
+            findLocalSession.mockResolvedValueOnce({
+                issuedAt: new Date(now),
+                authenticationMethod: method,
+                recentAuthenticationAt: method === 'oidc' ? new Date(now) : undefined
+            })
             await expect(databaseSessionRecentlyAuthenticated(store, `${method}-session`, now)).resolves.toBe(true)
         }
         findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now), authenticationMethod: 'workos' })
         await expect(databaseSessionRecentlyAuthenticated(store, 'workos-session', now)).resolves.toBe(false)
         findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now - 11 * 60 * 1000), authenticationMethod: 'local' })
         await expect(databaseSessionRecentlyAuthenticated(store, 'old-local-session', now)).resolves.toBe(false)
+        findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now), authenticationMethod: 'oidc' })
+        await expect(databaseSessionRecentlyAuthenticated(store, 'unqualified-oidc-session', now)).resolves.toBe(false)
         findLocalSession.mockResolvedValueOnce({ issuedAt: new Date(now + 1), authenticationMethod: 'recovery' })
         await expect(databaseSessionRecentlyAuthenticated(store, 'future-recovery-session', now)).resolves.toBe(false)
     })
@@ -191,7 +194,7 @@ describe('authentication settings routes', () => {
         expect(stageAuthenticationMethodSwitch).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'workos', 4)
     })
 
-    it('requires the recorded recent-auth time for an OIDC database session', async () => {
+    it('requires a qualifying authentication time on an OIDC database session', async () => {
         readAuthenticationState.mockResolvedValue({ ...state, activeMethod: 'oidc', configurationFingerprint: 'oidc-fingerprint' })
         readOidcConfiguration.mockResolvedValue({
             health: 'ready',
@@ -205,10 +208,13 @@ describe('authentication settings routes', () => {
         expect(refused.status).toBe(409)
         expect(refused.body.code).toBe('REAUTH_REQUIRED')
 
-        hasRecentAuthentication.mockResolvedValue(true)
-        const allowed = await request(app(cookies, 'recorded')).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
+        findLocalSession.mockResolvedValue({
+            issuedAt: new Date(),
+            authenticationMethod: 'oidc',
+            recentAuthenticationAt: new Date()
+        })
+        const allowed = await request(app(cookies)).post('/api/v1/authentication/stage').send({ method: 'oidc', version: 4 })
         expect(allowed.status).toBe(200)
-        expect(hasRecentAuthentication).toHaveBeenCalledWith(expect.anything(), 'owner-1', 'recorded')
     })
 
     it('does not treat a fresh WorkOS database session as recent authentication', async () => {
@@ -218,7 +224,6 @@ describe('authentication settings routes', () => {
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('REAUTH_REQUIRED')
-        expect(hasRecentAuthentication).not.toHaveBeenCalled()
     })
 
     it('treats a fresh owner recovery database session as recent authentication', async () => {
@@ -236,7 +241,6 @@ describe('authentication settings routes', () => {
             .send({ method: 'workos', version: 4 })
         expect(response.status).toBe(409)
         expect(response.body.code).toBe('REAUTH_REQUIRED')
-        expect(hasRecentAuthentication).not.toHaveBeenCalled()
     })
 
     it('refuses a WorkOS-to-Local stage without an active owner password', async () => {
@@ -388,7 +392,6 @@ describe('authentication settings routes', () => {
             testedFingerprint: 'oidc-fingerprint',
             testResult: { identityAccepted: true }
         })
-        hasRecentAuthentication.mockResolvedValue(true)
         testedOidcDraftDiffersFromActive.mockReturnValue(true)
         switchAuthenticationMethod.mockResolvedValue({
             activeMethod: 'oidc',

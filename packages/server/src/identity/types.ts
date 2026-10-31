@@ -89,6 +89,8 @@ export interface LocalSession {
     currentPermissionVersion?: number
     /** Method that completed authentication for this database session. */
     authenticationMethod?: 'local' | 'workos' | 'oidc' | 'recovery'
+    /** A qualifying provider authentication time for a sensitive settings change. */
+    recentAuthenticationAt?: Date
     /** Global authentication epoch copied when the session was issued. */
     authenticationEpoch?: number
     /** True for the always-available owner recovery path. */

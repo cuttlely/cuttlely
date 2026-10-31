@@ -32,8 +32,7 @@ jest.mock('./handlers', () => {
 jest.mock('./authenticationRoutes', () => ({ recentlyAuthenticated }))
 jest.mock('./rbac', () => ({ requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next() }))
 jest.mock('./authenticationState', () => ({
-    readAuthenticationState,
-    recordRecentAuthentication: jest.fn()
+    readAuthenticationState
 }))
 jest.mock('./auditLog', () => {
     const actual = jest.requireActual('./auditLog')

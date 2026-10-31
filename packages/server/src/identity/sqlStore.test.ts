@@ -31,6 +31,7 @@ livePg('finds a local session on postgres, where user.id is a uuid and the sessi
             "createdDate" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "lastSeenAt" TIMESTAMP,
             "permissionVersion" integer NOT NULL DEFAULT 0,
+            "recentAuthenticationAt" TIMESTAMP NULL,
             "authenticationMethod" varchar(32) NULL,
             "authenticationEpoch" integer NULL,
             "recoveryUse" integer NOT NULL DEFAULT 0,
@@ -95,6 +96,7 @@ it('stores and finds a WorkOS session id on sqlite', async () => {
             "createdDate" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "lastSeenAt" datetime,
             "permissionVersion" integer NOT NULL DEFAULT 0,
+            "recentAuthenticationAt" datetime,
             "authenticationMethod" varchar(32),
             "authenticationEpoch" integer,
             "recoveryUse" integer NOT NULL DEFAULT 0,
@@ -135,6 +137,19 @@ it('stores and finds a WorkOS session id on sqlite', async () => {
                 authenticationMethod: 'workos',
                 workosSessionId: 'workos-session-1'
             })
+        )
+        const recentAuthenticationAt = new Date(now - 30_000)
+        await store.insertLocalSession({
+            id: 'session-2',
+            userId: 'user-1',
+            token: 'oidc-token',
+            idleExpires: new Date(now + 60_000),
+            absoluteExpires: new Date(now + 120_000),
+            authenticationMethod: 'oidc',
+            recentAuthenticationAt
+        })
+        expect(await store.findLocalSession('oidc-token')).toEqual(
+            expect.objectContaining({ authenticationMethod: 'oidc', recentAuthenticationAt })
         )
     } finally {
         db.close()

@@ -16,6 +16,9 @@ export async function executeModule(binding, input, options = {}) {
     // Checked again with nothing awaited before the tool starts: the await above yields, and a revocation may run there.
     if (options.assertCall) options.assertCall()
     const raw = await callPrepared(prepared, input, options.assertCall)
+    if (binding.nodeName === 'retrieverTool' && typeof options.onRetrievedSources === 'function') {
+        options.onRetrievedSources(splitToolOutput(raw).documents)
+    }
     return prepared.runs ? raw : normalizeResult(raw)
 }
 

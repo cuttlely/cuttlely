@@ -37,6 +37,7 @@ import {
     addIdentityLoginGuards,
     addIdentitySignIn,
     addLocalDirectory,
+    addOidcProvider,
     addSessionConvergence,
     addWorkosSessionId
 } from './schemaMigration'
@@ -147,6 +148,7 @@ async function openDatabase(): Promise<TestDatabase> {
     await addAuditLog(setup)
     await addAuthenticationState(setup)
     await addAuthenticationSwitchStage(setup)
+    await addOidcProvider(setup)
     await addSessionConvergence(setup)
     await addWorkosSessionId(setup)
     const credential = await hashPassword(OWNER_PASSWORD)

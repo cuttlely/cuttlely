@@ -25,7 +25,6 @@ import {
     OIDC_BROWSER_COOKIE_PATH,
     REAUTH_STATE_COOKIE,
     REAUTH_STATE_COOKIE_MS,
-    RECENT_AUTH_COOKIE,
     WOS_EPOCH_COOKIE,
     WOS_SESSION_COOKIE
 } from './constants'
@@ -113,10 +112,6 @@ export function localCookie(value: string, secure: boolean, maxAge: number): Set
         value,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge }
     }
-}
-
-export function recentAuthenticationCookie(value: string, secure: boolean, maxAge: number): SetCookie {
-    return { name: RECENT_AUTH_COOKIE, value, options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge } }
 }
 
 export function reauthenticationStateCookie(value: string, secure: boolean): SetCookie {

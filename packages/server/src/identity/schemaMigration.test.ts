@@ -120,7 +120,7 @@ describe('local directory schema on postgres', () => {
     })
 
     it('adds provider links, OIDC configuration, and cross-process transactions', async () => {
-        const present = new Set(['identity_authentication_switch_stage'])
+        const present = new Set(['identity_authentication_switch_stage', 'identity_local_session'])
         const { runner, calls } = postgresRunner(present)
         await addOidcProvider(runner)
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link"'))).toBe(true)
@@ -128,7 +128,8 @@ describe('local directory schema on postgres', () => {
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_configuration"'))).toBe(true)
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_transaction"'))).toBe(true)
         expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link_migration"'))).toBe(true)
-        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_recent_authentication"'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('identity_recent_authentication'))).toBe(false)
+        expect(calls.some((call) => call.sql.includes('ADD COLUMN "recentAuthenticationAt" TIMESTAMP NULL'))).toBe(true)
         expect(calls.some((call) => call.sql.includes('"inertCount" integer NOT NULL DEFAULT 0'))).toBe(true)
         expect(calls.some((call) => call.sql.includes('ADD COLUMN "configurationFingerprint"'))).toBe(true)
     })

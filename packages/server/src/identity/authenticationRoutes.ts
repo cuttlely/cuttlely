@@ -3,7 +3,6 @@ import { Request, Response, Router } from 'express'
 import { MemoryStore, rateLimit } from 'express-rate-limit'
 import {
     acknowledgeAuthenticationWarning,
-    hasRecentAuthentication,
     initializeAuthenticationState,
     readAuthenticationState,
     stageAuthenticationMethodSwitch,
@@ -14,7 +13,6 @@ import {
 import {
     LOCAL_SESSION_COOKIE,
     LOGIN_FAILURE_WINDOW_MS,
-    RECENT_AUTH_COOKIE,
     localAdminEnabled,
     localUsersSetting,
     workosEnvironmentConfigured
@@ -51,27 +49,21 @@ export async function databaseSessionRecentlyAuthenticated(
 ): Promise<boolean> {
     if (!token) return false
     const session = await store.findLocalSession(hashSessionToken(token))
+    if (!session) return false
+    const authenticatedAt = session.authenticationMethod === 'oidc' ? session.recentAuthenticationAt : session.issuedAt
     return Boolean(
-        session?.issuedAt &&
-            (session.authenticationMethod === 'local' || session.authenticationMethod === 'recovery') &&
-            now >= session.issuedAt.getTime() &&
-            now - session.issuedAt.getTime() <= RECENT_MS
+        authenticatedAt &&
+            (session.authenticationMethod === 'local' ||
+                session.authenticationMethod === 'oidc' ||
+                session.authenticationMethod === 'recovery') &&
+            now >= authenticatedAt.getTime() &&
+            now - authenticatedAt.getTime() <= RECENT_MS
     )
 }
 
 export async function recentlyAuthenticated(req: Request): Promise<boolean> {
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
-    const token = cookies[LOCAL_SESSION_COOKIE]
-    if (await databaseSessionRecentlyAuthenticated(identityStore(), token)) return true
-
-    const who = actor(req)
-    const recent = cookies[RECENT_AUTH_COOKIE]
-    if (!who || !recent) return false
-    const state = await readAuthenticationState(applicationDataSource())
-    if (state?.activeMethod !== 'oidc' || !token) return false
-    const session = await identityStore().findLocalSession(hashSessionToken(token))
-    if (session?.authenticationMethod !== 'oidc') return false
-    return hasRecentAuthentication(applicationDataSource(), who.id, recent)
+    return databaseSessionRecentlyAuthenticated(identityStore(), cookies[LOCAL_SESSION_COOKIE])
 }
 
 async function ownerLocalPasswordReady(): Promise<boolean> {

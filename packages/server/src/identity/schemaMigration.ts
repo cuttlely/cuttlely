@@ -574,16 +574,6 @@ function authenticationStateSql(dialect: Dialect): string {
     )`
 }
 
-function recentAuthenticationSql(dialect: Dialect): string {
-    const time = timeType(dialect)
-    return `CREATE TABLE ${q(dialect, 'identity_recent_authentication')} (
-        ${q(dialect, 'token')} varchar(64) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'userId')} varchar(36) NOT NULL,
-        ${q(dialect, 'authenticatedAt')} ${time} NOT NULL,
-        ${q(dialect, 'expiresAt')} ${time} NOT NULL
-    )`
-}
-
 function authenticationSwitchStageSql(dialect: Dialect): string {
     const time = timeType(dialect)
     return `CREATE TABLE ${q(dialect, 'identity_authentication_switch_stage')} (
@@ -602,7 +592,6 @@ function authenticationSwitchStageSql(dialect: Dialect): string {
 export async function addAuthenticationState(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     if (!(await tableExists(runner, dialect, 'identity_authentication_state'))) await runner.query(authenticationStateSql(dialect))
-    if (!(await tableExists(runner, dialect, 'identity_recent_authentication'))) await runner.query(recentAuthenticationSql(dialect))
 }
 
 /** Durable, optimistic, single-use method-switch stages shared by every server process. */
@@ -752,9 +741,13 @@ export async function addOidcProvider(runner: QueryRunner): Promise<void> {
     const userId = dialect === 'mysql' || dialect === 'mariadb' ? 'varchar(36)' : 'uuid'
     const timestamp = timeType(dialect)
 
-    // This migration also upgrades databases that already ran the earlier authentication-state migration.
-    if (!(await tableExists(runner, dialect, 'identity_recent_authentication'))) {
-        await runner.query(recentAuthenticationSql(dialect))
+    if (
+        (await tableExists(runner, dialect, 'identity_local_session')) &&
+        !(await columnExists(runner, dialect, 'identity_local_session', 'recentAuthenticationAt'))
+    ) {
+        await runner.query(
+            `ALTER TABLE ${q(dialect, 'identity_local_session')} ADD COLUMN ${q(dialect, 'recentAuthenticationAt')} ${timestamp} NULL`
+        )
     }
 
     if (await tableExists(runner, dialect, 'identity_authentication_switch_stage')) {
@@ -881,6 +874,12 @@ export async function removeOidcProvider(runner: QueryRunner): Promise<void> {
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_oidc_transaction')}`)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_oidc_configuration')}`)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_provider_link')}`)
+    if (
+        (await tableExists(runner, dialect, 'identity_local_session')) &&
+        (await columnExists(runner, dialect, 'identity_local_session', 'recentAuthenticationAt'))
+    ) {
+        await runner.query(`ALTER TABLE ${q(dialect, 'identity_local_session')} DROP COLUMN ${q(dialect, 'recentAuthenticationAt')}`)
+    }
     if (
         (await tableExists(runner, dialect, 'identity_authentication_switch_stage')) &&
         (await columnExists(runner, dialect, 'identity_authentication_switch_stage', 'configurationFingerprint'))

@@ -8,7 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { createHash, randomBytes, randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { isUsablePasswordHash } from './password'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
@@ -182,58 +182,6 @@ export function workosConfigurationFingerprint(env: NodeJS.ProcessEnv = process.
 
 export function stableWorkosProviderKey(installationId: string, fingerprint: string): string {
     return createHash('sha256').update(`workos\n${installationId}\n${fingerprint}`).digest('hex')
-}
-
-export async function recordRecentAuthentication(
-    dataSource: DataSource,
-    userId: string,
-    now = Date.now()
-): Promise<{ token: string; expiresAt: number }> {
-    const token = randomBytes(32).toString('base64url')
-    const digest = createHash('sha256').update(token).digest('hex')
-    const runner = dataSource.createQueryRunner()
-    await runner.connect()
-    try {
-        const d = dialect(runner)
-        const expiresAt = now + 10 * 60 * 1000
-        await query(runner, `DELETE FROM ${q(d, 'identity_recent_authentication')} WHERE ${q(d, 'expiresAt')} <= ?`, [
-            databaseDate(runner, new Date(now))
-        ])
-        await query(
-            runner,
-            `INSERT INTO ${q(d, 'identity_recent_authentication')} (${q(d, 'token')}, ${q(d, 'userId')}, ${q(d, 'authenticatedAt')}, ${q(
-                d,
-                'expiresAt'
-            )}) VALUES (?, ?, ?, ?)`,
-            [digest, userId, databaseDate(runner, new Date(now)), databaseDate(runner, new Date(expiresAt))]
-        )
-        return { token, expiresAt }
-    } finally {
-        await runner.release()
-    }
-}
-
-export async function hasRecentAuthentication(dataSource: DataSource, userId: string, token: string, now = Date.now()): Promise<boolean> {
-    const digest = createHash('sha256').update(token).digest('hex')
-    const runner = dataSource.createQueryRunner()
-    await runner.connect()
-    try {
-        const d = dialect(runner)
-        const rows = await query(
-            runner,
-            `SELECT ${q(d, 'authenticatedAt')}, ${q(d, 'expiresAt')} FROM ${q(d, 'identity_recent_authentication')} WHERE ${q(
-                d,
-                'token'
-            )} = ? AND ${q(d, 'userId')} = ?`,
-            [digest, userId]
-        )
-        if (!rows[0]) return false
-        const authenticatedAt = new Date(value(rows[0], 'authenticatedAt') as string | number | Date).getTime()
-        const expiresAt = new Date(value(rows[0], 'expiresAt') as string | number | Date).getTime()
-        return authenticatedAt <= now && now - authenticatedAt <= 10 * 60 * 1000 && expiresAt > now
-    } finally {
-        await runner.release()
-    }
 }
 
 function inferredMethod(env: NodeJS.ProcessEnv): { method: AuthenticationMethod | null; warning: string | null } {

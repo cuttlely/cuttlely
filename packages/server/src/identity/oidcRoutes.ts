@@ -1,13 +1,7 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { Request, Response, Router } from 'express'
 import { isIP } from 'net'
-import {
-    expiredOidcBrowserCookie,
-    oidcBrowserCookie,
-    oidcCallbackUrl,
-    oidcSessionCookieSecure,
-    recentAuthenticationCookie
-} from './cookies'
+import { expiredOidcBrowserCookie, oidcBrowserCookie, oidcCallbackUrl, oidcSessionCookieSecure } from './cookies'
 import { LOGIN_FAILURE_WINDOW_MS, OIDC_BROWSER_COOKIE, RECENT_AUTH_COOKIE, signinErrorUrl } from './constants'
 import { issueDatabaseSession, establishSession } from './handlers'
 import {
@@ -43,7 +37,7 @@ import {
     testedOidcDraftDiffersFromActive,
     validatedOidcIssuer
 } from './oidcStore'
-import { readAuthenticationState, recordRecentAuthentication } from './authenticationState'
+import { readAuthenticationState } from './authenticationState'
 import {
     oidcCallbackFailureAuditDetail,
     oidcFailureLogDetail,
@@ -512,18 +506,19 @@ oidcAuthRouter.get(
             const ctx = await buildAuthContext(req)
             ctx.authenticationEpoch = completed.envelope.authEpoch
             ctx.secure = oidcCookieIsSecure(req)
-            const issued = await issueDatabaseSession(ctx, linked.user.id)
+            const recentOidcAuthentication = oidcReauthenticationIsRecent(completed.envelope, completed.identity)
+            const issued = await issueDatabaseSession(
+                ctx,
+                linked.user.id,
+                recentOidcAuthentication ? Number(completed.identity.authTime) * 1000 : 0
+            )
             if (issued.type !== 'json' || issued.status !== 200) {
                 throw new OidcError('response', 'Session creation failed.', 'session_creation_failed')
             }
             for (const cookie of issued.cookies || []) res.cookie(cookie.name, cookie.value, cookie.options)
             for (const name of issued.clearCookies || [])
                 res.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure: issued.secure })
-            if (oidcReauthenticationIsRecent(completed.envelope, completed.identity)) {
-                const recent = await recordRecentAuthentication(applicationDataSource(), linked.user.id)
-                const cookie = recentAuthenticationCookie(recent.token, ctx.secure, recent.expiresAt - Date.now())
-                res.cookie(cookie.name, cookie.value, cookie.options)
-            } else if (completed.envelope.purpose === 'reauth') {
+            if (!recentOidcAuthentication && completed.envelope.purpose === 'reauth') {
                 res.clearCookie(RECENT_AUTH_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax', secure: ctx.secure })
             }
             for (const organizationId of orgs.length ? orgs : ['']) {

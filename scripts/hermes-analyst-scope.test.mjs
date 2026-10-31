@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = path.join(ROOT, 'hermes', 'tools', 'mcp_tool_cuttlely.py')
@@ -111,7 +111,28 @@ test('the real MCP tool handler sends the chat scope to a query bridge named aft
     assert.deepEqual(out.plain, { sql: 'select 1' })
 })
 
-test('the harness profile still marks a query bridge with the env flag Hermes reads', () => {
-    const source = fs.readFileSync(PROFILE, 'utf8')
-    assert.match(source, /hasAnalystTool\(specialist\) \? \{ CUTTLELY_ANALYST_BRIDGE: '1'/)
+test('the compiler emits the runtime scope flag for an actual query bridge', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'query-scope-profile-'))
+    try {
+        const source = `
+            import assert from 'node:assert/strict'
+            import fs from 'node:fs'
+            import path from 'node:path'
+            import { compileProfile } from ${JSON.stringify(pathToFileURL(PROFILE).href)}
+            const record = { name: 'query-scope', chief: { model: { nodeName: 'unused' } }, specialists: [
+                { name: 'data', mcpServers: [{ nodeName: 'postgreSQLMCP', category: 'Tools (MCP)', inputs: {} }] }
+            ] }
+            compileProfile(record)
+            const config = fs.readFileSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'query-scope--data', 'config.yaml'), 'utf8')
+            assert.ok(/CUTTLELY_ANALYST_BRIDGE:\\s*['"]?1/.test(config))
+        `
+        const run = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
+            encoding: 'utf8',
+            timeout: 10000,
+            env: { ...process.env, CUTTLELY_DATA_DIR: dir, CUTTLELY_HERMES_HOME: path.join(dir, 'runtime') }
+        })
+        assert.equal(run.status, 0, run.stderr)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
 })
