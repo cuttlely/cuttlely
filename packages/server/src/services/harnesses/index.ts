@@ -1175,6 +1175,12 @@ const getRun = async (name: string, runId: string, workspaceId?: string | null, 
     return run
 }
 
+const getRunDiagnostics = async (name: string, runId: string, workspaceId?: string | null) => {
+    await getRun(name, runId, workspaceId)
+    const history = await loadHarness('history.mjs')
+    return history.getRunDiagnostics(name, runId)
+}
+
 // A harness route acts for a person or an API key. Anything else, including no caller, is refused before the harness is read.
 function assertRouteCaller(name: string, caller: IHarnessCaller | undefined): asserts caller is IHarnessCaller {
     if (caller?.via === 'session') return
@@ -1646,6 +1652,7 @@ export default {
     warmHarnesses,
     listRuns,
     getRun,
+    getRunDiagnostics,
     assertRunRequest,
     startRun,
     startBackgroundRun,

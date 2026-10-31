@@ -13,6 +13,14 @@ const SOURCES = new Set(['playground', 'api', 'prediction', 'schedule'])
 // A stored result is the answer an API caller fetches later. Larger answers keep the text and drop the rest.
 const RESULT_JSON_LIMIT = 1024 * 1024
 const OPEN_STATUSES = ['queued', 'running']
+const DIAGNOSTIC_LIMIT = 8
+const DIAGNOSTIC_JSON_LIMIT = 16384
+const DIAGNOSTIC_CONTEXTS = new Set(['number', 'compact_monetary', 'word_scale_monetary'])
+const DIAGNOSTIC_CURRENCIES = new Set(
+    typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
+)
+const DIAGNOSTIC_UNIT =
+    /^(?:[KMB]|%|acv|nacv|racv|arr|tcv|ram|thousand|million|billion|accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?)$/i
 
 function ensure(db) {
     db.exec(`
@@ -34,7 +42,8 @@ function ensure(db) {
             agents_json TEXT,
             timings_json TEXT,
             trace_id TEXT,
-            trace_json TEXT
+            trace_json TEXT,
+            diagnostics_json TEXT
         );
         CREATE INDEX IF NOT EXISTS run_history_harness ON run_history (harness_name, started_at DESC);
         CREATE TABLE IF NOT EXISTS run_results (
@@ -51,6 +60,62 @@ function ensure(db) {
     // The API key that started the run. Null is a signed-in person or a flow prediction.
     if (!columns.some((column) => column.name === 'api_key_id')) {
         db.exec('ALTER TABLE run_history ADD COLUMN api_key_id TEXT')
+    }
+    // Private author diagnostics never enter toPublic(), results, previews or the ordinary trace.
+    if (!columns.some((column) => column.name === 'diagnostics_json')) {
+        db.exec('ALTER TABLE run_history ADD COLUMN diagnostics_json TEXT')
+    }
+}
+
+function diagnosticClaims(value) {
+    if (!Array.isArray(value)) return []
+    const claims = []
+    const seen = new Set()
+    for (const item of value.slice(0, 64)) {
+        if (claims.length >= DIAGNOSTIC_LIMIT) break
+        if (!item || typeof item !== 'object' || item.issue !== 'unsupported_number') continue
+        const { literal, unit = '', contextType = 'number', specialist, pins } = item
+        if (
+            typeof literal !== 'string' ||
+            literal.length > 80 ||
+            !/^[-+]?\d+(?:,\d{3})*(?:\.\d+)?[KMB]?$/.test(literal) ||
+            typeof unit !== 'string' ||
+            unit.length > 80 ||
+            (unit !== '' && !DIAGNOSTIC_UNIT.test(unit) && !/^\p{Sc}$/u.test(unit) && !DIAGNOSTIC_CURRENCIES.has(unit)) ||
+            !DIAGNOSTIC_CONTEXTS.has(contextType)
+        )
+            continue
+        const claim = { issue: 'unsupported_number', literal, unit, contextType }
+        if (specialist !== undefined) {
+            if (typeof specialist !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(specialist)) continue
+            claim.specialist = specialist
+        }
+        if (pins !== undefined) {
+            if (
+                !Array.isArray(pins) ||
+                !pins.length ||
+                pins.length > 16 ||
+                pins.some((pin) => typeof pin !== 'string' || !/^pq_[a-z0-9_]{1,77}$/.test(pin))
+            )
+                continue
+            claim.pins = [...new Set(pins)]
+        }
+        const key = JSON.stringify(claim)
+        if (seen.has(key)) continue
+        seen.add(key)
+        if (Buffer.byteLength(JSON.stringify([...claims, claim])) > DIAGNOSTIC_JSON_LIMIT) break
+        claims.push(claim)
+    }
+    return claims
+}
+
+function diagnosticsJson(value) {
+    try {
+        const claims = diagnosticClaims(value)
+        return claims.length ? JSON.stringify(claims) : null
+    } catch {
+        // Optional diagnostics must not fail a completed run or retain arbitrary objects.
+        return null
     }
 }
 
@@ -386,7 +451,7 @@ export function getRunResult(name, id) {
     }
 }
 
-export function finishHarnessRun(pending, { result, error, finishedAt, traceId } = {}) {
+export function finishHarnessRun(pending, { result, error, finishedAt, traceId, diagnostics } = {}) {
     if (!pending?.id || !pending?.harness) return null
     const finished = Number.isFinite(finishedAt) ? finishedAt : Date.now()
     const started = Date.parse(pending.startedAt)
@@ -396,13 +461,14 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId }
     const tokens = tokensOf(result)
     const timings = timingsOf(result)
     const agents = agentsOf(result)
+    const privateDiagnostics = diagnosticsJson(diagnostics)
     immediate((db) => {
         ensure(db)
         db.prepare(
             `UPDATE run_history
              SET status = ?, finished_at = ?, latency_ms = ?, prompt_tokens = ?, completion_tokens = ?,
                  error_code = ?, error_message = ?, text_preview = ?, agents_json = ?, timings_json = ?,
-                 trace_json = ?, trace_id = COALESCE(?, trace_id)
+                 trace_json = ?, trace_id = COALESCE(?, trace_id), diagnostics_json = ?
              WHERE id = ? AND harness_name = ?`
         ).run(
             status,
@@ -417,6 +483,7 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId }
             timings ? JSON.stringify(timings) : null,
             traceJson(recorded),
             safeTraceId(traceId),
+            privateDiagnostics,
             pending.id,
             pending.harness
         )
@@ -445,6 +512,27 @@ export function getRun(name, id, { apiKeyId } = {}) {
     const filter = keyFilter(apiKeyId)
     const row = db.prepare(`SELECT * FROM run_history WHERE id = ? AND harness_name = ?${filter.sql}`).get(id, harnessName, ...filter.args)
     return row ? toPublic(row) : null
+}
+
+// The service must enforce workspace and author permissions before using this private getter.
+// Scope is identical to getRun(); ordinary run history and saved results never include these claims.
+export function getRunDiagnostics(name, id, { apiKeyId } = {}) {
+    const harnessName = harnessNameOf(name)
+    if (!harnessName || !safeRunId(id)) return null
+    const db = database()
+    ensure(db)
+    const filter = keyFilter(apiKeyId)
+    const row = db
+        .prepare(`SELECT diagnostics_json FROM run_history WHERE id = ? AND harness_name = ?${filter.sql}`)
+        .get(id, harnessName, ...filter.args)
+    if (!row) return null
+    let claims = []
+    try {
+        claims = diagnosticClaims(JSON.parse(row.diagnostics_json || '[]'))
+    } catch {
+        // Legacy/corrupt private metadata is not a reason to break run-history access.
+    }
+    return { runId: id, harness: harnessName, claims }
 }
 
 // True when a run in this chat was started by someone else: another key, or a person when apiKeyId is null.

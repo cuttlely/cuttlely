@@ -41,6 +41,12 @@ export function trustedOutputContracts(value) {
             fail('A trusted output needs a unique pin, its tested hash and a supported mode.')
         pins.add(entry.pin)
         const contract = { pin: entry.pin, hash: entry.hash, mode: entry.mode }
+        if (entry.interpretationDiagnostics != null && typeof entry.interpretationDiagnostics !== 'boolean')
+            fail('Interpretation diagnostics must be a boolean.')
+        if (entry.interpretationDiagnostics === true) {
+            if (entry.mode !== 'markdown') fail('Interpretation diagnostics need a Markdown contract.')
+            contract.interpretationDiagnostics = true
+        }
         const reportingSymbol = normalizeReportingCurrencySymbol(entry.reportingCurrencySymbol)
         if (reportingSymbol) contract.reportingCurrencySymbol = reportingSymbol
         if (entry.mode === 'markdown') {

@@ -15,6 +15,10 @@ jest.mock('../../services/harnesses', () => ({
             calls.push({ fn: 'getRun', args })
             return { id: args[1] }
         },
+        getRunDiagnostics: async (...args: unknown[]) => {
+            calls.push({ fn: 'getRunDiagnostics', args })
+            return { runId: args[1], claims: [] }
+        },
         getRunResult: async (...args: unknown[]) => {
             calls.push({ fn: 'getRunResult', args })
             return { runId: args[1] }
@@ -44,6 +48,7 @@ function app(user: object) {
     server.get('/harnesses', controller.listHarnesses)
     server.get('/harnesses/:name/runs', controller.listRuns)
     server.get('/harnesses/:name/runs/:runId', controller.getRun)
+    server.get('/harnesses/:name/runs/:runId/diagnostics', controller.getRunDiagnostics)
     server.get('/harnesses/:name/runs/:runId/result', controller.getRunResult)
     server.post('/harnesses/:name/runs/async', controller.startBackgroundRun)
     return server
@@ -84,5 +89,13 @@ describe('harness controller scope for an API key', () => {
         const opts = calls[0].args[2] as { caller?: unknown; track?: unknown }
         expect(opts.caller).toEqual({ via: 'api_key', apiKeyId: 'key-bakery', harnesses: ['bakery'] })
         expect(typeof opts.track).toBe('function')
+    })
+
+    it('keeps validation diagnostics session-only and forwards the active author workspace', async () => {
+        const url = '/harnesses/bakery/runs/run_00000000-0000-4000-8000-000000000000/diagnostics'
+        expect((await request(app(viaKey)).get(url)).status).toBe(403)
+        expect(calls).toHaveLength(0)
+        expect((await request(app(person)).get(url)).status).toBe(200)
+        expect(calls).toEqual([{ fn: 'getRunDiagnostics', args: ['bakery', 'run_00000000-0000-4000-8000-000000000000', 'team-a'] }])
     })
 })

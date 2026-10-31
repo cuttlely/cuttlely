@@ -627,7 +627,36 @@ const countUnit =
     /^\s*(?:%|(?:accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?)\b)/i
 const monetaryContext = /\b(?:acv|nacv|racv|arr|tcv|ram|revenue|bookings|sales|churn|loss|amount)\b/i
 
-function compactClaims(text, facts, issues) {
+// Diagnostic records deliberately contain no surrounding prose or source values.
+// Collection is opt-in and cannot change the literal validation outcome.
+function numericDiagnosticSink(options) {
+    if (options?.diagnostics !== true || typeof options.onDiagnostic !== 'function') return undefined
+    const seen = new Set()
+    return (literal, unit = '', contextType = 'number') => {
+        if (seen.size >= 8) return
+        const record = { issue: 'unsupported_number', literal: String(literal).slice(0, 80), unit: String(unit).slice(0, 80), contextType }
+        const key = JSON.stringify(record)
+        if (seen.has(key)) return
+        seen.add(key)
+        try {
+            options.onDiagnostic(record)
+        } catch {
+            // Optional diagnostics must never affect validation or delivery.
+        }
+    }
+}
+
+function numericDiagnosticUnit(text, match) {
+    const after = text.slice(match.index + match[0].length)
+    const unit = after.match(
+        /^\s*(%|(?:acv|nacv|racv|arr|tcv|ram|thousand|million|billion|accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?)\b)/i
+    )
+    if (unit) return unit[1]
+    const prefix = text.slice(0, match.index).match(/(\p{Sc}|[A-Z]{3})\s*$/u)
+    return prefix && (/\p{Sc}/u.test(prefix[1]) || currencyCodes.has(prefix[1])) ? prefix[1] : ''
+}
+
+function compactClaims(text, facts, issues, diagnostic) {
     return text.replace(compactPattern, (whole, amount, suffix, offset) => {
         const before = text.slice(Math.max(0, offset - 70), offset),
             after = text.slice(offset + whole.length, offset + whole.length + 50),
@@ -638,8 +667,10 @@ function compactClaims(text, facts, issues) {
             countUnit.test(after) ||
             (!symbol && !monetaryContext.test(before + ' ' + after)) ||
             !monetaryMatches(facts, coefficient, suffix, symbol)
-        )
+        ) {
             issues.push('unsupported_number')
+            diagnostic?.(whole, suffix, 'compact_monetary')
+        }
         return ' '.repeat(whole.length)
     })
 }
@@ -698,7 +729,7 @@ function unresolvedIdentity(sources) {
 }
 
 /** Conservative literal provenance checks shared by concise answers and longer interpretation. */
-function literalIssues(text, facts) {
+function literalIssues(text, facts, diagnostic) {
     const issues = []
     // List markers and heading numbers are presentation, not quantitative claims.
     const claims = text.replace(/^\s{0,3}\d+[.)]\s+/gm, '').replace(/^\s*#{1,6}\s*\d+[.)]?\s+/gm, '')
@@ -708,8 +739,13 @@ function literalIssues(text, facts) {
     const dateMasked = claims
         .replace(/\b\d{4}-\d{2}-\d{2}(?:T[\d:.+-]+Z?)?\b/g, '')
         .replace(new RegExp(`\\b${monthPattern}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+\\d{4}\\b`, 'gi'), '')
-    const compactMasked = facts.reportingCurrencySymbol ? compactClaims(dateMasked, facts, issues) : dateMasked
+    const compactMasked = facts.reportingCurrencySymbol ? compactClaims(dateMasked, facts, issues, diagnostic) : dateMasked
     if (numberLiterals(compactMasked).some((number) => !facts.numbers.has(number))) issues.push('unsupported_number')
+    if (diagnostic) {
+        for (const match of compactMasked.matchAll(/(?<![\p{L}\p{N}_])[-+]?\d+(?:,\d{3})*(?:\.\d+)?(?![\p{L}\p{N}_])/gu)) {
+            if (!facts.numbers.has(normalizeNumber(match[0]))) diagnostic(match[0], numericDiagnosticUnit(compactMasked, match), 'number')
+        }
+    }
     for (const match of claims.matchAll(/([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*%/g)) {
         if (!facts.percentages.has(normalizeNumber(match[1]))) issues.push('unsupported_percentage')
     }
@@ -722,7 +758,10 @@ function literalIssues(text, facts) {
         if (facts.reportingCurrencySymbol) {
             if (!amount || countUnit.test(after) || !monetaryMatches(facts, value, amount[2], symbol)) issues.push('unsupported_currency')
         } else if (!supportsSymbol(facts.currencies, symbol)) issues.push('unsupported_currency')
-        if (facts.reportingCurrencySymbol && /^\s*(?:thousand|million|billion)\b/i.test(after)) issues.push('unsupported_number')
+        if (facts.reportingCurrencySymbol && /^\s*(?:thousand|million|billion)\b/i.test(after)) {
+            issues.push('unsupported_number')
+            diagnostic?.(amount[1], after.match(/^\s*(thousand|million|billion)\b/i)[1], 'word_scale_monetary')
+        }
     }
     for (const match of claims.matchAll(/(?<![A-Za-z])[A-Z]{3}(?![A-Za-z])/g)) {
         const code = match[0]
@@ -795,28 +834,40 @@ export function protectedLiteralIssues(value, sources, paths = [], reportingSymb
 }
 
 /** Interpretation additionally needs substantive prose and resolved account identity. */
-export function protectedInterpretationIssues(interpretation, sources, paths = [], reportingSymbol) {
+export function protectedInterpretationIssues(interpretation, sources, paths = [], reportingSymbol, diagnosticOptions) {
     const text = cleanInterpretation(interpretation)
     if (!substantive(text)) return ['empty_or_template_interpretation']
     const sourceList = Array.isArray(sources) ? sources : [sources]
     if (unresolvedIdentity(sourceList)) return ['unresolved_source_identity']
     const facts = sourceFacts(sourceList, paths, false, reportingSymbol)
     if (!facts.evidence.length) return ['missing_source_evidence']
-    return literalIssues(text, facts)
+    return literalIssues(text, facts, numericDiagnosticSink(diagnosticOptions))
 }
 
 /** The exact factual spine is always retained byte-for-byte at the end. */
-export function composeProtectedInterpretation({ interpretation, facts, sources, paths = [], reportingCurrencySymbol }) {
+export function composeProtectedInterpretation({
+    interpretation,
+    facts,
+    sources,
+    paths = [],
+    reportingCurrencySymbol,
+    diagnostics = false
+}) {
     const sourceText = typeof facts === 'string' ? facts : ''
     const caption = protectedReportingCaption(sources, paths, reportingCurrencySymbol)
     const framedSource = caption ? `${caption}\n\n${sourceText}` : sourceText
     const text = cleanInterpretation(interpretation)
-    const issues = protectedInterpretationIssues(text, sources, paths, reportingCurrencySymbol)
+    const claimDiagnostics = []
+    const issues = protectedInterpretationIssues(text, sources, paths, reportingCurrencySymbol, {
+        diagnostics: diagnostics === true,
+        onDiagnostic: (record) => claimDiagnostics.push(record)
+    })
+    const diagnosticFields = diagnostics === true ? { diagnostics: claimDiagnostics } : {}
     if (issues.length) {
         const notice = issues.some((issue) => issue.startsWith('unsupported_') || issue === 'uncalibrated_probability')
             ? 'The additional interpretation could not be verified. The source-backed details follow.\n\n'
             : ''
-        return { text: notice + framedSource, included: false, reason: issues.join(',') }
+        return { text: notice + framedSource, included: false, reason: issues.join(','), ...diagnosticFields }
     }
-    return { text: `${interpretationLabel}\n\n${text}\n\n---\n\n${framedSource}`, included: true, reason: '' }
+    return { text: `${interpretationLabel}\n\n${text}\n\n---\n\n${framedSource}`, included: true, reason: '', ...diagnosticFields }
 }

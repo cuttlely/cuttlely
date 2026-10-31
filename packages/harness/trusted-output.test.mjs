@@ -60,6 +60,15 @@ test('contracts default off, validate static paths and bind the tested pin hash'
     assert.throws(() => trustedOutputContracts([contract, contract]))
 })
 
+test('interpretation diagnostics are a strict author opt-in on Markdown contracts', () => {
+    const plain = { pin: 'pq_report', hash: 'ab'.repeat(32), mode: 'markdown', fields: [{ path: 'rows.0.report' }] }
+    assert.deepEqual(trustedOutputContracts([plain]), [plain])
+    assert.deepEqual(trustedOutputContracts([{ ...plain, interpretationDiagnostics: false }]), [plain])
+    assert.equal(trustedOutputContracts([{ ...plain, interpretationDiagnostics: true }])[0].interpretationDiagnostics, true)
+    assert.throws(() => trustedOutputContracts([{ ...plain, interpretationDiagnostics: 'true' }]), /boolean/)
+    assert.throws(() => trustedOutputContracts([{ ...contract, interpretationDiagnostics: true }]), /Markdown/)
+})
+
 test('authoritative source preserves 4 series, 13 points, product keys, native units, all calendar gaps and values above 100%', () => {
     const plan = utilizationPlan(body)
     assert.equal(plan.series.length, 4)
@@ -263,7 +272,11 @@ async function runFixture({
     reportingSymbol,
     freeQuery = false,
     nativeReceipt = true,
-    queryRowCap = 100
+    queryRowCap = 100,
+    markdownOnly = false,
+    diagnostics = false,
+    unmatchedDiagnostics = false,
+    replay = false
 } = {}) {
     const invocation = ++serial
     const name = harnessName || `trusted-test-${invocation}`,
@@ -279,9 +292,9 @@ async function runFixture({
     const people = [
         ...Array.from({ length: copies }, (_, index) => ({
             name: index ? `data${index}` : 'data',
-            entry: unmapped ? { ...entry, name: 'pq_other_metric' } : csv ? csvEntry : entry,
+            entry: markdownOnly ? mdEntry : unmapped ? { ...entry, name: 'pq_other_metric' } : csv ? csvEntry : entry,
             result: csv && result === body ? csvBody() : result,
-            contract: csv ? csvContract : contract
+            contract: markdownOnly ? { ...mdContract, hash: mdHash } : csv ? csvContract : contract
         })),
         ...(mixedCsv ? [{ name: 'export', entry: csvEntry, result: csvBody(), contract: csvContract }] : []),
         ...(multi
@@ -322,7 +335,18 @@ async function runFixture({
                       }
                     : {}),
                 ...(enabled && !(mixedUnprotected && person.name === 'report')
-                    ? { trustedOutputs: [{ ...person.contract, ...(reportingSymbol ? { reportingCurrencySymbol: reportingSymbol } : {}) }] }
+                    ? {
+                          trustedOutputs: [
+                              {
+                                  ...person.contract,
+                                  ...(reportingSymbol ? { reportingCurrencySymbol: reportingSymbol } : {}),
+                                  ...(diagnostics ? { interpretationDiagnostics: true } : {})
+                              },
+                              ...(unmatchedDiagnostics
+                                  ? [{ ...mdContract, pin: 'pq_unrequested_report', hash: mdHash, interpretationDiagnostics: true }]
+                                  : [])
+                          ]
+                      }
                     : {}),
                 mcpServers: [
                     {
@@ -503,6 +527,7 @@ async function runFixture({
             input,
             chatId,
             ...(trustedOutputPreview ? { trustedOutputPreview: true } : {}),
+            ...(replay ? { replay: true } : {}),
             ...(budgetMs ? { budgetMs } : {}),
             baseUrl: 'http://127.0.0.1:9',
             fetchImpl,
@@ -939,6 +964,57 @@ test('opted-in unsupported currency cannot enter a protected final answer', asyn
     assert.ok(!out.payload.text.includes('$999999999'))
     assert.ok(out.payload.text.includes('13 source observations'))
     assert.equal(out.payload.artifacts.length, 1)
+})
+
+test('rejected-number diagnostics stay private and leave the answer, events and public history unchanged', async () => {
+    const { listRuns, getRun, getRunResult, getRunDiagnostics } = await import('./history.mjs')
+    const options = {
+        markdownOnly: true,
+        interpretation: true,
+        reportingSymbol: '$',
+        createModelFile: false,
+        result: { rows: [{ scope: 'Reported financial facts.', report: 'Confirmed churn ACV: $8.20.', churn_acv: '8.20' }] },
+        prose: 'Confirmed churn was $987654321 and the account team should investigate the recorded commercial reasons.'
+    }
+    const off = await runFixture(options)
+    const on = await runFixture({ ...options, diagnostics: true })
+    const unmatched = await runFixture({ ...options, unmatchedDiagnostics: true })
+    assert.equal(on.payload.text, off.payload.text)
+    assert.deepEqual(on.payload.artifacts, off.payload.artifacts)
+    assert.deepEqual(on.payload.trace.specialists[0].recovery, off.payload.trace.specialists[0].recovery)
+    const [offRow] = listRuns(off.name)
+    const [onRow] = listRuns(on.name)
+    assert.deepEqual(getRunDiagnostics(off.name, offRow.id).claims, [])
+    const [unmatchedRow] = listRuns(unmatched.name)
+    assert.equal(unmatched.payload.text, off.payload.text)
+    assert.deepEqual(getRunDiagnostics(unmatched.name, unmatchedRow.id).claims, [])
+    const diagnostic = getRunDiagnostics(on.name, onRow.id)
+    assert.equal(diagnostic.claims[0].literal, '987654321')
+    assert.equal(diagnostic.claims[0].specialist, 'data')
+    assert.deepEqual(diagnostic.claims[0].pins, ['pq_report'])
+    for (const publicValue of [on.payload, on.events, onRow, getRun(on.name, onRow.id), getRunResult(on.name, onRow.id)]) {
+        assert.ok(!JSON.stringify(publicValue).includes('987654321'))
+        assert.ok(!JSON.stringify(publicValue).includes('diagnostics'))
+    }
+    const replay = await runFixture({ ...options, diagnostics: true, replay: true })
+    assert.equal(listRuns(replay.name).length, 0)
+})
+
+test('valid claims with author diagnostics preserve the accepted interpretation and record no claims', async () => {
+    const { listRuns, getRunDiagnostics } = await import('./history.mjs')
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        diagnostics: true,
+        reportingSymbol: '$',
+        createModelFile: false,
+        result: { rows: [{ scope: 'Reported financial facts.', report: 'Confirmed churn ACV: $8.20.', churn_acv: '8.20' }] },
+        prose: 'The reported churn is $8.20. Review the underlying event reasons before attributing a cause to the aggregate.'
+    })
+    assert.ok(out.payload.text.includes('The reported churn is $8.20.'))
+    assert.equal(out.payload.trace.specialists[0].recovery, undefined)
+    const [row] = listRuns(out.name)
+    assert.deepEqual(getRunDiagnostics(out.name, row.id).claims, [])
 })
 
 test('opted-in unmapped answers cannot deliver an invented figure or currency and retain source values instead', async () => {
