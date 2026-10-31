@@ -299,6 +299,69 @@ describe('healing output connections', () => {
             'Removed the edge from Sample Chain to Target: the output it came from is no longer on Sample Chain. Connect it again.'
         )
     })
+
+    it('clears only the dropped source reference from single and list inputs', () => {
+        const singleTarget = {
+            ...targetNode,
+            data: { ...targetNode.data, inputs: { value: '{{chain_0.data.instance}}' } }
+        }
+        const listTarget = {
+            id: 'list_0',
+            data: {
+                id: 'list_0',
+                name: 'listTarget',
+                label: 'List Target',
+                inputs: { values: ['{{other_0.data.instance}}', '{{chain_0.data.instance}}'] },
+                inputParams: [],
+                inputAnchors: [{ id: 'list_0-input-values-Value', name: 'values', type: 'Value', list: true }],
+                outputAnchors: []
+            }
+        }
+        const dropped = [singleTarget, listTarget].map((target, index) => ({
+            id: `edge-${index}`,
+            source: 'chain_0',
+            sourceHandle: 'chain_0-output-missing-string',
+            target: target.id,
+            targetHandle: target.data.inputAnchors[0].id
+        }))
+        const nodes = [sourceNode, singleTarget, listTarget]
+        const before = copy(nodes)
+        const result = healImportedFlow(nodes, dropped, [chainSpec], {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData
+        })
+
+        expect(result.edges).toEqual([])
+        expect(result.nodes.find((node) => node.id === 'target_0').data.inputs.value).toBe('')
+        expect(result.nodes.find((node) => node.id === 'list_0').data.inputs.values).toEqual(['{{other_0.data.instance}}'])
+        expect(nodes).toEqual(before)
+        const second = healImportedFlow(result.nodes, result.edges, [chainSpec], { canvasType: 'CHATFLOW' })
+        expect({ nodes: second.nodes, edges: second.edges }).toEqual({ nodes: result.nodes, edges: result.edges })
+    })
+
+    it('keeps typed text around a dropped source reference', () => {
+        const variableTarget = {
+            ...targetNode,
+            data: {
+                ...targetNode.data,
+                inputs: { value: 'Before {{chain_0.data.instance}} after {{other_0.data.instance}}' },
+                inputAnchors: [{ ...targetNode.data.inputAnchors[0], acceptVariable: true }]
+            }
+        }
+        const edge = {
+            id: 'edge-variable',
+            source: 'chain_0',
+            sourceHandle: 'chain_0-output-missing-string',
+            target: variableTarget.id,
+            targetHandle: variableTarget.data.inputAnchors[0].id
+        }
+        const result = healImportedFlow([sourceNode, variableTarget], [edge], [chainSpec], {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData
+        })
+
+        expect(result.nodes.find((node) => node.id === 'target_0').data.inputs.value).toBe('Before  after {{other_0.data.instance}}')
+    })
 })
 
 describe('healing conditional inputs', () => {

@@ -1275,6 +1275,9 @@ const Canvas = () => {
                             handleSaveFlow={handleSaveFlow}
                             handleDeleteFlow={handleDeleteFlow}
                             handleLoadFlow={handleLoadFlow}
+                            catalogLoading={getNodesApi.loading}
+                            catalogError={getNodesApi.error}
+                            onRetryCatalog={() => getNodesApi.request()}
                             onApplyMigration={({ canvas, name }) => {
                                 applyFlowiseCanvas(JSON.stringify(canvas))
                                 if (!chatflowRef.current?.id && name) {
