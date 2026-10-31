@@ -41,9 +41,10 @@ import { apiKeyPermissionCatalog, rolePermissionCatalog } from './permissionsCat
 import { requireAnyPermission, requirePermission } from './rbac'
 import { acceptLocalRoute, registerInvite } from './directoryRoutes'
 import { authOptionsBody, signInOptionsBody } from './signInOptions'
-import { buildAuthContext } from './production'
+import { applicationDataSource, buildAuthContext, identityStore } from './production'
 import { applySetupHeaders } from './sessionGuard'
 import { HandlerResult } from './types'
+import { readAuthenticationState } from './authenticationState'
 
 function apply(res: Response, result: Exclude<HandlerResult, { type: 'next' }>): void {
     const secure = result.secure ?? result.cookies?.[0]?.options.secure ?? false
@@ -165,11 +166,18 @@ identityAuthRouter.get('/signin-options', (_req, res) => {
         if (!res.headersSent) res.json(signInOptionsBody())
     })
 })
-identityAuthRouter.get('/options', (req, res) => {
+
+export async function currentAuthOptionsBody() {
+    const dataSource = applicationDataSource()
+    const durable = dataSource ? await readAuthenticationState(dataSource) : null
+    const state = durable || (await identityStore().readAuthKitSwitch())
+    return authOptionsBody(process.env, state)
+}
+
+identityAuthRouter.get('/options', (_req, res) => {
     void (async () => {
-        const ctx = await buildAuthContext(req)
-        const state = ctx.store ? await ctx.store.readAuthKitSwitch() : null
-        if (!res.headersSent) res.json(authOptionsBody(process.env, state))
+        const body = await currentAuthOptionsBody()
+        if (!res.headersSent) res.json(body)
     })().catch((error: unknown) => {
         logger.error(`identity request failed: ${error instanceof Error ? error.name : 'error'}`)
         if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })

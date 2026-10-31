@@ -11,7 +11,8 @@
  */
 
 import { AuthKitSwitchState } from './authKitSwitch'
-import { localAdminEnabled, localUsersMode, workosConfigured } from './constants'
+import type { AuthenticationState } from './authenticationState'
+import { localAdminEnabled, localUsersMode, localUsersSetting, workosConfigured, workosEnvironmentConfigured } from './constants'
 
 export interface SignInOptions {
     authKit: boolean
@@ -79,19 +80,35 @@ export interface AuthOptionsStatus {
     sessionsEnded: number
 }
 
-/** Public body for GET /api/v1/auth/options. `state` is the recorded switch, or null before it has run. */
+type AuthOptionsState = Pick<AuthenticationState, 'activeMethod' | 'sessionsEnded' | 'changedAt'> | AuthKitSwitchState
+
+function isDurableState(state: AuthOptionsState): state is Pick<AuthenticationState, 'activeMethod' | 'sessionsEnded' | 'changedAt'> {
+    return 'activeMethod' in state
+}
+
+/** Public body for GET /api/v1/auth/options. Durable method state takes precedence over the older switch row. */
 export function authOptionsBody(
     env: NodeJS.ProcessEnv = process.env,
-    state: AuthKitSwitchState | null = null
+    state: AuthOptionsState | null = null
 ): { methods: string[]; status: AuthOptionsStatus } {
+    const durable = state && isDurableState(state) ? state : null
+    const legacy = state && !isDurableState(state) ? state : null
     const options = signInOptionsBody(env)
+    const authKit = durable ? durable.activeMethod === 'workos' && workosEnvironmentConfigured(env) : options.authKit
+    const localPasswordSignIn = durable ? durable.activeMethod === 'local' && localUsersSetting(env) : options.localUsers
     let localSessions: LocalSessionSwitchStatus = 'open'
-    if (options.authKit) localSessions = state?.configured ? 'ended' : 'pending'
+    if (durable) localSessions = durable.activeMethod === 'workos' ? 'ended' : 'open'
+    else if (options.authKit) localSessions = legacy?.configured ? 'ended' : 'pending'
+    const methods: string[] = []
+    if (authKit) methods.push(SIGN_IN_METHOD.authKit)
+    if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
+    if (localPasswordSignIn) methods.push(SIGN_IN_METHOD.localUsers)
+    if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return {
-        methods: enabledSignInMethods(env).methods,
+        methods,
         status: {
-            authKit: options.authKit,
-            localPasswordSignIn: options.localUsers,
+            authKit,
+            localPasswordSignIn,
             breakGlassOwner: options.localAdmin,
             localSessions,
             sessionsEnded: state?.sessionsEnded ?? 0

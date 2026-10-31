@@ -56,6 +56,8 @@ jest.mock('./production', () => {
     const { cookieSecure } = jest.requireActual('./cookies') as typeof import('./cookies')
     const { LoginRateLimit } = jest.requireActual('./rateLimit') as typeof import('./rateLimit')
     return {
+        applicationDataSource: () => null,
+        identityStore: () => mockRouteStore.current,
         refreshAuthenticationView: () => mockRefreshView(),
         buildAuthContext: (req: Request) => {
             const redirectUri = process.env.WORKOS_REDIRECT_URI

@@ -129,7 +129,7 @@ Ignoring a host value outside its range, instead of pulling it into range, is in
 
 ## AuthKit after local passwords
 
-A server that already has local password sessions ends those sessions the first time it starts with AuthKit configured (`WORKOS_API_KEY` and `WORKOS_CLIENT_ID` both set). That includes the owner break-glass session. The owner signs in again with the owner password when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else signs in with AuthKit. A verified AuthKit email links the one existing user with that mailbox. Two users with the same mailbox are not linked. A later restart of the web server does not end sessions created after the switch. A queue worker that does not have the AuthKit environment does not record the switch as off. [Turn AuthKit on](./how-to/users-without-authkit.md#turn-authkit-on).
+Configure `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, restart, then select WorkOS under **Admin** > **Auth / SSO**. That method change ends existing interactive sessions. A verified AuthKit email links the one existing user with that mailbox; two users with the same mailbox are not linked. A later restart does not repeat the session change. Environment-only inference applies only when the first boot after this upgrade has no durable authentication state. [Turn AuthKit on](./how-to/users-without-authkit.md#turn-authkit-on).
 
 ## Invites after 1.3.0
 

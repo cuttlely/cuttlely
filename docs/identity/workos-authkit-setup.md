@@ -73,7 +73,7 @@ Each environment has its **own** API key, Client ID, redirect settings, auth-met
 -   WorkOS user IDs differ between Staging and Production. Cuttlely stores the WorkOS user ID on the Cuttlely user row (`externalId`) on first sign-in. If a user first signed in through Staging and you then point Cuttlely at Production, that user's next sign-in fails with "This email is already linked to a different sign-in." (section 9 explains the fix).
 -   Production may need billing or domain verification in WorkOS before it accepts real sign-ins. Check the dashboard for any setup checklist.
 
-To switch: repeat sections 3 to 5 in the Production environment, then replace `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the server with the Production values and redeploy. `WORKOS_REDIRECT_URI` and `WORKOS_COOKIE_PASSWORD` can stay the same if the public URL does not change. Expect everyone to sign in again: existing sessions were issued by the Staging environment.
+To switch: repeat sections 3 to 5 in the Production environment, then replace `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the server with the Production values and redeploy. `WORKOS_REDIRECT_URI` and `WORKOS_COOKIE_PASSWORD` can stay the same if the public URL does not change. The changed client identity pauses automatic email and invitation linking. Complete a fresh administrator sign-in and acknowledge the warning under **Admin** > **Auth / SSO**; that acknowledgment ends every interactive session, so everyone signs in again.
 
 ## 3. Where the settings live in the WorkOS dashboard
 

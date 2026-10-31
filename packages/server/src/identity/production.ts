@@ -33,6 +33,7 @@ import { createRecoveryAlert, notifyRecoverySuccess, recordRecoveryAttempt } fro
 import {
     automaticWorkosLinkingAllowed,
     initializeAuthenticationState,
+    recordInferredWorkosActivation,
     recordRecentAuthentication,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
@@ -66,6 +67,9 @@ export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<
     const configured = durable.activeMethod === 'workos' && workosConfigured()
     // recordOff is this process: the web server. A queue worker does not call this.
     const after = await switchStore.applyAuthKitSwitch(configured, new Date(), { recordOff: !configured })
+    if (after.configured && after.switchedAt) {
+        await recordInferredWorkosActivation(dataSource, after.sessionsEnded, after.switchedAt)
+    }
     if (after.configured && !before?.configured) return { ended: after.sessionsEnded }
     return null
 }

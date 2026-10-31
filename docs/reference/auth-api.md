@@ -32,13 +32,13 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 
 The active ordinary method is stored in `identity_authentication_state`; environment settings say whether a candidate method is ready. Before the first durable row is inferred, the server uses the compatible environment choice. `status` is the compatibility view for this server. It is not per team.
 
-| Field                 | Meaning                                                                                                                                                   |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `authKit`             | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                                                      |
-| `localPasswordSignIn` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                                                                                    |
-| `breakGlassOwner`     | `CUTTLELY_LOCAL_ADMIN` is exactly `true`. The owner password route stays on its own flag                                                                  |
-| `localSessions`       | `open` when AuthKit is off. `ended` after the switch deleted existing local sessions. `pending` when AuthKit is on and that deletion is not recorded yet  |
-| `sessionsEnded`       | How many local sessions were deleted the last time AuthKit became configured. `0` until that happens. Turning AuthKit off does not restore those sessions |
+| Field                 | Meaning                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authKit`             | The durable active method is WorkOS and `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                |
+| `localPasswordSignIn` | The durable active method is Local login and `CUTTLELY_LOCAL_USERS` is exactly `true`                                                                       |
+| `breakGlassOwner`     | `CUTTLELY_LOCAL_ADMIN` is exactly `true`. The owner password route stays on its own flag                                                                    |
+| `localSessions`       | `open` while Local login is selected and `ended` while WorkOS is selected. `pending` is limited to the older view before durable state is available         |
+| `sessionsEnded`       | How many interactive sessions ended during the last method change, or during first-boot inference. Turning a method back on does not restore those sessions |
 
 The body has no emails, cookies, or session ids. A missing session is still 200. `POST /api/v1/auth/options` is 404 and does not end sessions.
 
@@ -54,7 +54,7 @@ The older owner route `POST /api/v1/auth/login` remains controlled only by `CUTT
 
 ## Turning AuthKit on
 
-Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` and restart the web server. Activating WorkOS through **Auth / SSO** ends every interactive database session in the switch transaction. A later restart does not repeat that deletion. Owner recovery remains available at `/owner-recovery`.
+Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, restart the web server, then activate WorkOS through **Auth / SSO**. The switch transaction ends every interactive database session. A later restart does not repeat that change. Environment-only inference applies only to a fresh installation or a first boot with no durable authentication state. Owner recovery remains available at `/owner-recovery`.
 
 On the first start after the session-convergence upgrade, Cuttlely records one database cutoff. An older sealed WorkOS browser cookie is cleared and receives 401 from refresh instead of being exchanged into a Cuttlely session. Those users sign in again once. Existing local sessions and API keys are unchanged. Every later WorkOS callback creates an `identity_local_session` row and the `cuttlely-local-session` cookie.
 
@@ -75,7 +75,7 @@ The first verified AuthKit sign-in links an existing user when the mailbox match
 }
 ```
 
-`localAdmin` is omitted when the owner flag is off. `sessionsEnded` is how many sessions that start deleted. The how-to is [Users without AuthKit](../how-to/users-without-authkit.md#turn-authkit-on).
+`localAdmin` is omitted when the owner flag is off. `sessionsEnded` is how many sessions the method change ended. The how-to is [Users without AuthKit](../how-to/users-without-authkit.md#turn-authkit-on).
 
 A session is stored in `identity_local_session` for local login, WorkOS, and owner recovery. It does not change the user's role. Every later request checks the current user and membership status, permission version, authentication epoch, idle limit, and absolute limit. A disabled user is refused on the next request. Logout deletes the row and clears every session cookie before optional WorkOS sign-out.
 

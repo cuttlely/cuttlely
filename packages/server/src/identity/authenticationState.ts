@@ -320,6 +320,39 @@ export async function readAuthenticationState(dataSource: DataSource): Promise<A
     }
 }
 
+/** Records the session result of the one-time environment inference in durable method state. */
+export async function recordInferredWorkosActivation(
+    dataSource: DataSource,
+    sessionsEnded: number,
+    switchedAt: string
+): Promise<AuthenticationState> {
+    const runner = dataSource.createQueryRunner()
+    await runner.connect()
+    await runner.startTransaction()
+    try {
+        const current = await selectState(runner, true)
+        if (!current) throw new Error('AUTH_STATE_MISSING')
+        if (!current.changedAt && current.activeMethod === 'workos') {
+            const d = dialect(runner)
+            await query(
+                runner,
+                `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'sessionsEnded')} = ?, ${q(d, 'changedAt')} = ?, ${q(
+                    d,
+                    'version'
+                )} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+                [sessionsEnded, databaseDate(runner, new Date(switchedAt))]
+            )
+        }
+        await runner.commitTransaction()
+        return publishState((await readAuthenticationState(dataSource)) as AuthenticationState)
+    } catch (error) {
+        if (runner.isTransactionActive) await runner.rollbackTransaction()
+        throw error
+    } finally {
+        await runner.release()
+    }
+}
+
 /** Refreshes the process view from durable state. The bounded cache limits request-path database reads. */
 export async function refreshAuthenticationState(dataSource: DataSource, force = false): Promise<AuthenticationState | null> {
     if (!force && effectiveMethod !== undefined && Date.now() - stateRefreshedAt < STATE_CACHE_MS) return null
@@ -466,13 +499,19 @@ async function endInteractiveSessions(runner: QueryRunner, endedAt: number): Pro
     const cutoffAt = cutoff[0] ? value(cutoff[0], 'cutoffAt') : null
     const sessions = q(d, 'identity_local_session')
     const authenticationMethod = q(d, 'authenticationMethod')
+    const cutoffFilter =
+        cutoffAt === null
+            ? ''
+            : ` AND (${authenticationMethod} IS NULL OR NOT (${authenticationMethod} = 'workos' AND ${q(d, 'createdDate')} <= ?))`
+    const params: unknown[] = [databaseDate(runner, new Date(endedAt)), databaseDate(runner, new Date(endedAt))]
+    if (cutoffAt !== null) params.push(cutoffAt)
     const counted = await query(
         runner,
         `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${sessions} WHERE ${q(d, 'expiresAt')} > ? AND ${q(
             d,
             'absoluteExpiresAt'
-        )} > ? AND (${authenticationMethod} IS NULL OR NOT (${authenticationMethod} = 'workos' AND ${q(d, 'createdDate')} <= ?))`,
-        [databaseDate(runner, new Date(endedAt)), databaseDate(runner, new Date(endedAt)), cutoffAt]
+        )} > ?${cutoffFilter}`,
+        params
     )
     const ended = Number(value(counted[0] || {}, 'count') || 0)
     await query(runner, `DELETE FROM ${sessions}`)

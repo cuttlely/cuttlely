@@ -141,7 +141,7 @@ There is no **Forgot password** link. A lost password is reset with `pnpm user`,
 
 Use WorkOS when several people sign in. Cuttlely sends the browser to WorkOS AuthKit, and AuthKit checks who the person is. Teams, roles, permissions, workspaces, and API keys stay in Cuttlely's database.
 
-1. Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the server, plus the other WorkOS values in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md), and restart it. If people were signing in with local passwords, that restart turns those passwords off except the owner break-glass account, ends the local sessions that already exist, and links each verified AuthKit email to the one user with that mailbox. Two users with the same mailbox are not linked. See [Turn AuthKit on](./users-without-authkit.md#turn-authkit-on).
+1. Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the server, plus the other WorkOS values in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md), and restart it. Then open **Admin** > **Auth / SSO** and switch the ordinary method to WorkOS. That switch ends existing interactive sessions. Environment-only selection applies only to a fresh installation or a first boot with no durable authentication state. A verified AuthKit email links to the one user with that mailbox; two users with the same mailbox are not linked. See [Turn AuthKit on](./users-without-authkit.md#turn-authkit-on).
 2. On an empty database, also set `CUTTLELY_BOOTSTRAP_EMAIL`. The first person to sign in through AuthKit must have that verified email, and becomes the owner.
 3. Open `/signin`. It now shows **Sign in with WorkOS**. The button opens `/api/v1/auth/login`, for example `http://127.0.0.1:43117/api/v1/auth/login` on a local server.
 
