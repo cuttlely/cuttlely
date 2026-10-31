@@ -19,8 +19,10 @@ import {
     addAuthenticationState,
     addAuthenticationSwitchStage,
     addLocalDirectory,
+    addScimGroups,
     addScimProvisioning,
     removeLocalDirectory,
+    removeScimGroups,
     removeScimProvisioning
 } from './schemaMigration'
 
@@ -148,12 +150,25 @@ describe('SCIM schema on sqlite', () => {
 
         await addScimProvisioning(runner)
         await addScimProvisioning(runner)
+        await addScimGroups(runner)
+        await addScimGroups(runner)
         for (const table of ['identity_scim_configuration', 'identity_scim_token', 'identity_scim_user', 'identity_personal_token']) {
+            expect(tables.has(table)).toBe(true)
+            expect(calls.filter((sql) => sql.startsWith(`CREATE TABLE "${table}"`))).toHaveLength(1)
+        }
+        for (const table of [
+            'identity_scim_group',
+            'identity_scim_group_member',
+            'identity_scim_mapping',
+            'identity_scim_assignment',
+            'identity_scim_diagnostic'
+        ]) {
             expect(tables.has(table)).toBe(true)
             expect(calls.filter((sql) => sql.startsWith(`CREATE TABLE "${table}"`))).toHaveLength(1)
         }
         expect(columns.get('apikey')?.has('disabledAt')).toBe(true)
 
+        await removeScimGroups(runner)
         await removeScimProvisioning(runner)
         expect([...tables].filter((table) => table.startsWith('identity_scim') || table === 'identity_personal_token')).toEqual([])
         expect(columns.get('apikey')?.has('disabledAt')).toBe(false)

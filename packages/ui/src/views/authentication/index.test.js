@@ -15,7 +15,34 @@ jest.mock('@/api/authenticationSettings', () => ({
                     warning: null,
                     methods: { local: { configured: true }, workos: { configured: true } },
                     recovery: { available: true, alert: null },
-                    scim: { available: true, basePath: '/api/v1/scim/v2', status: 'none', lastUsedAt: null }
+                    scim: {
+                        available: true,
+                        basePath: '/api/v1/scim/v2',
+                        status: 'none',
+                        lastUsedAt: null,
+                        operations: {
+                            lastSuccessfulRequestAt: '2026-10-31T12:00:00.000Z',
+                            lastCompletedRequestAt: '2026-10-31T12:00:00.000Z',
+                            lastFailedRequestCategory: 'mapping_conflict',
+                            counts: { usersCreated: 2, groupOperations: 3, membershipOperations: 4 },
+                            recentErrors: [],
+                            retentionDays: 30
+                        },
+                        mapping: {
+                            mappings: [
+                                {
+                                    id: 'mapping-1',
+                                    groupName: 'Engineering',
+                                    workspaceName: 'Product',
+                                    roleName: 'viewer',
+                                    ownedAssignments: 2
+                                }
+                            ],
+                            groups: [{ id: 'group-1', displayName: 'Engineering' }],
+                            workspaces: [{ id: 'team-1', name: 'Product' }],
+                            roles: [{ id: 'role-1', name: 'viewer' }]
+                        }
+                    }
                 }
             })
         ),
@@ -26,7 +53,10 @@ jest.mock('@/api/authenticationSettings', () => ({
         createScimToken: jest.fn(),
         rotateScimToken: jest.fn(),
         endScimOverlap: jest.fn(),
-        revokeScimToken: jest.fn()
+        revokeScimToken: jest.fn(),
+        createScimMapping: jest.fn(),
+        previewScimMappingRemoval: jest.fn(),
+        removeScimMapping: jest.fn()
     }
 }))
 jest.mock('@/ui-component/cards/MainCard', () => ({ children }) => <div>{children}</div>)
@@ -88,9 +118,10 @@ it('requires confirmation that acknowledging the client identity warning ends al
 })
 
 it('creates a SCIM credential and shows its clear value once', async () => {
+    const generatedValue = ['temporary', Date.now()].join('-')
     api.createScimToken.mockResolvedValueOnce({
         data: {
-            clear: 'cuttlely_scim_example',
+            clear: generatedValue,
             state: { status: 'active', displayPrefix: 'cuttlely_scim_exam…', createdAt: '2026-10-31T12:00:00.000Z', lastUsedAt: null }
         }
     })
@@ -109,5 +140,40 @@ it('creates a SCIM credential and shows its clear value once', async () => {
     })
     expect(api.createScimToken).toHaveBeenCalledTimes(1)
     expect(container.querySelector('[data-testid="scim-clear-value"]')?.textContent).toContain('It will not be shown again')
+    act(() => root.unmount())
+})
+
+it('shows mapping and operations state and confirms removal from a preview', async () => {
+    api.previewScimMappingRemoval.mockResolvedValueOnce({
+        data: {
+            mapping: { id: 'mapping-1', groupName: 'Engineering', workspaceName: 'Product' },
+            assignments: [{ userId: 'user-1', userName: 'Ada', workspaceId: 'team-1', workspaceName: 'Product', roleName: 'viewer' }],
+            fingerprint: 'preview-fingerprint'
+        }
+    })
+    api.removeScimMapping.mockResolvedValueOnce({ data: null })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+        root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(AuthenticationSettings)))
+        await Promise.resolve()
+    })
+    expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('Users created 2')
+    expect(container.querySelector('[data-testid="scim-operations-view"]')?.textContent).toContain('mapping_conflict')
+    expect(container.querySelector('[data-testid="scim-mappings-view"]')?.textContent).toContain('Engineering → Product')
+
+    const remove = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Remove')
+    await act(async () => {
+        remove.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await Promise.resolve()
+    })
+    expect(document.body.textContent).toContain('Ada · Product · viewer')
+    const confirmRemoval = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent === 'Confirm removal')
+    await act(async () => {
+        confirmRemoval.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await Promise.resolve()
+    })
+    expect(api.removeScimMapping).toHaveBeenCalledWith('mapping-1', 'preview-fingerprint')
     act(() => root.unmount())
 })

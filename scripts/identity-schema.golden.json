@@ -4038,6 +4038,304 @@
                 }
             ]
         },
+        "identity_scim_assignment": {
+            "columns": [
+                {
+                    "name": "mappingId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 2
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_assignment_pair",
+                    "unique": false,
+                    "columns": ["userId", "workspaceId"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_scim_assignment_1",
+                    "unique": true,
+                    "columns": ["mappingId", "userId"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_scim_diagnostic": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "category",
+                    "type": "varchar(48)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "outcome",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "correlationId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "detail",
+                    "type": "varchar(500)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "completedAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_diagnostic_completed",
+                    "unique": false,
+                    "columns": ["completedAt"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_scim_diagnostic_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_scim_group": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "externalId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "displayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "deletedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "updatedAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_group_external",
+                    "unique": true,
+                    "columns": ["organizationId", "externalId"],
+                    "origin": "c"
+                },
+                {
+                    "name": "IDX_identity_scim_group_name",
+                    "unique": false,
+                    "columns": ["organizationId", "displayName"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_scim_group_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_scim_group_member": {
+            "columns": [
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "scimUserId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 2
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_identity_scim_group_member_1",
+                    "unique": true,
+                    "columns": ["groupId", "scimUserId"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_scim_mapping": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_mapping_group",
+                    "unique": true,
+                    "columns": ["groupId"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_scim_mapping_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
         "identity_scim_configuration": {
             "columns": [
                 {
@@ -7919,6 +8217,265 @@
                     "name": "IDX_identity_personal_token_owner",
                     "unique": false,
                     "columns": ["ownerUserId"]
+                }
+            ]
+        },
+        "identity_scim_assignment": {
+            "columns": [
+                {
+                    "name": "mappingId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_scim_assignment_pkey",
+                    "unique": true,
+                    "columns": ["mappingId", "userId"]
+                },
+                {
+                    "name": "IDX_identity_scim_assignment_pair",
+                    "unique": false,
+                    "columns": ["userId", "workspaceId"]
+                }
+            ]
+        },
+        "identity_scim_diagnostic": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "category",
+                    "type": "varchar(48)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "outcome",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "correlationId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "detail",
+                    "type": "varchar(500)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "completedAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_scim_diagnostic_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "IDX_identity_scim_diagnostic_completed",
+                    "unique": false,
+                    "columns": ["completedAt"]
+                }
+            ]
+        },
+        "identity_scim_group": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "externalId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "displayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "deletedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "updatedAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_scim_group_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "IDX_identity_scim_group_external",
+                    "unique": true,
+                    "columns": ["organizationId", "externalId"]
+                },
+                {
+                    "name": "IDX_identity_scim_group_name",
+                    "unique": false,
+                    "columns": ["organizationId", "displayName"]
+                }
+            ]
+        },
+        "identity_scim_group_member": {
+            "columns": [
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "scimUserId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_scim_group_member_pkey",
+                    "unique": true,
+                    "columns": ["groupId", "scimUserId"]
+                }
+            ]
+        },
+        "identity_scim_mapping": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_scim_mapping_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "IDX_identity_scim_mapping_group",
+                    "unique": true,
+                    "columns": ["groupId"]
                 }
             ]
         },
@@ -12730,6 +13287,323 @@
                     "name": "IDX_identity_personal_token_owner",
                     "unique": false,
                     "columns": ["ownerUserId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_scim_assignment": {
+            "columns": [
+                {
+                    "name": "mappingId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_assignment_pair",
+                    "unique": false,
+                    "columns": ["userId", "workspaceId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["mappingId", "userId"]
+                }
+            ]
+        },
+        "identity_scim_diagnostic": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "category",
+                    "type": "varchar(48)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "outcome",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "correlationId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "detail",
+                    "type": "varchar(500)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "completedAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_diagnostic_completed",
+                    "unique": false,
+                    "columns": ["completedAt"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_scim_group": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "externalId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "displayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "deletedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "updatedAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_group_external",
+                    "unique": true,
+                    "columns": ["organizationId", "externalId"]
+                },
+                {
+                    "name": "IDX_identity_scim_group_name",
+                    "unique": false,
+                    "columns": ["organizationId", "displayName"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_scim_group_member": {
+            "columns": [
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "scimUserId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["groupId", "scimUserId"]
+                }
+            ]
+        },
+        "identity_scim_mapping": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_mapping_group",
+                    "unique": true,
+                    "columns": ["groupId"]
                 },
                 {
                     "name": "PRIMARY",
@@ -17608,6 +18482,323 @@
                     "name": "IDX_identity_personal_token_owner",
                     "unique": false,
                     "columns": ["ownerUserId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_scim_assignment": {
+            "columns": [
+                {
+                    "name": "mappingId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_assignment_pair",
+                    "unique": false,
+                    "columns": ["userId", "workspaceId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["mappingId", "userId"]
+                }
+            ]
+        },
+        "identity_scim_diagnostic": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "category",
+                    "type": "varchar(48)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "outcome",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "correlationId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "detail",
+                    "type": "varchar(500)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "completedAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_diagnostic_completed",
+                    "unique": false,
+                    "columns": ["completedAt"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_scim_group": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "externalId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "displayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "deletedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "updatedAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_group_external",
+                    "unique": true,
+                    "columns": ["organizationId", "externalId"]
+                },
+                {
+                    "name": "IDX_identity_scim_group_name",
+                    "unique": false,
+                    "columns": ["organizationId", "displayName"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_scim_group_member": {
+            "columns": [
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "scimUserId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["groupId", "scimUserId"]
+                }
+            ]
+        },
+        "identity_scim_mapping": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "groupId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "roleId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_scim_mapping_group",
+                    "unique": true,
+                    "columns": ["groupId"]
                 },
                 {
                     "name": "PRIMARY",

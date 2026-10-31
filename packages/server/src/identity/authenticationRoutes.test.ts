@@ -44,6 +44,13 @@ jest.mock('./constants', () => ({
     workosEnvironmentConfigured: () => true
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
+jest.mock('./scimGroups', () => ({
+    createMapping: jest.fn(),
+    mappingOptions: jest.fn(async () => ({ mappings: [], groups: [], workspaces: [], roles: [] })),
+    previewMappingRemoval: jest.fn(),
+    readScimOperations: jest.fn(async () => ({ counts: {}, recentErrors: [], retentionDays: 30 })),
+    removeMapping: jest.fn()
+}))
 jest.mock('./recovery', () => ({
     acknowledgeRecoveryAlert: jest.fn(),
     currentRecoveryAlert: jest.fn(async () => null)

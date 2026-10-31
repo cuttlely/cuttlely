@@ -7,8 +7,20 @@ import { scimBearerSecret } from './authenticationSecrets'
 import { deactivateUserInTransaction, DirectoryError, QueryFn, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
 import { applicationSql } from './production'
+import {
+    createGroup,
+    deleteGroup,
+    groupPatchChanges,
+    groupsForOrganization,
+    GroupRecord,
+    mutateGroup,
+    pageGroups,
+    reconcileMappings,
+    recordScimOperation
+} from './scimGroups'
 
 const CORE_USER = 'urn:ietf:params:scim:schemas:core:2.0:User'
+const CORE_GROUP = 'urn:ietf:params:scim:schemas:core:2.0:Group'
 const ERROR_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:Error'
 const LIST_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:ListResponse'
 const SERVICE_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'
@@ -108,7 +120,13 @@ export function errorBody(status: number, detail: string, scimType?: string): Re
 }
 
 export function sendScimError(res: Response, status: number, detail: string, scimType?: string): void {
-    res.type('application/scim+json').status(status).json(errorBody(status, detail, scimType))
+    const correlationId = text(res.locals.scimCorrelationId) || randomUUID()
+    res.locals.scimCorrelationId = correlationId
+    res.locals.scimErrorDetail = detail
+    res.set('X-Correlation-ID', correlationId)
+        .type('application/scim+json')
+        .status(status)
+        .json(errorBody(status, `${detail} Correlation ID: ${correlationId}.`, scimType))
 }
 
 export function scimBodyErrorHandler(error: unknown, _req: Request, res: Response, next: NextFunction): void {
@@ -560,6 +578,30 @@ function scimUser(user: UserRecord, selection?: { include: Set<string> | null; e
     return full
 }
 
+export function scimGroup(group: GroupRecord, selection?: { include: Set<string> | null; exclude: Set<string> }): Record<string, unknown> {
+    const full: Record<string, unknown> = {
+        schemas: [CORE_GROUP],
+        id: group.id,
+        externalId: group.externalId,
+        displayName: group.displayName,
+        members: group.members,
+        meta: {
+            resourceType: 'Group',
+            created: group.createdAt,
+            lastModified: group.updatedAt,
+            location: `/api/v1/scim/v2/Groups/${group.id}`
+        }
+    }
+    if (!selection) return full
+    const always = new Set(['schemas', 'id', 'meta'])
+    for (const key of Object.keys(full)) {
+        const lower = key.toLowerCase()
+        if (always.has(lower)) continue
+        if ((selection.include && !selection.include.has(lower)) || selection.exclude.has(lower)) delete full[key]
+    }
+    return full
+}
+
 function object(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ScimError(400, 'A JSON object is required.', 'invalidSyntax')
     return value as Record<string, unknown>
@@ -738,6 +780,7 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
         } else {
             await deactivateUserInTransaction(query, sql, actor.organizationId, internalId, now)
         }
+        await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
     })
     await auditUser(sql, actor, 'created', internalId)
     const created = (await usersForOrganization(sql.query, sql, actor.organizationId)).find((item) => item.id === resourceId)
@@ -866,6 +909,7 @@ export async function mutateUser(
                 )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'id')} = ?`,
                 [displayName, userName, actor.creatorId, current.userId]
             )
+            if (changes.active !== undefined) await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
         })
     } catch (error) {
         if (error instanceof DirectoryError && error.status === 409) {
@@ -897,6 +941,7 @@ export async function deleteUser(sql: Sql, actor: TokenActor, resourceId: string
                 )} = ?`,
                 [utcDbTime(sql.type, now), utcDbTime(sql.type, now), resourceId]
             )
+            await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
         })
     } catch (error) {
         if (error instanceof DirectoryError && error.status === 409) {
@@ -938,6 +983,17 @@ export const userResourceType = {
     schema: CORE_USER,
     schemaExtensions: [],
     meta: { resourceType: 'ResourceType', location: '/api/v1/scim/v2/ResourceTypes/User' }
+}
+
+export const groupResourceType = {
+    schemas: [RESOURCE_TYPE_SCHEMA],
+    id: 'Group',
+    name: 'Group',
+    endpoint: '/Groups',
+    description: 'Provider group',
+    schema: CORE_GROUP,
+    schemaExtensions: [],
+    meta: { resourceType: 'ResourceType', location: '/api/v1/scim/v2/ResourceTypes/Group' }
 }
 
 export const userSchema = {
@@ -1043,6 +1099,66 @@ export const userSchema = {
     meta: { resourceType: 'Schema', location: `/api/v1/scim/v2/Schemas/${CORE_USER}` }
 }
 
+export const groupSchema = {
+    schemas: [SCHEMA_SCHEMA],
+    id: CORE_GROUP,
+    name: 'Group',
+    description: 'Provider group',
+    attributes: [
+        {
+            name: 'displayName',
+            type: 'string',
+            multiValued: false,
+            required: true,
+            caseExact: false,
+            mutability: 'readWrite',
+            returned: 'default',
+            uniqueness: 'server'
+        },
+        {
+            name: 'externalId',
+            type: 'string',
+            multiValued: false,
+            required: false,
+            caseExact: true,
+            mutability: 'readWrite',
+            returned: 'default',
+            uniqueness: 'server'
+        },
+        {
+            name: 'members',
+            type: 'complex',
+            multiValued: true,
+            required: false,
+            mutability: 'readWrite',
+            returned: 'default',
+            subAttributes: [
+                {
+                    name: 'value',
+                    type: 'string',
+                    multiValued: false,
+                    required: true,
+                    caseExact: true,
+                    mutability: 'immutable',
+                    returned: 'default',
+                    uniqueness: 'none'
+                },
+                {
+                    name: 'display',
+                    type: 'string',
+                    multiValued: false,
+                    required: false,
+                    caseExact: false,
+                    mutability: 'readOnly',
+                    returned: 'default',
+                    uniqueness: 'none'
+                }
+            ]
+        }
+    ],
+    meta: { resourceType: 'Schema', location: `/api/v1/scim/v2/Schemas/${CORE_GROUP}` }
+}
+
 const failedAuditAt = new Map<string, number>()
 const FAILURE_AUDIT_WINDOW_MS = 5 * 60 * 1000
 
@@ -1102,15 +1218,37 @@ async function scimAuthentication(req: Request, res: Response, next: NextFunctio
             } catch {
                 // A missing migration is handled by the normal server error path.
             }
+            res.locals.scimOrganizationId = organizationId
+            res.locals.scimFailureCategory = 'authentication'
             await auditAuthenticationFailure(sql, organizationId)
             sendScimError(res, 401, 'A valid SCIM bearer credential is required.')
             return
         }
         req.scimActor = actor
+        res.locals.scimOrganizationId = actor.organizationId
         next()
     } catch {
         sendScimError(res, 500, 'The SCIM request could not be authenticated.')
     }
+}
+
+function operationCategory(req: Request, status: number): string {
+    if (status >= 400) return text(req.res?.locals.scimFailureCategory) || (status === 401 ? 'authentication' : 'request')
+    const path = req.path.toLowerCase()
+    if (path.startsWith('/users')) {
+        if (req.method === 'POST') return 'usersCreated'
+        if (req.method === 'DELETE') return 'usersDisabled'
+        if (req.method === 'PATCH' || req.method === 'PUT') {
+            const serialized = JSON.stringify(req.body || {}).toLowerCase()
+            return /"active"\s*:\s*(false|"false")/.test(serialized) ? 'usersDisabled' : 'usersUpdated'
+        }
+        return 'userRequests'
+    }
+    if (path.startsWith('/groups')) {
+        if (req.method === 'PATCH' && /members/i.test(JSON.stringify(req.body || {}))) return 'membershipOperations'
+        return 'groupOperations'
+    }
+    return 'discoveryRequests'
 }
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): (req: Request, res: Response, next: NextFunction) => void {
@@ -1120,26 +1258,111 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): (r
 export const identityScimRouter = Router()
 
 identityScimRouter.use((_req, res, next) => {
-    res.type('application/scim+json').set('Cache-Control', 'no-store')
+    const correlationId = randomUUID()
+    res.locals.scimCorrelationId = correlationId
+    res.type('application/scim+json').set('Cache-Control', 'no-store').set('X-Correlation-ID', correlationId)
+    next()
+})
+identityScimRouter.use((req, res, next) => {
+    res.once('finish', () => {
+        const organizationId = text(res.locals.scimOrganizationId)
+        if (!organizationId) return
+        void recordScimOperation(applicationSql(), {
+            organizationId,
+            category: operationCategory(req, res.statusCode),
+            outcome: res.statusCode < 400 ? 'success' : 'failed',
+            correlationId: text(res.locals.scimCorrelationId),
+            detail: res.statusCode < 400 ? null : text(res.locals.scimErrorDetail) || 'The request was refused.'
+        }).catch(() => undefined)
+    })
     next()
 })
 identityScimRouter.use(scimRateLimit, scimContentType, scimAuthentication)
 
 identityScimRouter.get('/ServiceProviderConfig', (_req, res) => res.status(200).json(serviceProviderConfig))
 identityScimRouter.get('/ResourceTypes', (_req, res) =>
-    res.status(200).json({ schemas: [LIST_SCHEMA], totalResults: 1, startIndex: 1, itemsPerPage: 1, Resources: [userResourceType] })
+    res
+        .status(200)
+        .json({ schemas: [LIST_SCHEMA], totalResults: 2, startIndex: 1, itemsPerPage: 2, Resources: [userResourceType, groupResourceType] })
 )
 identityScimRouter.get('/ResourceTypes/User', (_req, res) => res.status(200).json(userResourceType))
+identityScimRouter.get('/ResourceTypes/Group', (_req, res) => res.status(200).json(groupResourceType))
 identityScimRouter.get('/Schemas', (_req, res) =>
-    res.status(200).json({ schemas: [LIST_SCHEMA], totalResults: 1, startIndex: 1, itemsPerPage: 1, Resources: [userSchema] })
+    res.status(200).json({ schemas: [LIST_SCHEMA], totalResults: 2, startIndex: 1, itemsPerPage: 2, Resources: [userSchema, groupSchema] })
 )
 identityScimRouter.get('/Schemas/:id', (req, res) => {
-    if (req.params.id !== CORE_USER) return sendScimError(res, 404, 'Schema not found.', 'noTarget')
-    res.status(200).json(userSchema)
+    if (req.params.id === CORE_USER) return void res.status(200).json(userSchema)
+    if (req.params.id === CORE_GROUP) return void res.status(200).json(groupSchema)
+    sendScimError(res, 404, 'Schema not found.', 'noTarget')
 })
 
 identityScimRouter.all('/Bulk', (_req, res) => sendScimError(res, 501, 'Bulk operations are not supported.'))
-identityScimRouter.all(['/Groups', '/Groups/*'], (_req, res) => sendScimError(res, 501, 'Groups are not available yet.'))
+
+identityScimRouter.get(
+    '/Groups',
+    asyncRoute(async (req, res) => {
+        const actor = req.scimActor as TokenActor
+        const page = pageGroups(await groupsForOrganization(applicationSql().query, applicationSql(), actor.organizationId), req.query)
+        res.status(200).json({
+            schemas: [LIST_SCHEMA],
+            totalResults: page.totalResults,
+            startIndex: page.startIndex,
+            itemsPerPage: page.itemsPerPage,
+            Resources: page.resources.map((group) => scimGroup(group, requestedAttributes(req.query)))
+        })
+    })
+)
+
+identityScimRouter.post(
+    '/Groups',
+    asyncRoute(async (req, res) => {
+        const created = await createGroup(applicationSql(), req.scimActor as TokenActor, req.body)
+        res.set('Location', `/api/v1/scim/v2/Groups/${created.id}`)
+            .status(201)
+            .json(scimGroup(created, requestedAttributes(req.query)))
+    })
+)
+
+identityScimRouter.get(
+    '/Groups/:id',
+    asyncRoute(async (req, res) => {
+        const actor = req.scimActor as TokenActor
+        const found = (await groupsForOrganization(applicationSql().query, applicationSql(), actor.organizationId)).find(
+            (group) => group.id === req.params.id
+        )
+        if (!found) throw new ScimError(404, 'Group not found.', 'noTarget')
+        res.status(200).json(scimGroup(found, requestedAttributes(req.query)))
+    })
+)
+
+identityScimRouter.put(
+    '/Groups/:id',
+    asyncRoute(async (req, res) => {
+        const record = object(req.body)
+        const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, {
+            displayName: text(record.displayName).trim(),
+            externalId: nullable(record.externalId),
+            replaceMembers: Array.isArray(record.members) ? record.members.map((member) => text(object(member).value)).filter(Boolean) : []
+        })
+        res.status(200).json(scimGroup(updated, requestedAttributes(req.query)))
+    })
+)
+
+identityScimRouter.patch(
+    '/Groups/:id',
+    asyncRoute(async (req, res) => {
+        const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, groupPatchChanges(req.body))
+        res.status(200).json(scimGroup(updated, requestedAttributes(req.query)))
+    })
+)
+
+identityScimRouter.delete(
+    '/Groups/:id',
+    asyncRoute(async (req, res) => {
+        await deleteGroup(applicationSql(), req.scimActor as TokenActor, req.params.id)
+        res.status(204).end()
+    })
+)
 
 identityScimRouter.get(
     '/Users',
@@ -1213,7 +1436,17 @@ identityScimRouter.delete(
 )
 
 identityScimRouter.all(
-    ['/ServiceProviderConfig', '/ResourceTypes', '/ResourceTypes/*', '/Schemas', '/Schemas/*', '/Users', '/Users/*'],
+    [
+        '/ServiceProviderConfig',
+        '/ResourceTypes',
+        '/ResourceTypes/*',
+        '/Schemas',
+        '/Schemas/*',
+        '/Users',
+        '/Users/*',
+        '/Groups',
+        '/Groups/*'
+    ],
     (_req, res) => sendScimError(res, 501, 'This operation is not supported.')
 )
 

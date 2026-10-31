@@ -50,6 +50,34 @@ Configure the identity provider with the displayed base URL, ending in `/api/v1/
 
 `DELETE /Users/{id}` keeps the internal account disabled for audit and ownership records but removes the SCIM resource from reads and lists. A later create with the same `userName` restores that resource id and account; its old sessions, API keys, and personal tokens remain disabled. Deactivating or deleting the last active owner returns `409 Conflict` without changing the account or its credentials. See the [SCIM API](../reference/scim-api.md).
 
+### Okta setup
+
+1. In the application integration, enable SCIM 2.0 provisioning and paste the Cuttlely base URL as the SCIM connector base URL.
+2. Select HTTP Header authentication and paste the one-time credential from Cuttlely.
+3. Test the connection, then enable create, update, deactivate, and group push as needed.
+4. Push a group only after its users are assigned to the application. Cuttlely accepts member add, full replacement, and `Remove` with `members[value eq "id"]`.
+
+### Entra ID setup
+
+1. In the enterprise application's Provisioning page, choose automatic provisioning.
+2. Paste the Cuttlely base URL as the tenant URL and paste the one-time credential in the authentication field.
+3. Test the connection, review the default user and group attribute mappings, choose the assigned scope, and start provisioning.
+4. Cuttlely accepts capitalized patch operations, string `"False"` for `active`, member Add and Remove value arrays, and group reads with `excludedAttributes=members`.
+
+The recorded CI fixtures follow the published request examples from both providers. They are compatibility tests, not vendor certification.
+
+### Groups, mappings, and deprovisioning
+
+Groups use `displayName`, optional `externalId`, and members whose `value` is a current SCIM User id. Group filters support `eq` with `and`, `or`, and parentheses on `displayName` and `externalId`. `DELETE /Groups/{id}` returns 204, removes the resource from later reads, and removes assignments owned by that group's mapping. Repeating an already-applied add, remove, or replacement leaves the same state.
+
+Provider groups do not change Cuttlely authorization by themselves. An owner or a role with `authentication:manage` can map one group to one team and optionally choose a permitted role. Owner and authentication-settings roles cannot be selected. A pre-existing manual team membership remains manual and the mapping does not take it over. If two mapped groups request different roles for the same person and team, reconciliation makes no change for that pair and records a diagnostic.
+
+Creating and removing a mapping requires a fresh sign-in. Removal first shows the exact mapping-owned assignments and a confirmation. If those assignments change before confirmation, Cuttlely returns 409 and requires a new preview. Deactivation removes the effect of mapping-owned assignments; reactivation reconciles current group membership again. Every authorization change advances that user's permission version in the same transaction.
+
+The Operations section shows credential state, request times, operation counts, the latest failure category, and recent sanitized errors with correlation ids. Diagnostics are retained for 30 days. Bearer values and provisioned profile attributes are not stored in diagnostics or displayed there.
+
+SCIM v2 does not support bulk operations, sorting, or ETags. List pages are limited to 100 resources.
+
 The staged confirmation is stored in the database with a version, ten-minute expiry, and single-use marker. It can be applied by another application process; an expired, consumed, or stale-version stage is refused. Staging and applying each allow 10 requests per client address in 15 minutes; more return 429 with `{ "type": "authentication_rate_limit" }`. These request limits are counted in each server process: with several replicas behind a load balancer, each replica keeps its own count, and a restart resets it. The durable stage record, not the request limit, is what keeps a switch single-use.
 
 ## Upgrade behavior

@@ -1,0 +1,77 @@
+{
+    "source": "https://learn.microsoft.com/en-us/entra/identity/app-provisioning/use-scim-to-provision-users-and-groups",
+    "description": "Requests follow the published provisioning-service examples.",
+    "requests": [
+        {
+            "name": "connection probe",
+            "method": "get",
+            "path": "/Users?filter=userName%20eq%20%229e73dced-7d9f-4f8e-a22d-6f6d9b77d903%22",
+            "status": 200
+        },
+        {
+            "name": "create user",
+            "method": "post",
+            "path": "/Users",
+            "capture": "userId",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                "externalId": "aa1eca08-7179-4eeb-a0be-a519f7e5cd1a",
+                "userName": "test.user@entra.example",
+                "name": { "familyName": "User", "givenName": "Test" },
+                "displayName": "Test User",
+                "active": true,
+                "emails": [{ "value": "test.user@entra.example", "type": "work", "primary": true }]
+            },
+            "status": 201
+        },
+        {
+            "name": "capitalized disable",
+            "method": "patch",
+            "path": "/Users/{{userId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "Replace", "path": "active", "value": "False" }]
+            },
+            "status": 200
+        },
+        {
+            "name": "create group",
+            "method": "post",
+            "path": "/Groups",
+            "capture": "groupId",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                "displayName": "Provisioning Test Group",
+                "members": []
+            },
+            "status": 201
+        },
+        {
+            "name": "add members array",
+            "method": "patch",
+            "path": "/Groups/{{groupId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "Add", "path": "members", "value": [{ "$ref": null, "value": "{{userId}}" }] }]
+            },
+            "status": 200
+        },
+        {
+            "name": "list groups without members",
+            "method": "get",
+            "path": "/Groups?excludedAttributes=members",
+            "status": 200
+        },
+        {
+            "name": "remove members array",
+            "method": "patch",
+            "path": "/Groups/{{groupId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "Remove", "path": "members", "value": [{ "$ref": null, "value": "{{userId}}" }] }]
+            },
+            "status": 200
+        },
+        { "name": "delete user", "method": "delete", "path": "/Users/{{userId}}", "status": 204 }
+    ]
+}

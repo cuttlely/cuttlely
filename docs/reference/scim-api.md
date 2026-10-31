@@ -2,16 +2,16 @@
 
 # SCIM API
 
-The SCIM v2 base path is `/api/v1/scim/v2`. Send the credential created on **Admin** > **Auth / SSO** as `Authorization: Bearer VALUE`. Session cookies and application API keys are not accepted on this path. Requests may use `application/scim+json` or `application/json`; responses use `application/scim+json`.
+The SCIM v2 base path is `/api/v1/scim/v2`. Send the one-time credential created on **Admin** > **Auth / SSO** with bearer authentication. Session cookies and application API keys are not accepted on this path. Requests may use `application/scim+json` or `application/json`; responses use `application/scim+json`.
 
 When no SCIM credential exists, or when the supplied credential is not active, every route returns a SCIM `401` error. Credential rotation may keep the previous value active for an administrator-selected overlap of 0 to 24 hours. Validation reads the database for every request, so overlap end and revocation apply across application processes.
 
 ## Discovery
 
 -   `GET /ServiceProviderConfig` reports PATCH and filtering, a maximum list count of 100, no bulk, no password change, no sorting, and no ETags.
--   `GET /ResourceTypes` and `GET /ResourceTypes/User` describe the User resource.
--   `GET /Schemas` and `GET /Schemas/urn:ietf:params:scim:schemas:core:2.0:User` describe the supported core attributes.
--   `/Bulk` returns a standards-shaped `501` error. Groups are not available yet.
+-   `GET /ResourceTypes`, `/ResourceTypes/User`, and `/ResourceTypes/Group` describe the resources.
+-   `GET /Schemas` and the individual User and Group schema paths describe the supported core attributes.
+-   `/Bulk` returns a standards-shaped `501` error. Sorting and ETags are not supported.
 
 ## Users
 
@@ -28,6 +28,26 @@ All deactivation forms disable the user, close open invite and reset links, adva
 
 SCIM deactivation also changes a linked pending account to disabled. Administrator disable preserves a pending account's `invited` status while closing its membership and invite links; saving it as invited reopens the membership without activating the account or restoring an old invite link.
 
+## Groups
+
+-   `POST /Groups` creates a provider group with required `displayName`, optional `externalId`, and an optional `members` array.
+-   `GET /Groups/{id}` reads a stable group id. `GET /Groups` accepts `startIndex`, `count`, `attributes`, `excludedAttributes`, and `eq` filters joined by `and`, `or`, and parentheses on `displayName` and `externalId`.
+-   `excludedAttributes=members` omits the member list.
+-   `PUT /Groups/{id}` replaces the supported attributes and complete membership.
+-   `PATCH /Groups/{id}` accepts case-insensitive Add, Replace, and Remove operations. Members may be added, removed, or replaced with value arrays. Remove also accepts `members[value eq "id"]`. Pathless replacement supports `displayName`, `externalId`, and `members`.
+-   Every member id is validated before mutation. An unknown id returns `400 invalidValue` and the request makes no partial change.
+-   `DELETE /Groups/{id}` returns 204, removes the group from later reads, and transactionally removes assignments owned by its mapping.
+
+Group storage and membership are provider-scoped and independent of Cuttlely roles until an administrator creates a mapping. A mapping connects one group to one team and optionally one allowed role. Roles with `authentication:manage` and the owner role are refused at creation and checked again during every reconcile. Reconciliation creates and changes only assignments in its ownership ledger. It does not take over a manual membership, change an owner, or touch unrelated teams. Conflicting role requests for one user and team make no change for that pair and create a diagnostic.
+
+Mapping removal uses a preview and fingerprint. Confirmation removes only the assignments shown by the current preview; a changed fingerprint returns 409. Group membership changes, group deletion, mapping creation, and user deactivation or reactivation reconcile in the triggering transaction and advance permission versions for affected users.
+
+## Operations
+
+The Auth / SSO page shows credential state, last successful and completed request times, the last failed category, operation counts, and recent sanitized errors. Each error response includes an `X-Correlation-ID` header and the same id in `detail`. Diagnostics contain no bearer value or provisioned profile attributes and are retained for 30 days.
+
+The fixture suites follow published Okta and Entra ID request examples. They do not represent certification by either provider.
+
 ## Errors
 
-Errors use schema `urn:ietf:params:scim:api:messages:2.0:Error`, a string `status`, a `detail`, and `scimType` where defined. Cuttlely uses `invalidFilter`, `invalidValue`, `invalidSyntax`, `uniqueness`, `mutability`, `noTarget`, and `tooMany`.
+Errors use schema `urn:ietf:params:scim:api:messages:2.0:Error`, a string `status`, a `detail`, a correlation id, and `scimType` where defined. Cuttlely uses `invalidFilter`, `invalidValue`, `invalidSyntax`, `uniqueness`, `mutability`, `noTarget`, and `tooMany`.

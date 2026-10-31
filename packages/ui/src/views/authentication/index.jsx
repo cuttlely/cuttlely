@@ -45,6 +45,10 @@ export default function AuthenticationSettings() {
     const [warningConfirmationOpen, setWarningConfirmationOpen] = useState(false)
     const [scimClear, setScimClear] = useState('')
     const [overlapHours, setOverlapHours] = useState(1)
+    const [mappingGroup, setMappingGroup] = useState('')
+    const [mappingWorkspace, setMappingWorkspace] = useState('')
+    const [mappingRole, setMappingRole] = useState('')
+    const [mappingRemoval, setMappingRemoval] = useState(null)
     const load = () =>
         api
             .get()
@@ -104,6 +108,36 @@ export default function AuthenticationSettings() {
             setScimClear(result.clear || '')
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The SCIM credential could not be changed.')
+        }
+    }
+    const createMapping = async () => {
+        setError('')
+        try {
+            await api.createScimMapping(mappingGroup, mappingWorkspace, mappingRole)
+            setMappingGroup('')
+            setMappingWorkspace('')
+            setMappingRole('')
+            await load()
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'The SCIM mapping could not be created.')
+        }
+    }
+    const previewMappingRemoval = async (id) => {
+        setError('')
+        try {
+            setMappingRemoval((await api.previewScimMappingRemoval(id)).data)
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'The mapping removal could not be previewed.')
+        }
+    }
+    const confirmMappingRemoval = async () => {
+        try {
+            await api.removeScimMapping(mappingRemoval.mapping.id, mappingRemoval.fingerprint)
+            setMappingRemoval(null)
+            await load()
+        } catch (cause) {
+            setMappingRemoval(null)
+            setError(cause?.response?.data?.message || 'The mapping changed. Preview its removal again.')
         }
     }
     const scimBaseUrl = data?.scim?.basePath ? `${window.location.origin}${data.scim.basePath}` : ''
@@ -286,7 +320,103 @@ export default function AuthenticationSettings() {
                             )}
                             <Button onClick={reauthenticate}>Sign in again</Button>
                         </Stack>
-                        <Typography color='text.secondary'>Groups are not available yet.</Typography>
+                        <Box data-testid='scim-operations-view'>
+                            <Typography variant='h5'>Operations</Typography>
+                            <Typography color='text.secondary'>
+                                Last successful request:{' '}
+                                {data?.scim?.operations?.lastSuccessfulRequestAt
+                                    ? new Date(data.scim.operations.lastSuccessfulRequestAt).toLocaleString()
+                                    : 'None'}
+                            </Typography>
+                            <Typography color='text.secondary'>
+                                Last completed request:{' '}
+                                {data?.scim?.operations?.lastCompletedRequestAt
+                                    ? new Date(data.scim.operations.lastCompletedRequestAt).toLocaleString()
+                                    : 'None'}
+                            </Typography>
+                            <Typography color='text.secondary'>
+                                Last failed category: {data?.scim?.operations?.lastFailedRequestCategory || 'None'}
+                            </Typography>
+                            <Typography color='text.secondary'>
+                                Users created {data?.scim?.operations?.counts?.usersCreated || 0}; updated{' '}
+                                {data?.scim?.operations?.counts?.usersUpdated || 0}; disabled{' '}
+                                {data?.scim?.operations?.counts?.usersDisabled || 0}; group operations{' '}
+                                {data?.scim?.operations?.counts?.groupOperations || 0}; membership operations{' '}
+                                {data?.scim?.operations?.counts?.membershipOperations || 0}
+                            </Typography>
+                            {(data?.scim?.operations?.recentErrors || []).map((item) => (
+                                <Alert severity='warning' key={`${item.correlationId}-${item.completedAt}`} sx={{ mt: 1 }}>
+                                    {item.category}: {item.detail} Correlation ID: {item.correlationId}
+                                </Alert>
+                            ))}
+                            <Typography color='text.secondary'>Diagnostics are retained for 30 days.</Typography>
+                        </Box>
+                        <Box data-testid='scim-mappings-view'>
+                            <Typography variant='h5' gutterBottom>
+                                Group mappings
+                            </Typography>
+                            <Typography color='text.secondary'>
+                                A mapping owns only team assignments it creates. Existing manual memberships remain manual.
+                            </Typography>
+                            {(data?.scim?.mapping?.mappings || []).map((mapping) => (
+                                <Stack key={mapping.id} direction='row' alignItems='center' justifyContent='space-between' sx={{ mt: 1 }}>
+                                    <Typography>
+                                        {mapping.groupName} → {mapping.workspaceName}
+                                        {mapping.roleName ? ` (${mapping.roleName})` : ''} · {mapping.ownedAssignments} owned
+                                    </Typography>
+                                    <Button color='error' onClick={() => previewMappingRemoval(mapping.id)}>
+                                        Remove
+                                    </Button>
+                                </Stack>
+                            ))}
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 2 }}>
+                                <Select
+                                    size='small'
+                                    displayEmpty
+                                    aria-label='SCIM group'
+                                    value={mappingGroup}
+                                    onChange={(event) => setMappingGroup(event.target.value)}
+                                >
+                                    <MenuItem value=''>Choose group</MenuItem>
+                                    {(data?.scim?.mapping?.groups || []).map((group) => (
+                                        <MenuItem key={group.id} value={group.id}>
+                                            {group.displayName}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                                <Select
+                                    size='small'
+                                    displayEmpty
+                                    aria-label='Mapped team'
+                                    value={mappingWorkspace}
+                                    onChange={(event) => setMappingWorkspace(event.target.value)}
+                                >
+                                    <MenuItem value=''>Choose team</MenuItem>
+                                    {(data?.scim?.mapping?.workspaces || []).map((workspace) => (
+                                        <MenuItem key={workspace.id} value={workspace.id}>
+                                            {workspace.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                                <Select
+                                    size='small'
+                                    displayEmpty
+                                    aria-label='Mapped role'
+                                    value={mappingRole}
+                                    onChange={(event) => setMappingRole(event.target.value)}
+                                >
+                                    <MenuItem value=''>Team membership only</MenuItem>
+                                    {(data?.scim?.mapping?.roles || []).map((role) => (
+                                        <MenuItem key={role.id} value={role.id}>
+                                            {role.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                                <Button variant='contained' disabled={!mappingGroup || !mappingWorkspace} onClick={createMapping}>
+                                    Create mapping
+                                </Button>
+                            </Stack>
+                        </Box>
                     </Stack>
                 </Paper>
             </Stack>
@@ -314,6 +444,24 @@ export default function AuthenticationSettings() {
                     <Button onClick={() => setWarningConfirmationOpen(false)}>Cancel</Button>
                     <Button color='error' variant='contained' onClick={acknowledgeWarning}>
                         Acknowledge and end sessions
+                    </Button>
+                </DialogActions>
+            </Dialog>
+            <Dialog open={Boolean(mappingRemoval)} onClose={() => setMappingRemoval(null)}>
+                <DialogTitle>Remove group mapping?</DialogTitle>
+                <DialogContent>
+                    <Typography>This removes exactly these mapping-owned assignments:</Typography>
+                    {(mappingRemoval?.assignments || []).map((assignment) => (
+                        <Typography key={`${assignment.userId}-${assignment.workspaceId}`}>
+                            {assignment.userName} · {assignment.workspaceName} · {assignment.roleName}
+                        </Typography>
+                    ))}
+                    {!mappingRemoval?.assignments?.length && <Typography>No owned assignments will be removed.</Typography>}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setMappingRemoval(null)}>Cancel</Button>
+                    <Button color='error' variant='contained' onClick={confirmMappingRemoval}>
+                        Confirm removal
                     </Button>
                 </DialogActions>
             </Dialog>

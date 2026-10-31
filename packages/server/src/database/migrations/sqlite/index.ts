@@ -68,6 +68,7 @@ import { AddAuthenticationState1800800000000 } from './1800800000000-AddAuthenti
 import { AddAuthenticationSwitchStage1800900000000 } from './1800900000000-AddAuthenticationSwitchStage'
 import { AddSessionConvergence1801100000000 } from './1801100000000-AddSessionConvergence'
 import { AddScimProvisioning1801200000000 } from './1801200000000-AddScimProvisioning'
+import { AddScimGroups1801200000001 } from './1801200000001-AddScimGroups'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -162,5 +163,6 @@ export const sqliteMigrations = [
     AddAuthenticationState1800800000000,
     AddAuthenticationSwitchStage1800900000000,
     AddSessionConvergence1801100000000,
-    AddScimProvisioning1801200000000
+    AddScimProvisioning1801200000000,
+    AddScimGroups1801200000001
 ]

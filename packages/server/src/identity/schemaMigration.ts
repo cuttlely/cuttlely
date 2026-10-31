@@ -771,6 +771,114 @@ export async function removeScimProvisioning(runner: QueryRunner): Promise<void>
     await dropColumn(runner, dialect, 'apikey', 'disabledAt')
 }
 
+function scimGroupSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_group')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'externalId')} varchar(255) NULL,
+        ${q(dialect, 'displayName')} varchar(255) NOT NULL,
+        ${q(dialect, 'deletedAt')} ${timeType(dialect)} NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
+        ${q(dialect, 'updatedAt')} ${timeType(dialect)} NOT NULL
+    )`
+}
+
+function scimGroupMemberSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_group_member')} (
+        ${q(dialect, 'groupId')} varchar(36) NOT NULL,
+        ${q(dialect, 'scimUserId')} varchar(36) NOT NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
+        PRIMARY KEY (${q(dialect, 'groupId')}, ${q(dialect, 'scimUserId')})
+    )`
+}
+
+function scimMappingSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_mapping')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'groupId')} varchar(36) NOT NULL,
+        ${q(dialect, 'workspaceId')} varchar(36) NOT NULL,
+        ${q(dialect, 'roleId')} varchar(36) NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
+        ${q(dialect, 'createdBy')} varchar(36) NOT NULL
+    )`
+}
+
+function scimAssignmentSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_assignment')} (
+        ${q(dialect, 'mappingId')} varchar(36) NOT NULL,
+        ${q(dialect, 'userId')} varchar(36) NOT NULL,
+        ${q(dialect, 'workspaceId')} varchar(36) NOT NULL,
+        ${q(dialect, 'roleId')} varchar(36) NOT NULL,
+        ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
+        PRIMARY KEY (${q(dialect, 'mappingId')}, ${q(dialect, 'userId')})
+    )`
+}
+
+function scimDiagnosticSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_scim_diagnostic')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'category')} varchar(48) NOT NULL,
+        ${q(dialect, 'outcome')} varchar(16) NOT NULL,
+        ${q(dialect, 'correlationId')} varchar(64) NOT NULL,
+        ${q(dialect, 'detail')} varchar(500) NULL,
+        ${q(dialect, 'completedAt')} ${timeType(dialect)} NOT NULL
+    )`
+}
+
+/** Provider groups, optional authorization mappings, owned assignments, and operational diagnostics. */
+export async function addScimGroups(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    const tables: Array<[string, (dialect: Dialect) => string]> = [
+        ['identity_scim_group', scimGroupSql],
+        ['identity_scim_group_member', scimGroupMemberSql],
+        ['identity_scim_mapping', scimMappingSql],
+        ['identity_scim_assignment', scimAssignmentSql],
+        ['identity_scim_diagnostic', scimDiagnosticSql]
+    ]
+    for (const [name, statement] of tables) {
+        if (!(await tableExists(runner, dialect, name))) await runner.query(statement(dialect))
+    }
+    await createIndex(
+        runner,
+        dialect,
+        'identity_scim_group',
+        'IDX_identity_scim_group_external',
+        `${q(dialect, 'organizationId')}, ${q(dialect, 'externalId')}`,
+        true
+    )
+    await createIndex(
+        runner,
+        dialect,
+        'identity_scim_group',
+        'IDX_identity_scim_group_name',
+        `${q(dialect, 'organizationId')}, ${q(dialect, 'displayName')}`
+    )
+    await createIndex(runner, dialect, 'identity_scim_mapping', 'IDX_identity_scim_mapping_group', q(dialect, 'groupId'), true)
+    await createIndex(
+        runner,
+        dialect,
+        'identity_scim_assignment',
+        'IDX_identity_scim_assignment_pair',
+        `${q(dialect, 'userId')}, ${q(dialect, 'workspaceId')}`
+    )
+    await createIndex(runner, dialect, 'identity_scim_diagnostic', 'IDX_identity_scim_diagnostic_completed', q(dialect, 'completedAt'))
+}
+
+export async function removeScimGroups(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    for (const table of [
+        'identity_scim_diagnostic',
+        'identity_scim_assignment',
+        'identity_scim_mapping',
+        'identity_scim_group_member',
+        'identity_scim_group'
+    ]) {
+        await runner.query(`DROP TABLE IF EXISTS ${q(dialect, table)}`)
+    }
+}
+
 function setupCodeTableSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_setup_code')} (
         ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,

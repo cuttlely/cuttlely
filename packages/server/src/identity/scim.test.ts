@@ -16,6 +16,8 @@ import {
     rotateScimToken,
     ScimError,
     serviceProviderConfig,
+    groupResourceType,
+    groupSchema,
     mutateUser,
     pageUsers,
     userResourceType,
@@ -173,6 +175,7 @@ describe('SCIM protocol documents', () => {
             authenticationSchemes: [{ type: 'oauthbearertoken' }]
         })
         expect(userResourceType).toMatchObject({ id: 'User', endpoint: '/Users' })
+        expect(groupResourceType).toMatchObject({ id: 'Group', endpoint: '/Groups' })
         expect(userSchema.attributes.map((attribute) => attribute.name)).toEqual([
             'userName',
             'externalId',
@@ -181,6 +184,7 @@ describe('SCIM protocol documents', () => {
             'emails',
             'active'
         ])
+        expect(groupSchema.attributes.map((attribute) => attribute.name)).toEqual(['displayName', 'externalId', 'members'])
     })
 
     it('uses the RFC error envelope with a string status', () => {
@@ -209,7 +213,11 @@ describe('SCIM users', () => {
                 organizationId text, userId text, roleId text, status text,
                 createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP, updatedDate text default CURRENT_TIMESTAMP
             );
-            CREATE TABLE workspace_user (workspaceId text, userId text);
+            CREATE TABLE workspace (id text primary key, organizationId text, name text);
+            CREATE TABLE workspace_user (
+                workspaceId text, userId text, roleId text, status text, createdBy text, updatedBy text,
+                primary key (workspaceId, userId)
+            );
             CREATE TABLE identity_action_link (userId text, purpose text, usedAt text, consumeId text, organizationId text);
             CREATE TABLE identity_local_session (id text, userId text);
             CREATE TABLE apikey (id text, ownerUserId text, disabledAt text);
@@ -220,6 +228,21 @@ describe('SCIM users', () => {
                 displayName text not null, givenName text, familyName text, workEmail text,
                 deletedAt text, createdAt text not null, updatedAt text not null,
                 unique (organizationId, normalizedUserName), unique (organizationId, externalId)
+            );
+            CREATE TABLE identity_scim_group (
+                id text primary key, organizationId text, externalId text, displayName text,
+                deletedAt text, createdAt text, updatedAt text
+            );
+            CREATE TABLE identity_scim_group_member (groupId text, scimUserId text, createdAt text, primary key (groupId, scimUserId));
+            CREATE TABLE identity_scim_mapping (
+                id text primary key, organizationId text, groupId text, workspaceId text, roleId text, createdAt text, createdBy text
+            );
+            CREATE TABLE identity_scim_assignment (
+                mappingId text, userId text, workspaceId text, roleId text, createdAt text, primary key (mappingId, userId)
+            );
+            CREATE TABLE identity_scim_diagnostic (
+                id text primary key, organizationId text, category text, outcome text,
+                correlationId text, detail text, completedAt text
             );
             CREATE TABLE audit_event (
                 id text, type text, organizationId text, workspaceId text, userId text,

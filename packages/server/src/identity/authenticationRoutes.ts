@@ -25,6 +25,7 @@ import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
 import { acknowledgeRecoveryAlert, currentRecoveryAlert } from './recovery'
 import { createScimToken, endScimOverlap, readScimTokenState, revokeScimTokens, rotateScimToken, ScimError } from './scim'
+import { createMapping, mappingOptions, previewMappingRemoval, readScimOperations, removeMapping } from './scimGroups'
 
 const RECENT_MS = 10 * 60 * 1000
 export const identityAuthenticationRouter = Router()
@@ -99,8 +100,9 @@ const scimChangeLimit = rateLimit({
     message: { type: 'authentication_rate_limit', message: 'Too many SCIM credential changes. Try again later.' }
 })
 
-identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
+identityAuthenticationRouter.get('/', async (req: Request, res: Response) => {
     try {
+        const who = actor(req)
         const state =
             (await readAuthenticationState(applicationDataSource())) || (await initializeAuthenticationState(applicationDataSource()))
         res.set('Cache-Control', 'no-store')
@@ -120,7 +122,13 @@ identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
                     compatibilityRouteEnabled: localAdminEnabled(),
                     alert: await currentRecoveryAlert(applicationDataSource())
                 },
-                scim: { available: true, basePath: '/api/v1/scim/v2', ...(await readScimTokenState(applicationSql())) }
+                scim: {
+                    available: true,
+                    basePath: '/api/v1/scim/v2',
+                    ...(await readScimTokenState(applicationSql())),
+                    operations: await readScimOperations(applicationSql(), who?.organizationId || ''),
+                    mapping: who ? await mappingOptions(applicationSql(), who) : { mappings: [], groups: [], workspaces: [], roles: [] }
+                }
             })
     } catch {
         res.status(500).json({ message: 'Authentication settings could not be read.' })
@@ -140,6 +148,42 @@ function sendScimAdminError(res: Response, error: unknown): void {
     }
     res.status(500).json({ message: 'The SCIM credential could not be changed.' })
 }
+
+identityAuthenticationRouter.post('/scim-mappings', scimChangeLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (!(await requireRecentScimAuthentication(req, res))) return
+    try {
+        res.status(201).json(await createMapping(applicationSql(), who, req.body))
+    } catch (error) {
+        sendScimAdminError(res, error)
+    }
+})
+
+identityAuthenticationRouter.get('/scim-mappings/:id/remove-preview', async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    try {
+        res.status(200).json(await previewMappingRemoval(applicationSql(), who, req.params.id))
+    } catch (error) {
+        sendScimAdminError(res, error)
+    }
+})
+
+identityAuthenticationRouter.post('/scim-mappings/:id/remove', scimChangeLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    res.set('Cache-Control', 'no-store')
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (!(await requireRecentScimAuthentication(req, res))) return
+    try {
+        await removeMapping(applicationSql(), who, req.params.id, (req.body as { fingerprint?: unknown })?.fingerprint)
+        res.status(204).end()
+    } catch (error) {
+        sendScimAdminError(res, error)
+    }
+})
 
 identityAuthenticationRouter.post('/scim-token', scimChangeLimit, async (req: Request, res: Response) => {
     const who = actor(req)
