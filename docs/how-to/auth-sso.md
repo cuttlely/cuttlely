@@ -13,13 +13,15 @@ The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The
 
 ## Set up generic OIDC
 
-1. Open **Admin** > **Auth / SSO**. Enter the exact issuer URL, client id, and the environment variable name. The card starts with `CUTTLELY_OIDC_CLIENT_SECRET`. Set that variable on every server.
-2. Register the callback URL and post-logout URL shown on the card with the identity provider. The requested scopes are fixed to `openid email profile`.
-3. Save the draft. Cuttlely reads provider metadata through its guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time.
+1. Open **Admin** > **Auth / SSO**. Enter the exact issuer URL, client id, and the environment variable name. The card starts with `CUTTLELY_OIDC_CLIENT_SECRET`. Set that variable on every server, then save the draft.
+2. Register the exact callback URL and post-logout URL shown after the draft is saved. The callback URL is stable when that draft becomes active. Changing the issuer or client id derives a different callback URL. The requested scopes are fixed to `openid email profile`.
+3. The save reads provider metadata through the guarded outbound request path, without following redirects. The card shows a sanitized status and the last check time.
 4. Choose **Test sign-in** in the same administrator browser. The test expires after ten minutes, is single use, creates no application session, and does not change the active method. A successful result shows the returned email and assurance basis.
 5. Choose **Activate**, review the session impact, type `END SESSIONS`, and apply.
 
 Activation returns `409 Conflict` until the current configuration fingerprint has passed a test, owner recovery is ready, and the provider-link migration has completed. The callback URL comes from trusted server configuration, not request forwarding headers.
+
+Each configured provider has a distinct callback URL with a provider marker. The callback must match the sign-in transaction before Cuttlely sends the authorization code to the token endpoint. When an authorization response contains `iss`, Cuttlely requires it to match the transaction issuer. When provider metadata advertises the authorization-response issuer parameter, a response without `iss` is refused.
 
 Set `APP_URL` to the public origin before testing or activating OIDC. It must use HTTPS. For local development, HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`. When the origin uses HTTPS, the OIDC browser cookie and the application session cookie are both Secure.
 

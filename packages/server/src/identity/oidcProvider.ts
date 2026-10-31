@@ -58,6 +58,7 @@ export interface OidcEnvelope {
     requestTime: number
     invitationToken?: string
     authorizationResponseIssuer: boolean
+    redirectUri: string
 }
 
 export interface ValidatedOidcIdentity {
@@ -319,7 +320,7 @@ export async function beginOidcAuthorization(input: {
     initiatingUserId?: string | null
     invitationToken?: string
     now?: number
-}): Promise<{ url: string; state: string; config: OidcConfiguration; browserNonce: string }> {
+}): Promise<{ url: string; state: string; config: OidcConfiguration; browserNonce: string; callbackUrl: string }> {
     const callbackError = oidcCallbackError(input.callbackUrl)
     if (callbackError) throw new OidcError('configuration', callbackError, 'configuration_unavailable')
     const config = await readOidcConfiguration(input.dataSource, input.slot)
@@ -330,11 +331,17 @@ export async function beginOidcAuthorization(input: {
     const state = randomValue()
     const browserNonce = randomValue()
     const now = input.now ?? Date.now()
+    const providerKey = oidcProviderKey(input.installationId, config.issuer, config.clientId)
+    const redirectUri = (() => {
+        const url = new URL(input.callbackUrl)
+        url.searchParams.set('provider', providerKey)
+        return url.toString()
+    })()
     const envelope: OidcEnvelope = {
         verifier,
         nonce,
         expectedIssuer: config.issuer,
-        providerKey: oidcProviderKey(input.installationId, config.issuer, config.clientId),
+        providerKey,
         configFingerprint: config.fingerprint,
         authEpoch: input.authenticationEpoch,
         redirectTarget: localRedirect(input.redirectTarget),
@@ -343,12 +350,13 @@ export async function beginOidcAuthorization(input: {
         initiatingUserId: input.initiatingUserId || null,
         requestTime: now,
         invitationToken: input.invitationToken,
-        authorizationResponseIssuer: discovery.authorization_response_iss_parameter_supported === true
+        authorizationResponseIssuer: discovery.authorization_response_iss_parameter_supported === true,
+        redirectUri
     }
     await createOidcTransaction(input.dataSource, sha256(state), encryptOidcEnvelope(envelope), now, now + OIDC_TRANSACTION_MS)
     const url = new URL(discovery.authorization_endpoint)
     url.searchParams.set('client_id', config.clientId)
-    url.searchParams.set('redirect_uri', input.callbackUrl)
+    url.searchParams.set('redirect_uri', redirectUri)
     url.searchParams.set('response_type', 'code')
     url.searchParams.set('scope', 'openid email profile')
     url.searchParams.set('state', state)
@@ -359,7 +367,7 @@ export async function beginOidcAuthorization(input: {
         url.searchParams.set('prompt', 'login')
         url.searchParams.set('max_age', '0')
     }
-    return { url: url.toString(), state, config, browserNonce }
+    return { url: url.toString(), state, config, browserNonce, callbackUrl: redirectUri }
 }
 
 async function consumeEnvelope(dataSource: DataSource, state: string, now: number): Promise<OidcEnvelope> {
@@ -602,8 +610,14 @@ export async function completeOidcAuthorization(input: {
     if (!input.code) throw new OidcError('response', 'The authorization response has no code.', 'authorization_response_invalid')
     if (envelope.authEpoch !== input.currentEpoch)
         throw new OidcError('transaction', 'Authentication settings changed during sign-in.', 'settings_changed')
-    if ((envelope.authorizationResponseIssuer || input.responseIssuer !== undefined) && input.responseIssuer !== envelope.expectedIssuer) {
+    if (!safeEqual(input.callbackUrl, envelope.redirectUri)) {
+        throw new OidcError('response', 'The authorization response callback is invalid.', 'authorization_response_invalid')
+    }
+    if (input.responseIssuer !== undefined && input.responseIssuer !== envelope.expectedIssuer) {
         throw new OidcError('response', 'The authorization response issuer is invalid.', 'authorization_response_invalid')
+    }
+    if (envelope.authorizationResponseIssuer && input.responseIssuer === undefined) {
+        throw new OidcError('response', 'The authorization response issuer is missing.', 'authorization_response_invalid')
     }
     const slot = envelope.purpose === 'test' ? 'draft' : 'active'
     const config = await readOidcConfiguration(input.dataSource, slot)
@@ -611,7 +625,7 @@ export async function completeOidcAuthorization(input: {
         throw new OidcError('transaction', 'OIDC configuration changed during sign-in.', 'settings_changed')
     }
     const discovery = (config.discovery || (await discoverOidc(config))) as unknown as OidcDiscovery
-    const exchanged = await exchangeCode(config, discovery, input.code, envelope.verifier, input.callbackUrl)
+    const exchanged = await exchangeCode(config, discovery, input.code, envelope.verifier, envelope.redirectUri)
     const idToken = typeof exchanged.value.id_token === 'string' ? exchanged.value.id_token : ''
     if (!idToken) throw new OidcError('response', 'The token response has no ID token.', 'token_validation_failed')
     const idTokenIdentity = await validateIdToken(idToken, config, discovery, envelope.nonce, envelope.providerKey, now)

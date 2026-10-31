@@ -1,7 +1,13 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { Request, Response, Router } from 'express'
 import { isIP } from 'net'
-import { cookieSecure, expiredOidcBrowserCookie, oidcBrowserCookie, recentAuthenticationCookie } from './cookies'
+import {
+    expiredOidcBrowserCookie,
+    oidcBrowserCookie,
+    oidcCallbackUrl,
+    oidcSessionCookieSecure,
+    recentAuthenticationCookie
+} from './cookies'
 import { LOGIN_FAILURE_WINDOW_MS, OIDC_BROWSER_COOKIE, RECENT_AUTH_COOKIE, signinErrorUrl } from './constants'
 import { issueDatabaseSession, establishSession } from './handlers'
 import {
@@ -27,6 +33,7 @@ import {
     isEntraAuthorityIssuer,
     migrateLegacyProviderLinks,
     oidcConfigurationFingerprint,
+    oidcProviderKey,
     providerLinkMigrationStatus,
     readOidcConfiguration,
     recordOidcTestResult,
@@ -42,7 +49,6 @@ import {
     organizationsForUser,
     safeRecordAudit
 } from './auditLog'
-import { publicOrigin } from './setupCode'
 import { recentlyAuthenticated } from './authenticationRoutes'
 
 const ENV_NAME = /^[A-Z_][A-Z0-9_]{0,127}$/
@@ -66,18 +72,8 @@ function actor(req: Request): { id: string; organizationId: string } | null {
         : null
 }
 
-function trustedOrigin(): string {
-    const candidate = publicOrigin(process.env.PORT || '3000')
-    const url = new URL(candidate)
-    return url.origin
-}
-
-export function oidcCallbackUrl(): string {
-    return `${trustedOrigin()}/api/v1/auth/oidc/callback`
-}
-
 export function oidcPostLogoutUrl(): string {
-    return `${trustedOrigin()}/signin`
+    return `${new URL(oidcCallbackUrl()).origin}/signin`
 }
 
 function configuredCallbackError(): string | null {
@@ -90,7 +86,12 @@ function cacheNoStore(res: Response): void {
 }
 
 function oidcCookieIsSecure(req: Request): boolean {
-    return cookieSecure(oidcCallbackUrl(), Boolean(req.secure) || req.protocol === 'https')
+    return oidcSessionCookieSecure(Boolean(req.secure) || req.protocol === 'https')
+}
+
+function providerCallbackUrl(req: Request): string {
+    const provider = typeof req.query.provider === 'string' ? req.query.provider : undefined
+    return oidcCallbackUrl(provider)
 }
 
 function setOidcBrowserCookie(req: Request, res: Response, value: string): void {
@@ -174,7 +175,7 @@ oidcAdminRouter.get('/', async (_req, res) => {
         res.status(200).json({
             draft: configurationBody(draft),
             active: configurationBody(active),
-            callbackUrl: oidcCallbackUrl(),
+            callbackUrl: draft && state ? oidcCallbackUrl(oidcProviderKey(state.installationId, draft.issuer, draft.clientId)) : null,
             callbackError: configuredCallbackError(),
             postLogoutUrl: oidcPostLogoutUrl(),
             scopes: ['openid', 'email', 'profile'],
@@ -247,7 +248,11 @@ oidcAdminRouter.put('/', identityRouteLimit(OIDC_ADMIN_WRITE_LIMIT), async (req,
             version
         )
         await auditConfiguration(req, 'saved', saved.fingerprint)
-        res.status(200).json({ draft: configurationBody(saved) })
+        const state = await readAuthenticationState(applicationDataSource())
+        res.status(200).json({
+            draft: configurationBody(saved),
+            callbackUrl: state ? oidcCallbackUrl(oidcProviderKey(state.installationId, saved.issuer, saved.clientId)) : null
+        })
     } catch (error) {
         const category = error instanceof OidcError ? error.category : 'configuration'
         try {
@@ -392,7 +397,7 @@ oidcAuthRouter.get(
                 code,
                 error: errorParam,
                 responseIssuer,
-                callbackUrl: oidcCallbackUrl(),
+                callbackUrl: providerCallbackUrl(req),
                 browserNonce: (req.cookies || {})[OIDC_BROWSER_COOKIE] || null,
                 currentEpoch: authState.authenticationEpoch
             })

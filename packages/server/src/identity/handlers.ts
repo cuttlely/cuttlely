@@ -84,6 +84,8 @@ export interface AuthContext {
     localUsers: boolean
     /** Generic OIDC is the selected ordinary method. */
     oidcActive?: boolean
+    /** Secure-cookie decision from the configured OIDC callback origin. */
+    oidcSessionSecure?: boolean
     cookiePasswordOk: boolean
     cookiePassword?: string
     redirectUri?: string
@@ -207,12 +209,13 @@ function json(
  * A trusted proxy's scheme counts only when TRUST_PROXY says so.
  */
 function localSessionSecure(ctx: AuthContext): boolean {
+    if (ctx.oidcActive && ctx.oidcSessionSecure !== undefined) return ctx.oidcSessionSecure
     return ctx.secure
 }
 
-/** Break-glass cookies are set and cleared with ctx.secure. localSessionSecure is only for a local-users cookie. */
+/** A database-session cookie is cleared with the same transport decision used when it is written. */
 function clearSecure(ctx: AuthContext, names: string[]): boolean {
-    if (ctx.localUsers && names.includes(LOCAL_SESSION_COOKIE)) return localSessionSecure(ctx)
+    if (names.includes(LOCAL_SESSION_COOKIE)) return localSessionSecure(ctx)
     return ctx.secure
 }
 
@@ -559,7 +562,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
         await ctx.store.slideLocalSession(digest, idleExpires, new Date(ctx.now))
         const session = await ctx.store.sessionFor(row.userId)
         if (!session) return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
-        const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
+        const secure = localSessionSecure(ctx)
         return json(200, session, { cookies: [localCookie(token, secure, idleExpires.getTime() - ctx.now)] })
     }
 
@@ -863,7 +866,7 @@ export async function establishSession(
         }
         const maxAge = await noteSessionUse(ctx, row, digest)
         const user = await ctx.store.sessionFor(row.userId)
-        const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
+        const secure = localSessionSecure(ctx)
         return { user, secure, cookies: maxAge === null ? undefined : [localCookie(token, secure, maxAge)] }
     }
     return { user: null }

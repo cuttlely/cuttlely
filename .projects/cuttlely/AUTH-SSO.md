@@ -245,7 +245,7 @@ The release gate includes schema migration checks, route contract checks, securi
 -   Run the disposable test IdP in this phase's CI instead of waiting for Phase D.
 -   Derive the epoch-binding HMAC secret with HKDF and its own label instead of reusing `WORKOS_COOKIE_PASSWORD`.
 -   Use outcome-specific audit summaries, so a failed attempt is not recorded as refused.
--   Pin the authorization-response `iss` per sign-in transaction (RFC 9700 mix-up defense), and rate-limit the switch stage and apply routes with a 429 test.
+-   Identify the authorization issuer before code exchange: verify `iss` when returned, require it when advertised, and otherwise use a distinct redirect URI per configured issuer. Rate-limit the switch stage and apply routes with a 429 test.
 
 ### Phase C: SCIM v2
 

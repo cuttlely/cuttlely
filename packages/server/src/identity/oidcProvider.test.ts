@@ -8,7 +8,7 @@ import type { DataSource, QueryRunner } from 'typeorm'
 import type { IdentityStore } from './store'
 import type { UserRow } from './types'
 import { addOidcProvider } from './schemaMigration'
-import { oidcConfigurationFingerprint, OidcConfiguration, resolveOidcUser, saveOidcDraft } from './oidcStore'
+import { oidcConfigurationFingerprint, oidcProviderKey, OidcConfiguration, resolveOidcUser, saveOidcDraft } from './oidcStore'
 import {
     beginOidcAuthorization,
     checkOidcConfiguration,
@@ -81,6 +81,7 @@ class TestIdp {
     claims: Partial<Claims> = {}
     userInfo: Record<string, unknown> | null = null
     tokenAuthMethods = ['client_secret_post']
+    authorizationResponseIssuerSupported = true
     lastTokenBody = ''
     lastTokenAuthorization = ''
     lastUserInfoAuthorization = ''
@@ -114,7 +115,7 @@ class TestIdp {
             response_types_supported: ['code'],
             id_token_signing_alg_values_supported: ['RS256'],
             token_endpoint_auth_methods_supported: this.tokenAuthMethods,
-            authorization_response_iss_parameter_supported: true
+            ...(this.authorizationResponseIssuerSupported ? { authorization_response_iss_parameter_supported: true } : {})
         }
     }
 
@@ -306,13 +307,14 @@ describe('generic OIDC provider', () => {
             state: begun.state,
             code: 'code',
             responseIssuer: idp.issuer,
-            callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+            callbackUrl: begun.callbackUrl,
             browserNonce: begun.browserNonce,
             currentEpoch: 1
         })
         const encodedId = new URLSearchParams([['value', idp.clientId]]).toString().slice('value='.length)
         const encodedSecret = new URLSearchParams([['value', idp.clientSecret]]).toString().slice('value='.length)
         expect(idp.lastTokenAuthorization).toBe(`Basic ${Buffer.from(`${encodedId}:${encodedSecret}`).toString('base64')}`)
+        expect(new URLSearchParams(idp.lastTokenBody).get('redirect_uri')).toBe(begun.callbackUrl)
         db.close()
     })
 
@@ -401,7 +403,7 @@ describe('generic OIDC provider', () => {
             state: begun.state,
             code: 'code',
             responseIssuer: issuer,
-            callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+            callbackUrl: begun.callbackUrl,
             browserNonce: begun.browserNonce,
             currentEpoch: 1
         })
@@ -421,6 +423,72 @@ describe('generic OIDC provider', () => {
             }
         )
         expect(idp.lastUserInfoAuthorization).toBe('')
+        db.close()
+    })
+
+    it('refuses a non-RFC-9207 transaction at another issuer callback before the token request', async () => {
+        idp.authorizationResponseIssuerSupported = false
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const config = configuration(idp)
+        const discovery = await checkOidcConfiguration(config)
+        await saveOidcDraft(
+            db.source,
+            {
+                issuer: config.issuer,
+                clientId: config.clientId,
+                clientSecretEnvVar: config.clientSecretEnvVar,
+                trustMissingEmailVerification: false,
+                privateIssuerHosts: config.privateIssuerHosts,
+                fingerprint: config.fingerprint,
+                discovery: discovery as unknown as Record<string, unknown>,
+                health: 'ready',
+                healthError: null,
+                checkedAt: new Date().toISOString()
+            },
+            0
+        )
+        await db.source.query('UPDATE identity_oidc_configuration SET slot = ? WHERE slot = ?', ['active', 'draft'])
+
+        const start = () =>
+            beginOidcAuthorization({
+                dataSource: db.source,
+                slot: 'active',
+                installationId: 'installation',
+                authenticationEpoch: 1,
+                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                redirectTarget: '/',
+                purpose: 'signin'
+            })
+        const begun = await start()
+        const otherIssuerCallback = new URL(begun.callbackUrl)
+        otherIssuerCallback.searchParams.set('provider', oidcProviderKey('installation', 'https://other.example', 'other-client'))
+        idp.lastTokenBody = ''
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: begun.state,
+                code: 'code',
+                callbackUrl: otherIssuerCallback.toString(),
+                browserNonce: begun.browserNonce,
+                currentEpoch: 1
+            })
+        ).rejects.toThrow('response callback')
+        expect(idp.lastTokenBody).toBe('')
+
+        const accepted = await start()
+        idp.nonce = new URL(accepted.url).searchParams.get('nonce') || ''
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: accepted.state,
+                code: 'code',
+                callbackUrl: accepted.callbackUrl,
+                browserNonce: accepted.browserNonce,
+                currentEpoch: 1
+            })
+        ).resolves.toMatchObject({ identity: { issuer: idp.issuer, subject: 'subject-1' } })
+        expect(new URLSearchParams(idp.lastTokenBody).get('redirect_uri')).toBe(accepted.callbackUrl)
         db.close()
     })
 
@@ -483,7 +551,7 @@ describe('generic OIDC provider', () => {
                     dataSource: db.source,
                     state: bound.state,
                     code: 'code',
-                    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                    callbackUrl: bound.callbackUrl,
                     browserNonce: 'different-browser',
                     currentEpoch: 7
                 })
@@ -508,7 +576,7 @@ describe('generic OIDC provider', () => {
                 dataSource: db.source,
                 state: denied.state,
                 error: 'access_denied',
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: denied.callbackUrl,
                 browserNonce: denied.browserNonce,
                 currentEpoch: 7
             })
@@ -518,7 +586,7 @@ describe('generic OIDC provider', () => {
                 dataSource: db.source,
                 state: denied.state,
                 code: 'replay-code',
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: denied.callbackUrl,
                 browserNonce: denied.browserNonce,
                 currentEpoch: 7
             })
@@ -530,7 +598,7 @@ describe('generic OIDC provider', () => {
                 dataSource: db.source,
                 state: oldEpoch.state,
                 code: 'code',
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: oldEpoch.callbackUrl,
                 browserNonce: oldEpoch.browserNonce,
                 currentEpoch: 8
             })
@@ -542,7 +610,7 @@ describe('generic OIDC provider', () => {
                 dataSource: db.source,
                 state: browserBound.state,
                 code: 'code',
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: browserBound.callbackUrl,
                 browserNonce: 'other-browser',
                 currentEpoch: 7
             })
@@ -555,11 +623,26 @@ describe('generic OIDC provider', () => {
                 state: wrongIssuer.state,
                 code: 'code',
                 responseIssuer: 'https://other.example',
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: wrongIssuer.callbackUrl,
                 browserNonce: wrongIssuer.browserNonce,
                 currentEpoch: 7
             })
         ).rejects.toThrow('response issuer')
+        expect(idp.lastTokenBody).toBe('')
+
+        const missingIssuer = await start()
+        idp.lastTokenBody = ''
+        await expect(
+            completeOidcAuthorization({
+                dataSource: db.source,
+                state: missingIssuer.state,
+                code: 'code',
+                callbackUrl: missingIssuer.callbackUrl,
+                browserNonce: missingIssuer.browserNonce,
+                currentEpoch: 7
+            })
+        ).rejects.toThrow('response issuer is missing')
+        expect(idp.lastTokenBody).toBe('')
 
         const changedConfig = await start()
         await db.source.query('UPDATE identity_oidc_configuration SET fingerprint = ? WHERE slot = ?', ['changed', 'active'])
@@ -569,7 +652,7 @@ describe('generic OIDC provider', () => {
                 state: changedConfig.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: changedConfig.callbackUrl,
                 browserNonce: changedConfig.browserNonce,
                 currentEpoch: 7
             })
@@ -585,7 +668,7 @@ describe('generic OIDC provider', () => {
                 state: success.state,
                 code: 'one-time-code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: success.callbackUrl,
                 browserNonce: success.browserNonce,
                 currentEpoch: 7
             })
@@ -595,6 +678,7 @@ describe('generic OIDC provider', () => {
         })
         expect(idp.lastTokenBody).toContain('code=one-time-code')
         expect(idp.lastTokenBody).toContain('code_verifier=')
+        expect(new URLSearchParams(idp.lastTokenBody).get('redirect_uri')).toBe(success.callbackUrl)
         expect(idp.lastUserInfoAuthorization).toBe(`Bearer ${idp.lastAccessToken}`)
 
         idp.claims = { email: 'id-token@example.com', email_verified: undefined }
@@ -606,7 +690,7 @@ describe('generic OIDC provider', () => {
                 state: incompleteUserInfo.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: incompleteUserInfo.callbackUrl,
                 browserNonce: incompleteUserInfo.browserNonce,
                 currentEpoch: 7
             })
@@ -621,7 +705,7 @@ describe('generic OIDC provider', () => {
                 state: userInfoPair.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: userInfoPair.callbackUrl,
                 browserNonce: userInfoPair.browserNonce,
                 currentEpoch: 7
             })
@@ -639,7 +723,7 @@ describe('generic OIDC provider', () => {
                 state: idTokenPair.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: idTokenPair.callbackUrl,
                 browserNonce: idTokenPair.browserNonce,
                 currentEpoch: 7
             })
@@ -657,7 +741,7 @@ describe('generic OIDC provider', () => {
                 state: falseUserInfoPair.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: falseUserInfoPair.callbackUrl,
                 browserNonce: falseUserInfoPair.browserNonce,
                 currentEpoch: 7
             })
@@ -674,7 +758,7 @@ describe('generic OIDC provider', () => {
                 state: begun.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: begun.callbackUrl,
                 browserNonce: begun.browserNonce,
                 currentEpoch: 7
             })
@@ -693,7 +777,7 @@ describe('generic OIDC provider', () => {
                 state: mismatchedUserInfo.state,
                 code: 'code',
                 responseIssuer: idp.issuer,
-                callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                callbackUrl: mismatchedUserInfo.callbackUrl,
                 browserNonce: mismatchedUserInfo.browserNonce,
                 currentEpoch: 7
             })

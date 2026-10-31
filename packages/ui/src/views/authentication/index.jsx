@@ -109,7 +109,7 @@ export default function AuthenticationSettings() {
                     .filter(Boolean),
                 version: oidc?.draft?.version || 0
             })
-            setOidc((current) => ({ ...current, draft: result.data.draft }))
+            setOidc((current) => ({ ...current, draft: result.data.draft, callbackUrl: result.data.callbackUrl }))
             await load()
         } catch (cause) {
             setError(cause?.response?.data?.message || 'OIDC settings could not be saved.')
@@ -231,7 +231,12 @@ export default function AuthenticationSettings() {
                                 oidc?.draft?.clientSecretPresent ? 'Value is set on this server.' : 'Value is not set on this server.'
                             }
                         />
-                        <TextField label='Callback URL' value={oidc?.callbackUrl || ''} InputProps={{ readOnly: true }} />
+                        <TextField
+                            label='Callback URL'
+                            value={oidc?.callbackUrl || ''}
+                            InputProps={{ readOnly: true }}
+                            helperText='Save the draft, then register this exact URL before Test sign-in.'
+                        />
                         {oidc?.callbackError && <Alert severity='error'>{oidc.callbackError}</Alert>}
                         <TextField label='Post-logout URL' value={oidc?.postLogoutUrl || ''} InputProps={{ readOnly: true }} />
                         <TextField label='Scopes' value='openid email profile' InputProps={{ readOnly: true }} />

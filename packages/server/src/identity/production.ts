@@ -18,7 +18,7 @@ import { Request } from 'express'
 import { DataSource } from 'typeorm'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
-import { cookieSecure, recentAuthenticationCookie } from './cookies'
+import { cookieSecure, oidcSessionCookieSecure, recentAuthenticationCookie } from './cookies'
 import { organizationsForUser, recordAudit } from './auditLog'
 import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
@@ -93,18 +93,23 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
     const state = req.query?.state
+    const activeMethod = selectedAuthenticationMethod()
+    const requestIsHttps = Boolean(req.secure) || req.protocol === 'https'
+    const secure = cookieSecure(redirectUri, requestIsHttps)
+    const oidcSecure = oidcSessionCookieSecure(requestIsHttps)
     return {
         dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
-        oidcActive: selectedAuthenticationMethod() === 'oidc',
+        oidcActive: activeMethod === 'oidc',
+        oidcSessionSecure: oidcSecure,
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,
-        secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
+        secure,
         now: Date.now(),
         ip: req.ip || req.socket?.remoteAddress || 'unknown',
         socketAddress: socketAddress(req.socket?.remoteAddress),
@@ -140,11 +145,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         },
         recordRecentAuthentication: async (userId) => {
             const recent = await recordRecentAuthentication(getDataSource(), userId)
-            return recentAuthenticationCookie(
-                recent.token,
-                cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
-                recent.expiresAt - Date.now()
-            )
+            return recentAuthenticationCookie(recent.token, activeMethod === 'oidc' ? oidcSecure : secure, recent.expiresAt - Date.now())
         },
         noteAudit: noteSignIn
     }

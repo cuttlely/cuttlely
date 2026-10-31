@@ -17,10 +17,11 @@ jest.mock('./production', () => ({
 jest.mock('./authenticationState', () => ({
     selectedAuthenticationMethod: () => mockCachedMethod
 }))
-jest.mock('./oidcRoutes', () => ({
-    oidcCallbackUrl: () => 'https://app.example/api/v1/auth/oidc/callback',
-    oidcInviteStartUrl: mockOidcInviteStartUrl
-}))
+jest.mock('./oidcRoutes', () => ({ oidcInviteStartUrl: mockOidcInviteStartUrl }))
+jest.mock('./cookies', () => {
+    const actual = jest.requireActual('./cookies')
+    return { ...actual, oidcSessionCookieSecure: () => true }
+})
 jest.mock('./handlers', () => {
     const actual = jest.requireActual('./handlers')
     return { ...actual, handleInviteStart: mockHandleInviteStart }

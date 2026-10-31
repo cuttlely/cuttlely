@@ -19,7 +19,7 @@ jest.mock('@/api/authenticationSettings', () => ({
         getOidc: jest.fn(() =>
             Promise.resolve({
                 data: {
-                    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback',
+                    callbackUrl: 'https://app.example/api/v1/auth/oidc/callback?provider=provider-1',
                     postLogoutUrl: 'https://app.example/signin',
                     linkMigrationComplete: true,
                     linkMigration: { complete: true, migrated: 0, inert: 2, error: null },
@@ -76,7 +76,8 @@ it('shows the OIDC setup status and derived URLs without a secret value', async 
     expect(container.textContent).toContain('Returned email: ada@example.com. Assurance: email_verified.')
     expect(container.textContent).toContain('2 legacy WorkOS subject links could not be attributed')
     expect(container.textContent).toContain('They remain inert and will not match this OIDC provider.')
-    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback"]')).not.toBeNull()
+    expect(container.querySelector('input[value="https://app.example/api/v1/auth/oidc/callback?provider=provider-1"]')).not.toBeNull()
+    expect(container.textContent).toContain('Save the draft, then register this exact URL before Test sign-in.')
     expect(container.querySelector('input[value="https://app.example/signin"]')).not.toBeNull()
     expect(container.querySelector('input[value="openid email profile"]')).not.toBeNull()
     expect(container.textContent).not.toContain('client-secret-value')

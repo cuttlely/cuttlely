@@ -30,6 +30,17 @@ import {
     WOS_SESSION_COOKIE
 } from './constants'
 import { SetCookie } from './types'
+import { publicOrigin } from './setupCode'
+
+export function oidcCallbackUrl(providerKey?: string, env: NodeJS.ProcessEnv = process.env): string {
+    const url = new URL(`${publicOrigin(env.PORT || '3000', env)}/api/v1/auth/oidc/callback`)
+    if (providerKey) url.searchParams.set('provider', providerKey)
+    return url.toString()
+}
+
+export function oidcSessionCookieSecure(httpsRequest: boolean, env: NodeJS.ProcessEnv = process.env): boolean {
+    return cookieSecure(oidcCallbackUrl(undefined, env), httpsRequest)
+}
 
 export function cookieSecure(redirectUri: string | undefined, httpsRequest: boolean): boolean {
     if (redirectUri?.startsWith('https://')) return true

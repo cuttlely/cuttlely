@@ -45,8 +45,8 @@ import { buildAuthContext } from './production'
 import { applySetupHeaders } from './sessionGuard'
 import { HandlerResult } from './types'
 import { selectedAuthenticationMethod } from './authenticationState'
-import { oidcCallbackUrl, oidcInviteStartUrl } from './oidcRoutes'
-import { cookieSecure, oidcBrowserCookie } from './cookies'
+import { oidcInviteStartUrl } from './oidcRoutes'
+import { oidcBrowserCookie, oidcSessionCookieSecure } from './cookies'
 
 function apply(res: Response, result: Exclude<HandlerResult, { type: 'next' }>): void {
     const secure = result.secure ?? result.cookies?.[0]?.options.secure ?? false
@@ -243,10 +243,7 @@ identityAuthRouter.post('/invite/start', (req, res, next) => {
         }
         void oidcInviteStartUrl(req, token)
             .then(({ url, browserNonce }) => {
-                const cookie = oidcBrowserCookie(
-                    browserNonce,
-                    cookieSecure(oidcCallbackUrl(), Boolean(req.secure) || req.protocol === 'https')
-                )
+                const cookie = oidcBrowserCookie(browserNonce, oidcSessionCookieSecure(Boolean(req.secure) || req.protocol === 'https'))
                 res.cookie(cookie.name, cookie.value, cookie.options).status(200).json({ url })
             })
             .catch(() => res.status(409).json({ message: 'OIDC sign-in could not start.' }))

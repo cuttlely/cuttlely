@@ -103,6 +103,8 @@ function app() {
             validateAPIKey: async (req) =>
                 req.headers.authorization === 'Bearer no-permission-key'
                     ? { isValid: true, apiKey: { id: 'key-0', workspaceId: 'ws-1', permissions: [] } }
+                    : req.headers.authorization === 'Bearer authentication-key'
+                    ? { isValid: true, apiKey: { id: 'key-auth', workspaceId: 'ws-1', permissions: ['authentication:manage'] } }
                     : req.headers.authorization === 'Bearer viewer-key'
                     ? { isValid: true, apiKey: { id: 'key-1', workspaceId: 'ws-1', permissions: ['chatflows:view'] } }
                     : { isValid: false },
@@ -264,6 +266,17 @@ describe('API key gate on the real API router', () => {
             const res = await app()[method](path)
             expect({ method, path, status: res.status, body: res.body }).toEqual({
                 method,
+                path,
+                status: 401,
+                body: { error: 'Unauthorized Access' }
+            })
+        }
+    })
+
+    it('refuses an API key on authentication settings even when it carries the management permission', async () => {
+        for (const path of ['/api/v1/authentication-settings', '/api/v1/authentication-settings/oidc']) {
+            const res = await app().get(path).set('Authorization', 'Bearer authentication-key')
+            expect({ path, status: res.status, body: res.body }).toEqual({
                 path,
                 status: 401,
                 body: { error: 'Unauthorized Access' }
