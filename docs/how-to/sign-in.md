@@ -2,19 +2,19 @@
 
 A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. That account is the **break-glass** account: it keeps working when nothing else does. When several people need to sign in, add WorkOS and let them sign in with their own identity. See [Sign in with WorkOS](#sign-in-with-workos). To let people who already have a password sign in without AuthKit, see [Users without AuthKit](./users-without-authkit.md). That switch is off by default. Invited people still have no password until a sign-in link exists.
 
-Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render turns the local password form off and uses WorkOS.
+Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render uses WorkOS and does not show an ordinary password form.
 
 ## Turn on the local account
 
-The password form shows only when the server runs with `CUTTLELY_LOCAL_ADMIN=true`, exactly `true`. A local install has it on by default.
+The owner password form shows when the durable active method is Local login, the server runs with `CUTTLELY_LOCAL_ADMIN=true`, and `CUTTLELY_LOCAL_USERS` is off. Creating the first owner with the setup link or `pnpm user` selects Local login in the same database transaction, so a fresh local install has that owner-only combination. An already-selected durable method is left unchanged. Existing owner-only installations that upgrade keep recovery access without automatically enabling ordinary Local login. When Local login is active and `CUTTLELY_LOCAL_USERS=true`, `/signin` shows the shared local-user form instead; the owner uses that form like any other active local user.
 
-| Install     | Default                                                                                                                                                                                                      |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| From source | On. `scripts/start-cuttlely.sh` sets it unless you set it yourself, `packages/server/.env` sets it, or `WORKOS_API_KEY` is set.                                                                              |
-| Docker      | On. The start script turns it on for Docker when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, when you use WorkOS or publish the port beyond your machine. |
-| Render      | Off. Set it in the Dashboard only to recover the account, then remove it.                                                                                                                                    |
+| Install     | Default                                                                                                                                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| From source | On for the default owner-only Local method. `scripts/start-cuttlely.sh` sets the flag unless you set it yourself, `packages/server/.env` sets it, or `WORKOS_API_KEY` is set.                               |
+| Docker      | On for the default owner-only Local method. The start script turns the flag on when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, for a WorkOS deployment. |
+| Render      | Off. Owner recovery is always available at `/owner-recovery`; run `pnpm user` first if the owner needs a password.                                                                                          |
 
-With the flag off and no WorkOS, the sign-in page says `Sign-in is not configured.` A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn a sign-in method back on.
+With the flag off, Local users off, and no active WorkOS method, the sign-in page says `Sign-in is not configured.` and still offers **Owner recovery**. A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn an ordinary sign-in method back on.
 
 ![The Sign In page. Under the Cuttlely logo and the Sign In title, the only line is Sign-in is not configured.](../images/sign-in/signin-not-configured.png)
 
@@ -35,11 +35,7 @@ The page reads the code, then removes it from the address. It opens **Sign-in & 
 
 Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A code lasts 60 minutes. A restart, or a second copy of the server on the same database, keeps a live code: the link printed first still works. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. While setup is still open, an expired code is replaced when a setup request finds it, or on a one-minute check, and the new link is printed. The ready block is printed again every five minutes while setup is still open, using that live code.
 
-If accounts already exist but no sign-in method is on (for example a `.env` that lost `CUTTLELY_LOCAL_ADMIN=true`), there is no setup link. The browser opens the Sign In page with **Sign-in is not configured.**, and the log says how to get back in:
-
-```text
-2026-10-09 12:00:00 [INFO]: 🔑 [server]: No sign-in method is on, so nobody can sign in. Turn on the password sign-in (CUTTLELY_LOCAL_ADMIN=true) or AuthKit on the host, then restart.
-```
+If accounts already exist but the candidate for the durable selected method is unavailable, there is no setup link. The browser opens the Sign In page with **Sign-in is not configured.** Environment settings make Local or WorkOS available as candidates; they do not change the recorded selection. Open `/owner-recovery`, using `pnpm user --email you@example.com` first if the owner needs a password, then fix the selected candidate or choose the ordinary method under **Admin** > **Auth / SSO**.
 
 ![Choose how people sign in. Two cards: Use a password for now, and Set up AuthKit. The note says this page works once.](../images/server-settings/setup-link-choose.png)
 
@@ -94,6 +90,8 @@ It ends with:
 [INFO]: Super User created for you@example.com.
 ```
 
+On a fresh owner-only install, this command selects Local login in the same transaction that creates the owner, just like browser setup. It does not replace a durable method that is already selected.
+
 The password needs 8 to 128 characters, with a lowercase letter, an uppercase letter, a digit, and a special character. A password that misses a rule is refused, with one line for each rule it misses:
 
 ```text
@@ -109,9 +107,11 @@ Without a terminal, for example in a script, the command reads the password from
 
 1. Open `/signin` on your server, for example [http://localhost:43117/signin](http://localhost:43117/signin). Opening any page while signed out also brings you here.
 2. Type your **Email** and **Password**.
-3. Select **Sign in**. With WorkOS also on, the button is **Sign in with password**, under **Sign in with WorkOS**.
+3. Select **Sign in**. On an owner-only Local installation, this posts to `POST /api/v1/auth/login` and creates an ordinary Local session.
 
-![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/sign-in/signin-break-glass.png)
+![The owner password form on the Sign In page, with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/sign-in/signin-break-glass.png)
+
+The screenshot shows the password form only. The live page for an owner-only Local installation also shows the discreet **Owner recovery** link below the form.
 
 The app opens **Chatflows**, or the page you were going to.
 
@@ -141,15 +141,15 @@ There is no **Forgot password** link. A lost password is reset with `pnpm user`,
 
 Use WorkOS when several people sign in. Cuttlely sends the browser to WorkOS AuthKit, and AuthKit checks who the person is. Teams, roles, permissions, workspaces, and API keys stay in Cuttlely's database.
 
-1. Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the server, plus the other WorkOS values in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md), and restart it. If people were signing in with local passwords, that restart turns those passwords off except the owner break-glass account, ends the local sessions that already exist, and links each verified AuthKit email to the one user with that mailbox. Two users with the same mailbox are not linked. See [Turn AuthKit on](./users-without-authkit.md#turn-authkit-on).
+1. Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the server, plus the other WorkOS values in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md), and restart it. Then open **Admin** > **Auth / SSO** and switch the ordinary method to WorkOS. That switch ends existing interactive sessions. Environment-only selection applies only to a fresh installation or a first boot with no durable authentication state. A verified AuthKit email links to the one user with that mailbox; two users with the same mailbox are not linked. See [Turn AuthKit on](./users-without-authkit.md#turn-authkit-on).
 2. On an empty database, also set `CUTTLELY_BOOTSTRAP_EMAIL`. The first person to sign in through AuthKit must have that verified email, and becomes the owner.
 3. Open `/signin`. It now shows **Sign in with WorkOS**. The button opens `/api/v1/auth/login`, for example `http://127.0.0.1:43117/api/v1/auth/login` on a local server.
 
-With the local flag also on, the page shows both the WorkOS button and the password form.
+While WorkOS is the durable active method, `/signin` shows the WorkOS button and the discreet **Owner recovery** link. It does not show an ordinary password form, even when `CUTTLELY_LOCAL_ADMIN=true`; use `/owner-recovery` when the owner needs the recovery path.
 
 To add people, see [Invite people](#invite-people). Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
 
-The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the session seal, and runs a real test sign-in with the new values before anything is saved. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
+The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the value used to seal one temporary setup-test session, and runs a real test sign-in with the new values before anything is saved. Application sessions remain database-backed. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
 
 Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md).
 
@@ -178,16 +178,16 @@ Field names and status codes are in [One-time links](../reference/auth-api.md#on
 
 ## Troubleshooting
 
-| You see                                                                       | What to do                                                                                                                                           |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Sign-in is not configured.`                                                  | Neither the local account nor WorkOS is on. Start the server with `CUTTLELY_LOCAL_ADMIN=true`, or set the WorkOS variables.                          |
-| `Invalid email or password.`                                                  | Check the email. To set a new password, run `pnpm user --email` with that email.                                                                     |
-| `Too many sign-in attempts. Try again later.`                                 | 10 failed tries in 15 minutes. Wait 15 minutes.                                                                                                      |
-| `Refusing to create a user while the local admin flag is off.`                | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                                    |
-| `No account exists for ...`                                                   | The install already has an owner, and the terminal only creates the first account. Use the owner's email to reset it, or add people with WorkOS.     |
-| `Not Found` while creating the first account                                  | An account already exists. Sign in instead.                                                                                                          |
-| `Open the setup link from the server log ...` on **Create the owner account** | The setup code was missing or wrong. Look for `Setup code` in `docker compose logs cuttlely`, or create the first account with `pnpm user` this way. |
-| `First-user setup is not available.` after WorkOS sign-in                     | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.           |
-| `You have a pending invite. Open the invite link from ...`                    | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                             |
-| `This invite link is not valid. Ask for a new invite.`                        | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite.     |
-| After moving a Flowise `3.1.4` install you cannot sign in                     | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                        |
+| You see                                                                       | What to do                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Sign-in is not configured.`                                                  | The candidate for the durable selected method is unavailable. Environment settings configure candidates; they do not change the recorded selection. Open `/owner-recovery`, use `pnpm user --email you@example.com` to set the owner password if needed, then fix that candidate or choose the ordinary method under **Admin** > **Auth / SSO**. |
+| `Invalid email or password.`                                                  | Check the email. To set a new password, run `pnpm user --email` with that email.                                                                                                                                                                                                                                                                 |
+| `Too many sign-in attempts. Try again later.`                                 | 10 failed tries in 15 minutes. Wait 15 minutes.                                                                                                                                                                                                                                                                                                  |
+| `Refusing to create a user while the local admin flag is off.`                | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                                                                                                                                                                                                                                |
+| `No account exists for ...`                                                   | The install already has an owner, and the terminal only creates the first account. Use the owner's email to reset it, or add people with WorkOS.                                                                                                                                                                                                 |
+| `Not Found` while creating the first account                                  | An account already exists. Sign in instead.                                                                                                                                                                                                                                                                                                      |
+| `Open the setup link from the server log ...` on **Create the owner account** | The setup code was missing or wrong. Look for `Setup code` in `docker compose logs cuttlely`, or create the first account with `pnpm user` this way.                                                                                                                                                                                             |
+| `First-user setup is not available.` after WorkOS sign-in                     | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.                                                                                                                                                                                                       |
+| `You have a pending invite. Open the invite link from ...`                    | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                                                                                                                                                                                                                         |
+| `This invite link is not valid. Ask for a new invite.`                        | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite.                                                                                                                                                                                                 |
+| After moving a Flowise `3.1.4` install you cannot sign in                     | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                                                                                                                                                                                                                    |

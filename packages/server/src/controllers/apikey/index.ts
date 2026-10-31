@@ -21,7 +21,8 @@ function actor(user: LoggedInUser | undefined) {
         activeOrganizationId: user.activeOrganizationId ?? undefined,
         activeOrganizationSubscriptionId: user.activeOrganizationSubscriptionId ?? undefined,
         activeOrganizationCustomerId: user.activeOrganizationCustomerId ?? undefined,
-        activeWorkspaceId: user.activeWorkspaceId
+        activeWorkspaceId: user.activeWorkspaceId,
+        apiKeyOwnerUserId: user.apiKeyOwnerUserId
     }
 }
 

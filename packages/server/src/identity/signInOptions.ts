@@ -11,7 +11,8 @@
  */
 
 import { AuthKitSwitchState } from './authKitSwitch'
-import { localAdminEnabled, localUsersMode, workosConfigured } from './constants'
+import type { AuthenticationMethod, AuthenticationState } from './authenticationState'
+import { localAdminEnabled, localUsersMode, localUsersSetting, workosConfigured, workosEnvironmentConfigured } from './constants'
 
 export interface SignInOptions {
     authKit: boolean
@@ -19,6 +20,8 @@ export interface SignInOptions {
     /** True only when CUTTLELY_LOCAL_USERS is exactly true and AuthKit is not configured. */
     localUsers: boolean
     mail: boolean
+    /** The separate owner recovery page is always present. */
+    ownerRecovery: true
 }
 
 export const SIGN_IN_METHOD = {
@@ -37,19 +40,29 @@ export function mailConfigured(_env: NodeJS.ProcessEnv = process.env): boolean {
     return false
 }
 
-/** Public flags for the sign-in screen. The password form is on only when the break-glass flag is exactly true. */
-export function signInOptionsBody(env: NodeJS.ProcessEnv = process.env): SignInOptions {
+/** Public flags for the sign-in screen. A supplied durable method takes precedence over environment inference. */
+export function signInOptionsBody(
+    env: NodeJS.ProcessEnv = process.env,
+    activeMethod: AuthenticationMethod | null | undefined = undefined
+): SignInOptions {
+    const durable = activeMethod !== undefined
+    const authKit = durable ? activeMethod === 'workos' && workosEnvironmentConfigured(env) : workosConfigured(env)
+    const localUsers = durable ? activeMethod === 'local' && localUsersSetting(env) : localUsersMode(env)
     return {
-        authKit: workosConfigured(env),
-        localAdmin: localAdminEnabled(env),
-        localUsers: localUsersMode(env),
-        mail: mailConfigured(env)
+        authKit,
+        localAdmin: localAdminEnabled(env) && (durable ? activeMethod === 'local' : !authKit) && !localUsers,
+        localUsers,
+        mail: mailConfigured(env),
+        ownerRecovery: true
     }
 }
 
 /** Names of the methods that are on. Methods that are off are omitted. */
-export function enabledSignInMethods(env: NodeJS.ProcessEnv = process.env): { methods: string[] } {
-    const options = signInOptionsBody(env)
+export function enabledSignInMethods(
+    env: NodeJS.ProcessEnv = process.env,
+    activeMethod: AuthenticationMethod | null | undefined = undefined
+): { methods: string[] } {
+    const options = signInOptionsBody(env, activeMethod)
     const methods: string[] = []
     if (options.authKit) methods.push(SIGN_IN_METHOD.authKit)
     if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
@@ -76,20 +89,36 @@ export interface AuthOptionsStatus {
     sessionsEnded: number
 }
 
-/** Public body for GET /api/v1/auth/options. `state` is the recorded switch, or null before it has run. */
+type AuthOptionsState = Pick<AuthenticationState, 'activeMethod' | 'sessionsEnded' | 'changedAt'> | AuthKitSwitchState
+
+function isDurableState(state: AuthOptionsState): state is Pick<AuthenticationState, 'activeMethod' | 'sessionsEnded' | 'changedAt'> {
+    return 'activeMethod' in state
+}
+
+/** Public body for GET /api/v1/auth/options. Durable method state takes precedence over the older switch row. */
 export function authOptionsBody(
     env: NodeJS.ProcessEnv = process.env,
-    state: AuthKitSwitchState | null = null
+    state: AuthOptionsState | null = null
 ): { methods: string[]; status: AuthOptionsStatus } {
+    const durable = state && isDurableState(state) ? state : null
+    const legacy = state && !isDurableState(state) ? state : null
     const options = signInOptionsBody(env)
+    const authKit = durable ? durable.activeMethod === 'workos' && workosEnvironmentConfigured(env) : options.authKit
+    const localPasswordSignIn = durable ? durable.activeMethod === 'local' && localUsersSetting(env) : options.localUsers
     let localSessions: LocalSessionSwitchStatus = 'open'
-    if (options.authKit) localSessions = state?.configured ? 'ended' : 'pending'
+    if (durable) localSessions = durable.activeMethod === 'workos' ? 'ended' : 'open'
+    else if (options.authKit) localSessions = legacy?.configured ? 'ended' : 'pending'
+    const methods: string[] = []
+    if (authKit) methods.push(SIGN_IN_METHOD.authKit)
+    if (localAdminEnabled(env)) methods.push(SIGN_IN_METHOD.localAdmin)
+    if (localPasswordSignIn) methods.push(SIGN_IN_METHOD.localUsers)
+    if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return {
-        methods: enabledSignInMethods(env).methods,
+        methods,
         status: {
-            authKit: options.authKit,
-            localPasswordSignIn: options.localUsers,
-            breakGlassOwner: options.localAdmin,
+            authKit,
+            localPasswordSignIn,
+            breakGlassOwner: localAdminEnabled(env),
             localSessions,
             sessionsEnded: state?.sessionsEnded ?? 0
         }

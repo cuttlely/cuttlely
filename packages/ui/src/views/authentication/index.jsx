@@ -21,6 +21,7 @@ import api from '@/api/authenticationSettings'
 import { RECOVERY_FIX } from './RecoveryWarningBanner'
 
 const label = (method) => (method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : 'No ordinary method')
+export const reauthenticationTarget = (method) => (method === 'workos' ? '/owner-recovery' : '/signin?reauth=1')
 
 export default function AuthenticationSettings() {
     const [data, setData] = useState(null)
@@ -28,6 +29,7 @@ export default function AuthenticationSettings() {
     const [choice, setChoice] = useState('')
     const [stage, setStage] = useState(null)
     const [confirm, setConfirm] = useState('')
+    const [warningConfirmationOpen, setWarningConfirmationOpen] = useState(false)
     const load = () =>
         api
             .get()
@@ -57,15 +59,26 @@ export default function AuthenticationSettings() {
         }
     }
     const reauthenticate = () => {
-        window.location.assign(data?.activeMethod === 'workos' ? '/api/v1/auth/reauthenticate' : '/signin?reauth=1')
+        window.location.assign(reauthenticationTarget(data?.activeMethod))
     }
     const acknowledgeWarning = async () => {
         setError('')
         try {
-            await api.acknowledgeWarning(data.version)
-            await load()
+            const result = (await api.acknowledgeWarning(data.version)).data
+            setWarningConfirmationOpen(false)
+            window.location.assign(result.redirectTo)
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The warning could not be acknowledged.')
+        }
+    }
+    const acknowledgeRecoveryAlert = async () => {
+        setError('')
+        try {
+            await api.acknowledgeRecoveryAlert(data.recovery.alert.id)
+            await load()
+            window.dispatchEvent(new Event('cuttlely:recovery-alert-acknowledged'))
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'The recovery alert could not be acknowledged.')
         }
     }
     const workosBlockedByRecovery = Boolean(data?.methods.workos.configured && !data?.recovery.available)
@@ -75,14 +88,28 @@ export default function AuthenticationSettings() {
                 {error && <Alert severity='error'>{error}</Alert>}
                 {data && !data.recovery.available && (
                     <Alert severity='error' data-testid='owner-recovery-blocking-warning'>
-                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of WorkOS is refused.
+                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of a remote method is refused.
+                    </Alert>
+                )}
+                {data?.recovery?.alert && (
+                    <Alert
+                        severity='warning'
+                        data-testid='owner-recovery-alert'
+                        action={
+                            <Button color='inherit' size='small' onClick={acknowledgeRecoveryAlert}>
+                                Acknowledge
+                            </Button>
+                        }
+                    >
+                        An owner recovery sign-in occurred at {new Date(data.recovery.alert.occurredAt).toLocaleString()}. Review the audit
+                        log.
                     </Alert>
                 )}
                 {data?.warning && data.warningKind === 'workos-client-mismatch' && (
                     <Alert
                         severity='warning'
                         action={
-                            <Button color='inherit' size='small' onClick={acknowledgeWarning}>
+                            <Button color='inherit' size='small' onClick={() => setWarningConfirmationOpen(true)}>
                                 Acknowledge
                             </Button>
                         }
@@ -98,6 +125,12 @@ export default function AuthenticationSettings() {
                         <Typography color='text.secondary'>
                             Changing the method ends every interactive session. API keys remain enabled.
                         </Typography>
+                        <Typography color='text.secondary' data-testid='authentication-last-change'>
+                            Last change: {data?.changedAt ? new Date(data.changedAt).toLocaleString() : 'No method change recorded'}
+                        </Typography>
+                        <Typography color='text.secondary' data-testid='authentication-sessions-ended'>
+                            Sessions ended by the last change: {data?.sessionsEnded ?? 0}
+                        </Typography>
                     </Stack>
                 </Paper>
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
@@ -108,8 +141,16 @@ export default function AuthenticationSettings() {
                         <FormControlLabel
                             value='local'
                             control={<Radio />}
-                            disabled={!data?.methods.local.configured}
-                            label={`Local login${data?.methods.local.configured ? '' : ' — not configured'}`}
+                            disabled={!data?.methods.local.selectable}
+                            label={`Local login${
+                                !data?.methods.local.configured
+                                    ? ' — not configured'
+                                    : data?.methods.local.scope === 'owner-only'
+                                    ? ' — owner only'
+                                    : data?.methods.local.scope === 'local-users'
+                                    ? ' — local users'
+                                    : ''
+                            }`}
                         />
                         <FormControlLabel
                             value='workos'
@@ -129,12 +170,16 @@ export default function AuthenticationSettings() {
                         Review change
                     </Button>
                     <Button sx={{ ml: 1 }} onClick={reauthenticate}>
-                        Sign in again
+                        {data?.activeMethod === 'workos' ? 'Use Owner recovery' : 'Sign in again'}
                     </Button>
                     {data?.activeMethod === 'workos' && (
                         <Typography color='text.secondary' sx={{ mt: 1 }}>
-                            WorkOS satisfies this check only when it proves the sign-in time. If it cannot, use a local owner password at
-                            /signin?reauth=1.
+                            A WorkOS sign-in never counts as recent authentication. Use <strong>Owner recovery</strong> to continue.
+                        </Typography>
+                    )}
+                    {data?.activeMethod === 'local' && (
+                        <Typography color='text.secondary' sx={{ mt: 1 }}>
+                            Sign in with the local password again, or use <strong>Owner recovery</strong>.
                         </Typography>
                     )}
                 </Paper>
@@ -143,7 +188,8 @@ export default function AuthenticationSettings() {
                         <Box>
                             <Typography variant='h4'>Owner recovery</Typography>
                             <Typography color='text.secondary'>
-                                WorkOS can be activated only while the recovery route is enabled and an active owner has a usable password.
+                                The recovery route is always available. A remote method can be activated only while an active owner has a
+                                usable local password.
                             </Typography>
                         </Box>
                         <Chip
@@ -169,6 +215,18 @@ export default function AuthenticationSettings() {
                     <Button onClick={() => setStage(null)}>Cancel</Button>
                     <Button color='error' variant='contained' disabled={confirm !== 'END SESSIONS'} onClick={apply}>
                         Change method
+                    </Button>
+                </DialogActions>
+            </Dialog>
+            <Dialog open={warningConfirmationOpen} onClose={() => setWarningConfirmationOpen(false)}>
+                <DialogTitle>Acknowledge and end all interactive sessions?</DialogTitle>
+                <DialogContent>
+                    <Alert severity='warning'>Everyone, including you, must sign in again.</Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setWarningConfirmationOpen(false)}>Cancel</Button>
+                    <Button color='error' variant='contained' onClick={acknowledgeWarning}>
+                        Acknowledge and end sessions
                     </Button>
                 </DialogActions>
             </Dialog>

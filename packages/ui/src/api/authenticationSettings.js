@@ -11,5 +11,6 @@ export default {
             stateVersion: staged.stateVersion,
             confirm
         }),
-    acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version })
+    acknowledgeWarning: (version) => client.post('/authentication-settings/acknowledge-warning', { version }),
+    acknowledgeRecoveryAlert: (id) => client.post('/authentication-settings/acknowledge-recovery-alert', { id })
 }

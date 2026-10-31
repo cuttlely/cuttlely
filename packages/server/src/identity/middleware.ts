@@ -32,6 +32,7 @@ const HANDLED_BY_ROUTE = new Set(
         '/api/v1/auth/resolve',
         '/api/v1/auth/options',
         '/api/v1/auth/local/login',
+        '/api/v1/auth/recovery/login',
         '/api/v1/auth/local/logout',
         '/api/v1/auth/local/password',
         '/api/v1/account/logout',
