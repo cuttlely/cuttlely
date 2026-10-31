@@ -57,7 +57,7 @@ For first-time identity linking, the email and its assurance come from the same 
 
 Both OIDC start routes require the derived callback to use HTTPS. HTTP is accepted only for a callback host of `localhost`, `127.0.0.1`, or `::1` during local development. Configure the origin with `APP_URL`.
 
-These OIDC limits are per client address and per server process, over 15 minutes: 600 ordinary starts, 300 reauthentication starts, and 1,200 callbacks. All start paths share one 20-failure limit, and callbacks have a separate 20-failure limit. A restart clears the counts. With several replicas, each replica has its own complete limits, so the effective total can be multiplied by the replica count. `TRUST_PROXY` controls which address the server counts behind a proxy.
+These OIDC limits are per client address and per server process, over 15 minutes: 600 ordinary starts, 300 reauthentication starts, and 1,200 callbacks. Ordinary, reauthentication, and invitation starts share one 20-failure limit, and callbacks have a separate 20-failure limit. Administrator test starts have their own 10-request limit and do not use the shared start-failure limit. A restart clears the counts. With several replicas, each replica has its own complete limits, so the effective total can be multiplied by the replica count. `TRUST_PROXY` controls which address the server counts behind a proxy.
 
 ## OIDC administrator settings
 

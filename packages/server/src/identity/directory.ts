@@ -358,14 +358,15 @@ function inviteBody(body: unknown): InviteBody {
     const user = record.user && typeof record.user === 'object' ? (record.user as Record<string, unknown>) : {}
     const workspace = record.workspace && typeof record.workspace === 'object' ? (record.workspace as Record<string, unknown>) : {}
     const role = record.role && typeof record.role === 'object' ? (record.role as Record<string, unknown>) : {}
-    const name = text(user.name).trim()
+    const providedName = text(user.name).trim()
     const email = text(user.email).trim()
     const workspaceId = text(workspace.id).trim()
     const roleId = text(role.id).trim()
-    if (!name || name.length > 100) throw new DirectoryError(400, 'Name is required')
+    if (providedName.length > 100) throw new DirectoryError(400, 'Name is required')
     if (!isEmailAddress(email)) throw new DirectoryError(400, 'Enter a valid email')
     if (!workspaceId) throw new DirectoryError(400, 'Choose a team')
     if (!roleId) throw new DirectoryError(400, 'Choose a role')
+    const name = providedName || email.slice(0, email.indexOf('@')).slice(0, 100)
     return { name, email, workspaceId, roleId }
 }
 

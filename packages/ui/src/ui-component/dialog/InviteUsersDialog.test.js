@@ -1,6 +1,42 @@
-import { invitationResults } from './invitePayload'
+import { invitationResults, submitInvitations } from './invitePayload'
 
 describe('bulk invitation links', () => {
+    it('submits new email invitations without names', async () => {
+        const inviteAccount = jest
+            .fn()
+            .mockResolvedValueOnce({ data: { id: 'ada' } })
+            .mockResolvedValueOnce({ data: { id: 'grace' } })
+        const addWorkspaceUser = jest.fn()
+
+        await expect(
+            submitInvitations({
+                selectedUsers: [
+                    { isNewUser: true, email: 'ada@example.com' },
+                    { isNewUser: true, email: 'grace@example.com' }
+                ],
+                currentUserId: 'owner-1',
+                workspaceId: 'team-1',
+                roleId: 'role-1',
+                inviteAccount,
+                addWorkspaceUser
+            })
+        ).resolves.toEqual([{ id: 'ada' }, { id: 'grace' }])
+        expect(inviteAccount).toHaveBeenCalledTimes(2)
+        expect(inviteAccount.mock.calls.map(([request]) => request)).toEqual([
+            {
+                user: { email: 'ada@example.com', createdBy: 'owner-1' },
+                workspace: { id: 'team-1' },
+                role: { id: 'role-1' }
+            },
+            {
+                user: { email: 'grace@example.com', createdBy: 'owner-1' },
+                workspace: { id: 'team-1' },
+                role: { id: 'role-1' }
+            }
+        ])
+        expect(addWorkspaceUser).not.toHaveBeenCalled()
+    })
+
     it('keeps returned links paired with their email and leaves the dialog open', () => {
         const selected = [
             { isNewUser: true, email: 'ada@example.com' },

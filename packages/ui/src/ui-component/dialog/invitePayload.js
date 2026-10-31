@@ -20,3 +20,25 @@ export function invitationResults(selectedUsers, responses) {
     })
     return { links, keepOpen: links.length > 0 }
 }
+
+export function submitInvitations({ selectedUsers, currentUserId, workspaceId, roleId, inviteAccount, addWorkspaceUser }) {
+    return Promise.all(
+        selectedUsers.map((item) => {
+            if (!item.isNewUser) {
+                return addWorkspaceUser({
+                    userId: item.user.id,
+                    workspaceId,
+                    roleId
+                }).then((response) => response.data)
+            }
+
+            const request = invitationPayload({
+                email: item.email,
+                createdBy: currentUserId,
+                workspaceId,
+                roleId
+            })
+            return inviteAccount(request).then((response) => response.data)
+        })
+    )
+}

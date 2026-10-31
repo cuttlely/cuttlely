@@ -376,6 +376,27 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         return linkWorkosUser(db.store, identity(email, id), { inviteToken: token, now })
     }
 
+    maybe('accepts two new-email invitation payloads without names', async () => {
+        const first = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { email: 'ada.lovelace@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps()
+        )
+        const second = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { email: 'grace@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps()
+        )
+
+        expect(first.id).not.toBe(second.id)
+        expect(await db.rows(`SELECT name, email FROM "user" WHERE id IN (?, ?) ORDER BY email`, [first.id, second.id])).toEqual([
+            { name: 'ada.lovelace', email: 'ada.lovelace@example.com' },
+            { name: 'grace', email: 'grace@example.com' }
+        ])
+    })
+
     maybe('email-match sign-in without a token leaves the user pending and grants no workspace access', async () => {
         const ada = await invite('ada@example.com')
         expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })

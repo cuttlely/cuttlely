@@ -185,6 +185,23 @@ describe('add an existing user to another team', () => {
 })
 
 describe('directory users', () => {
+    it('derives a name for a no-name invitation and keeps an explicit name', async () => {
+        const { sql, db } = memorySql()
+        const derived = await createEmailUser(sql, actor, {
+            user: { email: 'ada.lovelace@example.com' },
+            workspace: { id: TEAM },
+            role: { id: ROLE }
+        })
+        const explicit = await createEmailUser(sql, actor, {
+            user: { name: 'Grace Hopper', email: 'grace@example.com' },
+            workspace: { id: TEAM },
+            role: { id: ROLE }
+        })
+
+        expect(db.prepare('SELECT name FROM "user" WHERE id = ?').all(derived.id)).toEqual([{ name: 'ada.lovelace' }])
+        expect(db.prepare('SELECT name FROM "user" WHERE id = ?').all(explicit.id)).toEqual([{ name: 'Grace Hopper' }])
+    })
+
     it('creates a pending email-only user and does not store a password', async () => {
         const { sql, db } = memorySql()
         const created = await createEmailUser(sql, actor, {
