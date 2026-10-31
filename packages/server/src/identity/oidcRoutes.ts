@@ -24,6 +24,7 @@ import {
     OidcError
 } from './oidcProvider'
 import {
+    isEntraAuthorityIssuer,
     migrateLegacyProviderLinks,
     oidcConfigurationFingerprint,
     providerLinkMigrationStatus,
@@ -404,7 +405,7 @@ oidcAuthRouter.get(
                 const basis =
                     completed.identity.emailVerified === true
                         ? 'email_verified'
-                        : completed.identity.xmsEdov === true && new URL(completed.identity.issuer).hostname === 'login.microsoftonline.com'
+                        : completed.identity.xmsEdov === true && isEntraAuthorityIssuer(completed.identity.issuer)
                         ? 'xms_edov'
                         : completed.identity.emailVerified === undefined &&
                           completed.identity.emailVerificationPresent !== true &&

@@ -42,6 +42,22 @@ export interface ProviderLinkMigrationStatus {
     error: string | null
 }
 
+const ENTRA_AUTHORITY_HOSTS = new Set([
+    'login.microsoftonline.com',
+    'login.microsoftonline.us',
+    'login.chinacloudapi.cn',
+    'login.partner.microsoftonline.cn'
+])
+
+export function isEntraAuthorityIssuer(issuer: string): boolean {
+    try {
+        const parsed = new URL(issuer)
+        return parsed.protocol === 'https:' && ENTRA_AUTHORITY_HOSTS.has(parsed.hostname.toLowerCase())
+    } catch {
+        return false
+    }
+}
+
 export function validatedOidcIssuer(value: unknown): string | null {
     if (typeof value !== 'string') return null
     const issuer = value.trim()
@@ -438,25 +454,43 @@ export async function migrateLegacyProviderLinks(
                 'externalId'
             )} FROM ${q(d, 'user')} WHERE ${q(d, 'externalId')} IS NOT NULL AND ${q(d, 'externalId')} <> ''`
         )
-        const workosProviderKey = state.activeMethod === 'workos' ? state.providerKey : null
+        const markers = await query(runner, `SELECT * FROM ${q(d, 'identity_provider_link_migration')} WHERE ${q(d, 'id')} = 1`)
+        const previous = markers[0]
+        const previousProviderKey = previous && cell(previous, 'providerKey') ? String(cell(previous, 'providerKey')) : null
+        const activeWorkosProviderKey = state.activeMethod === 'workos' ? state.providerKey : null
+        const workosProviderKey = activeWorkosProviderKey || previousProviderKey
+        const sameProvider = Boolean(previous) && previousProviderKey === workosProviderKey
         let error: string | null = null
         if (existing.length && state.warningKind === 'workos-client-mismatch') error = 'WorkOS configuration review is required.'
-        const inert = existing.length && !workosProviderKey && !error ? existing.length : 0
-        let migrated = 0
-        if (!error && workosProviderKey) {
+        let inert = 0
+        let migrated = sameProvider && previous ? Number(cell(previous, 'migratedCount') || 0) : 0
+        if (!error) {
             for (const row of existing) {
                 const subject = String(cell(row, 'externalId'))
                 const userId = String(cell(row, 'id'))
-                const linked = await query(
-                    runner,
-                    `SELECT ${q(d, 'userId')} AS ${q(d, 'userId')} FROM ${q(d, 'identity_provider_link')} WHERE ${q(
-                        d,
-                        'providerKey'
-                    )} = ? AND ${q(d, 'subject')} = ?`,
-                    [workosProviderKey, subject]
-                )
+                const linked = workosProviderKey
+                    ? await query(
+                          runner,
+                          `SELECT ${q(d, 'userId')} AS ${q(d, 'userId')} FROM ${q(d, 'identity_provider_link')} WHERE ${q(
+                              d,
+                              'providerKey'
+                          )} = ? AND ${q(d, 'subject')} = ?`,
+                          [workosProviderKey, subject]
+                      )
+                    : await query(
+                          runner,
+                          `SELECT ${q(d, 'userId')} AS ${q(d, 'userId')} FROM ${q(d, 'identity_provider_link')} WHERE ${q(
+                              d,
+                              'subject'
+                          )} = ? AND ${q(d, 'assuranceBasis')} = 'workos_legacy'`,
+                          [subject]
+                      )
                 if (linked.length) {
                     if (String(cell(linked[0], 'userId')) !== userId) throw new Error('Legacy identity link conflict.')
+                    continue
+                }
+                if (!activeWorkosProviderKey || workosProviderKey !== activeWorkosProviderKey) {
+                    inert += 1
                     continue
                 }
                 const columns = `${q(d, 'providerKey')}, ${q(d, 'subject')}, ${q(d, 'userId')}, ${q(d, 'emailAtLink')}, ${q(
@@ -497,7 +531,22 @@ export async function migrateLegacyProviderLinks(
             d,
             'completedAt'
         )}, ${q(d, 'error')}`
-        const markerValues = [workosProviderKey, migrated, inert, error ? null : dateValue(runner, Date.now()), error]
+        const previousCompletedAt = previous && cell(previous, 'completedAt')
+        const markerUnchanged =
+            previous !== undefined &&
+            sameProvider &&
+            !error &&
+            !cell(previous, 'error') &&
+            migrated === Number(cell(previous, 'migratedCount') || 0) &&
+            inert === Number(cell(previous, 'inertCount') || 0) &&
+            Boolean(previousCompletedAt)
+        const markerValues = [
+            workosProviderKey,
+            migrated,
+            inert,
+            error ? null : markerUnchanged ? previousCompletedAt : dateValue(runner, Date.now()),
+            error
+        ]
         await query(
             runner,
             d === 'mysql' || d === 'mariadb'
@@ -590,7 +639,7 @@ export async function resolveOidcUser(
     const email = identity.email ? mailboxKey(identity.email) : ''
     if (!email) return { ok: false, reason: 'email_required' }
     if (identity.emailVerified === false) return { ok: false, reason: 'email_not_assured' }
-    const entra = new URL(identity.issuer).hostname.toLowerCase() === 'login.microsoftonline.com' && identity.xmsEdov === true
+    const entra = isEntraAuthorityIssuer(identity.issuer) && identity.xmsEdov === true
     const basis =
         identity.emailVerified === true
             ? 'email_verified'

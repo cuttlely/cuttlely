@@ -38,6 +38,7 @@ export const ACCOUNT_LOCK_CAP = 1024
 export const OIDC_LOGIN_START_LIMIT = 600
 export const OIDC_CALLBACK_LIMIT = 1200
 export const OIDC_FAILURE_LIMIT = 20
+export const OIDC_FAILURE_ADDRESS_CAP = 1024
 export const OIDC_ADMIN_WRITE_LIMIT = 10
 export const OIDC_TEST_START_LIMIT = 10
 
@@ -123,27 +124,46 @@ export class LoginRateLimit implements LoginLimiter {
 export class IdentityFailureRateLimit {
     private readonly failures = new Map<string, number[]>()
 
-    constructor(private readonly limit: number, private readonly windowMs = LOGIN_FAILURE_WINDOW_MS) {}
+    constructor(
+        private readonly limit: number,
+        private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
+        private readonly addressCap = OIDC_FAILURE_ADDRESS_CAP
+    ) {}
 
     blocked(address: string, now = Date.now()): boolean {
-        return this.current(address, now).length >= this.limit
+        this.sweep(now)
+        return (this.failures.get(address) || []).length >= this.limit
     }
 
     recordFailure(address: string, now = Date.now()): void {
-        const current = this.current(address, now)
+        this.sweep(now)
+        const current = this.failures.get(address) || []
+        if (!this.failures.has(address) && this.failures.size >= Math.max(1, this.addressCap)) {
+            const oldest = this.failures.keys().next().value as string | undefined
+            if (oldest !== undefined) this.failures.delete(oldest)
+        }
         current.push(now)
+        // Map order tracks the most recent failure, so the first entry is the eviction candidate.
+        this.failures.delete(address)
         this.failures.set(address, current)
     }
 
     retained(address: string, now = Date.now()): number {
-        return this.current(address, now).length
+        this.sweep(now)
+        return (this.failures.get(address) || []).length
     }
 
-    private current(address: string, now: number): number[] {
-        const current = (this.failures.get(address) || []).filter((at) => now - at < this.windowMs)
-        if (current.length) this.failures.set(address, current)
-        else this.failures.delete(address)
-        return current
+    addressBuckets(now = Date.now()): number {
+        this.sweep(now)
+        return this.failures.size
+    }
+
+    private sweep(now: number): void {
+        for (const [address, failures] of this.failures) {
+            const current = failures.filter((at) => now - at < this.windowMs)
+            if (current.length) this.failures.set(address, current)
+            else this.failures.delete(address)
+        }
     }
 }
 

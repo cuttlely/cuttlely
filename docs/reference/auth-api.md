@@ -53,6 +53,8 @@ The body has no emails, cookies, or session ids. A missing session is still 200.
 
 Both OIDC start routes require the derived callback to use HTTPS. HTTP is accepted only for a callback host of `localhost`, `127.0.0.1`, or `::1` during local development. Configure the origin with `APP_URL`.
 
+These OIDC limits are per client address and per server process, over 15 minutes: 600 ordinary starts, 300 reauthentication starts, and 1,200 callbacks. All start paths share one 20-failure limit, and callbacks have a separate 20-failure limit. A restart clears the counts. With several replicas, each replica has its own complete limits, so the effective total can be multiplied by the replica count. `TRUST_PROXY` controls which address the server counts behind a proxy.
+
 ## Flag combinations
 
 `POST /api/v1/auth/local/login` is 404 unless Local is active and `CUTTLELY_LOCAL_USERS=true`. The owner route `POST /api/v1/auth/login` stays on its own flag and still accepts only the owner.

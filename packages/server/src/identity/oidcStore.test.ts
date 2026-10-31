@@ -9,6 +9,7 @@ import {
     createOidcTransaction,
     createProviderLink,
     findProviderLink,
+    isEntraAuthorityIssuer,
     migrateLegacyProviderLinks,
     oidcConfigurationFingerprint,
     oidcProviderKey,
@@ -149,7 +150,7 @@ describe('provider-scoped identity links', () => {
             warningKind: null
         })
         expect(first).toEqual({ complete: true, migrated: 1, inert: 0, error: null })
-        expect(second).toEqual({ complete: true, migrated: 0, inert: 0, error: null })
+        expect(second).toEqual({ complete: true, migrated: 1, inert: 0, error: null })
         expect(await findProviderLink(db.source, 'workos-provider', 'subject-1')).toMatchObject({
             userId: 'user-1',
             emailAtLink: 'ada@example.com',
@@ -157,6 +158,30 @@ describe('provider-scoped identity links', () => {
         })
         expect(await db.rows('SELECT "externalId" AS value FROM "user"')).toEqual([{ value: 'subject-1' }])
         expect(await providerLinkMigrationComplete(db.source)).toBe(true)
+        db.close()
+    })
+
+    it('keeps the legacy migration marker stable after OIDC activation', async () => {
+        const db = database()
+        const runner = db.source.createQueryRunner()
+        await addOidcProvider(runner)
+        await runner.query('INSERT INTO "user" (id, email, "externalId", status) VALUES (?, ?, ?, ?)', [
+            'user-1',
+            'ada@example.com',
+            'subject-1',
+            'active'
+        ])
+        await migrateLegacyProviderLinks(db.source, {
+            activeMethod: 'workos',
+            providerKey: 'workos-provider',
+            warningKind: null
+        })
+        const before = await db.rows('SELECT * FROM identity_provider_link_migration')
+
+        await expect(
+            migrateLegacyProviderLinks(db.source, { activeMethod: 'oidc', providerKey: 'oidc-provider', warningKind: null })
+        ).resolves.toEqual({ complete: true, migrated: 1, inert: 0, error: null })
+        expect(await db.rows('SELECT * FROM identity_provider_link_migration')).toEqual(before)
         db.close()
     })
 
@@ -254,6 +279,73 @@ describe('provider-scoped identity links', () => {
             )
         ).resolves.toMatchObject({ ok: true, basis })
         db.close()
+    })
+
+    it.each(['login.microsoftonline.com', 'login.microsoftonline.us', 'login.chinacloudapi.cn', 'login.partner.microsoftonline.cn'])(
+        'accepts xms_edov from the HTTPS Entra authority host %s',
+        async (host) => {
+            const db = database()
+            await addOidcProvider(db.source.createQueryRunner())
+            await expect(
+                resolveOidcUser(
+                    db.source,
+                    store([user('user-1', 'ada@example.com')]),
+                    {
+                        providerKey: `provider-${host}`,
+                        subject: `subject-${host}`,
+                        issuer: `https://${host}/tenant/v2.0`,
+                        email: 'ada@example.com',
+                        xmsEdov: true
+                    },
+                    { trustMissing: false }
+                )
+            ).resolves.toMatchObject({ ok: true, basis: 'xms_edov' })
+            db.close()
+        }
+    )
+
+    it.each(['https://login.microsoftonline.com.example/tenant', 'http://login.microsoftonline.com/tenant'])(
+        'does not accept xms_edov from %s',
+        async (issuer) => {
+            const db = database()
+            await addOidcProvider(db.source.createQueryRunner())
+            await expect(
+                resolveOidcUser(
+                    db.source,
+                    store([user('user-1', 'ada@example.com')]),
+                    { providerKey: 'provider', subject: 'subject', issuer, email: 'ada@example.com', xmsEdov: true },
+                    { trustMissing: false }
+                )
+            ).resolves.toMatchObject({ ok: false, reason: 'email_not_assured' })
+            db.close()
+        }
+    )
+
+    it('keeps explicit email_verified=false authoritative for an Entra authority', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        await expect(
+            resolveOidcUser(
+                db.source,
+                store([user('user-1', 'ada@example.com')]),
+                {
+                    providerKey: 'provider',
+                    subject: 'subject',
+                    issuer: 'https://login.microsoftonline.us/tenant',
+                    email: 'ada@example.com',
+                    emailVerified: false,
+                    xmsEdov: true
+                },
+                { trustMissing: true }
+            )
+        ).resolves.toMatchObject({ ok: false, reason: 'email_not_assured' })
+        db.close()
+    })
+
+    it('matches Entra authorities by HTTPS host only', () => {
+        expect(isEntraAuthorityIssuer('https://login.partner.microsoftonline.cn/tenant')).toBe(true)
+        expect(isEntraAuthorityIssuer('https://login.partner.microsoftonline.cn.example/tenant')).toBe(false)
+        expect(isEntraAuthorityIssuer('http://login.partner.microsoftonline.cn/tenant')).toBe(false)
     })
 
     it.each([
