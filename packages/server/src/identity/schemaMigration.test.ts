@@ -21,6 +21,7 @@ import {
     addLocalDirectory,
     addScimGroups,
     addScimProvisioning,
+    addWorkosSessionId,
     removeLocalDirectory,
     removeScimGroups,
     removeScimProvisioning
@@ -35,11 +36,13 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
     const calls: Call[] = []
     const runner = {
         connection: { options: { type: 'postgres' } },
+        async hasColumn() {
+            return false
+        },
         async query(sql: string, params?: unknown[]) {
             calls.push({ sql, params })
             if (sql.includes('information_schema.tables')) return present.has(String(params?.[0])) ? [{ name: params?.[0] }] : []
             if (sql.startsWith('CREATE TABLE "identity_authentication_state"')) present.add('identity_authentication_state')
-            if (sql.startsWith('CREATE TABLE "identity_recent_authentication"')) present.add('identity_recent_authentication')
             if (sql.startsWith('CREATE TABLE "identity_authentication_switch_stage"')) present.add('identity_authentication_switch_stage')
             if (sql.includes('information_schema.columns')) return []
             if (sql.includes('FROM "role"') && sql.includes('SELECT')) {
@@ -92,7 +95,6 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"authenticationEpoch" integer NOT NULL')
         expect(creates[0].sql).toContain('"authenticationBaselineEpoch" integer NOT NULL')
         expect(creates[0].sql).toContain('"activeMethod" varchar(32) NULL')
-        expect(calls.filter((call) => call.sql.startsWith('CREATE TABLE "identity_recent_authentication"'))).toHaveLength(1)
     })
 
     it('adds the durable switch stage with version, expiry, and single-use fields', async () => {
@@ -106,6 +108,15 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"expiresAt" TIMESTAMP NOT NULL')
         expect(creates[0].sql).toContain('"consumedAt" TIMESTAMP NULL')
         expect(creates[0].sql).toContain('"version" integer NOT NULL')
+    })
+
+    it('adds the nullable WorkOS session id to application sessions', async () => {
+        const present = new Set(['identity_local_session'])
+        const { runner, calls } = postgresRunner(present)
+        await addWorkosSessionId(runner)
+        expect(
+            calls.some((call) => call.sql === 'ALTER TABLE "identity_local_session" ADD COLUMN "workosSessionId" varchar(255) NULL')
+        ).toBe(true)
     })
 })
 

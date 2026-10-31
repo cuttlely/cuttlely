@@ -8,11 +8,10 @@ import path from 'path'
 import { createRequire } from 'module'
 import type { DataSource } from 'typeorm'
 import {
+    activateFreshOwnerLocalAuthentication,
     automaticWorkosLinkingAllowed,
     acknowledgeAuthenticationWarning,
     initializeAuthenticationState,
-    recordRecentAuthentication,
-    hasRecentAuthentication,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
     stageAuthenticationMethodSwitch,
@@ -25,6 +24,7 @@ import { applyAuthKitSwitchOnBoot } from './production'
 import * as production from './production'
 import { activateSessionConvergence, resetSessionConvergenceForTests, sessionConvergenceActive } from './sessionConvergence'
 import { currentAuthOptionsBody } from './http'
+import { signInOptionsBody } from './signInOptions'
 
 async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Promise<DataSource> {
     const candidates = [
@@ -505,13 +505,34 @@ describe('authentication provider foundation', () => {
         })
     })
 
-    it('accepts only a server-side fresh-sign-in record within ten minutes', async () => {
+    it('selects Local and writes the method-change audit in the first-owner transaction', async () => {
         const db = await database()
-        const now = Date.parse('2026-10-30T12:00:00.000Z')
-        const recent = await recordRecentAuthentication(db, 'owner', now)
-        expect(await hasRecentAuthentication(db, 'owner', recent.token, now + 9 * 60 * 1000)).toBe(true)
-        expect(await hasRecentAuthentication(db, 'other', recent.token, now + 60 * 1000)).toBe(false)
-        expect(await hasRecentAuthentication(db, 'owner', recent.token, now + 10 * 60 * 1000)).toBe(false)
+        const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_ADMIN: 'true' })
+        expect(before.activeMethod).toBeNull()
+        const runner = db.createQueryRunner()
+        await runner.connect()
+        await runner.startTransaction()
+        await activateFreshOwnerLocalAuthentication(
+            runner,
+            { organizationId: 'organization-1', actorId: 'owner-1' },
+            Date.parse('2026-10-30T12:00:00.000Z')
+        )
+        expect((await runner.query('SELECT "activeMethod" FROM "identity_authentication_state"'))[0].activeMethod).toBe('local')
+        await runner.commitTransaction()
+        await runner.release()
+        const after = await refreshAuthenticationState(db, true)
+        if (!after) throw new Error('authentication state was not refreshed')
+        expect(after).toMatchObject({ activeMethod: 'local', authenticationEpoch: before.authenticationEpoch + 1, sessionsEnded: 0 })
+        expect(signInOptionsBody({ CUTTLELY_LOCAL_ADMIN: 'true' }, after.activeMethod).localAdmin).toBe(true)
+        const [audit] = await db.query('SELECT "type", "summary", "detail" FROM "audit_event"')
+        expect(audit).toMatchObject({ type: 'auth_method_change', summary: 'Sign-in method changed' })
+        expect(JSON.parse(audit.detail)).toMatchObject({
+            oldMethod: 'none',
+            newMethod: 'local',
+            sessionsEnded: 0,
+            outcome: 'applied',
+            reason: 'first_owner_setup'
+        })
         await db.destroy()
     })
 })

@@ -11,7 +11,7 @@
  */
 
 import { AuthKitSwitchState } from './authKitSwitch'
-import type { AuthenticationState } from './authenticationState'
+import type { AuthenticationMethod, AuthenticationState } from './authenticationState'
 import { localAdminEnabled, localUsersMode, localUsersSetting, workosConfigured, workosEnvironmentConfigured } from './constants'
 
 export interface SignInOptions {
@@ -40,20 +40,29 @@ export function mailConfigured(_env: NodeJS.ProcessEnv = process.env): boolean {
     return false
 }
 
-/** Public flags for the sign-in screen. The password form is on only when the break-glass flag is exactly true. */
-export function signInOptionsBody(env: NodeJS.ProcessEnv = process.env): SignInOptions {
+/** Public flags for the sign-in screen. A supplied durable method takes precedence over environment inference. */
+export function signInOptionsBody(
+    env: NodeJS.ProcessEnv = process.env,
+    activeMethod: AuthenticationMethod | null | undefined = undefined
+): SignInOptions {
+    const durable = activeMethod !== undefined
+    const authKit = durable ? activeMethod === 'workos' && workosEnvironmentConfigured(env) : workosConfigured(env)
+    const localUsers = durable ? activeMethod === 'local' && localUsersSetting(env) : localUsersMode(env)
     return {
-        authKit: workosConfigured(env),
-        localAdmin: localAdminEnabled(env),
-        localUsers: localUsersMode(env),
+        authKit,
+        localAdmin: localAdminEnabled(env) && (durable ? activeMethod === 'local' : !authKit) && !localUsers,
+        localUsers,
         mail: mailConfigured(env),
         ownerRecovery: true
     }
 }
 
 /** Names of the methods that are on. Methods that are off are omitted. */
-export function enabledSignInMethods(env: NodeJS.ProcessEnv = process.env): { methods: string[] } {
-    const options = signInOptionsBody(env)
+export function enabledSignInMethods(
+    env: NodeJS.ProcessEnv = process.env,
+    activeMethod: AuthenticationMethod | null | undefined = undefined
+): { methods: string[] } {
+    const options = signInOptionsBody(env, activeMethod)
     const methods: string[] = []
     if (options.authKit) methods.push(SIGN_IN_METHOD.authKit)
     if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
@@ -101,7 +110,7 @@ export function authOptionsBody(
     else if (options.authKit) localSessions = legacy?.configured ? 'ended' : 'pending'
     const methods: string[] = []
     if (authKit) methods.push(SIGN_IN_METHOD.authKit)
-    if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
+    if (localAdminEnabled(env)) methods.push(SIGN_IN_METHOD.localAdmin)
     if (localPasswordSignIn) methods.push(SIGN_IN_METHOD.localUsers)
     if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return {
@@ -109,7 +118,7 @@ export function authOptionsBody(
         status: {
             authKit,
             localPasswordSignIn,
-            breakGlassOwner: options.localAdmin,
+            breakGlassOwner: localAdminEnabled(env),
             localSessions,
             sessionsEnded: state?.sessionsEnded ?? 0
         }

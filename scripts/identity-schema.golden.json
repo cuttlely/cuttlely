@@ -1357,6 +1357,13 @@
                     "nullable": false,
                     "default": "0",
                     "pk": 0
+                },
+                {
+                    "name": "workosSessionId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -5819,6 +5826,12 @@
                     "type": "integer",
                     "nullable": false,
                     "default": "0"
+                },
+                {
+                    "name": "workosSessionId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [],
@@ -10225,6 +10238,14 @@
                     "default": "0",
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "workosSessionId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
                 }
             ],
             "foreignKeys": [],
@@ -15420,6 +15441,14 @@
                     "default": "0",
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "workosSessionId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],

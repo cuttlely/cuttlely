@@ -68,7 +68,12 @@ import { createRoot } from 'react-dom/client'
 import { fireEvent } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import api from '@/api/authenticationSettings'
-import AuthenticationSettings from './index'
+import AuthenticationSettings, { reauthenticationTarget } from './index'
+
+it('directs WorkOS step-up to owner recovery', () => {
+    expect(reauthenticationTarget('workos')).toBe('/owner-recovery')
+    expect(reauthenticationTarget('local')).toBe('/signin?reauth=1')
+})
 
 it('shows the last method change and the number of sessions ended', async () => {
     const container = document.createElement('div')
@@ -81,6 +86,8 @@ it('shows the last method change and the number of sessions ended', async () => 
     expect(container.querySelector('[data-testid="authentication-last-change"]')?.textContent).toContain('Last change:')
     expect(container.querySelector('[data-testid="authentication-last-change"]')?.textContent).not.toContain('No method change recorded')
     expect(container.querySelector('[data-testid="authentication-sessions-ended"]')?.textContent).toContain('7')
+    expect(container.textContent).toContain('A WorkOS sign-in never counts as recent authentication.')
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Use Owner recovery')).toBe(true)
     act(() => root.unmount())
 })
 

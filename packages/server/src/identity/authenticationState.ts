@@ -8,7 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { createHash, randomBytes, randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { isUsablePasswordHash } from './password'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
@@ -154,58 +154,6 @@ export function stableWorkosProviderKey(installationId: string, fingerprint: str
     return createHash('sha256').update(`workos\n${installationId}\n${fingerprint}`).digest('hex')
 }
 
-export async function recordRecentAuthentication(
-    dataSource: DataSource,
-    userId: string,
-    now = Date.now()
-): Promise<{ token: string; expiresAt: number }> {
-    const token = randomBytes(32).toString('base64url')
-    const digest = createHash('sha256').update(token).digest('hex')
-    const runner = dataSource.createQueryRunner()
-    await runner.connect()
-    try {
-        const d = dialect(runner)
-        const expiresAt = now + 10 * 60 * 1000
-        await query(runner, `DELETE FROM ${q(d, 'identity_recent_authentication')} WHERE ${q(d, 'expiresAt')} <= ?`, [
-            databaseDate(runner, new Date(now))
-        ])
-        await query(
-            runner,
-            `INSERT INTO ${q(d, 'identity_recent_authentication')} (${q(d, 'token')}, ${q(d, 'userId')}, ${q(d, 'authenticatedAt')}, ${q(
-                d,
-                'expiresAt'
-            )}) VALUES (?, ?, ?, ?)`,
-            [digest, userId, databaseDate(runner, new Date(now)), databaseDate(runner, new Date(expiresAt))]
-        )
-        return { token, expiresAt }
-    } finally {
-        await runner.release()
-    }
-}
-
-export async function hasRecentAuthentication(dataSource: DataSource, userId: string, token: string, now = Date.now()): Promise<boolean> {
-    const digest = createHash('sha256').update(token).digest('hex')
-    const runner = dataSource.createQueryRunner()
-    await runner.connect()
-    try {
-        const d = dialect(runner)
-        const rows = await query(
-            runner,
-            `SELECT ${q(d, 'authenticatedAt')}, ${q(d, 'expiresAt')} FROM ${q(d, 'identity_recent_authentication')} WHERE ${q(
-                d,
-                'token'
-            )} = ? AND ${q(d, 'userId')} = ?`,
-            [digest, userId]
-        )
-        if (!rows[0]) return false
-        const authenticatedAt = new Date(value(rows[0], 'authenticatedAt') as string | Date).getTime()
-        const expiresAt = new Date(value(rows[0], 'expiresAt') as string | Date).getTime()
-        return authenticatedAt <= now && now - authenticatedAt <= 10 * 60 * 1000 && expiresAt > now
-    } finally {
-        await runner.release()
-    }
-}
-
 function inferredMethod(env: NodeJS.ProcessEnv): { method: AuthenticationMethod | null; warning: string | null } {
     if (workosEnvironmentConfigured(env) && localUsersSetting(env))
         return {
@@ -318,6 +266,59 @@ export async function readAuthenticationState(dataSource: DataSource): Promise<A
     } finally {
         await runner.release()
     }
+}
+
+/**
+ * Selects Local login while the first owner is being inserted. The caller owns the transaction and has already
+ * proved that the user table was empty, so there are no interactive sessions to end.
+ */
+export async function activateFreshOwnerLocalAuthentication(
+    runner: QueryRunner,
+    audit: { organizationId: string; actorId: string },
+    at = Date.now()
+): Promise<boolean> {
+    const current = await selectState(runner, true)
+    if (!current) throw new Error('AUTH_STATE_MISSING')
+    if (current.activeMethod !== null) return false
+    const d = dialect(runner)
+    const now = new Date(at)
+    await query(
+        runner,
+        `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'activeMethod')} = 'local', ${q(d, 'authenticationEpoch')} = ${q(
+            d,
+            'authenticationEpoch'
+        )} + 1, ${q(d, 'configurationFingerprint')} = NULL, ${q(d, 'providerKey')} = NULL, ${q(d, 'warning')} = NULL, ${q(
+            d,
+            'sessionsEnded'
+        )} = 0, ${q(d, 'changedAt')} = ?, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+        [databaseDate(runner, now)]
+    )
+    await query(
+        runner,
+        `INSERT INTO ${q(d, 'audit_event')} (${q(d, 'id')}, ${q(d, 'type')}, ${q(d, 'organizationId')}, ${q(d, 'workspaceId')}, ${q(
+            d,
+            'userId'
+        )}, ${q(d, 'actorId')}, ${q(d, 'summary')}, ${q(d, 'detail')}, ${q(d, 'createdAt')}) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+        [
+            randomUUID(),
+            'auth_method_change',
+            audit.organizationId,
+            audit.actorId,
+            audit.actorId,
+            'Sign-in method changed',
+            JSON.stringify({
+                oldMethod: 'none',
+                newMethod: 'local',
+                configurationFingerprint: null,
+                authenticationEpoch: current.authenticationEpoch + 1,
+                sessionsEnded: 0,
+                outcome: 'applied',
+                reason: 'first_owner_setup'
+            }),
+            now.getTime()
+        ]
+    )
+    return true
 }
 
 /** Records the session result of the one-time environment inference in durable method state. */

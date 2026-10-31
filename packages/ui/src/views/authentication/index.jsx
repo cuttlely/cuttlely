@@ -23,6 +23,7 @@ import api from '@/api/authenticationSettings'
 import { RECOVERY_FIX } from './RecoveryWarningBanner'
 
 const label = (method) => (method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : 'No ordinary method')
+export const reauthenticationTarget = (method) => (method === 'workos' ? '/owner-recovery' : '/signin?reauth=1')
 
 const copyText = (value) => {
     const field = document.createElement('textarea')
@@ -79,7 +80,7 @@ export default function AuthenticationSettings() {
         }
     }
     const reauthenticate = () => {
-        window.location.assign(data?.activeMethod === 'workos' ? '/api/v1/auth/reauthenticate' : '/signin?reauth=1')
+        window.location.assign(reauthenticationTarget(data?.activeMethod))
     }
     const acknowledgeWarning = async () => {
         setError('')
@@ -232,12 +233,16 @@ export default function AuthenticationSettings() {
                         Review change
                     </Button>
                     <Button sx={{ ml: 1 }} onClick={reauthenticate}>
-                        Sign in again
+                        {data?.activeMethod === 'workos' ? 'Use Owner recovery' : 'Sign in again'}
                     </Button>
                     {data?.activeMethod === 'workos' && (
                         <Typography color='text.secondary' sx={{ mt: 1 }}>
-                            WorkOS satisfies this check only when it proves the sign-in time. If it cannot, use{' '}
-                            <strong>Owner recovery</strong> on the sign-in page.
+                            A WorkOS sign-in never counts as recent authentication. Use <strong>Owner recovery</strong> to continue.
+                        </Typography>
+                    )}
+                    {data?.activeMethod === 'local' && (
+                        <Typography color='text.secondary' sx={{ mt: 1 }}>
+                            Sign in with the local password again, or use <strong>Owner recovery</strong>.
                         </Typography>
                     )}
                 </Paper>
