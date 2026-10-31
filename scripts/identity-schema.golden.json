@@ -3882,47 +3882,6 @@
                 }
             ]
         },
-        "identity_recent_authentication": {
-            "columns": [
-                {
-                    "name": "token",
-                    "type": "varchar(64)",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 1
-                },
-                {
-                    "name": "userId",
-                    "type": "varchar(36)",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "authenticatedAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "expiresAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                }
-            ],
-            "foreignKeys": [],
-            "indexes": [
-                {
-                    "name": "sqlite_autoindex_identity_recent_authentication_1",
-                    "unique": true,
-                    "columns": ["token"],
-                    "origin": "pk"
-                }
-            ]
-        },
         "identity_recovery_alert": {
             "columns": [
                 {
@@ -4198,6 +4157,13 @@
                     "pk": 0
                 },
                 {
+                    "name": "normalizedDisplayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
                     "name": "deletedAt",
                     "type": "datetime",
                     "nullable": true,
@@ -4229,8 +4195,8 @@
                 },
                 {
                     "name": "IDX_identity_scim_group_name",
-                    "unique": false,
-                    "columns": ["organizationId", "displayName"],
+                    "unique": true,
+                    "columns": ["organizationId", "normalizedDisplayName"],
                     "origin": "c"
                 },
                 {
@@ -8084,42 +8050,6 @@
                 }
             ]
         },
-        "identity_recent_authentication": {
-            "columns": [
-                {
-                    "name": "token",
-                    "type": "varchar(64)",
-                    "nullable": false,
-                    "default": null
-                },
-                {
-                    "name": "userId",
-                    "type": "varchar(36)",
-                    "nullable": false,
-                    "default": null
-                },
-                {
-                    "name": "authenticatedAt",
-                    "type": "timestamp",
-                    "nullable": false,
-                    "default": null
-                },
-                {
-                    "name": "expiresAt",
-                    "type": "timestamp",
-                    "nullable": false,
-                    "default": null
-                }
-            ],
-            "foreignKeys": [],
-            "indexes": [
-                {
-                    "name": "identity_recent_authentication_pkey",
-                    "unique": true,
-                    "columns": ["token"]
-                }
-            ]
-        },
         "identity_recovery_alert": {
             "columns": [
                 {
@@ -8366,6 +8296,12 @@
                     "default": null
                 },
                 {
+                    "name": "normalizedDisplayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
                     "name": "deletedAt",
                     "type": "timestamp",
                     "nullable": true,
@@ -8398,8 +8334,8 @@
                 },
                 {
                     "name": "IDX_identity_scim_group_name",
-                    "unique": false,
-                    "columns": ["organizationId", "displayName"]
+                    "unique": true,
+                    "columns": ["organizationId", "normalizedDisplayName"]
                 }
             ]
         },
@@ -13135,50 +13071,6 @@
                 }
             ]
         },
-        "identity_recent_authentication": {
-            "columns": [
-                {
-                    "name": "token",
-                    "type": "varchar(64)",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_general_ci"
-                },
-                {
-                    "name": "userId",
-                    "type": "varchar(36)",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_general_ci"
-                },
-                {
-                    "name": "authenticatedAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": null
-                },
-                {
-                    "name": "expiresAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": null
-                }
-            ],
-            "foreignKeys": [],
-            "indexes": [
-                {
-                    "name": "PRIMARY",
-                    "unique": true,
-                    "columns": ["token"]
-                }
-            ]
-        },
         "identity_recovery_alert": {
             "columns": [
                 {
@@ -13481,6 +13373,14 @@
                     "collation": "utf8mb4_general_ci"
                 },
                 {
+                    "name": "normalizedDisplayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
                     "name": "deletedAt",
                     "type": "datetime",
                     "nullable": true,
@@ -13514,8 +13414,8 @@
                 },
                 {
                     "name": "IDX_identity_scim_group_name",
-                    "unique": false,
-                    "columns": ["organizationId", "displayName"]
+                    "unique": true,
+                    "columns": ["organizationId", "normalizedDisplayName"]
                 },
                 {
                     "name": "PRIMARY",
@@ -18338,50 +18238,6 @@
                 }
             ]
         },
-        "identity_recent_authentication": {
-            "columns": [
-                {
-                    "name": "token",
-                    "type": "varchar(64)",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
-                },
-                {
-                    "name": "userId",
-                    "type": "varchar(36)",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
-                },
-                {
-                    "name": "authenticatedAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": null
-                },
-                {
-                    "name": "expiresAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "extra": "",
-                    "collation": null
-                }
-            ],
-            "foreignKeys": [],
-            "indexes": [
-                {
-                    "name": "PRIMARY",
-                    "unique": true,
-                    "columns": ["token"]
-                }
-            ]
-        },
         "identity_recovery_alert": {
             "columns": [
                 {
@@ -18684,6 +18540,14 @@
                     "collation": "utf8mb4_0900_ai_ci"
                 },
                 {
+                    "name": "normalizedDisplayName",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
                     "name": "deletedAt",
                     "type": "datetime",
                     "nullable": true,
@@ -18717,8 +18581,8 @@
                 },
                 {
                     "name": "IDX_identity_scim_group_name",
-                    "unique": false,
-                    "columns": ["organizationId", "displayName"]
+                    "unique": true,
+                    "columns": ["organizationId", "normalizedDisplayName"]
                 },
                 {
                     "name": "PRIMARY",

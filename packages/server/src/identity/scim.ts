@@ -1,6 +1,6 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto'
-import { NextFunction, Request, Response, Router } from 'express'
+import express, { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { safeRecordAudit } from './auditLog'
 import { scimBearerSecret } from './authenticationSecrets'
@@ -477,7 +477,9 @@ function matchesFilter(user: UserRecord, filter: FilterNode): boolean {
     }
     const actual =
         filter.attribute === 'username' ? user.userName : filter.attribute === 'externalid' ? user.externalId || '' : user.displayName
-    return filter.attribute === 'username' ? actual.toLowerCase() === filter.value.toLowerCase() : actual === filter.value
+    return filter.attribute === 'username' || filter.attribute === 'displayname'
+        ? actual.toLowerCase() === filter.value.toLowerCase()
+        : actual === filter.value
 }
 
 export function pageUsers(
@@ -947,6 +949,7 @@ export async function deleteUser(sql: Sql, actor: TokenActor, resourceId: string
             if (!current) throw new ScimError(404, 'User not found.', 'noTarget')
             internalId = current.userId
             await deactivateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
+            await query(`DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'scimUserId')} = ?`, [resourceId])
             await query(
                 `UPDATE ${q(sql, 'identity_scim_user')} SET ${q(sql, 'deletedAt')} = ?, ${q(sql, 'updatedAt')} = ? WHERE ${q(
                     sql,
@@ -1289,7 +1292,10 @@ identityScimRouter.use((req, res, next) => {
     })
     next()
 })
-identityScimRouter.use(scimRateLimit, scimContentType, scimAuthentication)
+const SCIM_JSON_LIMIT = '256kb'
+const scimJsonParser = express.json({ limit: SCIM_JSON_LIMIT, type: ['application/scim+json', 'application/json'] })
+
+identityScimRouter.use(scimRateLimit, scimAuthentication, scimContentType, scimJsonParser, scimBodyErrorHandler)
 
 identityScimRouter.get('/ServiceProviderConfig', (_req, res) => res.status(200).json(serviceProviderConfig))
 identityScimRouter.get('/ResourceTypes', (_req, res) =>

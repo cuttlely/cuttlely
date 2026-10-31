@@ -776,6 +776,7 @@ function scimGroupSql(dialect: Dialect): string {
         ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
         ${q(dialect, 'externalId')} varchar(255) NULL,
         ${q(dialect, 'displayName')} varchar(255) NOT NULL,
+        ${q(dialect, 'normalizedDisplayName')} varchar(255) NOT NULL,
         ${q(dialect, 'deletedAt')} ${timeType(dialect)} NULL,
         ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
         ${q(dialect, 'updatedAt')} ${timeType(dialect)} NOT NULL
@@ -839,6 +840,13 @@ export async function addScimGroups(runner: QueryRunner): Promise<void> {
     for (const [name, statement] of tables) {
         if (!(await tableExists(runner, dialect, name))) await runner.query(statement(dialect))
     }
+    await addColumn(runner, dialect, 'identity_scim_group', 'normalizedDisplayName', 'varchar(255) NULL')
+    await runner.query(
+        `UPDATE ${q(dialect, 'identity_scim_group')} SET ${q(dialect, 'normalizedDisplayName')} = LOWER(TRIM(${q(
+            dialect,
+            'displayName'
+        )})) WHERE ${q(dialect, 'normalizedDisplayName')} IS NULL`
+    )
     await createIndex(
         runner,
         dialect,
@@ -852,7 +860,8 @@ export async function addScimGroups(runner: QueryRunner): Promise<void> {
         dialect,
         'identity_scim_group',
         'IDX_identity_scim_group_name',
-        `${q(dialect, 'organizationId')}, ${q(dialect, 'displayName')}`
+        `${q(dialect, 'organizationId')}, ${q(dialect, 'normalizedDisplayName')}`,
+        true
     )
     await createIndex(runner, dialect, 'identity_scim_mapping', 'IDX_identity_scim_mapping_group', q(dialect, 'groupId'), true)
     await createIndex(

@@ -178,6 +178,10 @@ describe('SCIM schema on sqlite', () => {
             expect(calls.filter((sql) => sql.startsWith(`CREATE TABLE "${table}"`))).toHaveLength(1)
         }
         expect(columns.get('apikey')?.has('disabledAt')).toBe(true)
+        expect(columns.get('identity_scim_group')?.has('normalizedDisplayName')).toBe(true)
+        expect(calls).toContain(
+            'CREATE UNIQUE INDEX IF NOT EXISTS "IDX_identity_scim_group_name" ON "identity_scim_group" ("organizationId", "normalizedDisplayName")'
+        )
 
         await removeScimGroups(runner)
         await removeScimProvisioning(runner)

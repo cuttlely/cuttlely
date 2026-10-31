@@ -176,18 +176,11 @@ export async function revokeInviteLinks(
 }
 
 /** Close every open invite and password-reset link for a deactivated account. */
-async function revokeAuthenticationLinks(
-    query: QueryFn,
-    sql: Sql,
-    userId: string,
-    organizationId: string,
-    now = Date.now()
-): Promise<void> {
+async function revokeAuthenticationLinks(query: QueryFn, sql: Sql, userId: string, now = Date.now()): Promise<void> {
     await query(
         `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
-         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} IN (?, ?) AND ${q(sql, 'usedAt')} IS NULL
-           AND (${q(sql, 'organizationId')} = ? OR ${q(sql, 'organizationId')} IS NULL)`,
-        [utcDbTime(sql.type, now), 'revoked', userId, 'invite', 'reset', organizationId]
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} IN (?, ?) AND ${q(sql, 'usedAt')} IS NULL`,
+        [utcDbTime(sql.type, now), 'revoked', userId, 'invite', 'reset']
     )
 }
 
@@ -291,7 +284,7 @@ export async function deactivateUserInTransaction(
         }`,
         [userId]
     )
-    await revokeAuthenticationLinks(query, sql, userId, organizationId, now)
+    await revokeAuthenticationLinks(query, sql, userId, now)
     await endLocalSessions(query, sql, userId)
     const at = utcDbTime(sql.type, now)
     for (const table of ['apikey', 'identity_personal_token']) {

@@ -80,8 +80,9 @@ function store(): { sql: Sql; db: MemoryDatabase } {
             id text primary key, organizationId text, userId text, displayName text, deletedAt text
         );
         CREATE TABLE identity_scim_group (
-            id text primary key, organizationId text, externalId text, displayName text,
-            deletedAt text, createdAt text, updatedAt text, unique (organizationId, externalId)
+            id text primary key, organizationId text, externalId text, displayName text, normalizedDisplayName text,
+            deletedAt text, createdAt text, updatedAt text, unique (organizationId, externalId),
+            unique (organizationId, normalizedDisplayName)
         );
         CREATE TABLE identity_scim_group_member (
             groupId text, scimUserId text, createdAt text, primary key (groupId, scimUserId)
@@ -148,10 +149,13 @@ describe('SCIM groups', () => {
             start
         )
         expect(group.members).toEqual([{ value: 'scim-user-1', display: 'Ada' }])
-        expect(pageGroups([group], { filter: 'displayName eq "Engineering" and externalId eq "provider-group-1"' })).toMatchObject({
+        expect(pageGroups([group], { filter: 'displayName eq "engineering" and externalId eq "provider-group-1"' })).toMatchObject({
             totalResults: 1,
             itemsPerPage: 1
         })
+        await expect(
+            createGroup(sql, tokenActor, { displayName: ' engineering ', externalId: 'different-provider-group' }, start)
+        ).rejects.toMatchObject({ status: 409, scimType: 'uniqueness' })
         expect(pageGroups([group], { startIndex: '2', count: '1' })).toMatchObject({ itemsPerPage: 0 })
         expect(() => pageGroups([group], { filter: 'members eq "scim-user-1"' })).toThrow(
             expect.objectContaining({ status: 400, scimType: 'invalidFilter' })
@@ -204,6 +208,39 @@ describe('SCIM groups', () => {
         expect(await groupsForOrganization(sql.query, sql, 'org-1')).toEqual([])
         await expect(deleteGroup(sql, tokenActor, group.id, start + 7)).rejects.toMatchObject({ status: 404 })
         expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_group'").get()).toMatchObject({ count: 7 })
+        const groupAudits = db.prepare("SELECT detail FROM audit_event WHERE type = 'scim_group'").all()
+        expect(groupAudits.every((row) => !Object.prototype.hasOwnProperty.call(JSON.parse(String(row.detail)), 'displayName'))).toBe(true)
+        db.close()
+    })
+
+    it('refuses a case-insensitive name conflict on update', async () => {
+        const { sql, db } = store()
+        await createGroup(sql, tokenActor, { displayName: 'Engineering' }, start)
+        const second = await createGroup(sql, tokenActor, { displayName: 'Support' }, start + 1)
+        await expect(mutateGroup(sql, tokenActor, second.id, { displayName: ' ENGINEERING ' }, start + 2)).rejects.toMatchObject({
+            status: 409,
+            scimType: 'uniqueness'
+        })
+        expect((await groupsForOrganization(sql.query, sql, 'org-1')).find((group) => group.id === second.id)?.displayName).toBe('Support')
+        db.close()
+    })
+
+    it('treats unknown and deleted member removals as no-ops while additions still require a current user', async () => {
+        const { sql, db } = store()
+        const group = await createGroup(sql, tokenActor, { displayName: 'Engineering', members: [{ value: 'scim-user-1' }] }, start)
+        await mutateGroup(sql, tokenActor, group.id, { removeMembers: ['unknown'] }, start + 1)
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_group_member WHERE groupId = ?').get(group.id)).toMatchObject({
+            count: 1
+        })
+        db.prepare('UPDATE identity_scim_user SET deletedAt = ? WHERE id = ?').run('2026-10-31T13:00:00.000Z', 'scim-user-1')
+        await mutateGroup(sql, tokenActor, group.id, { removeMembers: ['scim-user-1'] }, start + 2)
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_group_member WHERE groupId = ?').get(group.id)).toMatchObject({
+            count: 0
+        })
+        await expect(mutateGroup(sql, tokenActor, group.id, { addMembers: ['scim-user-1'] }, start + 3)).rejects.toMatchObject({
+            status: 400,
+            scimType: 'invalidValue'
+        })
         db.close()
     })
 
@@ -363,6 +400,9 @@ describe('SCIM mapping reconciliation', () => {
         await deleteGroup(sql, tokenActor, group.id, start + 3)
         expect(db.prepare('SELECT COUNT(*) AS count FROM workspace_user WHERE userId = ?').get('user-1')).toMatchObject({ count: 0 })
         expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_assignment').get()).toMatchObject({ count: 0 })
+        expect(
+            db.prepare("SELECT actorId, detail FROM audit_event WHERE type = 'scim_mapping' AND summary = 'SCIM mapping removed'").get()
+        ).toMatchObject({ actorId: 'scim', detail: expect.stringContaining('"assignmentCount":1') })
         db.close()
     })
 

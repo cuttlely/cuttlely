@@ -10,7 +10,7 @@ import { Sql } from './directory'
 let activeSql: Sql
 jest.mock('./production', () => ({ applicationSql: () => activeSql }))
 
-import { createScimToken, identityScimRouter, scimBodyErrorHandler } from './scim'
+import { createScimToken, identityScimRouter } from './scim'
 
 const { DatabaseSync } = require('node:sqlite') as {
     DatabaseSync: new (path: string) => {
@@ -100,8 +100,9 @@ function memoryStore(): { sql: Sql; db: MemoryDatabase } {
             unique (organizationId, normalizedUserName), unique (organizationId, externalId)
         );
         CREATE TABLE identity_scim_group (
-            id text primary key, organizationId text, externalId text, displayName text,
-            deletedAt text, createdAt text, updatedAt text, unique (organizationId, externalId)
+            id text primary key, organizationId text, externalId text, displayName text, normalizedDisplayName text,
+            deletedAt text, createdAt text, updatedAt text, unique (organizationId, externalId),
+            unique (organizationId, normalizedDisplayName)
         );
         CREATE TABLE identity_scim_group_member (groupId text, scimUserId text, createdAt text, primary key (groupId, scimUserId));
         CREATE TABLE identity_scim_mapping (
@@ -129,9 +130,7 @@ function memoryStore(): { sql: Sql; db: MemoryDatabase } {
 
 function app() {
     const server = express()
-    server.use(express.json({ type: ['application/json', 'application/scim+json'] }))
     server.use('/api/v1/scim/v2', identityScimRouter)
-    server.use(scimBodyErrorHandler)
     return server
 }
 
@@ -189,10 +188,11 @@ describe('published SCIM request fixtures', () => {
                 )
                 const at = new Date().toISOString()
                 db.prepare('INSERT INTO workspace VALUES (?, ?, ?)').run(`${provider}-team`, 'org-1', `${provider} fixture team`)
-                db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, NULL, ?, ?)').run(
+                db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, ?, NULL, ?, ?)').run(
                     `${provider}-mapped-group`,
                     'org-1',
                     `${provider}-mapped-external`,
+                    `${provider} mapped group`,
                     `${provider} mapped group`,
                     at,
                     at
@@ -288,6 +288,45 @@ describe('RFC 7644 route conformance', () => {
     })
 
     const authorized = () => request(app())
+
+    it('authenticates before parsing and records parser errors in SCIM form', async () => {
+        const unauthenticated = await request(app())
+            .post('/api/v1/scim/v2/Users')
+            .set('Content-Type', 'application/scim+json')
+            .send('{"userName":')
+        expect(unauthenticated.status).toBe(401)
+        expect(unauthenticated.headers['x-correlation-id']).toEqual(expect.any(String))
+
+        const malformed = await authorized()
+            .post('/api/v1/scim/v2/Users')
+            .set('Authorization', `Bearer ${bearer}`)
+            .set('Content-Type', 'application/scim+json')
+            .send('{"userName":')
+        expect(malformed.status).toBe(400)
+        expect(malformed.body).toMatchObject({ status: '400', scimType: 'invalidSyntax' })
+        expect(malformed.headers['x-correlation-id']).toEqual(expect.any(String))
+
+        const oversized = await authorized()
+            .post('/api/v1/scim/v2/Users')
+            .set('Authorization', `Bearer ${bearer}`)
+            .set('Content-Type', 'application/scim+json')
+            .send(JSON.stringify({ userName: `${'x'.repeat(300_000)}@example.com` }))
+        expect(oversized.status).toBe(413)
+        expect(oversized.body).toMatchObject({ status: '413' })
+        expect(oversized.headers['x-correlation-id']).toEqual(expect.any(String))
+
+        await new Promise((resolve) => setImmediate(resolve))
+        const parserErrors = db
+            .prepare("SELECT category, detail FROM identity_scim_diagnostic WHERE outcome = 'failed' ORDER BY completedAt DESC")
+            .all()
+        expect(parserErrors).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ category: 'request', detail: 'The JSON request body is invalid.' }),
+                expect.objectContaining({ category: 'request', detail: 'The SCIM request body is too large.' })
+            ])
+        )
+        expect(JSON.stringify(parserErrors)).not.toContain('x'.repeat(100))
+    })
 
     it('serves discovery documents and rejects unsupported operations in SCIM envelopes', async () => {
         const resourceTypes = await authorized().get('/api/v1/scim/v2/ResourceTypes').set('Authorization', `Bearer ${bearer}`)

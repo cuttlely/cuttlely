@@ -2,10 +2,8 @@ import express, { RequestHandler } from 'express'
 import { isMcpEndpointPath, normalizeApiPath } from '../identity/apiGate'
 
 export const EXTERNAL_JSON_LIMIT = '1mb'
-export const SCIM_JSON_LIMIT = '256kb'
 
 export const mcpJsonParser = express.json({ limit: EXTERNAL_JSON_LIMIT, type: 'application/json' })
-export const scimJsonParser = express.json({ limit: SCIM_JSON_LIMIT, type: ['application/scim+json', 'application/json'] })
 
 export function isScimEndpointPath(path: string): boolean {
     return path === '/api/v1/scim/v2' || path.startsWith('/api/v1/scim/v2/')

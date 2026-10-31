@@ -42,12 +42,7 @@ export interface MappingAdminActor {
     organizationId: string
 }
 
-async function auditGroup(
-    sql: Sql,
-    actor: TokenActor,
-    operation: string,
-    group: Pick<GroupRecord, 'id' | 'displayName' | 'members'>
-): Promise<void> {
+async function auditGroup(sql: Sql, actor: TokenActor, operation: string, group: Pick<GroupRecord, 'id' | 'members'>): Promise<void> {
     await safeRecordAudit(sql, {
         type: 'scim_group',
         organizationId: actor.organizationId,
@@ -55,7 +50,7 @@ async function auditGroup(
         userId: null,
         actorId: 'scim',
         summary: `SCIM group ${operation}`,
-        detail: { operation, groupId: group.id, displayName: group.displayName, memberCount: group.members.length }
+        detail: { operation, groupId: group.id, memberCount: group.members.length }
     })
 }
 
@@ -103,6 +98,10 @@ function text(value: unknown): string {
 function nullable(value: unknown): string | null {
     const result = text(value).trim()
     return result || null
+}
+
+function normalizedDisplayName(value: string): string {
+    return value.trim().toLowerCase()
 }
 
 function iso(value: unknown): string | null {
@@ -282,8 +281,9 @@ function matches(group: GroupRecord, filter: GroupFilter): boolean {
             ? matches(group, filter.left) && matches(group, filter.right)
             : matches(group, filter.left) || matches(group, filter.right)
     }
-    const actual = filter.attribute === 'displayname' ? group.displayName : group.externalId || ''
-    return actual === filter.value
+    const actual = filter.attribute === 'displayname' ? normalizedDisplayName(group.displayName) : group.externalId || ''
+    const expected = filter.attribute === 'displayname' ? normalizedDisplayName(filter.value) : filter.value
+    return actual === expected
 }
 
 export function pageGroups(
@@ -334,6 +334,7 @@ async function replaceMembers(query: QueryFn, sql: Sql, groupId: string, ids: st
 export async function createGroup(sql: Sql, actor: TokenActor, body: unknown, now = Date.now()): Promise<GroupRecord> {
     const record = object(body)
     const displayName = text(record.displayName).trim()
+    const normalizedName = normalizedDisplayName(displayName)
     const externalId = nullable(record.externalId)
     const members = memberIds(record.members)
     if (!displayName || displayName.length > 255) throw new ScimError(400, 'displayName is required.', 'invalidValue')
@@ -341,7 +342,7 @@ export async function createGroup(sql: Sql, actor: TokenActor, body: unknown, no
     await sql.transaction(async (query) => {
         await validateMemberIds(query, sql, actor.organizationId, members)
         const existing = (await groupsForOrganization(query, sql, actor.organizationId)).find(
-            (group) => (externalId && group.externalId === externalId) || group.displayName === displayName
+            (group) => (externalId && group.externalId === externalId) || normalizedDisplayName(group.displayName) === normalizedName
         )
         if (existing) {
             const sameMembers =
@@ -361,8 +362,8 @@ export async function createGroup(sql: Sql, actor: TokenActor, body: unknown, no
             `INSERT INTO ${q(sql, 'identity_scim_group')} (${q(sql, 'id')}, ${q(sql, 'organizationId')}, ${q(sql, 'externalId')}, ${q(
                 sql,
                 'displayName'
-            )}, ${q(sql, 'createdAt')}, ${q(sql, 'updatedAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, actor.organizationId, externalId, displayName, at, at]
+            )}, ${q(sql, 'normalizedDisplayName')}, ${q(sql, 'createdAt')}, ${q(sql, 'updatedAt')}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [id, actor.organizationId, externalId, displayName, normalizedName, at, at]
         )
         await replaceMembers(query, sql, id, members, now)
         await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
@@ -419,12 +420,20 @@ export async function mutateGroup(
     now = Date.now()
 ): Promise<GroupRecord> {
     await sql.transaction(async (query) => {
-        const current = (await groupsForOrganization(query, sql, actor.organizationId)).find((group) => group.id === groupId)
+        const groups = await groupsForOrganization(query, sql, actor.organizationId)
+        const current = groups.find((group) => group.id === groupId)
         if (!current) throw new ScimError(404, 'Group not found.', 'noTarget')
         const displayName = changes.displayName === undefined ? current.displayName : changes.displayName
         if (!displayName || displayName.length > 255) throw new ScimError(400, 'displayName is required.', 'invalidValue')
-        const allMentioned = [...(changes.replaceMembers || []), ...(changes.addMembers || []), ...(changes.removeMembers || [])]
-        await validateMemberIds(query, sql, actor.organizationId, allMentioned)
+        const normalizedName = normalizedDisplayName(displayName)
+        const externalId = changes.externalId === undefined ? current.externalId : changes.externalId
+        const conflict = groups.find(
+            (group) =>
+                group.id !== groupId &&
+                ((externalId && group.externalId === externalId) || normalizedDisplayName(group.displayName) === normalizedName)
+        )
+        if (conflict) throw new ScimError(409, 'A matching SCIM group already exists.', 'uniqueness')
+        await validateMemberIds(query, sql, actor.organizationId, [...(changes.replaceMembers || []), ...(changes.addMembers || [])])
         let next = changes.replaceMembers || current.members.map((member) => member.value)
         if (changes.addMembers) next = [...new Set([...next, ...changes.addMembers])]
         if (changes.removeMembers) {
@@ -434,9 +443,9 @@ export async function mutateGroup(
         await query(
             `UPDATE ${q(sql, 'identity_scim_group')} SET ${q(sql, 'displayName')} = ?, ${q(sql, 'externalId')} = ?, ${q(
                 sql,
-                'updatedAt'
-            )} = ? WHERE ${q(sql, 'id')} = ?`,
-            [displayName, changes.externalId === undefined ? current.externalId : changes.externalId, utcDbTime(sql.type, now), groupId]
+                'normalizedDisplayName'
+            )} = ?, ${q(sql, 'updatedAt')} = ? WHERE ${q(sql, 'id')} = ?`,
+            [displayName, externalId, normalizedName, utcDbTime(sql.type, now), groupId]
         )
         await replaceMembers(query, sql, groupId, next, now)
         await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
@@ -674,10 +683,34 @@ export async function reconcileMappings(
 
 export async function deleteGroup(sql: Sql, actor: TokenActor, groupId: string, now = Date.now()): Promise<void> {
     let deleted: GroupRecord | null = null
+    let removedMapping: { id: string; groupId: string; workspaceId: string; roleId: string | null } | null = null
+    let removedAssignmentCount = 0
     await sql.transaction(async (query) => {
         const current = (await groupsForOrganization(query, sql, actor.organizationId)).find((group) => group.id === groupId)
         if (!current) throw new ScimError(404, 'Group not found.', 'noTarget')
         deleted = current
+        const mappings = await query(
+            `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'groupId')} AS groupId, ${q(sql, 'workspaceId')} AS workspaceId,
+                    ${q(sql, 'roleId')} AS roleId FROM ${q(sql, 'identity_scim_mapping')}
+             WHERE ${q(sql, 'groupId')} = ? AND ${q(sql, 'organizationId')} = ?`,
+            [groupId, actor.organizationId]
+        )
+        if (mappings.length) {
+            removedMapping = {
+                id: text(cell(mappings[0], 'id')),
+                groupId,
+                workspaceId: text(cell(mappings[0], 'workspaceId')),
+                roleId: nullable(cell(mappings[0], 'roleId'))
+            }
+            const assignments = await query(
+                `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_assignment')} a
+                 INNER JOIN ${q(sql, 'workspace_user')} wu ON wu.${q(sql, 'workspaceId')} = a.${q(sql, 'workspaceId')}
+                    AND wu.${q(sql, 'userId')} = a.${q(sql, 'userId')} AND wu.${q(sql, 'roleId')} = a.${q(sql, 'roleId')}
+                 WHERE a.${q(sql, 'mappingId')} = ?`,
+                [text(cell(mappings[0], 'id'))]
+            )
+            removedAssignmentCount = Number(cell(assignments[0] || {}, 'count')) || 0
+        }
         await query(`DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'groupId')} = ?`, [groupId])
         await reconcileMappings(query, sql, actor.organizationId, actor.creatorId, now)
         await query(`DELETE FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'groupId')} = ?`, [groupId])
@@ -687,6 +720,9 @@ export async function deleteGroup(sql: Sql, actor: TokenActor, groupId: string, 
         )
     })
     if (deleted) await auditGroup(sql, actor, 'deleted', deleted)
+    if (removedMapping) {
+        await auditMapping(sql, { id: 'scim', organizationId: actor.organizationId }, 'removed', removedMapping, removedAssignmentCount)
+    }
 }
 
 async function mappingRows(sql: Sql, organizationId: string): Promise<MappingRecord[]> {

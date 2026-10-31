@@ -414,10 +414,19 @@ describe('local directory rules', () => {
         db.exec(`
             INSERT INTO identity_local_session (id, userId, token, expiresAt, absoluteExpiresAt, createdDate, permissionVersion)
             VALUES ('sess-1', 'member-1', 'digest-secret', '2099-01-01', '2099-01-08', '2026-10-01', 0);
+            INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, userId, expiresAt)
+            VALUES
+                ('link-1', 'digest-1', 'invite', '${ORG}', 'member-1', '2099-01-01'),
+                ('link-2', 'digest-2', 'reset', 'another-org', 'member-1', '2099-01-01');
         `)
         const first = await setUserDisabled(sql, admin, 'member-1', true)
         expect(first).toEqual({ id: 'member-1', disabled: true })
         expect(db.prepare('SELECT id, token FROM identity_local_session').all()).toEqual([])
+        expect(
+            db.prepare('SELECT COUNT(*) AS count FROM identity_action_link WHERE userId = ? AND usedAt IS NOT NULL').all('member-1')[0]
+        ).toMatchObject({
+            count: 2
+        })
         expect(db.prepare('SELECT permissionVersion, status FROM "user" WHERE id = ?').all('member-1')).toEqual([
             { permissionVersion: 1, status: 'disable' }
         ])

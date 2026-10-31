@@ -33,8 +33,8 @@ import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { orchestrateContentTypeGuard, orchestrateJsonParser } from './routes/orchestrate'
 import { a2aBodyErrorHandler, a2aContentTypeGuard, a2aJsonParser, assertA2aPublicBaseUrl } from './routes/a2a'
-import { mcpJsonParser, scimJsonParser, unlessExternalJson, whenMcpEndpoint } from './utils/externalJsonLimit'
-import { attachIdentitySession, scimBodyErrorHandler } from './identity'
+import { mcpJsonParser, unlessExternalJson, whenMcpEndpoint } from './utils/externalJsonLimit'
+import { attachIdentitySession } from './identity'
 import { apiV1Auth, isMcpEndpointPath, withoutDenylisted } from './identity/apiGate'
 import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
 import { resolveTrustProxy } from './utils/trustProxy'
@@ -223,7 +223,6 @@ export class App {
         this.app.use('/api/v1/a2a', a2aContentTypeGuard)
         this.app.use('/api/v1/a2a', a2aJsonParser)
         this.app.use('/api/v1/a2a', a2aBodyErrorHandler)
-        this.app.use('/api/v1/scim/v2', scimJsonParser, scimBodyErrorHandler)
         this.app.use(whenMcpEndpoint(mcpJsonParser))
         this.app.use(unlessExternalJson(express.json({ limit: flowise_file_size_limit, verify: captureRawBody })))
         this.app.use(unlessExternalJson(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody })))

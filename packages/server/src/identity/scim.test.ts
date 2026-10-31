@@ -234,8 +234,8 @@ describe('SCIM users', () => {
                 unique (organizationId, normalizedUserName), unique (organizationId, externalId)
             );
             CREATE TABLE identity_scim_group (
-                id text primary key, organizationId text, externalId text, displayName text,
-                deletedAt text, createdAt text, updatedAt text
+                id text primary key, organizationId text, externalId text, displayName text, normalizedDisplayName text,
+                deletedAt text, createdAt text, updatedAt text, unique (organizationId, normalizedDisplayName)
             );
             CREATE TABLE identity_scim_group_member (groupId text, scimUserId text, createdAt text, primary key (groupId, scimUserId));
             CREATE TABLE identity_scim_mapping (
@@ -284,11 +284,12 @@ describe('SCIM users', () => {
         })
         const mappedAt = '2026-10-31T12:30:00.000Z'
         db.prepare('INSERT INTO workspace VALUES (?, ?, ?)').run('mapped-team', 'org-1', 'Mapped Team')
-        db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, NULL, ?, ?)').run(
+        db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, ?, NULL, ?, ?)').run(
             'mapped-group',
             'org-1',
             'mapped-external',
             'Mapped Group',
+            'mapped group',
             mappedAt,
             mappedAt
         )
@@ -336,10 +337,13 @@ describe('SCIM users', () => {
 
         await deleteUser(sql, actor, created.id, Date.UTC(2026, 9, 31, 16))
         expect(await usersForOrganization(sql.query, sql, 'org-1')).toHaveLength(0)
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_group_member WHERE scimUserId = ?').get(created.id)).toMatchObject({
+            count: 0
+        })
         const restored = await createUser(sql, actor, { userName: 'person@example.com', externalId: 'provider-43' })
         expect(restored.id).toBe(created.id)
-        expect(db.prepare('SELECT roleId FROM workspace_user WHERE userId = ?').get(created.userId)).toMatchObject({
-            roleId: 'member-role'
+        expect(db.prepare('SELECT COUNT(*) AS count FROM workspace_user WHERE userId = ?').get(created.userId)).toMatchObject({
+            count: 0
         })
         expect(db.prepare("SELECT COUNT(*) AS count FROM audit_event WHERE type = 'scim_user'").get()).toMatchObject({ count: 7 })
         db.close()
@@ -424,7 +428,12 @@ describe('SCIM users', () => {
 
     it('returns stable pages and empty connection probes for unknown names and external ids', async () => {
         const { sql, db } = directoryStore()
-        await createUser(sql, actor, { userName: 'first@example.com', externalId: 'first-provider-id' }, Date.UTC(2026, 9, 31, 12))
+        await createUser(
+            sql,
+            actor,
+            { userName: 'first@example.com', externalId: 'first-provider-id', displayName: 'First Person' },
+            Date.UTC(2026, 9, 31, 12)
+        )
         await createUser(sql, actor, { userName: 'second@example.com', externalId: 'second-provider-id' }, Date.UTC(2026, 9, 31, 13))
         const users = await usersForOrganization(sql.query, sql, 'org-1')
 
@@ -436,6 +445,7 @@ describe('SCIM users', () => {
         })
         expect(pageUsers(users, { filter: 'userName eq "unknown@example.com"' })).toMatchObject({ totalResults: 0, resources: [] })
         expect(pageUsers(users, { filter: 'externalId eq "unknown-provider-id"' })).toMatchObject({ totalResults: 0, resources: [] })
+        expect(pageUsers(users, { filter: 'displayName eq "first person"' })).toMatchObject({ totalResults: 1 })
         expect(pageUsers(users, { filter: 'USERNAME eq "FIRST@example.com" or externalId eq "second-provider-id"' })).toMatchObject({
             totalResults: 2
         })
@@ -458,7 +468,9 @@ describe('atomic deactivation', () => {
             INSERT INTO role VALUES ('owner-role', 'owner');
             INSERT INTO user VALUES ('owner-1', 'active', 0, NULL), ('owner-2', 'active', 0, NULL);
             INSERT INTO organization_user VALUES ('org-1', 'owner-1', 'owner-role', 'active', NULL), ('org-1', 'owner-2', 'owner-role', 'active', NULL);
-            INSERT INTO identity_action_link VALUES ('owner-1', 'invite', NULL, NULL, 'org-1'), ('owner-1', 'reset', NULL, NULL, 'org-1');
+            INSERT INTO identity_action_link VALUES
+                ('owner-1', 'invite', NULL, NULL, 'org-1'),
+                ('owner-1', 'reset', NULL, NULL, 'org-2');
             INSERT INTO identity_local_session VALUES ('session-1', 'owner-1');
             INSERT INTO apikey VALUES ('key-1', 'owner-1', NULL);
             INSERT INTO identity_personal_token VALUES ('personal-1', 'owner-1', 'digest', NULL);
@@ -469,6 +481,7 @@ describe('atomic deactivation', () => {
             permissionVersion: 1
         })
         expect(db.prepare('SELECT COUNT(*) AS count FROM identity_local_session').get()).toMatchObject({ count: 0 })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_action_link WHERE usedAt IS NOT NULL').get()).toMatchObject({ count: 2 })
         expect(db.prepare('SELECT disabledAt FROM apikey').get()).toMatchObject({ disabledAt: expect.any(String) })
         expect(db.prepare('SELECT disabledAt FROM identity_personal_token').get()).toMatchObject({ disabledAt: expect.any(String) })
         await expect(
