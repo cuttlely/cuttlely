@@ -234,18 +234,23 @@ identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
         })
 })
 identityAuthRouter.post('/invite/start', (req, res, next) => {
-    if (selectedAuthenticationMethod() !== 'oidc') return void dispatch(req, res, next, handleInviteStart)
-    if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Unauthorized' })
-    const token = typeof req.body?.token === 'string' ? req.body.token : ''
-    if (!token || token.length > INVITE_TOKEN_MAX_LENGTH) {
-        return void res.status(400).json({ message: 'This invite link is not valid. Ask for a new invite.' })
-    }
-    void oidcInviteStartUrl(req, token)
-        .then(({ url, browserNonce }) => {
-            const cookie = oidcBrowserCookie(browserNonce, cookieSecure(oidcCallbackUrl(), Boolean(req.secure) || req.protocol === 'https'))
-            res.cookie(cookie.name, cookie.value, cookie.options).status(200).json({ url })
-        })
-        .catch(() => res.status(409).json({ message: 'OIDC sign-in could not start.' }))
+    void currentAuthenticationView().then(() => {
+        if (selectedAuthenticationMethod() !== 'oidc') return void dispatch(req, res, next, handleInviteStart)
+        if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Unauthorized' })
+        const token = typeof req.body?.token === 'string' ? req.body.token : ''
+        if (!token || token.length > INVITE_TOKEN_MAX_LENGTH) {
+            return void res.status(400).json({ message: 'This invite link is not valid. Ask for a new invite.' })
+        }
+        void oidcInviteStartUrl(req, token)
+            .then(({ url, browserNonce }) => {
+                const cookie = oidcBrowserCookie(
+                    browserNonce,
+                    cookieSecure(oidcCallbackUrl(), Boolean(req.secure) || req.protocol === 'https')
+                )
+                res.cookie(cookie.name, cookie.value, cookie.options).status(200).json({ url })
+            })
+            .catch(() => res.status(409).json({ message: 'OIDC sign-in could not start.' }))
+    })
 })
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))
 identityAuthRouter.post('/resolve', (req, res, next) => void dispatch(req, res, next, handleResolve))

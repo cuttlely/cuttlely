@@ -66,6 +66,44 @@ function database(): { source: DataSource; rows(sql: string, params?: unknown[])
     return { source, rows: run, close: () => db.close() }
 }
 
+interface CapturedCall {
+    sql: string
+    params: unknown[]
+}
+
+function capturedSource(
+    type: 'mysql' | 'mariadb',
+    answer: (sql: string, params: unknown[]) => unknown = () => []
+): { source: DataSource; calls: CapturedCall[] } {
+    const calls: CapturedCall[] = []
+    let active = false
+    const runner = {
+        connection: { options: { type } },
+        connect: async () => undefined,
+        release: async () => undefined,
+        async query(sql: string, params: unknown[] = []) {
+            calls.push({ sql, params })
+            return answer(sql, params)
+        },
+        startTransaction: async () => {
+            active = true
+        },
+        commitTransaction: async () => {
+            active = false
+        },
+        rollbackTransaction: async () => {
+            active = false
+        },
+        get isTransactionActive() {
+            return active
+        }
+    } as unknown as QueryRunner
+    return {
+        source: { options: { type }, createQueryRunner: () => runner } as unknown as DataSource,
+        calls
+    }
+}
+
 function user(id: string, email: string, status = 'active'): UserRow {
     return { id, email, name: email.split('@')[0], externalId: null, credential: null, status }
 }
@@ -86,6 +124,56 @@ function store(users: UserRow[], accepted: 'accepted' | 'invalid' = 'invalid'): 
 }
 
 describe('provider-scoped identity links', () => {
+    describe.each(['mysql', 'mariadb'] as const)('%s statements', (dialect) => {
+        it('locks and consumes an authorization transaction once', async () => {
+            const db = capturedSource(dialect, (sql) => {
+                if (sql.startsWith('SELECT `envelope`')) {
+                    return [[{ envelope: 'sealed-envelope', expiresAt: new Date(11_000), consumedAt: null }], []]
+                }
+                return { affectedRows: 1 }
+            })
+
+            await expect(consumeOidcTransaction(db.source, 'state-hash', 2_000)).resolves.toBe('sealed-envelope')
+            const select = db.calls.find((call) => call.sql.startsWith('SELECT `envelope`'))
+            expect(select?.sql).toContain('FROM `identity_oidc_transaction` WHERE `stateHash` = ? FOR UPDATE')
+            expect(select?.params).toEqual(['state-hash'])
+            const update = db.calls.find((call) => call.sql.startsWith('UPDATE `identity_oidc_transaction`'))
+            expect(update?.sql).toContain('SET `consumedAt` = ? WHERE `stateHash` = ? AND `consumedAt` IS NULL')
+            expect(update?.params[1]).toBe('state-hash')
+        })
+
+        it('uses MySQL-family upserts for legacy links and their migration marker', async () => {
+            let providerReads = 0
+            const db = capturedSource(dialect, (sql) => {
+                if (sql.includes('FROM `user` WHERE `externalId` IS NOT NULL')) {
+                    return [[{ id: 'user-1', email: 'ada@example.com', externalId: 'subject-1' }], []]
+                }
+                if (sql.startsWith('SELECT * FROM `identity_provider_link_migration`')) return [[], []]
+                if (sql.includes('FROM `identity_provider_link` WHERE `providerKey` = ? AND `subject` = ?')) {
+                    providerReads += 1
+                    return providerReads === 1 ? [[], []] : [[{ userId: 'user-1' }], []]
+                }
+                return { affectedRows: 1 }
+            })
+
+            await expect(
+                migrateLegacyProviderLinks(db.source, {
+                    activeMethod: 'workos',
+                    providerKey: 'workos-provider',
+                    warningKind: null
+                })
+            ).resolves.toEqual({ complete: true, migrated: 1, inert: 0, error: null })
+
+            const link = db.calls.find(
+                (call) => call.sql.startsWith('INSERT INTO `identity_provider_link`') && call.sql.includes('ON DUPLICATE KEY UPDATE')
+            )
+            expect(link?.sql).toContain('ON DUPLICATE KEY UPDATE `providerKey` = `providerKey`')
+            const marker = db.calls.find((call) => call.sql.startsWith('INSERT INTO `identity_provider_link_migration`'))
+            expect(marker?.sql).toContain('ON DUPLICATE KEY UPDATE `providerKey` = VALUES(`providerKey`)')
+            expect(marker?.sql).toContain('`completedAt` = VALUES(`completedAt`)')
+        })
+    })
+
     it('keeps the exact trimmed issuer including a trailing slash', () => {
         expect(validatedOidcIssuer('  https://id.example/tenant/  ')).toBe('https://id.example/tenant/')
         expect(validatedOidcIssuer('https://id.example/tenant/?query=no')).toBeNull()

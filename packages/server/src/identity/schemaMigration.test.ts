@@ -48,6 +48,18 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
     return { runner: runner as unknown as QueryRunner, calls }
 }
 
+function mysqlFamilyRunner(type: 'mysql' | 'mariadb'): { runner: QueryRunner; calls: Call[] } {
+    const calls: Call[] = []
+    const runner = {
+        connection: { options: { type } },
+        async query(sql: string, params?: unknown[]) {
+            calls.push({ sql, params })
+            return []
+        }
+    }
+    return { runner: runner as unknown as QueryRunner, calls }
+}
+
 describe('local directory schema on postgres', () => {
     it('rewrites placeholders before the driver sees them', async () => {
         const present = new Set(['user', 'role', 'identity_local_session'])
@@ -129,5 +141,37 @@ describe('local directory schema on postgres', () => {
         const { runner, calls } = postgresRunner(present)
         await addOidcProvider(runner)
         expect(calls.some((call) => call.sql.includes('ADD COLUMN "inertCount" integer NOT NULL DEFAULT 0'))).toBe(true)
+    })
+})
+
+describe.each([
+    ['mysql', 'COLLATE=utf8mb4_0900_ai_ci'],
+    ['mariadb', 'COLLATE=utf8mb4_unicode_520_ci']
+] as const)('OIDC schema on %s', (dialect, collation) => {
+    it('generates the provider, configuration, transaction, and migration tables', async () => {
+        const { runner, calls } = mysqlFamilyRunner(dialect)
+        await addOidcProvider(runner)
+
+        const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE \`${table}\``))?.sql || ''
+        const provider = create('identity_provider_link')
+        expect(provider).toContain('`userId` varchar(36) NOT NULL')
+        expect(provider).toContain('UNIQUE (`providerKey`, `subject`)')
+        expect(provider).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+
+        const configuration = create('identity_oidc_configuration')
+        expect(configuration).toContain('`trustMissingEmailVerification` tinyint(1) NOT NULL')
+        expect(configuration).toContain('`privateIssuerHosts` text NOT NULL')
+        expect(configuration).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+
+        const transaction = create('identity_oidc_transaction')
+        expect(transaction).toContain('`stateHash` varchar(64) PRIMARY KEY')
+        expect(transaction).toContain('`consumedAt` datetime NULL')
+        expect(transaction).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+
+        const migration = create('identity_provider_link_migration')
+        expect(migration).toContain('`inertCount` integer NOT NULL DEFAULT 0')
+        expect(migration).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+        expect(calls.some((call) => call.sql.includes('information_schema.TABLES') && call.sql.includes('TABLE_NAME = ?'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('$1'))).toBe(false)
     })
 })
