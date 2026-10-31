@@ -181,7 +181,7 @@ describe('authentication provider foundation', () => {
         })
     })
 
-    it('counts only usable sessions that survive the convergence cutoff when switching', async () => {
+    it('counts usable current sessions and live legacy sessions without an authentication method when switching', async () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
             const db = await database()
             const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
@@ -193,7 +193,7 @@ describe('authentication provider foundation', () => {
                 expiresAt: number,
                 absoluteExpiresAt: number,
                 createdDate: number,
-                authenticationMethod: string
+                authenticationMethod: string | null
             ) =>
                 db.query(
                     'INSERT INTO "identity_local_session" ("id", "userId", "token", "expiresAt", "absoluteExpiresAt", "createdDate", "authenticationMethod") VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -204,6 +204,7 @@ describe('authentication provider foundation', () => {
             await insert('absolute-ended', switchAt + 1, switchAt - 1, switchAt - 2, 'local')
             await insert('cutoff-workos', switchAt + 1, switchAt + 2, cutoff, 'workos')
             await insert('new-workos', switchAt + 1, switchAt + 2, switchAt, 'workos')
+            await insert('legacy-null', switchAt + 1, switchAt + 2, cutoff, null)
 
             const clock = jest.spyOn(Date, 'now').mockReturnValue(switchAt)
             let after
@@ -213,7 +214,7 @@ describe('authentication provider foundation', () => {
                 clock.mockRestore()
             }
 
-            expect(after.sessionsEnded).toBe(2)
+            expect(after.sessionsEnded).toBe(3)
             expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(0)
             await db.destroy()
         })
@@ -338,16 +339,43 @@ describe('authentication provider foundation', () => {
 
     it('blocks new mailbox linking after a fingerprint mismatch until acknowledgment restores it', async () => {
         const db = await database()
-        await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'first' })
+        const before = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'first' })
         const mismatch = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' })
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'second' }, async () => {
+            const cutoff = Date.parse('2026-10-30T12:00:00.000Z')
+            const acknowledgedAt = Date.parse('2026-10-30T13:00:00.000Z')
+            await activateSessionConvergence(db, cutoff)
+            const insert = (id: string, expiresAt: number, authenticationMethod: string | null, createdDate = cutoff) =>
+                db.query(
+                    'INSERT INTO "identity_local_session" ("id", "userId", "token", "expiresAt", "absoluteExpiresAt", "createdDate", "authenticationMethod") VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [id, 'owner', id, expiresAt, acknowledgedAt + 2, createdDate, authenticationMethod]
+                )
+            await insert('current-session', acknowledgedAt + 1, 'workos', acknowledgedAt)
+            await insert('legacy-session', acknowledgedAt + 1, null)
+            await insert('expired-session', acknowledgedAt - 1, 'local')
             expect(await automaticWorkosLinkingAllowed(db)).toBe(false)
-            const acknowledged = await acknowledgeAuthenticationWarning(db, mismatch.version, {
-                organizationId: 'org',
-                actorId: 'owner'
-            })
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(acknowledgedAt)
+            let acknowledged
+            try {
+                acknowledged = await acknowledgeAuthenticationWarning(db, mismatch.version, {
+                    organizationId: 'org',
+                    actorId: 'owner'
+                })
+            } finally {
+                clock.mockRestore()
+            }
             expect(acknowledged.warning).toBeNull()
             expect(acknowledged.warningKind).toBeNull()
+            expect(acknowledged.authenticationEpoch).toBe(before.authenticationEpoch + 1)
+            expect(acknowledged.sessionsEnded).toBe(2)
+            expect(acknowledged.changedAt).toBe(new Date(acknowledgedAt).toISOString())
+            expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(0)
+            const [audit] = await db.query('SELECT "detail" FROM "audit_event"')
+            expect(JSON.parse(audit.detail)).toMatchObject({
+                authenticationEpoch: before.authenticationEpoch + 1,
+                sessionsEnded: 2,
+                outcome: 'acknowledged'
+            })
             expect(await automaticWorkosLinkingAllowed(db)).toBe(true)
         })
         expect(mismatch.warningKind).toBe('workos-client-mismatch')

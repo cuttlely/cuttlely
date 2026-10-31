@@ -237,7 +237,13 @@ identityAuthenticationRouter.post('/acknowledge-warning', async (req: Request, r
             organizationId: who.organizationId,
             actorId: who.id
         })
-        res.status(200).json({ acknowledged: true, version: state.version })
+        res.status(200).json({
+            acknowledged: true,
+            redirectTo: '/signin',
+            version: state.version,
+            authenticationEpoch: state.authenticationEpoch,
+            sessionsEnded: state.sessionsEnded
+        })
     } catch (error) {
         const code = error instanceof Error ? error.message : ''
         res.status(code === 'AUTH_STATE_CHANGED' ? 409 : 500).json({

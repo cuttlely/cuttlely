@@ -16,6 +16,7 @@ const localAccountOpen = jest.fn()
 const readAuthenticationState = jest.fn()
 const stageAuthenticationMethodSwitch = jest.fn()
 const switchAuthenticationMethod = jest.fn()
+const acknowledgeAuthenticationWarning = jest.fn()
 const usableLocalOwnerReady = jest.fn()
 const hasRecentAuthentication = jest.fn()
 
@@ -25,7 +26,7 @@ jest.mock('./production', () => ({
     identityStore: () => ({ findLocalSession, findSuperUser, localAccountOpen })
 }))
 jest.mock('./authenticationState', () => ({
-    acknowledgeAuthenticationWarning: jest.fn(),
+    acknowledgeAuthenticationWarning,
     hasRecentAuthentication,
     initializeAuthenticationState: jest.fn(),
     readAuthenticationState,
@@ -84,6 +85,7 @@ describe('authentication settings routes', () => {
             authenticationEpoch: 3,
             sessionsEnded: 2
         })
+        acknowledgeAuthenticationWarning.mockResolvedValue({ version: 5, authenticationEpoch: 3, sessionsEnded: 2 })
     })
 
     afterAll(() => setTeamPermissionLookup(null))
@@ -269,6 +271,24 @@ describe('authentication settings routes', () => {
             expect.anything(),
             expect.objectContaining({ summary: 'Sign-in method change failed', detail: expect.objectContaining({ outcome: 'failed' }) })
         )
+    })
+
+    it('reports the session-ending warning acknowledgment transition', async () => {
+        const response = await request(app({ 'local-session': 'fresh' }))
+            .post('/api/v1/authentication/acknowledge-warning')
+            .send({ version: 4 })
+        expect(response.status).toBe(200)
+        expect(response.body).toEqual({
+            acknowledged: true,
+            redirectTo: '/signin',
+            version: 5,
+            authenticationEpoch: 3,
+            sessionsEnded: 2
+        })
+        expect(acknowledgeAuthenticationWarning).toHaveBeenCalledWith(expect.anything(), 4, {
+            organizationId: 'org-1',
+            actorId: 'owner-1'
+        })
     })
 
     it('limits repeated stage requests', async () => {

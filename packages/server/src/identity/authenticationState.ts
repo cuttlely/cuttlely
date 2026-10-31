@@ -346,14 +346,24 @@ export async function acknowledgeAuthenticationWarning(
         if (current.warningKind !== 'workos-client-mismatch') throw new Error('AUTH_WARNING_NOT_ACTIONABLE')
         const fingerprint = workosConfigurationFingerprint()
         const d = dialect(runner)
-        const now = new Date()
+        const changedAt = Date.now()
+        const ended = await endInteractiveSessions(runner, changedAt)
+        const now = new Date(changedAt)
         await query(
             runner,
-            `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'configurationFingerprint')} = ?, ${q(d, 'providerKey')} = ?, ${q(
+            `UPDATE ${q(d, 'identity_authentication_state')} SET ${q(d, 'authenticationEpoch')} = ${q(d, 'authenticationEpoch')} + 1, ${q(
                 d,
-                'warning'
-            )} = NULL, ${q(d, 'version')} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
-            [fingerprint, fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null]
+                'configurationFingerprint'
+            )} = ?, ${q(d, 'providerKey')} = ?, ${q(d, 'warning')} = NULL, ${q(d, 'sessionsEnded')} = ?, ${q(d, 'changedAt')} = ?, ${q(
+                d,
+                'version'
+            )} = ${q(d, 'version')} + 1 WHERE ${q(d, 'id')} = 1`,
+            [
+                fingerprint,
+                fingerprint ? stableWorkosProviderKey(current.installationId, fingerprint) : null,
+                ended,
+                databaseDate(runner, now)
+            ]
         )
         await query(
             runner,
@@ -368,7 +378,12 @@ export async function acknowledgeAuthenticationWarning(
                 audit.actorId,
                 audit.actorId,
                 'Authentication configuration warning acknowledged',
-                JSON.stringify({ configurationFingerprint: fingerprint, outcome: 'acknowledged' }),
+                JSON.stringify({
+                    configurationFingerprint: fingerprint,
+                    authenticationEpoch: current.authenticationEpoch + 1,
+                    sessionsEnded: ended,
+                    outcome: 'acknowledged'
+                }),
                 now.getTime()
             ]
         )
@@ -442,6 +457,28 @@ async function usableLocalOwnerExists(runner: QueryRunner): Promise<boolean> {
     return rows.some((row) => isUsablePasswordHash(String(value(row, 'credential') ?? '')))
 }
 
+async function endInteractiveSessions(runner: QueryRunner, endedAt: number): Promise<number> {
+    const d = dialect(runner)
+    const cutoff = await query(
+        runner,
+        `SELECT ${q(d, 'cutoffAt')} AS ${q(d, 'cutoffAt')} FROM ${q(d, 'identity_session_convergence')} WHERE ${q(d, 'id')} = 1`
+    )
+    const cutoffAt = cutoff[0] ? value(cutoff[0], 'cutoffAt') : null
+    const sessions = q(d, 'identity_local_session')
+    const authenticationMethod = q(d, 'authenticationMethod')
+    const counted = await query(
+        runner,
+        `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${sessions} WHERE ${q(d, 'expiresAt')} > ? AND ${q(
+            d,
+            'absoluteExpiresAt'
+        )} > ? AND (${authenticationMethod} IS NULL OR NOT (${authenticationMethod} = 'workos' AND ${q(d, 'createdDate')} <= ?))`,
+        [databaseDate(runner, new Date(endedAt)), databaseDate(runner, new Date(endedAt)), cutoffAt]
+    )
+    const ended = Number(value(counted[0] || {}, 'count') || 0)
+    await query(runner, `DELETE FROM ${sessions}`)
+    return ended
+}
+
 export async function switchAuthenticationMethod(
     dataSource: DataSource,
     method: AuthenticationMethod,
@@ -503,22 +540,7 @@ export async function switchAuthenticationMethod(
             if (consumed === 0) throw new Error('AUTH_STAGE_STALE')
         }
         const switchAt = stage?.now ?? Date.now()
-        const cutoff = await query(
-            runner,
-            `SELECT ${q(d, 'cutoffAt')} AS ${q(d, 'cutoffAt')} FROM ${q(d, 'identity_session_convergence')} WHERE ${q(d, 'id')} = 1`
-        )
-        const cutoffAt = cutoff[0] ? value(cutoff[0], 'cutoffAt') : null
-        const sessions = q(d, 'identity_local_session')
-        const counted = await query(
-            runner,
-            `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${sessions} WHERE ${q(d, 'expiresAt')} > ? AND ${q(
-                d,
-                'absoluteExpiresAt'
-            )} > ? AND NOT (${q(d, 'authenticationMethod')} = 'workos' AND ${q(d, 'createdDate')} <= ?)`,
-            [databaseDate(runner, new Date(switchAt)), databaseDate(runner, new Date(switchAt)), cutoffAt]
-        )
-        const ended = Number(value(counted[0] || {}, 'count') || 0)
-        await query(runner, `DELETE FROM ${sessions}`)
+        const ended = await endInteractiveSessions(runner, switchAt)
         const now = new Date()
         await query(
             runner,

@@ -18,7 +18,7 @@ The owner password form (`CUTTLELY_LOCAL_ADMIN`) is a separate switch. [Sign in]
 
 Set `CUTTLELY_LOCAL_USERS` to exactly `true` and restart. In **Admin** > **Server Settings** > **Sign-in & identity**, the switch is **Local user passwords**. It is off unless you set it.
 
-Leave AuthKit unset. If `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set, this mode stays off. The owner break-glass form can still be on. The combinations are in the [Auth API](../reference/auth-api.md#flag-combinations).
+Leave AuthKit unset. If `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set, this mode stays off. The owner break-glass form can still be on. The combinations are in the [Auth API](../reference/auth-api.md#active-method-and-compatibility-flags).
 
 ## Sign in
 

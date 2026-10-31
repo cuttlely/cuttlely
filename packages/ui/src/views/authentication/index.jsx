@@ -28,6 +28,7 @@ export default function AuthenticationSettings() {
     const [choice, setChoice] = useState('')
     const [stage, setStage] = useState(null)
     const [confirm, setConfirm] = useState('')
+    const [warningConfirmationOpen, setWarningConfirmationOpen] = useState(false)
     const load = () =>
         api
             .get()
@@ -62,8 +63,9 @@ export default function AuthenticationSettings() {
     const acknowledgeWarning = async () => {
         setError('')
         try {
-            await api.acknowledgeWarning(data.version)
-            await load()
+            const result = (await api.acknowledgeWarning(data.version)).data
+            setWarningConfirmationOpen(false)
+            window.location.assign(result.redirectTo)
         } catch (cause) {
             setError(cause?.response?.data?.message || 'The warning could not be acknowledged.')
         }
@@ -106,7 +108,7 @@ export default function AuthenticationSettings() {
                     <Alert
                         severity='warning'
                         action={
-                            <Button color='inherit' size='small' onClick={acknowledgeWarning}>
+                            <Button color='inherit' size='small' onClick={() => setWarningConfirmationOpen(true)}>
                                 Acknowledge
                             </Button>
                         }
@@ -200,6 +202,18 @@ export default function AuthenticationSettings() {
                     <Button onClick={() => setStage(null)}>Cancel</Button>
                     <Button color='error' variant='contained' disabled={confirm !== 'END SESSIONS'} onClick={apply}>
                         Change method
+                    </Button>
+                </DialogActions>
+            </Dialog>
+            <Dialog open={warningConfirmationOpen} onClose={() => setWarningConfirmationOpen(false)}>
+                <DialogTitle>Acknowledge and end all interactive sessions?</DialogTitle>
+                <DialogContent>
+                    <Alert severity='warning'>Everyone, including you, must sign in again.</Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setWarningConfirmationOpen(false)}>Cancel</Button>
+                    <Button color='error' variant='contained' onClick={acknowledgeWarning}>
+                        Acknowledge and end sessions
                     </Button>
                 </DialogActions>
             </Dialog>
