@@ -85,6 +85,12 @@ export interface LocalSession {
     permissionVersion?: number
     /** Version on the user row when the session was read. */
     currentPermissionVersion?: number
+    /** Method that completed authentication for this database session. */
+    authenticationMethod?: 'local' | 'workos' | 'recovery'
+    /** Global authentication epoch copied when the session was issued. */
+    authenticationEpoch?: number
+    /** True for the always-available owner recovery path. */
+    recoveryUse?: boolean
 }
 
 export interface CreateOwnerInput {
@@ -137,7 +143,7 @@ export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
     reauthorizationUrl?(redirectUri: string, state: string): string
     /** authTime is the provider's auth_time claim, in Unix seconds, when the provider supplies a verified value. */
-    authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string; authTime?: number }>
+    authenticate(code: string): Promise<{ user: WorkosIdentity; authTime?: number }>
     authenticateSession(
         sealed: string
     ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>

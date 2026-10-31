@@ -84,11 +84,9 @@ export const workosPort: WorkosPort = {
         try {
             const response = await client().userManagement.authenticateWithCode({
                 code,
-                clientId: process.env.WORKOS_CLIENT_ID,
-                session: { sealSession: true, cookiePassword: password() }
+                clientId: process.env.WORKOS_CLIENT_ID
             })
-            if (!response.sealedSession) throw new WorkosUnavailableError()
-            return { user: identityOf(response.user), sealedSession: response.sealedSession }
+            return { user: identityOf(response.user) }
         } catch (error) {
             rethrow(error)
         }

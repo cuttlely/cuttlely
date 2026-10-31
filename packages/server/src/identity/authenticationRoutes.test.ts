@@ -34,6 +34,7 @@ jest.mock('./authenticationState', () => ({
     workosConfigurationFingerprint: () => 'fingerprint'
 }))
 jest.mock('./constants', () => ({
+    LOGIN_FAILURE_WINDOW_MS: 15 * 60 * 1000,
     LOCAL_SESSION_COOKIE: 'local-session',
     RECENT_AUTH_COOKIE: 'recent-auth',
     localAdminEnabled: () => true,
@@ -41,8 +42,13 @@ jest.mock('./constants', () => ({
     workosEnvironmentConfigured: () => true
 }))
 jest.mock('./auditLog', () => ({ safeRecordAudit: jest.fn() }))
+jest.mock('./recovery', () => ({
+    acknowledgeRecoveryAlert: jest.fn(),
+    currentRecoveryAlert: jest.fn(async () => null)
+}))
 
 import { identityAuthenticationRouter } from './authenticationRoutes'
+import { safeRecordAudit } from './auditLog'
 
 function app(cookie?: string) {
     const server = express()
@@ -185,5 +191,45 @@ describe('authentication settings routes', () => {
         })
         expect(response.status).toBe(409)
         expect(response.body.message).toContain('active owner')
+    })
+
+    it('records a failed apply as failed rather than refused', async () => {
+        switchAuthenticationMethod.mockRejectedValueOnce(new Error('METHOD_NOT_READY'))
+        const response = await request(app('fresh')).post('/api/v1/authentication/apply').send({
+            stage: 'stage-1',
+            stageVersion: 1,
+            method: 'local',
+            stateVersion: 4,
+            confirm: 'END SESSIONS'
+        })
+        expect(response.status).toBe(409)
+        expect(safeRecordAudit).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ summary: 'Sign-in method change failed', detail: expect.objectContaining({ outcome: 'failed' }) })
+        )
+    })
+
+    it('limits repeated stage requests', async () => {
+        let status = 0
+        for (let attempt = 0; attempt < 12 && status !== 429; attempt++) {
+            status = (await request(app('fresh')).post('/api/v1/authentication/stage').send({ method: 'workos', version: 4 })).status
+        }
+        expect(status).toBe(429)
+    })
+
+    it('limits repeated apply requests', async () => {
+        let status = 0
+        for (let attempt = 0; attempt < 12 && status !== 429; attempt++) {
+            status = (
+                await request(app('fresh')).post('/api/v1/authentication/apply').send({
+                    stage: 'stage-1',
+                    stageVersion: 1,
+                    method: 'workos',
+                    stateVersion: 4,
+                    confirm: 'END SESSIONS'
+                })
+            ).status
+        }
+        expect(status).toBe(429)
     })
 })

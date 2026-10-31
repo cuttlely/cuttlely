@@ -78,6 +78,7 @@ describe('getCorsOptions', () => {
         it('refuses a preflight to local sign-in, sign-out, and password change', async () => {
             const origin = 'https://evil.example'
             expect(await originAllowed('/api/v1/auth/local/login', origin)).toBe(false)
+            expect(await originAllowed('/api/v1/auth/recovery/login', origin)).toBe(false)
             expect(await originAllowed('/api/v1/auth/local/logout', origin)).toBe(false)
             expect(await originAllowed('/api/v1/auth/local/password', origin)).toBe(false)
             expect(await originAllowed('/api/v1/auth/login', origin)).toBe(false)

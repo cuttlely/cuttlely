@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   **Owner recovery** is always available from the sign-in page for any active owner with a usable local password. It creates a normal Cuttlely session marked as recovery use, uses stricter source and account throttling, and records every outcome as a high-severity audit event. A successful recovery also creates an administrator banner until audited acknowledgment, writes a structured warning, and emails active owners when SMTP is configured. `CUTTLELY_LOCAL_ADMIN` continues to control the older compatibility route but is no longer required for recovery readiness.
+
 -   Markdown trusted-output contracts can opt into bounded private diagnostics for rejected numeric interpretation claims. The author-only run endpoint denies API keys; ordinary answers, traces and validation decisions remain unchanged, and collection defaults off.
 
 -   Trusted-output contracts can declare an optional monetary reporting symbol for verified readouts. Explicit source denominations take precedence, compact K/M/B values must match decimal-safe rounding of actual monetary source fields, and unchanged factual sections retain their original values. Counts and percentages stay in their source units.
@@ -15,11 +17,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Upgraded WorkOS installations now warn administrators on **Auth / SSO** and in an application banner until `CUTTLELY_LOCAL_ADMIN` is enabled and `pnpm user --email owner@example.com` has created an active owner recovery credential. Phase A does not enable recovery or change sign-in behavior. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until an active owner has a usable local password; the latter is checked again in the switch transaction.
+-   WorkOS, local login, and owner recovery now use the same Cuttlely database session and browser cookie. On the first start after upgrading, a durable database marker ends the older sealed WorkOS browser sessions once, so those users sign in again one time. Existing local-user installs are unchanged, and API keys continue working.
 
--   Every sign-in method switch increments the authentication epoch. Valid existing sealed WorkOS sessions remain accepted until the first method switch and gain an epoch cookie after successful validation; epoch-bound sessions become invalid after a switch. Staged switches are durable, expiring, single-use database records that can be applied by another server process.
+-   Every session request and every owned API credential request checks the current user status, so disabling a user refuses the next call. WorkOS deactivation ends Cuttlely access immediately only when the Cuttlely user is also disabled; automatic IdP deactivation awaits SCIM.
 
--   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. The current integration cannot provide that proof, so administrators use a local owner password for this check. Ordinary WorkOS sign-in never records the evidence.
+-   Recovery readiness now means that any active owner has a usable local password. Administrators see a warning until `pnpm user --email owner@example.com` creates one; `CUTTLELY_LOCAL_ADMIN` is not required. Panel activation of WorkOS and switching from WorkOS to Local login refuse the change until recovery is ready.
+
+-   Every sign-in method switch increments the authentication epoch and ends all interactive database sessions. Staged switches are durable, expiring, single-use database records that can be applied by another server process. The stage and apply routes now have request limits.
+
+-   **Sign in again** on **Auth / SSO** starts a distinct WorkOS reauthentication request with signed request-time state. Its callback records ten-minute recent-authentication evidence only when WorkOS proves an authentication time at or after the request. Owner recovery also satisfies this check. The epoch-binding and reauthentication-state secrets are derived from `TOKEN_HASH_SECRET` with separate HKDF labels.
 
 ### Fixed
 

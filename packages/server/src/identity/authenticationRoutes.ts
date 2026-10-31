@@ -1,5 +1,6 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { Request, Response, Router } from 'express'
+import { rateLimit } from 'express-rate-limit'
 import {
     acknowledgeAuthenticationWarning,
     hasRecentAuthentication,
@@ -10,11 +11,19 @@ import {
     usableLocalOwnerReady,
     workosConfigurationFingerprint
 } from './authenticationState'
-import { LOCAL_SESSION_COOKIE, RECENT_AUTH_COOKIE, localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
+import {
+    LOCAL_SESSION_COOKIE,
+    LOGIN_FAILURE_WINDOW_MS,
+    RECENT_AUTH_COOKIE,
+    localAdminEnabled,
+    localUsersSetting,
+    workosEnvironmentConfigured
+} from './constants'
 import { hashSessionToken } from './password'
 import { applicationDataSource, applicationSql, identityStore } from './production'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
+import { acknowledgeRecoveryAlert, currentRecoveryAlert } from './recovery'
 
 const RECENT_MS = 10 * 60 * 1000
 export const identityAuthenticationRouter = Router()
@@ -43,22 +52,38 @@ async function ownerLocalPasswordReady(): Promise<boolean> {
 }
 
 async function ownerRecoveryReady(): Promise<boolean> {
-    return localAdminEnabled() && (await ownerLocalPasswordReady())
+    return ownerLocalPasswordReady()
 }
 
 async function auditAttempt(who: { id: string; organizationId: string }, detail: Record<string, unknown>): Promise<void> {
+    const outcome = detail.outcome === 'failed' ? 'failed' : 'refused'
     await safeRecordAudit(applicationSql(), {
         type: 'auth_method_change',
         organizationId: who.organizationId,
         workspaceId: null,
         userId: who.id,
         actorId: who.id,
-        summary: 'Sign-in method change refused',
+        summary: `Sign-in method change ${outcome}`,
         detail: { configurationFingerprint: workosConfigurationFingerprint(), ...detail }
     })
 }
 
 identityAuthenticationRouter.use(requirePermission('authentication:manage'))
+
+const switchStageLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: 10,
+    standardHeaders: false,
+    legacyHeaders: false,
+    message: { type: 'authentication_rate_limit', message: 'Too many authentication changes. Try again later.' }
+})
+const switchApplyLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: 10,
+    standardHeaders: false,
+    legacyHeaders: false,
+    message: { type: 'authentication_rate_limit', message: 'Too many authentication changes. Try again later.' }
+})
 
 identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
     try {
@@ -75,7 +100,12 @@ identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
                     workos: { configured: workosEnvironmentConfigured(), label: 'WorkOS' },
                     oidc: { configured: false, available: false, label: 'Generic OIDC' }
                 },
-                recovery: { available: await ownerRecoveryReady(), routeEnabled: localAdminEnabled() },
+                recovery: {
+                    available: await ownerRecoveryReady(),
+                    routeEnabled: true,
+                    compatibilityRouteEnabled: localAdminEnabled(),
+                    alert: await currentRecoveryAlert(applicationDataSource())
+                },
                 scim: { available: false }
             })
     } catch {
@@ -83,12 +113,12 @@ identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
     }
 })
 
-identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) => {
+identityAuthenticationRouter.post('/stage', switchStageLimit, async (req: Request, res: Response) => {
+    const who = actor(req)
+    const method = (req.body as { method?: unknown })?.method
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
     try {
-        const who = actor(req)
-        const method = (req.body as { method?: unknown })?.method
         const version = Number((req.body as { version?: unknown })?.version)
-        if (!who) return void res.status(401).json({ message: 'Unauthorized' })
         if (method !== 'local' && method !== 'workos')
             return void res.status(400).json({ message: 'That sign-in method is not available.' })
         if ((method === 'local' && !localUsersSetting()) || (method === 'workos' && !workosEnvironmentConfigured()))
@@ -97,7 +127,7 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
             await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'owner_recovery_unavailable' })
             return void res.status(409).json({
                 code: 'RECOVERY_REQUIRED',
-                message: 'WorkOS cannot be activated until the owner recovery route is enabled and an active owner has a usable password.'
+                message: 'WorkOS cannot be activated until an active owner has a usable local password.'
             })
         }
         const state = await readAuthenticationState(applicationDataSource())
@@ -121,12 +151,17 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
             apiKeysWillRemain: true,
             expiresAt: staged.expiresAt
         })
-    } catch {
+    } catch (error) {
+        await auditAttempt(who, {
+            newMethod: method,
+            outcome: 'failed',
+            reason: error instanceof Error ? error.message : 'unexpected_error'
+        })
         res.status(500).json({ message: 'The sign-in method could not be staged.' })
     }
 })
 
-identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) => {
+identityAuthenticationRouter.post('/apply', switchApplyLimit, async (req: Request, res: Response) => {
     const who = actor(req)
     const body = req.body as { stage?: unknown; stageVersion?: unknown; method?: unknown; stateVersion?: unknown; confirm?: unknown }
     if (!who) return void res.status(401).json({ message: 'Unauthorized' })
@@ -180,7 +215,7 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
                     : code === 'LOCAL_OWNER_REQUIRED'
                     ? 'Local login requires an active owner with a usable local password.'
                     : code === 'RECOVERY_REQUIRED'
-                    ? 'WorkOS cannot be activated until the owner recovery route is enabled and an active owner has a usable password.'
+                    ? 'WorkOS cannot be activated until an active owner has a usable local password.'
                     : 'The sign-in method was not changed.'
         })
     }
@@ -202,5 +237,24 @@ identityAuthenticationRouter.post('/acknowledge-warning', async (req: Request, r
         res.status(code === 'AUTH_STATE_CHANGED' ? 409 : 500).json({
             message: 'The warning could not be acknowledged. Reload and try again.'
         })
+    }
+})
+
+identityAuthenticationRouter.post('/acknowledge-recovery-alert', async (req: Request, res: Response) => {
+    const who = actor(req)
+    const id = (req.body as { id?: unknown })?.id
+    if (!who) return void res.status(401).json({ message: 'Unauthorized' })
+    if (typeof id !== 'string' || !id) return void res.status(400).json({ message: 'The recovery alert is not valid.' })
+    try {
+        const acknowledged = await acknowledgeRecoveryAlert(applicationDataSource(), applicationSql(), {
+            id,
+            actorId: who.id,
+            organizationId: who.organizationId,
+            at: Date.now()
+        })
+        if (!acknowledged) return void res.status(409).json({ message: 'The recovery alert was already acknowledged.' })
+        res.status(200).json({ acknowledged: true })
+    } catch {
+        res.status(500).json({ message: 'The recovery alert could not be acknowledged.' })
     }
 })

@@ -85,10 +85,8 @@ async function dispatch(
 export const identityAuthRouter = Router()
 
 /**
- * Extra per-client cap in this process for unsuccessful responses on the password sign-in routes: the local routes and
- * the owner's POST /login. The cap is shared, so failures on any of them count toward one limit per client.
- * A request without x-request-from: internal, or while that route's mode is off (local users mode for the local routes,
- * the owner account for POST /login), is answered before this cap and does not count.
+ * Extra per-client cap in this process for unsuccessful responses on the ordinary local password routes.
+ * A request without x-request-from: internal, or while local users mode is off, is answered before this cap and does not count.
  * Client-address rows and email rows in identity_login_failure both survive a restart. This process cap ends with the process.
  * The email is stored only as an HMAC. Successful responses are not counted here.
  * The key is req.ip, which trusts proxy headers only when TRUST_PROXY says so.
@@ -100,6 +98,26 @@ const localAuthRateLimit = rateLimit({
     legacyHeaders: false,
     skipSuccessfulRequests: true,
     message: { message: TOO_MANY }
+})
+
+const recoveryAuthRateLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: 5,
+    standardHeaders: false,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    handler: (req, res) => {
+        void Promise.resolve(buildAuthContext(req))
+            .then(async (ctx) => {
+                if (!ctx.noteRecoveryAttempt) throw new Error('recovery audit unavailable')
+                await ctx.noteRecoveryAttempt('throttled', null)
+                res.status(429).json({ message: TOO_MANY })
+            })
+            .catch((error: unknown) => {
+                logger.error(`identity request failed: ${error instanceof Error ? error.name : 'error'}`)
+                if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })
+            })
+    }
 })
 
 /** Refreshes the process view of the sign-in method so a switch applied by another process is seen within the cache window. */
@@ -165,8 +183,10 @@ identityAuthRouter.post(
 )
 identityAuthRouter.post(
     '/local/logout',
-    localAuthPreconditions('Unauthorized'),
-    localAuthRateLimit,
+    (req, res, next) => {
+        if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Unauthorized' })
+        next()
+    },
     (req, res, next) => void dispatch(req, res, next, handleLocalLogout)
 )
 identityAuthRouter.post(
@@ -198,7 +218,16 @@ identityAuthRouter.get('/callback', (req, res, next) => {
 identityAuthRouter.post(
     '/login',
     ownerLoginPreconditions,
-    localAuthRateLimit,
+    recoveryAuthRateLimit,
+    (req, res, next) => void dispatch(req, res, next, handleLoginPost)
+)
+identityAuthRouter.post(
+    '/recovery/login',
+    (req, res, next) => {
+        if (req.headers['x-request-from'] !== 'internal') return void res.status(401).json({ message: 'Invalid email or password.' })
+        next()
+    },
+    recoveryAuthRateLimit,
     (req, res, next) => void dispatch(req, res, next, handleLoginPost)
 )
 const acceptLinkLimit = rateLimit({

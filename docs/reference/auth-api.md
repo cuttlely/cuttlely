@@ -1,6 +1,6 @@
 # Auth API
 
-How a browser signs in when AuthKit is off, and how the server reports which methods are on. The owner break-glass route is unchanged. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
+How a browser signs in and how the server reports which methods are on. Owner recovery is always available at `/owner-recovery` and `POST /api/v1/auth/recovery/login`. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
 
 An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with AuthKit on, to sign in with WorkOS and join. A pending user is never activated by an AuthKit email match alone. See [One-time links](#one-time-links) and the summary in [Security](../../SECURITY.md#invites).
 
@@ -42,7 +42,7 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 
 The body has no emails, cookies, or session ids. A missing session is still 200. `POST /api/v1/auth/options` is 404 and does not end sessions.
 
-`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`) for the sign-in page. A false boolean is still returned there. It does not include `status`. `/auth/options` leaves the off methods out.
+`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`, `ownerRecovery`) for the sign-in page. `ownerRecovery` is always true. A false boolean is still returned for the other fields. It does not include `status`. `/auth/options` leaves the off ordinary methods out.
 
 ## Flag combinations
 
@@ -55,17 +55,21 @@ The body has no emails, cookies, or session ids. A missing session is still 200.
 | off                    | on                     | off     | 404                       | Any user with a password        | Email and password                                                 |
 | on                     | on                     | off     | Owner password            | Any user with a password        | Email and password (local users)                                   |
 | off                    | off                    | on      | 404                       | 404                             | Sign in with WorkOS                                                |
-| on                     | off                    | on      | Owner password            | 404                             | WorkOS, plus the owner password form                               |
+| on                     | off                    | on      | Owner password            | 404                             | Sign in with WorkOS                                                |
 | off                    | on                     | on      | 404                       | 404                             | Sign in with WorkOS                                                |
-| on                     | on                     | on      | Owner password            | 404                             | WorkOS, plus the owner password form                               |
+| on                     | on                     | on      | Owner password            | 404                             | Sign in with WorkOS                                                |
 
-AuthKit turns local users mode off even when `CUTTLELY_LOCAL_USERS` is set. The owner break-glass path still works when `CUTTLELY_LOCAL_ADMIN=true`. A restart applies either flag.
+AuthKit turns local users mode off even when `CUTTLELY_LOCAL_USERS` is set. The compatibility owner path still follows `CUTTLELY_LOCAL_ADMIN`; owner recovery remains available independently. A restart applies either flag.
+
+Every sign-in-page row also includes the discreet **Owner recovery** link, independent of these flags.
 
 `POST /api/v1/auth/login` is 404 when `CUTTLELY_LOCAL_ADMIN` is not `true`, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Neither counts as a failure. A wrong email or password is 401. Too many failures for this client address or the owner email, or too many unsuccessful responses from this client across the password routes, is 429 `{ "message": "Too many sign-in attempts. Try again later." }`. The limits are the ones in [Sign in](#sign-in).
 
 ## Turning AuthKit on
 
-Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` and restart the web server. On that start, Cuttlely deletes every row in `identity_local_session`, including the owner break-glass session, and records the switch. A later restart of the web server while AuthKit stays configured does not delete sessions created after that. Only the web server records AuthKit as turned off. A queue worker that starts without those variables leaves the record as it is, so the next web start does not delete local sessions again. Turning AuthKit off on the web server does not put the deleted sessions back. The owner signs in again with `POST /api/v1/auth/login` when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else uses AuthKit.
+Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` and restart the web server. Activating WorkOS through **Auth / SSO** ends every interactive database session in the switch transaction. A later restart does not repeat that deletion. Owner recovery remains available at `/owner-recovery`.
+
+On the first start after the session-convergence upgrade, Cuttlely records one database cutoff. An older sealed WorkOS browser cookie is cleared and receives 401 from refresh instead of being exchanged into a Cuttlely session. Those users sign in again once. Existing local sessions and API keys are unchanged. Every later WorkOS callback creates an `identity_local_session` row and the `cuttlely-local-session` cookie.
 
 The first verified AuthKit sign-in links an existing user when the mailbox matches exactly. Comparison ignores letter case and spaces around the address. A plus tag, a dot in the name, or a different domain does not match. The stored address is left as it is, and the password hash is left in place so it still works if AuthKit is turned off later. An unverified email is refused and links nobody. Two users with the same mailbox, including in different teams, are refused and neither is linked. A user who is already linked to a different AuthKit id is not rebound.
 
@@ -86,7 +90,9 @@ The first verified AuthKit sign-in links an existing user when the mailbox match
 
 `localAdmin` is omitted when the owner flag is off. `sessionsEnded` is how many sessions that start deleted. The how-to is [Users without AuthKit](../how-to/users-without-authkit.md#turn-authkit-on).
 
-A local session is the user id in `identity_local_session`. It does not make that user the owner. Every later request checks that user's role. The owner break-glass cookie is the same cookie name, and when local users mode is off only the owner's row is accepted.
+A session is stored in `identity_local_session` for local login, WorkOS, and owner recovery. It does not change the user's role. Every later request checks the current user and membership status, permission version, authentication epoch, idle limit, and absolute limit. A disabled user is refused on the next request. Logout deletes the row and clears every session cookie before optional WorkOS sign-out.
+
+`POST /api/v1/auth/recovery/login` requires `x-request-from: internal`, accepts any active owner with a usable local password, and returns the same generic 401 for an unknown address, a non-owner, a disabled owner, or a wrong password. It has a five-attempt source and account lockout. Every outcome is audited. Success creates a persistent administrator alert and recent-authentication evidence.
 
 ## Sign in
 

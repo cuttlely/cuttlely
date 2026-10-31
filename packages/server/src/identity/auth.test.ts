@@ -16,6 +16,7 @@ import {
     establishSession,
     handleCallback,
     handleInviteStart,
+    handleLocalLogin,
     handleLoginGet,
     handleReauthenticationGet,
     handleLoginPost,
@@ -318,6 +319,8 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
         localUsers: false,
         cookiePasswordOk: true,
         cookiePassword: 'p'.repeat(44),
+        epochBindingSecret: 'e'.repeat(44),
+        reauthenticationStateSecret: 'p'.repeat(44),
         redirectUri: 'http://127.0.0.1:43117/api/v1/auth/callback',
         secure: false,
         now: NOW,
@@ -482,7 +485,7 @@ describe('identity auth', () => {
         expect(store.users).toHaveLength(0)
     })
 
-    it('callback links a verified email and sets the sealed cookie', async () => {
+    it('callback links a verified email and sets the application session cookie', async () => {
         const store = new MemoryStore()
         store.add(
             { id: 'user-9', email: 'Owner@Example.com', name: 'Owner', status: 'active', externalId: null, credential: 'old-hash' },
@@ -494,17 +497,57 @@ describe('identity auth', () => {
             type: 'redirect',
             status: 302,
             url: '/',
-            clearCookies: ['cuttlely-local-session']
+            clearCookies: ['wos-session', 'cuttlely-workos-epoch']
         })
         if (result.type !== 'redirect') return
         expect(result.cookies?.[0]).toMatchObject({
-            name: 'wos-session',
-            value: 'sealed-1',
+            name: 'cuttlely-local-session',
             options: { httpOnly: true, sameSite: 'lax', path: '/', secure: false }
+        })
+        const token = result.cookies?.[0].value || ''
+        expect(store.local.get(hashSessionToken(token))).toMatchObject({
+            userId: 'user-9',
+            authenticationMethod: 'workos',
+            recoveryUse: false
         })
         expect(store.users[0].externalId).toBe('wos-1')
         expect(store.users[0].credential).toBe('old-hash')
         expect(port.externalIds).toEqual([{ workosUserId: 'wos-1', ourUserId: 'user-9' }])
+    })
+
+    it('uses one database-session cookie shape for local, WorkOS, and owner recovery sign-in', async () => {
+        const credential = await hashPassword(GOOD)
+        const signIn = async (method: 'local' | 'workos' | 'recovery') => {
+            const store = new MemoryStore()
+            store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+            const result =
+                method === 'workos'
+                    ? await handleCallback(ctx({ workosConfigured: true, code: 'code', store }))
+                    : method === 'local'
+                    ? await handleLocalLogin(
+                          ctx({ localUsers: true, internal: true, store, body: { email: 'owner@example.com', password: GOOD } })
+                      )
+                    : await handleLoginPost(ctx({ internal: true, store, body: { email: 'owner@example.com', password: GOOD } }))
+            const cookies = result.type === 'json' || result.type === 'redirect' ? result.cookies : undefined
+            const cookie = cookies?.find((item) => item.name === 'cuttlely-local-session')
+            const session = cookie ? store.local.get(hashSessionToken(cookie.value)) : undefined
+            return { cookie, session }
+        }
+        const local = await signIn('local')
+        const workosSession = await signIn('workos')
+        const recovery = await signIn('recovery')
+        for (const result of [local, workosSession, recovery]) {
+            expect(result.cookie).toMatchObject({
+                name: 'cuttlely-local-session',
+                options: { httpOnly: true, sameSite: 'lax', path: '/', secure: false }
+            })
+            expect(result.session).toMatchObject({ userId: 'owner', token: expect.any(String), idleExpires: expect.any(Date) })
+        }
+        expect([
+            local.session?.authenticationMethod,
+            workosSession.session?.authenticationMethod,
+            recovery.session?.authenticationMethod
+        ]).toEqual(['local', 'workos', 'recovery'])
     })
 
     it('ordinary callback records no recent-authentication evidence', async () => {
@@ -637,9 +680,9 @@ describe('identity auth', () => {
         const result = await handleCallback(
             ctx({ workosConfigured: true, code: 'code', store, workos: port, cookies: { 'cuttlely-invite': 'invite-token' } })
         )
-        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session'] })
+        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['wos-session', 'cuttlely-workos-epoch'] })
         if (result.type === 'redirect') {
-            expect(result.cookies?.[0]).toMatchObject({ name: 'wos-session', value: 'sealed-1' })
+            expect(result.cookies?.[0]).toMatchObject({ name: 'cuttlely-local-session' })
             expect(result.cookies?.[1]).toEqual({
                 name: 'cuttlely-invite',
                 value: '',
@@ -685,7 +728,7 @@ describe('identity auth', () => {
             true
         )
         const result = await handleCallback(ctx({ workosConfigured: true, code: 'code', store, cookies: { 'cuttlely-invite': 'stray' } }))
-        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session'] })
+        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['wos-session', 'cuttlely-workos-epoch'] })
         if (result.type === 'redirect')
             expect(result.cookies?.[1]).toEqual({
                 name: 'cuttlely-invite',
@@ -830,10 +873,10 @@ describe('identity auth', () => {
         }
     })
 
-    it('break-glass login is not mounted when the flag is off', async () => {
+    it('owner recovery remains available when the compatibility flag is off', async () => {
         await expect(handleLoginPost(ctx({ workosConfigured: true, internal: true }))).resolves.toMatchObject({
             type: 'json',
-            status: 404
+            status: 401
         })
     })
 
@@ -845,6 +888,8 @@ describe('identity auth', () => {
         const base = { localAdmin: true, internal: true, store, rateLimit: new LoginRateLimit() }
         const other = json(await handleLoginPost(ctx({ ...base, body: { email: 'member@example.com', password: GOOD } })))
         expect(other.status).toBe(401)
+        const unknown = json(await handleLoginPost(ctx({ ...base, body: { email: 'unknown@example.com', password: GOOD } })))
+        expect(unknown).toMatchObject({ status: other.status, body: other.body })
         const bad = json(await handleLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: 'nope-Nope1!' } })))
         expect(bad.status).toBe(401)
         expect(bad.body.message).not.toContain(GOOD)
@@ -862,7 +907,47 @@ describe('identity auth', () => {
         const raw = ok.cookies?.[0].value || ''
         expect(raw).not.toBe(hashSessionToken(raw))
         expect(store.local.get(hashSessionToken(raw))?.token).toBe(hashSessionToken(raw))
+        expect(store.local.get(hashSessionToken(raw))).toMatchObject({ authenticationMethod: 'recovery', recoveryUse: true })
         expect(JSON.stringify(ok.body)).not.toContain(GOOD)
+    })
+
+    it('records every owner recovery outcome and raises the required alert on success', async () => {
+        const store = new MemoryStore()
+        const credential = await hashPassword(GOOD)
+        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+        const noteRecoveryAttempt = jest.fn(async () => undefined)
+        const raiseRecoveryAlert = jest.fn(async () => undefined)
+        const recordRecentAuthentication = jest.fn(async () => ({
+            name: 'cuttlely-recent-auth',
+            value: 'recent',
+            options: { httpOnly: true as const, sameSite: 'lax' as const, path: '/', secure: false }
+        }))
+        const recoveryRateLimit = new LoginRateLimit(1)
+        const base = { internal: true, store, recoveryRateLimit, noteRecoveryAttempt, raiseRecoveryAlert, recordRecentAuthentication }
+
+        expect(json(await handleLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: 'Wrong-Pass1!' } }))).status).toBe(
+            401
+        )
+        expect(json(await handleLoginPost(ctx({ ...base, body: { email: 'owner@example.com', password: GOOD } }))).status).toBe(429)
+        expect(noteRecoveryAttempt).toHaveBeenNthCalledWith(1, 'wrong_credential', null)
+        expect(noteRecoveryAttempt).toHaveBeenNthCalledWith(2, 'throttled', null)
+
+        const successLimiter = new LoginRateLimit(1)
+        const success = json(
+            await handleLoginPost(
+                ctx({
+                    ...base,
+                    recoveryRateLimit: successLimiter,
+                    ip: '198.51.100.7',
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+        expect(success.status).toBe(200)
+        expect(noteRecoveryAttempt).toHaveBeenLastCalledWith('success', 'owner')
+        expect(raiseRecoveryAlert).toHaveBeenCalledWith('owner')
+        expect(recordRecentAuthentication).toHaveBeenCalledWith('owner')
+        expect(success.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(true)
     })
 
     it('rate limits failed break-glass attempts without clearing the window on success', async () => {
@@ -941,6 +1026,25 @@ describe('identity auth', () => {
         expect(expired.status).toBe(401)
         expect(expired.body).toEqual({ message: 'Refresh Token Expired' })
         expect(expired.clearCookies).toContain('wos-session')
+    })
+
+    it('clears a sealed cookie after convergence without exchanging it', async () => {
+        const refresh = jest.fn()
+        const context = ctx({
+            workosConfigured: true,
+            sealedWorkosSessionsAccepted: false,
+            cookies: { 'wos-session': 'old-sealed' },
+            workos: workos({ refresh })
+        })
+        const refreshed = json(await handleRefresh(context))
+        expect(refreshed.status).toBe(401)
+        expect(refreshed.clearCookies).toEqual(expect.arrayContaining(['wos-session', 'cuttlely-workos-epoch']))
+        expect(refresh).not.toHaveBeenCalled()
+
+        const established = await establishSession(context)
+        expect(established.user).toBeNull()
+        expect(established.clearCookies).toEqual(expect.arrayContaining(['wos-session', 'cuttlely-workos-epoch']))
+        expect(refresh).not.toHaveBeenCalled()
     })
 
     it('slides the local session idle timer and rejects an absolute expiry', async () => {
@@ -1029,6 +1133,47 @@ describe('identity auth', () => {
             status: 200,
             body: { message: 'logged_out', redirectTo: '/signin' }
         })
+    })
+
+    it('deletes the application session before remote logout and keeps local logout successful on remote failure', async () => {
+        const order: string[] = []
+        const store = new MemoryStore()
+        const token = 'application-token'
+        await store.insertLocalSession({
+            id: 'session',
+            userId: 'owner',
+            token: hashSessionToken(token),
+            idleExpires: new Date(NOW + 1000),
+            absoluteExpires: new Date(NOW + 1000)
+        })
+        const originalDelete = store.deleteLocalSession.bind(store)
+        store.deleteLocalSession = async (digest) => {
+            order.push('local')
+            await originalDelete(digest)
+        }
+        const result = json(
+            await handleLogout(
+                ctx({
+                    workosConfigured: true,
+                    internal: true,
+                    store,
+                    cookies: { 'cuttlely-local-session': token, 'wos-session': 'old-sealed' },
+                    workos: workos({
+                        logoutUrl: async () => {
+                            order.push('remote')
+                            throw new Error('provider unavailable')
+                        }
+                    })
+                })
+            )
+        )
+        expect(order[0]).toBe('local')
+        expect(order.slice(1)).toEqual(['remote', 'remote'])
+        expect(result.status).toBe(200)
+        expect(result.body.redirectTo).toMatch(/\/signin$/)
+        expect(result.clearCookies).toEqual(
+            expect.arrayContaining(['cuttlely-local-session', 'wos-session', 'cuttlely-workos-epoch', 'cuttlely-recent-auth'])
+        )
     })
 
     it('resolve follows WorkOS, break-glass, and existing users', async () => {
@@ -1150,11 +1295,13 @@ describe('identity auth', () => {
         jest.spyOn(authenticationState, 'refreshAuthenticationState').mockResolvedValue(null)
         jest.spyOn(authenticationState, 'selectedAuthenticationBaselineEpoch').mockReturnValue(4)
         const current = jest.spyOn(authenticationState, 'selectedAuthenticationEpoch').mockReturnValue(4)
+        const bindingSecret = 'e'.repeat(44)
         const base = {
             dataSource: {} as DataSource,
             authenticationEpoch: 4,
             workosConfigured: true,
             cookiePassword: password,
+            epochBindingSecret: bindingSecret,
             store,
             workos: workos({ authenticateSession })
         }
@@ -1162,7 +1309,7 @@ describe('identity auth', () => {
         const accepted = await establishSession(ctx({ ...base, cookies: { 'wos-session': sealed } }))
         expect(accepted.user?.id).toBe('user-1')
         expect(accepted.cookies).toEqual([
-            expect.objectContaining({ name: 'cuttlely-workos-epoch', value: workosEpochCookie(sealed, 4, password, false).value })
+            expect.objectContaining({ name: 'cuttlely-workos-epoch', value: workosEpochCookie(sealed, 4, bindingSecret, false).value })
         ])
 
         current.mockReturnValue(5)
@@ -1172,7 +1319,7 @@ describe('identity auth', () => {
         expect(afterSwitch.user).toBeNull()
         expect(afterSwitch.clearCookies).toEqual(['wos-session', 'cuttlely-workos-epoch'])
 
-        const stale = workosEpochCookie(sealed, 4, password, false).value
+        const stale = workosEpochCookie(sealed, 4, bindingSecret, false).value
         const staleBound = await establishSession(
             ctx({
                 ...base,

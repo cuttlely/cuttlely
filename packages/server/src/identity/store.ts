@@ -24,6 +24,10 @@ export interface IdentityStore {
     findUsersByEmail(email: string): Promise<UserRow[]>
     setExternalId(userId: string, externalId: string): Promise<'linked' | 'rebind' | 'missing'>
     findSuperUser(): Promise<UserRow | null>
+    /** One active organization owner with an active membership and this normalized mailbox. */
+    findActiveOwnerByEmail?(email: string): Promise<UserRow | null>
+    /** True while this active user has at least one active owner membership. */
+    isActiveOwner?(userId: string): Promise<boolean>
     setCredential(userId: string, credential: string): Promise<void>
     /**
      * Replaces the stored hash only when it still equals `expected`.

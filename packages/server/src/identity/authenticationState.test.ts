@@ -22,6 +22,7 @@ import {
 import { addAuthenticationState, addAuthenticationSwitchStage } from './schemaMigration'
 import { workosEpochCookie, workosEpochCookieValid } from './cookies'
 import { applyAuthKitSwitchOnBoot } from './production'
+import { activateSessionConvergence, resetSessionConvergenceForTests, sessionConvergenceActive } from './sessionConvergence'
 
 async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Promise<DataSource> {
     const candidates = [
@@ -56,6 +57,11 @@ async function database(type: 'sqlite' | 'postgres' = 'sqlite', name = ''): Prom
         } NULL)`
     )
     await runner.query(
+        `CREATE TABLE "identity_session_convergence" ("id" integer PRIMARY KEY, "cutoffAt" ${
+            type === 'postgres' ? 'timestamp' : 'datetime'
+        } NOT NULL)`
+    )
+    await runner.query(
         'CREATE TABLE "identity_local_session" ("id" varchar(36) PRIMARY KEY, "userId" varchar(36) NOT NULL, "token" varchar(64) NOT NULL)'
     )
     await runner.query('CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "credential" text, "status" varchar(20))')
@@ -80,6 +86,19 @@ async function withEnvironment<T>(values: Record<string, string | undefined>, ru
 }
 
 describe('authentication provider foundation', () => {
+    afterEach(() => resetSessionConvergenceForTests())
+
+    it('records the convergence cutoff once across repeated starts', async () => {
+        const db = await database()
+        const first = await activateSessionConvergence(db, Date.parse('2026-10-30T12:00:00.000Z'))
+        const second = await activateSessionConvergence(db, Date.parse('2026-10-31T12:00:00.000Z'))
+        expect(first).toEqual({ created: true, cutoffAt: '2026-10-30T12:00:00.000Z' })
+        expect(second).toEqual({ created: false, cutoffAt: first.cutoffAt })
+        expect(sessionConvergenceActive()).toBe(true)
+        expect(await db.query('SELECT * FROM "identity_session_convergence"')).toHaveLength(1)
+        await db.destroy()
+    })
+
     it('fingerprints issuer and client id without including the API key', () => {
         const first = workosConfigurationFingerprint({ WORKOS_CLIENT_ID: 'client-a', WORKOS_API_KEY: 'secret-a' })
         const second = workosConfigurationFingerprint({ WORKOS_CLIENT_ID: 'client-a', WORKOS_API_KEY: 'secret-b' })
@@ -134,11 +153,11 @@ describe('authentication provider foundation', () => {
         await db.destroy()
     })
 
-    it('switches method, epoch, sessions, and audit atomically while retaining API keys', async () => {
+    it('switches method, epoch, recovery sessions, and audit atomically while retaining API keys', async () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
             const db = await database()
             const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
-            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['session', 'user', 'token'])
+            await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['recovery-session', 'user', 'token'])
             await db.query('INSERT INTO "api_key" VALUES (?)', ['key'])
             const after = await switchAuthenticationMethod(db, 'workos', before.version, {
                 organizationId: 'org',

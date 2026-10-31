@@ -38,6 +38,16 @@ function q(dialect: Dialect, name: string): string {
     return '"' + name.replace(/"/g, '""') + '"'
 }
 
+async function addColumn(runner: QueryRunner, dialect: Dialect, table: string, column: string, definition: string): Promise<void> {
+    if (await runner.hasColumn(table, column)) return
+    await runner.query(`ALTER TABLE ${q(dialect, table)} ADD COLUMN ${q(dialect, column)} ${definition}`)
+}
+
+async function dropColumn(runner: QueryRunner, _dialect: Dialect, table: string, column: string): Promise<void> {
+    if (!(await runner.hasColumn(table, column))) return
+    await runner.dropColumn(table, column)
+}
+
 async function rows(runner: QueryRunner, sql: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
     const dialect = dialectOf(runner)
     let index = 0
@@ -599,6 +609,44 @@ export async function removeAuthenticationState(runner: QueryRunner): Promise<vo
     const dialect = dialectOf(runner)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_recent_authentication')}`)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authentication_state')}`)
+}
+
+function sessionConvergenceSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_session_convergence')} (
+        ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,
+        ${q(dialect, 'cutoffAt')} ${timeType(dialect)} NOT NULL
+    )`
+}
+
+function recoveryAlertSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_recovery_alert')} (
+        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'userId')} varchar(36) NOT NULL,
+        ${q(dialect, 'occurredAt')} ${timeType(dialect)} NOT NULL,
+        ${q(dialect, 'acknowledgedAt')} ${timeType(dialect)} NULL,
+        ${q(dialect, 'acknowledgedBy')} varchar(36) NULL
+    )`
+}
+
+/** Database-session ownership, the one-time sealed-session cutoff, recovery alerts, and API-key ownership. */
+export async function addSessionConvergence(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await addColumn(runner, dialect, 'identity_local_session', 'authenticationMethod', 'varchar(32) NULL')
+    await addColumn(runner, dialect, 'identity_local_session', 'authenticationEpoch', 'integer NULL')
+    await addColumn(runner, dialect, 'identity_local_session', 'recoveryUse', 'integer NOT NULL DEFAULT 0')
+    await addColumn(runner, dialect, 'apikey', 'ownerUserId', 'varchar(36) NULL')
+    if (!(await tableExists(runner, dialect, 'identity_session_convergence'))) await runner.query(sessionConvergenceSql(dialect))
+    if (!(await tableExists(runner, dialect, 'identity_recovery_alert'))) await runner.query(recoveryAlertSql(dialect))
+}
+
+export async function removeSessionConvergence(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_recovery_alert')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_session_convergence')}`)
+    await dropColumn(runner, dialect, 'apikey', 'ownerUserId')
+    await dropColumn(runner, dialect, 'identity_local_session', 'recoveryUse')
+    await dropColumn(runner, dialect, 'identity_local_session', 'authenticationEpoch')
+    await dropColumn(runner, dialect, 'identity_local_session', 'authenticationMethod')
 }
 
 function setupCodeTableSql(dialect: Dialect): string {

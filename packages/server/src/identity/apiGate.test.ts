@@ -26,15 +26,17 @@ const validKey = {
 
 const sessionUser = { permissions: ['chatflows:view'] }
 
-function dataSource(found: { workspace?: object | null; organization?: object | null } = {}) {
+function dataSource(found: { workspace?: object | null; organization?: object | null; user?: object | null } = {}) {
     const workspace = 'workspace' in found ? found.workspace : { id: 'ws-1', name: 'Team', organizationId: 'org-1' }
     const organization = 'organization' in found ? found.organization : { id: 'org-1', subscriptionId: 'sub-1', customerId: 'cus-1' }
+    const user = 'user' in found ? found.user : { id: 'user-1', status: 'active' }
     return {
         getRepository(entity: { name?: string }) {
             return {
                 findOne: async () => {
                     if (entity?.name === 'Workspace') return workspace
                     if (entity?.name === 'Organization') return organization
+                    if (entity?.name === 'User') return user
                     return null
                 }
             }
@@ -225,5 +227,17 @@ describe('apiV1Auth', () => {
         expect(noWorkspace.body).toEqual({ error: 'Unauthorized Access' })
         expect(noOrganization.status).toBe(401)
         expect(noOrganization.body).toEqual({ error: 'Unauthorized Access' })
+    })
+
+    it('returns 401 on the next API-key request after its owner is disabled', async () => {
+        const validateAPIKey = async () => ({
+            isValid: true,
+            apiKey: { workspaceId: 'ws-1', ownerUserId: 'user-1', permissions: ['chatflows:view'] }
+        })
+        const response = await app({ validateAPIKey, dataSource: dataSource({ user: { id: 'user-1', status: 'disable' } }) })
+            .get('/api/v1/chatflows')
+            .set('Authorization', 'Bearer good-key')
+        expect(response.status).toBe(401)
+        expect(response.body).toEqual({ error: 'Unauthorized Access' })
     })
 })

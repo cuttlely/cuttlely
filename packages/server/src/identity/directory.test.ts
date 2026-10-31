@@ -279,13 +279,15 @@ describe('sign-in screen contract', () => {
             authKit: true,
             localAdmin: false,
             localUsers: false,
-            mail: false
+            mail: false,
+            ownerRecovery: true
         })
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_ADMIN: 'true' })).toEqual({
             authKit: true,
             localAdmin: true,
             localUsers: false,
-            mail: false
+            mail: false,
+            ownerRecovery: true
         })
         expect(
             signInOptionsBody({
@@ -296,36 +298,39 @@ describe('sign-in screen contract', () => {
         ).toBe(false)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'true' }).localUsers).toBe(true)
         expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'TRUE' }).localUsers).toBe(false)
-        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false, ownerRecovery: true })
         expect(signInOptionsBody({ SMTP_HOST: 'smtp.example.com' })).toEqual({
             authKit: false,
             localAdmin: false,
             localUsers: false,
-            mail: false
+            mail: false,
+            ownerRecovery: true
         })
-        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
+        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({
+            authKit: false,
+            localAdmin: false,
+            localUsers: false,
+            mail: false,
+            ownerRecovery: true
+        })
     })
 
-    it('puts the WorkOS button on the sign-in page and hides the password form unless local admin is on', () => {
+    it('puts the WorkOS button and owner recovery link on the sign-in page', () => {
         const source = readFileSync(join(__dirname, '../../../ui/src/views/auth/signIn.jsx'), 'utf8')
         expect(source).toContain('Sign in with WorkOS')
         expect(source).toContain("href='/api/v1/auth/login'")
         expect(source).toContain("id='workos-sign-in'")
         expect(source).toContain('options.authKit')
         expect(source).toContain('options.localAdmin')
-        expect(source).toContain("id='break-glass-form'")
-        const formAt = source.indexOf("id='break-glass-form'")
-        const guardAt = source.lastIndexOf('options.localAdmin', formAt)
-        expect(guardAt).toBeGreaterThan(-1)
-        expect(source.slice(guardAt, formAt)).toContain('options.localAdmin')
+        expect(source).toContain("to='/owner-recovery'")
+        const recovery = readFileSync(join(__dirname, '../../../ui/src/views/auth/ownerRecovery.jsx'), 'utf8')
+        expect(recovery).toContain('Owner recovery')
+        expect(recovery).toContain('authApi.recoveryLogin')
         expect(source).not.toContain('Sign In With Microsoft')
         expect(source).not.toContain('Sign In With Google')
         expect(source).not.toContain('Sign In With Auth0')
         expect(source).not.toContain('Sign In With Github')
-        expect(source).toContain('options.mail')
-        expect(source).toContain('Forgot password')
-        const forgotAt = source.indexOf('Forgot password')
-        expect(source.lastIndexOf('options.mail', forgotAt)).toBeGreaterThan(-1)
+        expect(source).toContain('ownerRecovery: true')
         expect(source).toContain('isAuthenticated')
         expect(source).not.toContain('logoutSuccess')
         const forgotPage = readFileSync(join(__dirname, '../../../ui/src/views/auth/forgotPassword.jsx'), 'utf8')

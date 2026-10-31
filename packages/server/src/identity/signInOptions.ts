@@ -19,6 +19,8 @@ export interface SignInOptions {
     /** True only when CUTTLELY_LOCAL_USERS is exactly true and AuthKit is not configured. */
     localUsers: boolean
     mail: boolean
+    /** The separate owner recovery page is always present. */
+    ownerRecovery: true
 }
 
 export const SIGN_IN_METHOD = {
@@ -43,7 +45,8 @@ export function signInOptionsBody(env: NodeJS.ProcessEnv = process.env): SignInO
         authKit: workosConfigured(env),
         localAdmin: localAdminEnabled(env),
         localUsers: localUsersMode(env),
-        mail: mailConfigured(env)
+        mail: mailConfigured(env),
+        ownerRecovery: true
     }
 }
 

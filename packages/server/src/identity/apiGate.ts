@@ -16,7 +16,7 @@
 
 import { NextFunction, Request, Response } from 'express'
 import { DataSource } from 'typeorm'
-import { Organization, Workspace } from '../database/entities/identity'
+import { Organization, User, Workspace } from '../database/entities/identity'
 import { OPEN_SOURCE_FEATURES } from './constants'
 import { OSS_PRODUCT_ID } from './ossPlatform'
 import { cookieMutationAllowed } from './sessionGuard'
@@ -24,7 +24,7 @@ import { LoggedInUser } from './types'
 
 export interface ApiKeyCheck {
     isValid: boolean
-    apiKey?: { id?: string; workspaceId?: string; permissions: string[] }
+    apiKey?: { id?: string; workspaceId?: string; permissions: string[]; ownerUserId?: string | null }
 }
 
 export interface ApiV1AuthDeps {
@@ -132,6 +132,13 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
         if (!isValid || !apiKey) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
+        }
+        if (apiKey.ownerUserId) {
+            const owner = await deps.dataSource.getRepository(User).findOne({ where: { id: apiKey.ownerUserId } })
+            if (!owner || owner.status.toLowerCase() !== 'active') {
+                res.status(401).json({ error: 'Unauthorized Access' })
+                return
+            }
         }
         const workspace = await deps.dataSource.getRepository(Workspace).findOne({
             where: { id: apiKey.workspaceId }

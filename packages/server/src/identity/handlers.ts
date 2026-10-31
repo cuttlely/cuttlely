@@ -35,6 +35,7 @@ import {
     LOCAL_SESSION_COOKIE,
     PASSWORD_MAX_LENGTH,
     REAUTH_STATE_COOKIE,
+    RECENT_AUTH_COOKIE,
     WOS_SESSION_COOKIE,
     WOS_EPOCH_COOKIE,
     signOutReturnTo,
@@ -78,12 +79,18 @@ export interface AuthContext {
     dataSource?: DataSource
     /** Captured at request start so a concurrent method switch can stop completion. */
     authenticationEpoch?: number
+    /** Durable ordinary sign-in method captured at request start. */
+    activeAuthenticationMethod?: 'local' | 'workos' | null
     workosConfigured: boolean
     localAdmin: boolean
     /** CUTTLELY_LOCAL_USERS is on and AuthKit is not configured. */
     localUsers: boolean
     cookiePasswordOk: boolean
     cookiePassword?: string
+    epochBindingSecret?: string
+    reauthenticationStateSecret?: string
+    /** False after the durable convergence cutoff. Sealed cookies are then cleared, never exchanged. */
+    sealedWorkosSessionsAccepted?: boolean
     redirectUri?: string
     secure: boolean
     now: number
@@ -99,8 +106,11 @@ export interface AuthContext {
     store: IdentityStore
     workos: WorkosPort
     rateLimit: LoginLimiter
+    recoveryRateLimit?: LoginLimiter
     automaticWorkosLinkingAllowed?: () => Promise<boolean>
     recordRecentAuthentication?: (userId: string) => Promise<SetCookie>
+    noteRecoveryAttempt?: (outcome: 'success' | 'wrong_credential' | 'throttled', userId: string | null) => Promise<void>
+    raiseRecoveryAlert?: (userId: string) => Promise<void>
     /** Optional. Production writes a redacted audit row. Tests leave it unset. */
     noteAudit?: (note: {
         type: 'sign_in_success' | 'sign_in_failure' | 'lockout'
@@ -124,22 +134,23 @@ async function sealedSessionEpochCurrent(ctx: AuthContext, sealed: string): Prom
     if (!(await authenticationEpochCurrent(ctx))) return false
     const { selectedAuthenticationBaselineEpoch } = require('./authenticationState') as typeof import('./authenticationState')
     if (!ctx.cookies[WOS_EPOCH_COOKIE]) {
-        return Boolean(ctx.cookiePassword && ctx.authenticationEpoch === selectedAuthenticationBaselineEpoch())
+        return Boolean(ctx.epochBindingSecret && ctx.authenticationEpoch === selectedAuthenticationBaselineEpoch())
     }
     return Boolean(
-        ctx.cookiePassword && workosEpochCookieValid(ctx.cookies[WOS_EPOCH_COOKIE], sealed, ctx.authenticationEpoch, ctx.cookiePassword)
+        ctx.epochBindingSecret &&
+            workosEpochCookieValid(ctx.cookies[WOS_EPOCH_COOKIE], sealed, ctx.authenticationEpoch, ctx.epochBindingSecret)
     )
 }
 
 function missingEpochCookie(ctx: AuthContext, sealed: string): SetCookie[] | undefined {
-    if (ctx.cookies[WOS_EPOCH_COOKIE] || ctx.authenticationEpoch === undefined || !ctx.cookiePassword) return undefined
-    return [workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.cookiePassword, ctx.secure)]
+    if (ctx.cookies[WOS_EPOCH_COOKIE] || ctx.authenticationEpoch === undefined || !ctx.epochBindingSecret) return undefined
+    return [workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.epochBindingSecret, ctx.secure)]
 }
 
 function sealedCookies(ctx: AuthContext, sealed: string): SetCookie[] {
     const cookies = [sealedCookie(sealed, ctx.secure)]
-    if (ctx.authenticationEpoch !== undefined && ctx.cookiePassword) {
-        cookies.push(workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.cookiePassword, ctx.secure))
+    if (ctx.authenticationEpoch !== undefined && ctx.epochBindingSecret) {
+        cookies.push(workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.epochBindingSecret, ctx.secure))
     }
     return cookies
 }
@@ -235,23 +246,34 @@ async function sessionAfterLogin(store: IdentityStore, userId: string, now: numb
     return store.sessionFor(userId)
 }
 
-/**
- * `ok` keeps the session. `end` deletes every session for that user (disabled or no longer active).
- * `reject` drops this cookie. Break-glass (local admin, local users mode off) accepts only the owner.
- * A local session never becomes the owner by itself: the caller loads RBAC with sessionFor.
- */
+/** `ok` keeps the session; `end` deletes every session for a user who is disabled or no longer active. */
 function stalePermission(row: LocalSession): boolean {
     if (typeof row.permissionVersion !== 'number' || typeof row.currentPermissionVersion !== 'number') return false
     return row.permissionVersion !== row.currentPermissionVersion
 }
 
-async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' | 'end' | 'reject'> {
-    if (!ctx.localAdmin && !ctx.localUsers) return 'reject'
-    const open = await ctx.store.localAccountOpen(userId)
+function staleAuthenticationEpoch(row: LocalSession, current: number | undefined): boolean {
+    return typeof row.authenticationEpoch === 'number' && typeof current === 'number' && row.authenticationEpoch !== current
+}
+
+async function localCookieGate(ctx: AuthContext, row: LocalSession): Promise<'ok' | 'end' | 'reject'> {
+    const open = await ctx.store.localAccountOpen(row.userId)
     if (!open) return 'end'
-    if (ctx.localUsers) return 'ok'
-    const owner = await ctx.store.findSuperUser()
-    if (!owner || owner.id !== userId) return 'reject'
+    const activeMethod =
+        ctx.activeAuthenticationMethod !== undefined
+            ? ctx.activeAuthenticationMethod
+            : ctx.localUsers
+            ? 'local'
+            : ctx.workosConfigured
+            ? 'workos'
+            : null
+    if (row.authenticationMethod === 'local' && activeMethod !== 'local') return 'end'
+    if (row.authenticationMethod === 'workos' && activeMethod !== 'workos') return 'end'
+    if (row.authenticationMethod === 'recovery' || row.recoveryUse) {
+        if (ctx.store.isActiveOwner) return (await ctx.store.isActiveOwner(row.userId)) ? 'ok' : 'end'
+        const session = await ctx.store.sessionFor(row.userId)
+        return session?.isOrganizationAdmin ? 'ok' : 'end'
+    }
     return 'ok'
 }
 
@@ -262,7 +284,12 @@ async function sessionSurvivedSwitch(ctx: AuthContext, token: string): Promise<b
     return false
 }
 
-async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
+export async function issueApplicationSession(
+    ctx: AuthContext,
+    userId: string,
+    authenticationMethod: LocalSession['authenticationMethod'],
+    options: { recoveryUse?: boolean } = {}
+): Promise<{ token: string; session: SessionUser } | null> {
     if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
     const limits = sessionLimitsMs()
@@ -274,12 +301,22 @@ async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ to
         idleExpires: new Date(ctx.now + limits.idleMs),
         absoluteExpires: new Date(ctx.now + limits.absoluteMs),
         issuedAt: at,
-        lastSeenAt: at
+        lastSeenAt: at,
+        authenticationMethod,
+        authenticationEpoch: ctx.authenticationEpoch,
+        recoveryUse: options.recoveryUse === true
     })
     if (!(await sessionSurvivedSwitch(ctx, token))) return null
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
-    if (!session) return null
+    if (!session) {
+        await ctx.store.deleteLocalSession(hashSessionToken(token))
+        return null
+    }
     return { token, session }
+}
+
+async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
+    return issueApplicationSession(ctx, userId, 'local')
 }
 
 function loginFields(body: Record<string, unknown>): { ok: true; email: string; password: string } | { ok: false; message: string } {
@@ -324,8 +361,8 @@ export async function handleReauthenticationGet(ctx: AuthContext): Promise<Handl
     const reauthorizationUrl = ctx.workos.reauthorizationUrl
     if (!reauthorizationUrl) return textUnavailable()
     try {
-        if (!ctx.cookiePassword) return textUnavailable()
-        const state = signedReauthenticationState(ctx.now, randomUUID(), ctx.cookiePassword)
+        if (!ctx.reauthenticationStateSecret) return textUnavailable()
+        const state = signedReauthenticationState(ctx.now, randomUUID(), ctx.reauthenticationStateSecret)
         return {
             type: 'redirect',
             status: 302,
@@ -367,7 +404,6 @@ export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
 async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
     if (!ctx.code) return json(400, { message: 'No code provided' })
-    if (!ctx.cookiePasswordOk) return textUnavailable()
     try {
         const authenticated = await ctx.workos.authenticate(ctx.code)
         if (!(await authenticationEpochCurrent(ctx))) return { type: 'redirect', status: 302, url: '/signin' }
@@ -389,14 +425,16 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
         } catch {
             // Optional. Sign-in still succeeds when WorkOS rejects the external id write.
         }
-        const session = await sessionAfterLogin(ctx.store, linked.user.id, ctx.now)
-        if (!session) {
+        const issued = await issueApplicationSession(ctx, linked.user.id, 'workos')
+        if (!issued) {
             await noteSignIn(ctx, 'sign_in_failure', linked.user.id, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
         }
         await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
         const reauthenticationRequestedAt =
-            ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE] ? reauthenticationRequestTime(ctx.state, ctx.cookiePassword) : null
+            ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE]
+                ? reauthenticationRequestTime(ctx.state, ctx.reauthenticationStateSecret)
+                : null
         const reauthenticated = Boolean(
             reauthenticationRequestedAt !== null &&
                 typeof authenticated.authTime === 'number' &&
@@ -408,10 +446,10 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             status: 302,
             url: '/',
             cookies: [
-                ...sealedCookies(ctx, authenticated.sealedSession),
+                localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs),
                 ...(reauthenticated && ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(linked.user.id)] : [])
             ],
-            ...cleared(ctx, [LOCAL_SESSION_COOKIE])
+            ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
         }
     } catch (error) {
         if (error instanceof WorkosUnavailableError) return textUnavailable()
@@ -421,62 +459,64 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
 }
 
 export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> {
-    if (!ctx.localAdmin) return json(404, { message: 'Not Found' })
-    if (!ctx.internal) return json(401, { message: 'Unauthorized' })
-    const email = typeof ctx.body.email === 'string' ? ctx.body.email.trim() : ''
+    if (!ctx.internal) return json(401, { message: INVALID_LOGIN })
+    const email = typeof ctx.body.email === 'string' ? ctx.body.email.trim().toLowerCase().slice(0, EMAIL_MAX_LENGTH) : ''
     const password = typeof ctx.body.password === 'string' ? ctx.body.password : ''
-    if (await ctx.rateLimit.blocked(ctx.ip, email, ctx.now)) {
-        await noteSignIn(ctx, 'lockout', await accountId(ctx, email), 'owner')
+    const limiter = ctx.recoveryRateLimit || ctx.rateLimit
+    const source = `recovery:${ctx.ip}`
+    const account = `recovery:${email}`
+    if (await limiter.blocked(source, account, ctx.now)) {
+        if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('throttled', null)
+        await noteSignIn(ctx, 'lockout', null, 'owner')
         return json(429, { message: TOO_MANY })
     }
 
     const fail = async (): Promise<HandlerResult> => {
-        await ctx.rateLimit.recordFailure(ctx.ip, email, ctx.now)
-        const userId = await accountId(ctx, email)
-        await noteSignIn(ctx, 'sign_in_failure', userId, 'owner')
-        if (await ctx.rateLimit.blocked(ctx.ip, email, ctx.now)) await noteSignIn(ctx, 'lockout', userId, 'owner')
+        await limiter.recordFailure(source, account, ctx.now)
+        if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('wrong_credential', null)
+        await noteSignIn(ctx, 'sign_in_failure', null, 'owner')
         return json(401, { message: INVALID_LOGIN })
     }
-    if (!email || !password) return fail()
+    if (!email || !password || password.length > PASSWORD_MAX_LENGTH) {
+        await verifyPassword(password.slice(0, PASSWORD_MAX_LENGTH), hashForLoginCompare(false, null))
+        return fail()
+    }
 
-    const owner = await ctx.store.findSuperUser()
+    const owner = ctx.store.findActiveOwnerByEmail ? await ctx.store.findActiveOwnerByEmail(email) : await ctx.store.findSuperUser()
     const bcryptPresent = await ctx.store.hasBcryptCredential()
-    if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) {
+    if (!owner || owner.email.toLowerCase() !== email) {
         await verifyPassword(password, hashForLoginCompare(false, owner ? owner.credential : null, bcryptPresent), bcryptPresent)
         return fail()
     }
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
-    if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
-    const token = randomToken()
-    const limits = sessionLimitsMs()
-    const at = new Date(ctx.now)
-    await ctx.store.insertLocalSession({
-        id: randomUUID(),
-        userId: owner.id,
-        token: hashSessionToken(token),
-        idleExpires: new Date(ctx.now + limits.idleMs),
-        absoluteExpires: new Date(ctx.now + limits.absoluteMs),
-        issuedAt: at,
-        lastSeenAt: at
-    })
-    if (!(await sessionSurvivedSwitch(ctx, token))) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
-    const session = await sessionAfterLogin(ctx.store, owner.id, ctx.now)
-    if (!session) {
-        await noteSignIn(ctx, 'sign_in_failure', owner.id, 'owner')
+    const issued = await issueApplicationSession(ctx, owner.id, 'recovery', { recoveryUse: true })
+    if (!issued) {
+        if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in method changed. Try again.' })
         return json(401, { message: INVALID_LOGIN })
     }
+    try {
+        if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('success', owner.id)
+        if (ctx.raiseRecoveryAlert) await ctx.raiseRecoveryAlert(owner.id)
+    } catch (error) {
+        await ctx.store.deleteLocalSession(hashSessionToken(issued.token))
+        throw error
+    }
     await noteSignIn(ctx, 'sign_in_success', owner.id, 'owner')
-    return json(200, session, {
-        cookies: [localCookie(token, ctx.secure, sessionLimitsMs().idleMs)],
+    return json(200, issued.session, {
+        cookies: [
+            localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs),
+            ...(ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(owner.id)] : [])
+        ],
         ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
     })
 }
 
 export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
     const sealed = ctx.cookies[WOS_SESSION_COOKIE]
-    if (sealed && ctx.workosConfigured) {
+    const sealedAccepted = ctx.sealedWorkosSessionsAccepted !== false
+    if (sealed && ctx.workosConfigured && sealedAccepted) {
         if (!(await sealedSessionEpochCurrent(ctx, sealed)))
             return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE]))
         if (!ctx.cookiePasswordOk) return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
@@ -506,7 +546,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
     }
 
     const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && (ctx.localAdmin || ctx.localUsers)) {
+    if (token) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest)) {
@@ -521,11 +561,11 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
                 cleared(ctx, [LOCAL_SESSION_COOKIE])
             )
         }
-        if (stalePermission(row)) {
+        if (stalePermission(row) || staleAuthenticationEpoch(row, ctx.authenticationEpoch)) {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
-        const gate = await localCookieGate(ctx, row.userId)
+        const gate = await localCookieGate(ctx, row)
         if (gate === 'end') {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
@@ -538,19 +578,27 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
         const session = await ctx.store.sessionFor(row.userId)
         if (!session) return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
-        return json(200, session, { cookies: [localCookie(token, secure, idleExpires.getTime() - ctx.now)] })
+        return json(200, session, {
+            cookies: [localCookie(token, secure, idleExpires.getTime() - ctx.now)],
+            ...(sealed && !sealedAccepted ? cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE]) : {})
+        })
     }
 
+    if (sealed && !sealedAccepted) return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE]))
     return json(401, { message: 'Token Expired' })
 }
 
 export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
     const sealed = ctx.cookies[WOS_SESSION_COOKIE]
     const localToken = ctx.cookies[LOCAL_SESSION_COOKIE]
+    if (!ctx.internal && (sealed || localToken)) return json(401, { message: 'Unauthorized' })
+    // Local authority ends first. Provider availability cannot keep this session open.
+    if (localToken) await ctx.store.deleteLocalSession(hashSessionToken(localToken))
+    const allCookies = [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE, LOCAL_SESSION_COOKIE, RECENT_AUTH_COOKIE]
+    const expiredState = [expiredReauthenticationStateCookie(ctx.secure)]
     if (sealed && ctx.workosConfigured) {
-        if (!ctx.internal) return json(401, { message: 'Unauthorized' })
         let redirectTo = signOutReturnTo(ctx.redirectUri) || '/signin'
-        if (ctx.cookiePasswordOk) {
+        if (ctx.cookiePasswordOk && ctx.sealedWorkosSessionsAccepted !== false) {
             const returnTo = signOutReturnTo(ctx.redirectUri)
             try {
                 redirectTo = await ctx.workos.logoutUrl(sealed, returnTo)
@@ -565,24 +613,10 @@ export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
                 }
             }
         }
-        if (localToken) await ctx.store.deleteLocalSession(hashSessionToken(localToken))
-        return json(200, { message: 'logged_out', redirectTo }, cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE, LOCAL_SESSION_COOKIE]))
+        return json(200, { message: 'logged_out', redirectTo }, { ...cleared(ctx, allCookies), cookies: expiredState })
     }
 
-    if (localToken) {
-        if (!ctx.internal) return json(401, { message: 'Unauthorized' })
-        await ctx.store.deleteLocalSession(hashSessionToken(localToken))
-        return json(
-            200,
-            { message: 'logged_out', redirectTo: '/signin' },
-            cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
-        )
-    }
-    return json(
-        200,
-        { message: 'logged_out', redirectTo: '/signin' },
-        cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
-    )
+    return json(200, { message: 'logged_out', redirectTo: '/signin' }, { ...cleared(ctx, allCookies), cookies: expiredState })
 }
 
 export async function handleResolve(ctx: AuthContext): Promise<HandlerResult> {
@@ -652,7 +686,7 @@ export const UNKNOWN_LOCAL_ACCOUNT_ID = '00000000-0000-0000-0000-000000000000'
 
 /**
  * Password sign-in for any active local user who already has a password.
- * 404 unless local users mode is on. Break-glass stays on POST /api/v1/auth/login.
+ * 404 unless local users mode is on. Owner recovery has its own always-available route.
  * Unknown email, a wrong password, a null credential, and a disabled user share one 401 body.
  */
 export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult> {
@@ -699,11 +733,7 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
 
 /** Clears this browser's local session. Repeating it returns the same success. CSRF is required. */
 export async function handleLocalLogout(ctx: AuthContext): Promise<HandlerResult> {
-    if (!ctx.localUsers) return json(404, { message: 'Not Found' })
-    if (!ctx.internal) return json(401, { message: 'Unauthorized' })
-    const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token) await ctx.store.deleteLocalSession(hashSessionToken(token))
-    return json(200, { message: 'logged_out', redirectTo: '/signin' }, cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE]))
+    return handleLogout(ctx)
 }
 
 /**
@@ -722,7 +752,7 @@ export async function handleLocalPassword(ctx: AuthContext): Promise<HandlerResu
         await ctx.store.deleteLocalSession(digest)
         return json(401, { message: 'Unauthorized' })
     }
-    const gate = await localCookieGate(ctx, row.userId)
+    const gate = await localCookieGate(ctx, row)
     if (gate === 'end') {
         await ctx.store.deleteLocalSessionsForUser(row.userId)
         return json(401, { message: 'Unauthorized' })
@@ -779,7 +809,8 @@ export async function establishSession(
     ctx: AuthContext
 ): Promise<{ user: SessionUser | null; cookies?: SetCookie[]; clearCookies?: string[]; secure?: boolean }> {
     const sealed = ctx.cookies[WOS_SESSION_COOKIE]
-    if (sealed && ctx.workosConfigured && ctx.cookiePasswordOk) {
+    const sealedAccepted = ctx.sealedWorkosSessionsAccepted !== false
+    if (sealed && ctx.workosConfigured && ctx.cookiePasswordOk && sealedAccepted) {
         if (!(await sealedSessionEpochCurrent(ctx, sealed))) {
             return { user: null, clearCookies: [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE], secure: ctx.secure }
         }
@@ -818,7 +849,7 @@ export async function establishSession(
     }
 
     const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && (ctx.localAdmin || ctx.localUsers)) {
+    if (token) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest))
@@ -827,11 +858,11 @@ export async function establishSession(
             await ctx.store.deleteLocalSession(digest)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        if (stalePermission(row)) {
+        if (stalePermission(row) || staleAuthenticationEpoch(row, ctx.authenticationEpoch)) {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        const gate = await localCookieGate(ctx, row.userId)
+        const gate = await localCookieGate(ctx, row)
         if (gate === 'end') {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
@@ -840,8 +871,14 @@ export async function establishSession(
         const maxAge = await noteSessionUse(ctx, row, digest)
         const user = await ctx.store.sessionFor(row.userId)
         const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
-        return { user, secure, cookies: maxAge === null ? undefined : [localCookie(token, secure, maxAge)] }
+        return {
+            user,
+            secure,
+            cookies: maxAge === null ? undefined : [localCookie(token, secure, maxAge)],
+            clearCookies: sealed && !sealedAccepted ? [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE] : undefined
+        }
     }
+    if (sealed && !sealedAccepted) return { user: null, clearCookies: [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE], secure: ctx.secure }
     return { user: null }
 }
 
@@ -909,7 +946,10 @@ async function authKitActivity(ctx: AuthContext, sessionId: string, userId: stri
                 idleExpires: new Date(ctx.now + limits.idleMs),
                 absoluteExpires: new Date(ctx.now + limits.absoluteMs),
                 issuedAt: at,
-                lastSeenAt: at
+                lastSeenAt: at,
+                authenticationMethod: 'workos',
+                authenticationEpoch: ctx.authenticationEpoch,
+                recoveryUse: false
             })
         } catch (error) {
             if (!duplicateSession(error)) throw error

@@ -82,7 +82,9 @@ jest.mock('./production', () => {
                     logoutUrl: async () => 'https://authkit.example/logout',
                     setExternalId: async () => undefined
                 },
-                rateLimit: new LoginRateLimit()
+                rateLimit: new LoginRateLimit(),
+                recoveryRateLimit: new LoginRateLimit(5),
+                noteRecoveryAttempt: async () => undefined
             }
         }
     }
@@ -151,6 +153,11 @@ class MemoryStore implements IdentityStore {
         const user = this.users.find((row) => row.id === this.ownerId) || null
         if (!user || user.status.toLowerCase() !== 'active') return null
         return user
+    }
+
+    async isActiveOwner(userId: string): Promise<boolean> {
+        const user = this.users.find((row) => row.id === userId)
+        return Boolean(user && user.id === this.ownerId && user.status.toLowerCase() === 'active' && !this.disabled.has(userId))
     }
     async setCredential(userId: string, credential: string): Promise<void> {
         const user = this.users.find((row) => row.id === userId)
@@ -388,7 +395,7 @@ describe('local users mode', () => {
                     })
                 )
             )
-            expect(owner.status).toBe(row.owner ? 200 : 404)
+            expect(owner.status).toBe(200)
         }
     })
 
@@ -407,6 +414,7 @@ describe('local users mode', () => {
         const raw = ok.cookies?.[0].value || ''
         const row = store.local.get(hashSessionToken(raw))
         expect(row?.userId).toBe('user-a')
+        expect(row).toMatchObject({ authenticationMethod: 'local', recoveryUse: false })
         expect(row?.idleExpires.getTime()).toBe(NOW + IDLE_MS)
         expect(row?.absoluteExpires.getTime()).toBe(NOW + ABSOLUTE_MS)
         expect(JSON.stringify(ok.body)).not.toContain(OTHER)
@@ -1033,6 +1041,7 @@ describe('local users mode', () => {
         expect(whitelist).toContain('/api/v1/auth/local/login')
         expect(whitelist).toContain('/api/v1/auth/options')
         expect(whitelist).toContain('/api/v1/auth/local/logout')
+        expect(whitelist).toContain('/api/v1/auth/recovery/login')
         expect(whitelist).toContain('/api/v1/auth/local/password')
 
         const server = express()
@@ -1073,7 +1082,7 @@ describe('local users mode', () => {
         expect(badHeader.body).toEqual({ message: 'Unauthorized' })
     })
 
-    it('answers local logout from the route: 401 without CSRF, 404 when the mode is off, and 200 twice', async () => {
+    it('answers local logout from the route: 401 without CSRF and 200 even when the mode is off', async () => {
         const { store } = await seed()
         mockRouteStore.current = store
         const http = request(localRouteApp())
@@ -1141,10 +1150,10 @@ describe('local users mode', () => {
                 .post('/api/v1/auth/local/logout')
                 .set('Cookie', 'cuttlely-local-session=member-raw')
                 .set('x-request-from', 'internal')
-            expect(missing.status).toBe(404)
-            expect(missing.body).toEqual({ message: 'Not Found' })
-            expect(missing.headers['set-cookie']).toBeUndefined()
-            expect(store.local.has(memberDigest)).toBe(true)
+            expect(missing.status).toBe(200)
+            expect(missing.body).toEqual({ message: 'logged_out', redirectTo: '/signin' })
+            expect(String(missing.headers['set-cookie'])).toContain('cuttlely-local-session=')
+            expect(store.local.has(memberDigest)).toBe(false)
             const passwordMissing = await http.post('/api/v1/auth/local/password').set('x-request-from', 'internal')
             expect(passwordMissing.status).toBe(404)
             expect(passwordMissing.body).toEqual({ message: 'Not Found' })
@@ -1209,7 +1218,7 @@ describe('local users mode', () => {
         try {
             process.env.CUTTLELY_LOCAL_ADMIN = 'true'
             process.env.CUTTLELY_LOGIN_FAILURE_LIMIT = '3'
-            for (let i = 0; i < 2; i++) expect((await signIn(OTHER)).status).toBe(401)
+            for (let i = 0; i < 4; i++) expect((await signIn(OTHER)).status).toBe(401)
             for (let i = 0; i < 5; i++) {
                 const ok = await signIn(GOOD)
                 expect(ok.status).toBe(200)
@@ -1445,7 +1454,7 @@ describe('local users mode', () => {
         expect(Number(left[0]?.count || 0)).toBe(0)
     })
 
-    it('refuses a break-glass member session when local users mode is off', async () => {
+    it('refuses a member session when local users mode is off and ends recovery after owner demotion', async () => {
         const { store } = await seed()
         const ok = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         const raw = ok.cookies?.[0].value || ''
@@ -1464,6 +1473,11 @@ describe('local users mode', () => {
             ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': owner.cookies?.[0].value } })
         )
         expect(kept.user?.id).toBe('owner')
+        store.ownerId = null
+        const demoted = await establishSession(
+            ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': owner.cookies?.[0].value } })
+        )
+        expect(demoted.user).toBeNull()
     })
 
     it('ends local sessions when AuthKit is turned on and reports that on options', async () => {

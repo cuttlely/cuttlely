@@ -68,6 +68,16 @@ export default function AuthenticationSettings() {
             setError(cause?.response?.data?.message || 'The warning could not be acknowledged.')
         }
     }
+    const acknowledgeRecoveryAlert = async () => {
+        setError('')
+        try {
+            await api.acknowledgeRecoveryAlert(data.recovery.alert.id)
+            await load()
+            window.dispatchEvent(new Event('cuttlely:recovery-alert-acknowledged'))
+        } catch (cause) {
+            setError(cause?.response?.data?.message || 'The recovery alert could not be acknowledged.')
+        }
+    }
     const workosBlockedByRecovery = Boolean(data?.methods.workos.configured && !data?.recovery.available)
     return (
         <MainCard title='Auth / SSO'>
@@ -75,7 +85,21 @@ export default function AuthenticationSettings() {
                 {error && <Alert severity='error'>{error}</Alert>}
                 {data && !data.recovery.available && (
                     <Alert severity='error' data-testid='owner-recovery-blocking-warning'>
-                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of WorkOS is refused.
+                        Owner recovery is not ready. {RECOVERY_FIX} Until this is fixed, panel activation of a remote method is refused.
+                    </Alert>
+                )}
+                {data?.recovery?.alert && (
+                    <Alert
+                        severity='warning'
+                        data-testid='owner-recovery-alert'
+                        action={
+                            <Button color='inherit' size='small' onClick={acknowledgeRecoveryAlert}>
+                                Acknowledge
+                            </Button>
+                        }
+                    >
+                        An owner recovery sign-in occurred at {new Date(data.recovery.alert.occurredAt).toLocaleString()}. Review the audit
+                        log.
                     </Alert>
                 )}
                 {data?.warning && data.warningKind === 'workos-client-mismatch' && (
@@ -97,6 +121,12 @@ export default function AuthenticationSettings() {
                         <Typography>{label(data?.activeMethod)}</Typography>
                         <Typography color='text.secondary'>
                             Changing the method ends every interactive session. API keys remain enabled.
+                        </Typography>
+                        <Typography color='text.secondary' data-testid='authentication-last-change'>
+                            Last change: {data?.changedAt ? new Date(data.changedAt).toLocaleString() : 'No method change recorded'}
+                        </Typography>
+                        <Typography color='text.secondary' data-testid='authentication-sessions-ended'>
+                            Sessions ended by the last change: {data?.sessionsEnded ?? 0}
                         </Typography>
                     </Stack>
                 </Paper>
@@ -133,8 +163,8 @@ export default function AuthenticationSettings() {
                     </Button>
                     {data?.activeMethod === 'workos' && (
                         <Typography color='text.secondary' sx={{ mt: 1 }}>
-                            WorkOS satisfies this check only when it proves the sign-in time. If it cannot, use a local owner password at
-                            /signin?reauth=1.
+                            WorkOS satisfies this check only when it proves the sign-in time. If it cannot, use{' '}
+                            <strong>Owner recovery</strong> on the sign-in page.
                         </Typography>
                     )}
                 </Paper>
@@ -143,7 +173,8 @@ export default function AuthenticationSettings() {
                         <Box>
                             <Typography variant='h4'>Owner recovery</Typography>
                             <Typography color='text.secondary'>
-                                WorkOS can be activated only while the recovery route is enabled and an active owner has a usable password.
+                                The recovery route is always available. A remote method can be activated only while an active owner has a
+                                usable local password.
                             </Typography>
                         </Box>
                         <Chip

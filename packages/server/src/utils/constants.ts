@@ -26,6 +26,7 @@ export const WHITELIST_URLS = [
     '/api/v1/auth/signin-options',
     '/api/v1/auth/options',
     '/api/v1/auth/local/login',
+    '/api/v1/auth/recovery/login',
     '/api/v1/auth/local/logout',
     '/api/v1/auth/local/password',
     '/api/v1/auth/local/accept',

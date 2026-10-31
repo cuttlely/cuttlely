@@ -27,16 +27,21 @@ import { bindSetupCodeStore } from './setupCode'
 import { SqlIdentityStore, SqlLoginRateLimit, SqlSetupCodeStore } from './sqlStore'
 import { workosPort } from './workosAdapter'
 import { workosProvider } from './provider'
+import { epochBindingSecret, reauthenticationStateSecret } from './authenticationSecrets'
+import { activateSessionConvergence, sessionConvergenceActive } from './sessionConvergence'
+import { createRecoveryAlert, notifyRecoverySuccess, recordRecoveryAttempt } from './recovery'
 import {
     automaticWorkosLinkingAllowed,
     initializeAuthenticationState,
     recordRecentAuthentication,
     refreshAuthenticationState,
-    selectedAuthenticationEpoch
+    selectedAuthenticationEpoch,
+    selectedAuthenticationMethod
 } from './authenticationState'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
+let recoveryLimiter: SqlLoginRateLimit | undefined
 
 export function applicationSql(): Sql {
     return sqlFromDataSource(getDataSource())
@@ -53,6 +58,7 @@ export function applicationDataSource(): DataSource {
  */
 export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
     const durable = await initializeAuthenticationState(dataSource)
+    await activateSessionConvergence(dataSource)
     const switchStore = new SqlIdentityStore(dataSource)
     const before = await switchStore.readAuthKitSwitch()
     // A panel transition already ended sessions in its own transaction. The compatibility cutoff must never repeat it.
@@ -78,6 +84,11 @@ function loginLimiter(): SqlLoginRateLimit {
     return limiter
 }
 
+function ownerRecoveryLimiter(): SqlLoginRateLimit {
+    if (!recoveryLimiter) recoveryLimiter = new SqlLoginRateLimit(getDataSource(), 5)
+    return recoveryLimiter
+}
+
 /** Brings this process's view of the sign-in method up to date within the shared state cache window. */
 export async function refreshAuthenticationView(): Promise<void> {
     await refreshAuthenticationState(getDataSource())
@@ -91,11 +102,15 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
     return {
         dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
+        activeAuthenticationMethod: selectedAuthenticationMethod() ?? null,
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
+        epochBindingSecret: epochBindingSecret(),
+        reauthenticationStateSecret: reauthenticationStateSecret(),
+        sealedWorkosSessionsAccepted: !sessionConvergenceActive(),
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,
         secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
@@ -110,6 +125,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         store: identityStore(),
         workos: workosProvider(workosPort, () => workosConfigured()).compatibility,
         rateLimit: loginLimiter(),
+        recoveryRateLimit: ownerRecoveryLimiter(),
         automaticWorkosLinkingAllowed: () => automaticWorkosLinkingAllowed(getDataSource()),
         recordRecentAuthentication: async (userId) => {
             const recent = await recordRecentAuthentication(getDataSource(), userId)
@@ -118,6 +134,11 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
                 cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
                 recent.expiresAt - Date.now()
             )
+        },
+        noteRecoveryAttempt: (outcome, userId) => recordRecoveryAttempt(applicationSql(), { outcome, userId, at: Date.now() }),
+        raiseRecoveryAlert: async (userId) => {
+            const alert = await createRecoveryAlert(getDataSource(), userId, Date.now())
+            void notifyRecoverySuccess(applicationSql(), alert).catch(() => undefined)
         },
         noteAudit: noteSignIn
     }

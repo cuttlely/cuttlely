@@ -4,6 +4,7 @@ import client from './client'
 const resolveLogin = (body) => client.post(`/auth/resolve`, body)
 const login = (body) => client.post(`/auth/login`, body)
 const localLogin = (body) => client.post(`/auth/local/login`, body, { headers: { 'x-request-from': 'internal' } })
+const recoveryLogin = (body) => client.post(`/auth/recovery/login`, body, { headers: { 'x-request-from': 'internal' } })
 
 // permissions
 const getAllPermissions = (type) => client.get(`/auth/permissions/${type}`)
@@ -14,6 +15,7 @@ export default {
     resolveLogin,
     login,
     localLogin,
+    recoveryLogin,
     getAllPermissions,
     ssoSuccess,
     refreshSession
