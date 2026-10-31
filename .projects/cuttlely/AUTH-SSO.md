@@ -94,7 +94,7 @@ The generic OIDC card contains:
 -   Issuer URL.
 -   Client id.
 -   Client secret reference, with set or replace action and presence-only display.
--   Derived callback URL and post-logout URL for copying.
+-   Derived callback URL for copying, with the provider marker in the path and no query parameters. Generic OIDC sign-out returns directly to Cuttlely, so the card shows no logout registration address.
 -   Requested scopes, fixed to `openid`, `email`, and `profile`.
 -   **Trust issuer email when verification is missing**, off by default, with explanatory risk text.
 -   Discovery and key-set status, last successful check, and sanitized error state.
