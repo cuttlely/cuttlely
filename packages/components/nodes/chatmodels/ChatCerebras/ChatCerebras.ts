@@ -3,6 +3,7 @@ import { BaseCache } from '@langchain/core/caches'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatCerebras_ChatModels implements INode {
     label: string
@@ -145,8 +146,9 @@ class ChatCerebras_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const cerebrasAIApiKey = getCredentialParam('cerebrasApiKey', credentialData, nodeData)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             model: modelName,
             apiKey: cerebrasAIApiKey,
             openAIApiKey: cerebrasAIApiKey,

@@ -3,6 +3,7 @@ import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { ChatTogetherAI } from '@langchain/community/chat_models/togetherai'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatTogetherAI_ChatModels implements INode {
     label: string
@@ -80,9 +81,10 @@ class ChatTogetherAI_ChatModels implements INode {
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const togetherAIApiKey = getCredentialParam('togetherAIApiKey', credentialData, nodeData)
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: any = {
             model: modelName,
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             togetherAIApiKey: togetherAIApiKey,
             streaming: streaming ?? true
         }

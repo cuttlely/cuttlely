@@ -5,6 +5,7 @@ import { getBaseClasses, getCredentialData, getCredentialParam, isReasoningModel
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { AzureChatOpenAI } from './FlowiseAzureChatOpenAI'
 import { OpenAI as OpenAIClient } from 'openai'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 const serverCredentialsExists =
     !!process.env.AZURE_OPENAI_API_KEY &&
@@ -232,8 +233,9 @@ class AzureChatOpenAI_ChatModels implements INode {
 
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields & Partial<AzureOpenAIInput> = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             azureOpenAIApiKey,
             azureOpenAIApiInstanceName,
