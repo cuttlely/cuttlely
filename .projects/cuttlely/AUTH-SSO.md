@@ -171,7 +171,7 @@ Optional mappings connect one provider-scoped group to a Cuttlely team and, opti
 
 ### Operations view
 
-The Admin Panel shows token state, last successful request, last failed request category, last completed request time, counts for created, updated, disabled, group, and membership operations, and recent sanitized errors with correlation ids. SCIM diagnostic records are retained for 30 days. No bearer token or sensitive attribute is displayed.
+The Admin Panel shows token state, last successful request, last failed request category, last completed request time, counts for created, updated, disabled, group, and membership operations, and recent sanitized errors with correlation ids. SCIM diagnostic records older than 30 days are excluded from the view and deleted the next time a SCIM request is recorded or the view is opened. No bearer token or sensitive attribute is displayed.
 
 Conformance coverage exercises schemas, resource types, filtering, pagination, patch paths, idempotency, conflict responses, group membership, deactivation, authentication errors, and content types. Unsupported operations return standards-shaped errors rather than partial success.
 

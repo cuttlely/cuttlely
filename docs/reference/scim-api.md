@@ -48,7 +48,7 @@ Group membership changes, group deletion, mapping confirmation, and user deactiv
 
 ## Operations
 
-The Auth / SSO page shows credential state, last successful, failed, and completed request times, the last failed category, operation counts, and up to 20 recent sanitized errors. Counts and timestamps use database aggregates scoped to the organization and 30-day window; the error list is a separate bounded query. Each error response includes an `X-Correlation-ID` header and the same id in `detail`. Diagnostics contain no bearer value or provisioned profile attributes and are retained for 30 days.
+The Auth / SSO page shows credential state, last successful, failed, and completed request times, the last failed category, operation counts, and up to 20 recent sanitized errors. Counts and timestamps use database aggregates scoped to the organization and 30-day window; the error list is a separate bounded query. Each error response includes an `X-Correlation-ID` header and the same id in `detail`. Diagnostics contain no bearer value or provisioned profile attributes. Diagnostics older than 30 days are excluded from Operations and are deleted the next time a SCIM request is recorded or Operations is opened.
 
 Refused authentication attempts are stored as audit windows per organization. The first attempt writes a row immediately. Further attempts during the fixed five-minute window update that row with the complete count, first and last occurrence times, and missing/refused categories after every request. An attempt after the window starts a new row.
 
