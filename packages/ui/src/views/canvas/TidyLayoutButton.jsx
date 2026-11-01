@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
-import { useNodesInitialized, useReactFlow } from 'reactflow'
+import { useNodesInitialized } from 'reactflow'
 import { Button } from '@mui/material'
 import { IconLayoutBoardSplit, IconX } from '@tabler/icons-react'
 
@@ -23,18 +23,21 @@ export function isTidyUndoKey(event) {
 // the person's own Save keeps the layout. One Undo (the snackbar button or Ctrl/Cmd+Z) puts every card back while
 // no card has been moved, added or removed and the canvas has not been saved.
 const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSnackbar, closeSnackbar }) => {
-    const { fitView } = useReactFlow()
     const measured = useNodesInitialized()
     const [undo, setUndo] = useState(null)
     const snackbarKey = useRef(null)
     const nodesRef = useRef(nodes)
     nodesRef.current = nodes
 
+    // The canvas passes a new closeSnackbar on every render, so the callbacks read the latest one from a ref.
+    const closeRef = useRef(closeSnackbar)
+    closeRef.current = closeSnackbar
+
     const dropUndo = useCallback(() => {
         setUndo(null)
-        if (snackbarKey.current != null) closeSnackbar(snackbarKey.current)
+        if (snackbarKey.current != null) closeRef.current(snackbarKey.current)
         snackbarKey.current = null
-    }, [closeSnackbar])
+    }, [])
 
     const runUndo = useCallback(() => {
         if (!canUndoTidy(undo, nodesRef.current)) return false
@@ -67,6 +70,7 @@ const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSna
             options: {
                 key,
                 variant: 'success',
+                persist: true,
                 action: (actionKey) => (
                     <>
                         <Button style={{ color: 'white' }} onClick={() => runUndoRef.current()}>
@@ -79,8 +83,15 @@ const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSna
                 )
             }
         })
-        setTimeout(() => fitView({ padding: 0.2, maxZoom: 1, duration: 200 }), 0)
     }
+
+    // The Undo message stays until Undo, Close, or an edit or save ends the undo. Leaving the canvas closes it.
+    useEffect(
+        () => () => {
+            if (snackbarKey.current != null) closeRef.current(snackbarKey.current)
+        },
+        []
+    )
 
     // Moving, adding or removing a card, or a save, ends the undo.
     useEffect(() => {
