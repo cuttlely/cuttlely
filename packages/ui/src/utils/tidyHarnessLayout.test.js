@@ -1,0 +1,173 @@
+import { cloneDeep, omit } from 'lodash'
+import {
+    TIDY_CLEARANCE,
+    canUndoTidy,
+    estimateNodeSize,
+    measuredSize,
+    positionSnapshot,
+    tidyHarnessLayout,
+    tidyStep,
+    undoTidy
+} from './tidyHarnessLayout'
+
+// A made-up, messy harness: cards dropped on top of each other, a tool far away, an unwired card and a sticky note.
+const card = (id, name, category, x, y, extra = {}) => ({
+    id,
+    type: 'customNode',
+    position: { x, y },
+    positionAbsolute: { x, y },
+    width: 300,
+    height: 420,
+    selected: false,
+    data: { id, name, category, label: id, inputs: { note: `${id} settings` } },
+    ...extra
+})
+
+const messy = () => ({
+    nodes: [
+        card('specialist_summarizer', 'harnessSpecialist', 'Harness', 30, 20),
+        card('chief_0', 'harnessChief', 'Harness', 40, 30),
+        card('model_0', 'chatXAI', 'Chat Models', 2100, -400),
+        card('specialist_research', 'harnessSpecialist', 'Harness', 35, 25),
+        card('search_0', 'requestsGet', 'Tools', -900, 1600),
+        card('calc_0', 'calculator', 'Tools', 50, 40),
+        card('store_0', 'memoryVectorStore', 'Vector Stores', 1300, 900),
+        card('embed_0', 'localHashEmbeddings', 'Embeddings', 60, 50),
+        card('loose_0', 'calculator', 'Tools', 70, 60),
+        {
+            id: 'note_0',
+            type: 'stickyNote',
+            position: { x: 10, y: 10 },
+            width: 240,
+            height: 160,
+            data: { id: 'note_0', inputs: { note: 'Research Chief notes' } }
+        },
+        card('iter_child', 'calculator', 'Tools', 12, 34, { parentNode: 'iter_parent', positionAbsolute: { x: 999, y: 999 } })
+    ],
+    edges: [
+        { id: 'e1', source: 'model_0', target: 'chief_0', sourceHandle: 'model_0-output', targetHandle: 'chief_0-input-model' },
+        { id: 'e2', source: 'specialist_research', target: 'chief_0', sourceHandle: 's', targetHandle: 't' },
+        { id: 'e3', source: 'specialist_summarizer', target: 'chief_0', sourceHandle: 's', targetHandle: 't' },
+        { id: 'e4', source: 'search_0', target: 'specialist_research', sourceHandle: 's', targetHandle: 't' },
+        { id: 'e5', source: 'store_0', target: 'specialist_research', sourceHandle: 's', targetHandle: 't' },
+        { id: 'e6', source: 'embed_0', target: 'store_0', sourceHandle: 's', targetHandle: 't' },
+        { id: 'e7', source: 'calc_0', target: 'specialist_summarizer', sourceHandle: 's', targetHandle: 't' }
+    ]
+})
+
+const withoutPositions = (nodes) => nodes.map((node) => omit(node, ['position', 'positionAbsolute']))
+
+const overlaps = (nodes) => {
+    const boxes = nodes.filter((node) => !node.parentNode).map((node) => ({ id: node.id, ...node.position, ...measuredSize(node) }))
+    const hits = []
+    for (let i = 0; i < boxes.length; i += 1) {
+        for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i]
+            const b = boxes[j]
+            const apartX = a.x + a.width <= b.x || b.x + b.width <= a.x
+            const apartY = a.y + a.height <= b.y || b.y + b.height <= a.y
+            if (!apartX && !apartY) hits.push(`${a.id}/${b.id}`)
+        }
+    }
+    return hits
+}
+
+describe('tidyHarnessLayout', () => {
+    it('changes only position and positionAbsolute; ids, data, order, other fields and edges stay identical', () => {
+        const flow = messy()
+        const before = cloneDeep(flow)
+        const { nodes } = tidyStep(flow.nodes, flow.edges)
+        expect(flow).toEqual(before)
+        expect(nodes.map((node) => node.id)).toEqual(before.nodes.map((node) => node.id))
+        expect(withoutPositions(nodes)).toEqual(withoutPositions(before.nodes))
+        nodes.forEach((node, index) => expect(node.data).toBe(flow.nodes[index].data))
+        expect(flow.edges).toEqual(before.edges)
+    })
+
+    it('puts the model, then the Prime, then one row per Specialist with its wired cards to its right', () => {
+        const flow = messy()
+        const { nodes } = tidyStep(flow.nodes, flow.edges)
+        const at = Object.fromEntries(nodes.map((node) => [node.id, node.position]))
+        expect(at.model_0.x).toBeLessThan(at.chief_0.x)
+        expect(at.model_0.y).toBe(at.chief_0.y)
+        expect(at.specialist_research.x).toBeGreaterThan(at.chief_0.x)
+        expect(at.specialist_summarizer.x).toBe(at.specialist_research.x)
+        expect(at.search_0.x).toBeGreaterThan(at.specialist_research.x)
+        expect(at.store_0.x).toBe(at.search_0.x)
+        expect(at.embed_0.x).toBeGreaterThan(at.store_0.x)
+        expect(at.calc_0.y).toBe(at.specialist_summarizer.y)
+        // Rows keep the Specialists' old top-to-bottom order, and each row is as tall as its tallest column.
+        expect(at.specialist_research.y).toBe(at.specialist_summarizer.y + 420 + TIDY_CLEARANCE)
+        expect(at.search_0.y).toBe(at.store_0.y + 420 + TIDY_CLEARANCE)
+        expect(overlaps(nodes)).toEqual([])
+    })
+
+    it('parks sticky notes and unwired cards in a last column and drops nothing', () => {
+        const flow = messy()
+        const positions = tidyHarnessLayout(flow.nodes, flow.edges)
+        expect(positions.has('note_0')).toBe(true)
+        expect(positions.has('loose_0')).toBe(true)
+        const rightmost = Math.max(...[...positions.entries()].filter(([id]) => !['note_0', 'loose_0'].includes(id)).map(([, p]) => p.x))
+        expect(positions.get('note_0').x).toBeGreaterThan(rightmost)
+        expect(positions.get('loose_0').x).toBe(positions.get('note_0').x)
+        expect(Math.abs(positions.get('note_0').y - positions.get('loose_0').y)).toBeGreaterThanOrEqual(160 + TIDY_CLEARANCE)
+    })
+
+    it('leaves a card inside a parent where it is', () => {
+        const flow = messy()
+        const { nodes } = tidyStep(flow.nodes, flow.edges)
+        const child = nodes.find((node) => node.id === 'iter_child')
+        expect(child).toBe(flow.nodes.find((node) => node.id === 'iter_child'))
+    })
+
+    it('is idempotent', () => {
+        const flow = messy()
+        const once = tidyStep(flow.nodes, flow.edges).nodes
+        const twice = tidyStep(once, flow.edges)
+        expect(twice.undo).toBeNull()
+        expect(twice.nodes).toBe(once)
+        expect(positionSnapshot(tidyStep(cloneDeep(once), flow.edges).nodes)).toEqual(positionSnapshot(once))
+    })
+
+    it('uses the template size estimate for a card React Flow has not measured', () => {
+        const node = { id: 'a', data: { inputParams: [{ type: 'string' }], inputAnchors: [{}], outputAnchors: [{}] } }
+        expect(measuredSize(node)).toEqual(estimateNodeSize(node.data))
+        expect(measuredSize({ ...node, width: 280, height: 130 })).toEqual({ width: 280, height: 130 })
+    })
+})
+
+describe('tidy undo', () => {
+    it('restores the exact previous position fields, including a missing positionAbsolute', () => {
+        const flow = messy()
+        delete flow.nodes[0].positionAbsolute
+        const before = cloneDeep(flow.nodes)
+        const step = tidyStep(flow.nodes, flow.edges)
+        expect(canUndoTidy(step.undo, step.nodes)).toBe(true)
+        const restored = undoTidy(step.undo, step.nodes)
+        expect(restored).toEqual(before)
+        expect('positionAbsolute' in restored[0]).toBe(false)
+    })
+
+    it('is one level: after a card moves, or a card is added or removed, undo does nothing', () => {
+        const flow = messy()
+        const step = tidyStep(flow.nodes, flow.edges)
+        const moved = step.nodes.map((node) => (node.id === 'chief_0' ? { ...node, position: { x: 5, y: 5 } } : node))
+        expect(canUndoTidy(step.undo, moved)).toBe(false)
+        expect(undoTidy(step.undo, moved)).toBe(moved)
+        const added = [...step.nodes, card('extra', 'calculator', 'Tools', 0, 0)]
+        expect(canUndoTidy(step.undo, added)).toBe(false)
+        expect(canUndoTidy(step.undo, step.nodes.slice(1))).toBe(false)
+        expect(canUndoTidy(null, step.nodes)).toBe(false)
+    })
+
+    it('keeps data edits made after Tidy when it undoes', () => {
+        const flow = messy()
+        const step = tidyStep(flow.nodes, flow.edges)
+        const edited = step.nodes.map((node) =>
+            node.id === 'chief_0' ? { ...node, data: { ...node.data, label: 'Research Chief' } } : node
+        )
+        const restored = undoTidy(step.undo, edited)
+        expect(restored.find((node) => node.id === 'chief_0').data.label).toBe('Research Chief')
+        expect(positionSnapshot(restored)).toEqual(positionSnapshot(flow.nodes))
+    })
+})

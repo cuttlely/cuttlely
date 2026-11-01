@@ -119,6 +119,18 @@ A specialist with playbooks runs in the agent runtime. It can list and read its 
 
 A playbook can ask for a closing line, such as `Source: sales warehouse`. When the specialist's answer ends with a line that starts with `Source:`, `Sources:`, `Citation:` or `References:`, Harness Prime keeps that line at the end of its own answer. If its rewrite drops the line, Cuttlely puts it back.
 
+## Tidy the layout
+
+**Tidy layout**, in the control bar at the bottom of a harness canvas, rearranges the cards so the team reads left to right. The button turns on once the cards are drawn. Harness Prime and its chat model go in the first columns. Each Harness Specialist gets its own row, with the cards wired into it to its right. Sticky notes and cards that are not wired to the team go in a last column, so nothing is removed. Cards inside another card, such as an iteration, stay where they are.
+
+![The field-notes-desk harness canvas before Tidy layout. Calculator, Requests Get, In-Memory Vector Store, Harness Prime, xAI Grok, Local Hash Embeddings, and three Harness Specialist cards named Research Chief, Summarizer, and Fact Checker are scattered, and the Research Chief and Summarizer cards overlap.](../images/harnesses/canvas-tidy-before.png)
+
+![The same canvas after Tidy layout. xAI Grok and Harness Prime are in the first two columns. Fact Checker, Research Chief, and Summarizer each have a row, with Calculator to the right of Fact Checker, and Requests Get, In-Memory Vector Store, and Local Hash Embeddings to the right of Research Chief. A green message at the bottom reads Tidied the canvas. Save to keep the new layout, with Undo.](../images/harnesses/canvas-tidy-after.png)
+
+Tidy layout rearranges the canvas; Save to keep it. It moves cards only. Connections, card settings, and card ids do not change, and the harness runs the same way. Nothing is saved until you select **Save Harness**, and the asterisk before the name shows the change is not saved yet. When the cards are already in place, it says `The canvas is already tidy.`
+
+To go back, select **Undo** in the message or press Ctrl+Z (Cmd+Z on a Mac) outside a text field. Undo is one step: it puts every card back where it was before the last tidy. Settings you changed after the tidy stay. Undo is no longer offered after you move, add, or remove a card, or save. The canvas stays marked as not saved after Undo.
+
 ## Save the harness
 
 1. Select the save icon at the top right (**Save Harness**).
