@@ -4,11 +4,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-10-31
+
 ### Fixed
 
--   A JSON setting on a node, credential or document store whose saved value is only whitespace or is not valid JSON, for example a value cut off partway, no longer crashes the page with "Unexpected end of JSON input". The JSON editor opens it as an empty object (`{}`) and writes nothing back until you edit it; valid values open as before. An agentflow node whose saved built-in tool list cannot be read shows no built-in tools, and a multi-select field whose saved value cannot be read shows nothing selected, instead of crashing the page.
+-   A JSON setting on a node, credential or document store whose saved value is only whitespace or is not valid JSON, for example a value cut off partway, no longer crashes the page with "Unexpected end of JSON input". The JSON editor opens it as an empty object (`{}`) and writes nothing back until you edit it; valid values open as before. An agentflow node whose saved built-in tool list cannot be read shows no built-in tools, and a multi-select field whose saved value cannot be read shows nothing selected, instead of crashing the page. [#367](https://github.com/cuttlely/cuttlely/pull/367).
 
--   When a page throws while it loads or renders, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen.
+-   When a page throws while it loads or renders, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen. [#367](https://github.com/cuttlely/cuttlely/pull/367).
 
 ## [1.4.9] - 2026-10-31
 
@@ -668,7 +670,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.9...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.10...HEAD
+[1.4.10]: https://github.com/cuttlely/cuttlely/compare/v1.4.9...v1.4.10
 [1.4.9]: https://github.com/cuttlely/cuttlely/compare/v1.4.8...v1.4.9
 [1.4.8]: https://github.com/cuttlely/cuttlely/compare/v1.4.7...v1.4.8
 [1.4.7]: https://github.com/cuttlely/cuttlely/compare/v1.4.6...v1.4.7

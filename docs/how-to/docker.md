@@ -33,10 +33,10 @@ npx cuttlely stop
 npx cuttlely status
 npx cuttlely logs
 npx cuttlely upgrade
-npx cuttlely start --port 8080 --tag 1.4.9 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.4.10 --env-file .env --no-open
 ```
 
-`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.4.9` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
+`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.4.10` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
 
 If Docker is missing or not running, the command says so and links to this page. The first account is the same as Compose: the one-time setup link is in `npx cuttlely logs`.
 
@@ -65,7 +65,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest release is also `:latest`. The [changelog](../../CHANGELOG.md) lists what changed in each one.
 
--   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:X.Y.Z` in `.env`, for example `ghcr.io/cuttlely/cuttlely:1.4.9`, then run `docker compose up -d`.
+-   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:X.Y.Z` in `.env`, for example `ghcr.io/cuttlely/cuttlely:1.4.10`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium, optional node packs, or the geolocation database out of that build.
 
@@ -224,7 +224,7 @@ Then use this config on the Custom MCP node (paths exist only after those mounts
 }
 ```
 
-Rules that apply in 1.4.9:
+Rules that apply in 1.4.10:
 
 -   The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
 -   If any args are present, the first must match a path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS. List absolute paths you control. Relative paths are strongly discouraged and only work if you explicitly allow-list that exact relative path.
