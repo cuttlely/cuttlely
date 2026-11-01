@@ -191,3 +191,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   Reporting currency metadata is not a monetary amount. A configured symbol can label a report without implying an ISO code. Currency rejection feedback needs the concrete code, symbol or amount so a one-pass repair can correct the rejected claim; retain amount/unit checks and atom-only private storage.
 
 -   A valid business report should not require a new query because a companion cites one unreturned URL. Give the documentation-only role one bounded tool-free repair with its existing source URLs and bodies; revalidate against the same whitelist and retain the original report and attachments. Never let this repair path run for analyst or executable roles.
+
+-   Native Markdown escaped a timestamp plus as &#43;. Source facts decoded it, but answer validation read 43 as an unsupported quantity. Normalize numeric HTML references before both source and claim parsing; test source and answer encodings, timestamp precision, unsupported percentages and currencies. Do not broaden evidence scope to mask a representation mismatch.
