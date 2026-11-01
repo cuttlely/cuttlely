@@ -14,6 +14,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Protected interpretation accepts a configured reporting symbol as metadata without an amount, while retaining typed amount and denomination checks. Currency rejections provide bounded literal feedback to the single tool-free repair and opt-in private author diagnostics.
+
+-   Successful Web Browser calls can supply turn-scoped visited-page receipts to a documentation-only companion of a protected report. HTTP/network failures and non-web or credential-bearing URLs cannot supply citation evidence; analyst and executable roles keep their existing restrictions.
+
+-   Path masking recognizes opening backtick code fences without treating the entire block as one quoted path. Public URL examples remain readable, while local paths inside code and inline spans retain masking in full text and streams.
+
 -   Source-capture receipts fit below the worker’s MCP spill threshold, including JSON envelope escaping. Complete report context stays inline; sampled evidence is reduced before omitting an oversized overview.
 
 -   A rejected pinned-query argument retry no longer discards a completed stamped report from the same source and turn. Missing results, changed stamps and executed query failures still fail verification.

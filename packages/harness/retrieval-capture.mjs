@@ -63,7 +63,7 @@ export function citedRetrievedGuidance(specialist, text, sources) {
         specialist.codeExecution ||
         specialist.shell ||
         specialist.fileAccess ||
-        !specialist.modules?.some((binding) => binding.nodeName === 'retrieverTool') ||
+        !specialist.modules?.some((binding) => ['retrieverTool', 'webBrowser'].includes(binding.nodeName)) ||
         typeof text !== 'string' ||
         !text.trim() ||
         Buffer.byteLength(text) > 65536

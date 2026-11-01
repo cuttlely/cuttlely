@@ -1,3 +1,11 @@
+Reporting-symbol labels are checked independently of monetary amounts. Rejected currency codes, symbols and amounts now reach the single tool-free repair as bounded literal feedback, with strict private diagnostic storage. Typed monetary amounts and denomination checks remain enforced; release validation is tracked per tested revision.
+
+Browser-only documentation specialists receive turn-scope injection through the same bridge as retrievers. Profile compiler version 7 rebuilds existing on-disk configurations with that environment. Real gateway tests cover both source types, wrong turns and revoked tokens.
+
+Documentation companions can recognize successful Web Browser page receipts as well as Retriever Tool documents, through the same token and worker-turn capture path. Failed requests and non-web or credential-bearing URLs do not create receipts, and analyst/executable roles remain excluded. Focused and gateway checks pass; release verification and deployment are tracked per tested revision.
+
+Opening backtick code fences release their info line at the newline instead of opening a quoted span across the whole body. Public URL examples remain intact; local paths within code and inline spans still mask. Focused and fuzz checks pass; release verification and deployment are tracked per tested revision.
+
 Worker-facing source receipts now account for escaped MCP envelopes and stay under 48,000 bytes, below the worker’s 50,000-character spill threshold. Complete overviews stay whole; sampled evidence is reduced first. Focused tests pass; full release verification is pending for this revision.
 
 # Status

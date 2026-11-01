@@ -16,8 +16,29 @@ export async function executeModule(binding, input, options = {}) {
     // Checked again with nothing awaited before the tool starts: the await above yields, and a revocation may run there.
     if (options.assertCall) options.assertCall()
     const raw = await callPrepared(prepared, input, options.assertCall)
-    if (binding.nodeName === 'retrieverTool' && typeof options.onRetrievedSources === 'function') {
-        options.onRetrievedSources(splitToolOutput(raw).documents)
+    if (typeof options.onRetrievedSources === 'function') {
+        if (binding.nodeName === 'retrieverTool') options.onRetrievedSources(splitToolOutput(raw).documents)
+        else if (
+            binding.nodeName === 'webBrowser' &&
+            typeof input === 'string' &&
+            typeof raw === 'string' &&
+            raw.trim() &&
+            !/^\s*(?:[A-Za-z]*Error:|There was a problem connecting to the site)/.test(raw)
+        ) {
+            // WebBrowser fetches the first comma-delimited argument before it summarizes.
+            // Its caught HTTP/network failures return an Error string, never page evidence.
+            let target = input.split(',')[0].trim()
+            if (target.startsWith('"')) target = target.slice(1)
+            if (target.endsWith('"')) target = target.slice(0, -1)
+            if (target.endsWith('/')) target = target.slice(0, -1)
+            try {
+                const url = new URL(target.trim())
+                if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password)
+                    options.onRetrievedSources([{ pageContent: raw, metadata: { source: url.href } }])
+            } catch {
+                // An ambiguous or non-HTTP input cannot supply a citation receipt.
+            }
+        }
     }
     return prepared.runs ? raw : normalizeResult(raw)
 }

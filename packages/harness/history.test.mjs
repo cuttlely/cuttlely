@@ -124,7 +124,9 @@ test('private storage retains each supported numeric diagnostic context without 
         { ...claim('9'), issue: 'unsupported_duration', unit: 'day', contextType: 'duration' },
         { ...claim('10'), issue: 'unsupported_percentage', unit: '%', contextType: 'percentage' },
         { ...claim('25:49'), issue: 'unsupported_percentage', unit: '%', contextType: 'percentage_interval' },
-        { ...claim('2032-05-03'), issue: 'unsupported_date', unit: 'calendar_date', contextType: 'date' }
+        { ...claim('2032-05-03'), issue: 'unsupported_date', unit: 'calendar_date', contextType: 'date' },
+        { ...claim('USD'), issue: 'unsupported_currency', unit: 'USD', contextType: 'currency' },
+        { ...claim('1250000'), issue: 'unsupported_currency', unit: '$', contextType: 'currency' }
     ]
     for (let start = 0; start < claims.length; start += 8) {
         const pending = beginHarnessRun({ name: 'diagnostics-contexts-' + start })
