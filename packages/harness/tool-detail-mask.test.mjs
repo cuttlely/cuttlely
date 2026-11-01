@@ -480,3 +480,23 @@ test('a long run of backslashes is masked in linear time', () => {
         assert.ok(Math.min(...times) < 50, `${Math.min(...times)} ms`)
     }
 })
+
+test('fenced public code remains intact while local paths inside code and inline spans stay hidden across chunks', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    const code =
+        '```bash\nvault auth enable oidc\nvault write auth/oidc/config \\\n  oidc_discovery_url="https://example.okta.com" \\\n  allowed_redirect_uris="http://localhost:8250/oidc/callback"\n```'
+    assert.equal(maskWorkspacePaths(code), code)
+    const privateCode = '```bash\ncat "' + secret + '"\n```'
+    const masked = maskWorkspacePaths(privateCode)
+    assert(!masked.includes(secret))
+    assert(masked.includes('```bash\ncat "'))
+    const inline = '```' + path.dirname(secret) + '/My private.txt```'
+    assert(!maskWorkspacePaths(inline).includes('private.txt'))
+    for (const input of [code, privateCode, inline, JSON.stringify({ text: code })]) {
+        const expected = maskWorkspacePaths(input)
+        for (let i = 0; i <= input.length; i++) {
+            const state = workspaceMaskState()
+            assert.equal(scanWorkspaceText(state, input.slice(0, i), root) + scanWorkspaceText(state, input.slice(i), root, true), expected)
+        }
+    }
+})

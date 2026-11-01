@@ -219,3 +219,5 @@ For an interpreted Markdown capture, the model can receive the complete configur
 Path privacy treats Markdown link labels and destinations as separate spans in both complete and streamed text. Public HTTP(S) citations retain their destinations, including balanced parentheses and adjacent links; local filesystem paths in labels, destinations and quoted titles still receive masking.
 
 A rejected argument set is marked before any query execution. It cannot replace or erase an already completed, stamped capture of the same pin in the same worker turn. Without that completed result, verification still fails; executed source errors and changed pin identities remain failures.
+
+Markdown code fences retain their boundaries during path masking. Public HTTP(S) examples inside a fenced block remain readable; local paths inside code are still masked using the normal quoted-path rules.
