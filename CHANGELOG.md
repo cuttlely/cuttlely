@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Verified CSV reports are delivered with their source tables: complete rows, up to the contract limit. The CSV contract may set `maxRows` from 1 through 10,000 (the default stays 100) to attach a complete table of up to that many rows, and `reportPath` to append a source-owned Markdown report after the attachment note. Delivery is refused when the table is incomplete, over the contract limit, or the report is missing; the model cannot supply a replacement. A specialist can have up to 32 trusted-output contracts, up from 16. See [Trusted outputs](./docs/reference/trusted-outputs.md). [#369](https://github.com/cuttlely/cuttlely/pull/369).
+-   Trusted-output CSV reports are delivered with their source tables: complete rows, up to the contract limit. The CSV contract may set `maxRows` from 1 through 10,000 (the default stays 100) to attach a complete table of up to that many rows, and `reportPath` to append a source-owned Markdown report after the attachment note. Delivery is refused when the table is incomplete, over the contract limit, or the report is missing; the model cannot supply a replacement. A specialist can have up to 32 trusted-output contracts, up from 16. See [Trusted outputs](./docs/reference/trusted-outputs.md). [#369](https://github.com/cuttlely/cuttlely/pull/369).
 
 ### Changed
 
