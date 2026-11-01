@@ -1,3 +1,5 @@
+Documentation citation failures can receive one tool-free, revalidated repair from their own captured sources. Role restrictions, exact source URLs, protected factual output and attachments remain enforced. Source text fits a shared bounded context; a body that cannot fit is omitted whole. Focused source and gateway checks pass; release verification is tracked per revision.
+
 Reporting-symbol labels are checked independently of monetary amounts. Rejected currency codes, symbols and amounts now reach the single tool-free repair as bounded literal feedback, with strict private diagnostic storage. Typed monetary amounts and denomination checks remain enforced; release validation is tracked per tested revision.
 
 Browser-only documentation specialists receive turn-scope injection through the same bridge as retrievers. Profile compiler version 7 rebuilds existing on-disk configurations with that environment. Real gateway tests cover both source types, wrong turns and revoked tokens.
