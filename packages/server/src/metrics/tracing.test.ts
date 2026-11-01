@@ -1248,6 +1248,7 @@ describe('run trace spans', () => {
         expect(model?.attributes['status']).toBe('error')
     })
 
+    // Wait for this real-Agent integration run to finish before the next test resets its shared trace exporter.
     it('records summed tokens for a two-call run and prices that stored split', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
@@ -1289,7 +1290,7 @@ describe('run trace spans', () => {
         const outputRate = 0.0000006
         expect(usage?.input_cost).toBeCloseTo(22 * inputRate, 12)
         expect(usage?.output_cost).toBeCloseTo(9 * outputRate, 12)
-    })
+    }, 15000)
 
     it('records summed tokens for a three-call run and prices that stored split', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'

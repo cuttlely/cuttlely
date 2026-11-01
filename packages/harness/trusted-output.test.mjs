@@ -1095,6 +1095,33 @@ test('a still-invalid repair is rejected after one attempt and retains source ou
     assert.equal(out.calls.length, 1)
 })
 
+test('single-source repair retains substantive evidence after the first hundred scalar fields', async () => {
+    const result = {
+        rows: [
+            {
+                scope: 'Verified scope.',
+                report: 'EXACT SOURCE REPORT',
+                measurements: Array.from({ length: 140 }, (_, index) => ({ observed: index })),
+                notes: 'Procurement approval remains pending; confirm the decision owner.'
+            }
+        ]
+    }
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result,
+        prose: 'There is an unsupported loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse:
+            'Procurement approval remains pending in the returned notes. Confirm the decision owner before treating approval as final.'
+    })
+    const repair = out.prompts.find((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(repair)
+    const packet = JSON.parse(repair[1].content)
+    assert(packet.evidence[0].sourceEvidence.some((item) => item.value === result.rows[0].notes))
+    assert(out.payload.text.includes('Procurement approval remains pending'))
+    assert.equal(out.calls.length, 1)
+})
+
 test('a later specialist turn receives every source-backed selected key beyond the transcript clip', async () => {
     const records = Array.from({ length: 30 }, (_, i) => ({ ticket_id: `ticket-${i}`, name: `Example ticket ${i}` }))
     const report =
@@ -1133,6 +1160,34 @@ test('router-selected facts retain mapped source output without optional interpr
     assert(!out.payload.text.includes('could not be verified'))
     assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
     assert.equal(out.calls.length, 2)
+})
+
+test('factual mode retains validated narrative from an unmapped nested source instead of an identity-only table', async () => {
+    const prose = 'The recorded technical concern is a connection timeout during replication; the team requested a technical workshop.'
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        copies: 2,
+        answerMode: 'facts',
+        createModelFile: false,
+        result: {
+            rows: [
+                {
+                    account_id: 'example-entity',
+                    account_name: 'Example Industries',
+                    report: { notes: 'Connection timeout during replication; technical workshop requested.' }
+                }
+            ]
+        },
+        prose
+    })
+    const handoff = out.prompts.find((messages) => String(messages[0]?.content).startsWith('You are Harness Prime'))
+    assert(handoff)
+    assert(JSON.stringify(handoff).includes(prose))
+    assert(!JSON.stringify(handoff).includes('| account id |'))
+    assert.equal(out.calls.length, 2)
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
 })
 
 test('rejected-number diagnostics stay private and leave the answer, events and public history unchanged', async () => {

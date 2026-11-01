@@ -15,12 +15,12 @@ const RESULT_JSON_LIMIT = 1024 * 1024
 const OPEN_STATUSES = ['queued', 'running']
 const DIAGNOSTIC_LIMIT = 8
 const DIAGNOSTIC_JSON_LIMIT = 16384
-const DIAGNOSTIC_CONTEXTS = new Set(['number', 'compact_monetary', 'word_scale_monetary'])
+const DIAGNOSTIC_CONTEXTS = new Set(['number', 'compact_monetary', 'word_scale_monetary', 'duration'])
 const DIAGNOSTIC_CURRENCIES = new Set(
     typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
 )
 const DIAGNOSTIC_UNIT =
-    /^(?:[KMB]|%|acv|nacv|racv|arr|tcv|ram|thousand|million|billion|accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?)$/i
+    /^(?:[KMB]|%|acv|nacv|racv|arr|tcv|ram|thousand|million|billion|accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?|millisecond|second|minute|hour|day|week)$/i
 
 function ensure(db) {
     db.exec(`
@@ -73,7 +73,7 @@ function diagnosticClaims(value) {
     const seen = new Set()
     for (const item of value.slice(0, 64)) {
         if (claims.length >= DIAGNOSTIC_LIMIT) break
-        if (!item || typeof item !== 'object' || item.issue !== 'unsupported_number') continue
+        if (!item || typeof item !== 'object' || !['unsupported_number', 'unsupported_duration'].includes(item.issue)) continue
         const { literal, unit = '', contextType = 'number', specialist, pins } = item
         if (
             typeof literal !== 'string' ||
@@ -85,7 +85,8 @@ function diagnosticClaims(value) {
             !DIAGNOSTIC_CONTEXTS.has(contextType)
         )
             continue
-        const claim = { issue: 'unsupported_number', literal, unit, contextType }
+        if ((item.issue === 'unsupported_duration') !== (contextType === 'duration')) continue
+        const claim = { issue: item.issue, literal, unit, contextType }
         if (specialist !== undefined) {
             if (typeof specialist !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(specialist)) continue
             claim.specialist = specialist

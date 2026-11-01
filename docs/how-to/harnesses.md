@@ -427,3 +427,5 @@ Specialists run in the agent runtime, which `scripts/start-cuttlely.sh` starts a
 Missed health checks in the first 60 seconds after a start (`CUTTLELY_HERMES_HEALTH_GRACE`) do not count. After that, one miss is `degraded`. A restart needs about 15 seconds of continuous misses (`CUTTLELY_HERMES_HEALTH_WINDOW`) and `CUTTLELY_HERMES_HEALTH_FAILS` misses (default 3). Each check waits about 2 seconds. A run that is still streaming from the agent runtime is not killed for those misses.
 
 `X-Cuttlely-Analyst` is `ready` when the analyst tool is registered, `missing` when the bridge recorded 0 tools, and `unknown` before that file exists.
+
+Harness Prime can ask a fixed clarification for missing essential record selection, entity, measure, period, region, record type or comparison scope. It first uses the current request, conversation, source-backed selections and documented defaults. A clarification runs no specialist or query; ordinary fulfillable requests continue through the planner.
