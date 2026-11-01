@@ -1,5 +1,7 @@
 # Memory
 
+Preserve the type of a returned percentage: a band carries two bounds, while a scalar is an observation. An ASCII range separator must not turn its upper bound negative. Repair needs both concrete rejected literals and the original validator's source selection; an unmapped packet may have no fields under a mapped report's configured paths.
+
 Validate temporal values as typed evidence. Reformatting a captured timestamp can change its visible numeric tokens without changing its instant; accepting clock components as arbitrary numeric witnesses would weaken provenance. Keep the instant, zone and precision checks together. Repair needs enough of the same captured evidence to retain substantive notes in a large report.
 
 Tool-schema refresh needs both identities and the caller's readiness gate: a bridge's tool-binding content must change its persistent MCP schema fingerprint, discovery must retire an old same-profile live/lazy registration before reusing its name, and the already-started API discovery probe must report changed identities as pending. Testing registration directly misses a startup gate that skips connected names. Keep the public tool namespace stable, existing conversation snapshots byte-stable, and profile/credential scopes isolated. Do not replay an accepted query to recover from a schema change.
