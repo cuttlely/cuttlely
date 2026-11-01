@@ -1,6 +1,6 @@
 # Memory
 
-Preserve the type of a returned percentage: a band carries two bounds, while a scalar is an observation. An ASCII range separator must not turn its upper bound negative. Repair needs both concrete rejected literals and the original validator's source selection; an unmapped packet may have no fields under a mapped report's configured paths.
+A clipped model-context numeral must never become a provenance witness. Keep original-value validation independent of context sampling, and provide a bounded complete factual overview when available so a model can see the captured record set. Preserve the type of a returned percentage: a band carries two bounds, while a scalar is an observation. An ASCII range separator must not turn its upper bound negative. Repair needs both concrete rejected literals and the original validator's source selection; an unmapped packet may have no fields under a mapped report's configured paths.
 
 Validate temporal values as typed evidence. Reformatting a captured timestamp can change its visible numeric tokens without changing its instant; accepting clock components as arbitrary numeric witnesses would weaken provenance. Keep the instant, zone and precision checks together. Repair needs enough of the same captured evidence to retain substantive notes in a large report.
 
