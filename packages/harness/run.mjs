@@ -1520,6 +1520,9 @@ export function sharedAnalystSources(specialists = []) {
 export const HANDOFF_GROUNDING =
     'State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with "rows ", or a summary that starts with "returned ", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as "Dropped table", "Created table", or "Inserted 3 rows".'
 
+const HANDOFF_RETRIEVED_EVIDENCE =
+    'Preserve citations that support the answer. Retrieved evidence context is internal grounding input: do not append its snippets, unused retrieval hits, or internal headings to the answer.'
+
 // Files a specialist made reach the chat as downloads on their own, once. The answer names them by file name and
 // does not repeat a file list or a server path. A step that failed on the way is not reported when the request was
 // still answered.
@@ -2241,6 +2244,13 @@ export function verifiedMonetaryQueryReadout(specialist, captured, text) {
     )
 }
 
+export function interpretationPathsForCapture(specialist, item, paths = specialist.trustedInterpretationPaths) {
+    const mapped = specialist.trustedOutputs?.some(
+        (contract) => item.toolName === contract.pin || item.toolName?.endsWith(`__${contract.pin}`)
+    )
+    return !mapped && verifiedUnmappedOutput(specialist, [item], { dataTask: true }) ? [] : paths
+}
+
 async function protectStepOutput(context, specialist, { dataTask, text, factualText, answerMode, task } = {}) {
     if (!specialist.trustedOutputs?.length) return null
     const captured = context.trustedCaptures?.get(specialist.name) || []
@@ -2329,6 +2339,7 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
                 facts: rendered.text,
                 sources: captured.map((item) => item.result),
                 paths: specialist.trustedInterpretationPaths,
+                sourcePaths: captured.map((item) => interpretationPathsForCapture(specialist, item)),
                 diagnostics: diagnosticPins.length > 0 && !context.replay,
                 reportingCurrencySymbol:
                     reportingCurrencySymbol(
@@ -2386,13 +2397,14 @@ async function repairInterpretation(
         paths,
         reportingCurrencySymbol(specialist.trustedOutputs),
         {
+            sourcePaths: captured.map((item) => interpretationPathsForCapture(specialist, item, paths)),
             diagnostics: true,
             onDiagnostic: (claim) => rejectedClaims.push(claim)
         }
     )
     const sources = captured.slice(0, 8)
     const evidence = sources.map((item) =>
-        protectedInterpretationEvidence(item.result, paths, {
+        protectedInterpretationEvidence(item.result, interpretationPathsForCapture(specialist, item, paths), {
             maxBytes: Math.floor(64000 / Math.max(1, sources.length)),
             maxLeaves: 600
         })
@@ -3395,7 +3407,8 @@ async function chiefHandoff(context, input, history, results) {
         roster.chief?.instructions ? `Instructions: ${roster.chief.instructions}` : '',
         results.length
             ? `Your specialists already did the work below. Answer the user from their results. Keep numbers, URLs, and script output exactly as given. ${HANDOFF_FILES_AND_FAILURES} ${HANDOFF_GROUNDING} ${HANDOFF_KEEP_CLOSING} The Tools line is the tool status for this turn. A step with no tool result did not run.`
-            : 'No specialist was needed. Answer the user directly and briefly.'
+            : 'No specialist was needed. Answer the user directly and briefly.',
+        results.some((result) => result.status === 'completed' && result.sources?.length) ? HANDOFF_RETRIEVED_EVIDENCE : ''
     ]
         .filter(Boolean)
         .join('\n')

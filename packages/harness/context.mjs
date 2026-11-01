@@ -139,7 +139,10 @@ function sourceBlock(sources, snippetChars) {
         lines.push(`- [${label}] ${raw.slice(0, limit)}`)
     }
     if (named > SOURCE_LIMIT) cut = true
-    return { text: lines.length ? `Sources:\n${lines.join('\n')}` : '', cut }
+    return {
+        text: lines.length ? `Retrieved evidence context (internal; do not copy this list into the answer):\n${lines.join('\n')}` : '',
+        cut
+    }
 }
 
 function sectionFor(result, toolChars, snippetChars, truncated) {

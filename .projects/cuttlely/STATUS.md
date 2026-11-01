@@ -1,3 +1,7 @@
+Protected interpretation selects evidence per capture. Mapped reports retain their configured field restrictions; independently verified additional query captures use their own raw-result scope under the existing author-selected passthrough policy. Validation, monetary captions, trend certificates and tool-free repair use the same selection. Mixed-source source/repair checks pass; release verification is tracked per revision.
+
+Retrieved passages in chief handoffs are labeled as internal evidence context, separately from a specialist's actual citation lines. The handoff instruction preserves supporting citations and excludes internal snippets and unused retrieval hits from the answer. Source URLs, passage text, context budgets and closing-citation preservation remain intact. Verification is tracked per revision.
+
 Numeric HTML references normalize symmetrically in source evidence and interpretation claims, including timestamp offsets and percentages. This prevents entity code points from becoming spurious business quantities while retaining original source scopes and unit checks. Source-level regression checks use the original evidence paths.
 
 Documentation citation failures can receive one tool-free, revalidated repair from their own captured sources. Role restrictions, exact source URLs, protected factual output and attachments remain enforced. Source text fits a shared bounded context; a body that cannot fit is omitted whole. Focused source and gateway checks pass; release verification is tracked per revision.

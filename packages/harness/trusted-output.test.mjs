@@ -23,7 +23,7 @@ process.env.CUTTLELY_DATA_DIR = dir
 process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 process.env.CUTTLELY_PINNED_QUERIES = '1'
 delete process.env.HERMES_API_URL
-const { runHarness, verifiedMonetaryQueryReadout } = await import('./run.mjs')
+const { runHarness, verifiedMonetaryQueryReadout, interpretationPathsForCapture } = await import('./run.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { offeredPinnedTools, invokeOfferedPinnedTool, setGatewayContext, registerProfileToken, forgetProfileToken, startGateway } =
     await import('./gateway.mjs')
@@ -45,6 +45,61 @@ const clone = structuredClone
 function capture(result = body, pin = contract.pin, digest = contract.hash) {
     return { result, callId: 'actual-server-call', toolName: pin, pinned: { name: pin, hash: digest, version: 1 } }
 }
+
+test('mixed-source interpretation preserves each mapped scope and verifies additional query captures independently', async () => {
+    const report = {
+        rows: [
+            {
+                scope: 'Verified scope.',
+                report: 'EXACT SOURCE REPORT',
+                evidence: { notes: 'Procurement approval remains pending.' },
+                excluded: 98765
+            }
+        ]
+    }
+    const additional = { rows: [{ current_acv: '1234.56', currency: 'USD' }] }
+    const prose =
+        'Current ACV is $1,234.56. Procurement approval remains pending in the recorded notes; confirm the decision owner before assuming the renewal is secure.'
+    const options = {
+        markdownOnly: true,
+        interpretation: true,
+        policy: 'verified-passthrough',
+        reportingSymbol: '$',
+        interpretationPaths: ['rows.0.evidence'],
+        result: report,
+        additionalResult: additional,
+        createModelFile: false
+    }
+    const out = await runFixture({ ...options, prose })
+    assert(out.payload.text.includes(prose), JSON.stringify(out.payload))
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert.equal(out.calls.length, 2)
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
+
+    const rejected = await runFixture({ ...options, prose: prose + ' The report amount is 98765.' })
+    assert(!rejected.payload.text.includes('98765'))
+    assert(rejected.payload.text.endsWith('EXACT SOURCE REPORT'))
+
+    const repaired = await runFixture({ ...options, prose: prose.replace('1,234.56', '9,999.99'), repairProse: prose })
+    assert(repaired.payload.text.includes(prose))
+    assert.equal(repaired.calls.length, 2)
+    const repairs = repaired.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert.equal(repairs.length, 1)
+    const evidence = JSON.parse(repairs[0][1].content).evidence
+    assert(evidence[1].sourceEvidence.some((item) => item.value === '1234.56'))
+    assert(!JSON.stringify(evidence[0]).includes('98765'))
+})
+
+test('additional interpretation scope requires the existing verified-passthrough policy and capture identity', () => {
+    const selected = ['rows.0.evidence']
+    const specialist = { trustedOutputPolicy: 'verified-passthrough', trustedOutputs: [contract], trustedInterpretationPaths: selected }
+    const extra = { ...capture({ rows: [{ amount: '8.20' }] }, 'pq_extra', 'f'.repeat(64)), sourceTurn: 'actual-turn' }
+    assert.deepEqual(interpretationPathsForCapture(specialist, extra), [])
+    assert.deepEqual(interpretationPathsForCapture(specialist, { ...extra, sourceTurn: '' }), selected)
+    assert.deepEqual(interpretationPathsForCapture(specialist, { ...extra, pinned: { ...extra.pinned, hash: 'invalid' } }), selected)
+    assert.deepEqual(interpretationPathsForCapture({ ...specialist, trustedOutputPolicy: undefined }, extra), selected)
+    assert.deepEqual(interpretationPathsForCapture(specialist, { ...capture(), sourceTurn: 'actual-turn' }), selected)
+})
 
 test('contracts default off, validate static paths and bind the tested pin hash', () => {
     assert.deepEqual(trustedOutputContracts(undefined), [])
@@ -245,6 +300,7 @@ test('Markdown source bytes, reference definitions and each scoped section survi
 let serial = 0
 async function runFixture({
     interpretationPaths,
+    additionalResult,
     repairProse,
     documentationProse,
     documentationRepair,
@@ -293,6 +349,7 @@ async function runFixture({
         requests = [],
         receipts = []
     const mdEntry = { ...entry, id: 'report', name: 'pq_report' }
+    const additionalEntry = { ...entry, id: 'additional-facts', name: 'pq_additional_facts' }
     const mdHash = compilePinned(mdEntry).statementHash
     const csvEntry = { ...entry, id: 'table-export', name: 'pq_table_export' }
     const csvContract = { pin: csvEntry.name, hash: compilePinned(csvEntry).statementHash, mode: 'table-payload-csv' }
@@ -375,7 +432,7 @@ async function runFixture({
                                   nodeId: person.name,
                                   category: 'Tools (MCP)',
                                   inputs: {
-                                      pinnedQueries: JSON.stringify([person.entry]),
+                                      pinnedQueries: JSON.stringify([person.entry, ...(additionalResult ? [additionalEntry] : [])]),
                                       analystRowCap: queryRowCap,
                                       ...(freeQuery ? { allowPinDefinitions: true, mcpActions: ['query'], analystTimeoutSeconds: 15 } : {})
                                   }
@@ -419,27 +476,25 @@ async function runFixture({
                                 }
                             }
                         ]
-                    return [
-                        {
-                            name: pin.name,
-                            description: 'Test source',
-                            schema: { type: 'object', properties: { account: { type: 'string' } }, required: ['account'] },
-                            invoke: async (args) => {
-                                calls.push({ pin: pin.name, args })
-                                if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
-                                return JSON.stringify({
-                                    ...person.result,
-                                    pinned: {
-                                        name: pin.name,
-                                        id: pin.id,
-                                        version: pin.version,
-                                        statementHash: compilePinned(pin).statementHash
-                                    },
-                                    _cuttlelyTraceSql: compilePinned(pin).runText
-                                })
-                            }
+                    return JSON.parse(nodeData.inputs.pinnedQueries).map((pin) => ({
+                        name: pin.name,
+                        description: 'Test source',
+                        schema: { type: 'object', properties: { account: { type: 'string' } }, required: ['account'] },
+                        invoke: async (args) => {
+                            calls.push({ pin: pin.name, args })
+                            if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
+                            return JSON.stringify({
+                                ...(pin.name === person.entry.name ? person.result : additionalResult),
+                                pinned: {
+                                    name: pin.name,
+                                    id: pin.id,
+                                    version: pin.version,
+                                    statementHash: compilePinned(pin).statementHash
+                                },
+                                _cuttlelyTraceSql: compilePinned(pin).runText
+                            })
                         }
-                    ]
+                    }))
                 }
                 return {
                     invoke: async (messages) => {
@@ -524,21 +579,23 @@ async function runFixture({
                     }
                 } else {
                     await offeredPinnedTools(record, person.name, moduleOptions, profileName)
-                    receipts.push(
-                        await invokeOfferedPinnedTool({
-                            record,
-                            specialistName: person.name,
-                            profileName,
-                            toolName: person.entry.name,
-                            args: { account: 'Example Co' },
-                            callId: `actual-${person.name}-${invocation}`,
-                            chatId,
-                            scope: `${name}:${chatId}`,
-                            moduleOptions,
-                            sourceReceipt: true,
-                            sourceTurn: request.session_id
-                        })
-                    )
+                    for (const pin of [person.entry, ...(additionalResult ? [additionalEntry] : [])]) {
+                        receipts.push(
+                            await invokeOfferedPinnedTool({
+                                record,
+                                specialistName: person.name,
+                                profileName,
+                                toolName: pin.name,
+                                args: { account: 'Example Co' },
+                                callId: `actual-${person.name}-${pin.name}-${invocation}`,
+                                chatId,
+                                scope: `${name}:${chatId}`,
+                                moduleOptions,
+                                sourceReceipt: true,
+                                sourceTurn: request.session_id
+                            })
+                        )
+                    }
                 }
             }
             if (afterCaptureMs) await new Promise((resolve) => setTimeout(resolve, afterCaptureMs))
