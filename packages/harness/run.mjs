@@ -2244,6 +2244,13 @@ export function verifiedMonetaryQueryReadout(specialist, captured, text) {
     )
 }
 
+export function interpretationPathsForCapture(specialist, item, paths = specialist.trustedInterpretationPaths) {
+    const mapped = specialist.trustedOutputs?.some(
+        (contract) => item.toolName === contract.pin || item.toolName?.endsWith(`__${contract.pin}`)
+    )
+    return !mapped && verifiedUnmappedOutput(specialist, [item], { dataTask: true }) ? [] : paths
+}
+
 async function protectStepOutput(context, specialist, { dataTask, text, factualText, answerMode, task } = {}) {
     if (!specialist.trustedOutputs?.length) return null
     const captured = context.trustedCaptures?.get(specialist.name) || []
@@ -2332,6 +2339,7 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
                 facts: rendered.text,
                 sources: captured.map((item) => item.result),
                 paths: specialist.trustedInterpretationPaths,
+                sourcePaths: captured.map((item) => interpretationPathsForCapture(specialist, item)),
                 diagnostics: diagnosticPins.length > 0 && !context.replay,
                 reportingCurrencySymbol:
                     reportingCurrencySymbol(
@@ -2389,13 +2397,14 @@ async function repairInterpretation(
         paths,
         reportingCurrencySymbol(specialist.trustedOutputs),
         {
+            sourcePaths: captured.map((item) => interpretationPathsForCapture(specialist, item, paths)),
             diagnostics: true,
             onDiagnostic: (claim) => rejectedClaims.push(claim)
         }
     )
     const sources = captured.slice(0, 8)
     const evidence = sources.map((item) =>
-        protectedInterpretationEvidence(item.result, paths, {
+        protectedInterpretationEvidence(item.result, interpretationPathsForCapture(specialist, item, paths), {
             maxBytes: Math.floor(64000 / Math.max(1, sources.length)),
             maxLeaves: 600
         })

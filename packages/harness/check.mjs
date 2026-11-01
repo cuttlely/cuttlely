@@ -3610,7 +3610,10 @@ check(
     'the chief sees grounding passages separately from answer citations',
     sourcedHandoffUser.includes(
         'Retrieved evidence context (internal; do not copy this list into the answer):\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md - https://example.com/a/b] The mirror is 4.7 m.'
-    ) && String(sourcedHandoff?.messages[0]?.content || '').includes('do not append its snippets, unused retrieval hits, or internal headings'),
+    ) &&
+        String(sourcedHandoff?.messages[0]?.content || '').includes(
+            'do not append its snippets, unused retrieval hits, or internal headings'
+        ),
     sourcedHandoffUser.slice(0, 600)
 )
 const sourcedDirect = await runHarness({
