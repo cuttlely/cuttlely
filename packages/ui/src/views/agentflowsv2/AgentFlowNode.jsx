@@ -15,6 +15,7 @@ import { needsSync } from '@/utils/edgeRefs'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 import NodeActionBar from '@/views/canvas/NodeActionBar'
 import { cardAccentChrome, cardAccentColor } from '@/utils/cardAccent'
+import { safeJsonParse } from '@/utils/safeJsonParse'
 
 // icons
 import {
@@ -38,6 +39,13 @@ import CancelIcon from '@mui/icons-material/Cancel'
 
 // const
 import { baseURL, AGENTFLOW_ICONS } from '@/store/constant'
+
+// Built-in tools are saved as a JSON array string. An unreadable value shows no tools instead of crashing the canvas.
+const builtInToolList = (saved) => {
+    if (!saved) return []
+    const list = typeof saved === 'string' ? safeJsonParse(saved, []) : saved
+    return Array.isArray(list) ? list.map((tool) => ({ builtInTool: tool })) : []
+}
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
     background: theme.palette.card.main,
@@ -438,32 +446,17 @@ const AgentFlowNode = ({ data }) => {
                                     },
                                     { tools: data.inputs?.agentKnowledgeVSEmbeddings, toolProperty: ['vectorStore', 'embeddingModel'] },
                                     {
-                                        tools: data.inputs?.agentToolsBuiltInOpenAI
-                                            ? (typeof data.inputs.agentToolsBuiltInOpenAI === 'string'
-                                                  ? JSON.parse(data.inputs.agentToolsBuiltInOpenAI)
-                                                  : data.inputs.agentToolsBuiltInOpenAI
-                                              ).map((tool) => ({ builtInTool: tool }))
-                                            : [],
+                                        tools: builtInToolList(data.inputs?.agentToolsBuiltInOpenAI),
                                         toolProperty: 'builtInTool',
                                         isBuiltInOpenAI: true
                                     },
                                     {
-                                        tools: data.inputs?.agentToolsBuiltInGemini
-                                            ? (typeof data.inputs.agentToolsBuiltInGemini === 'string'
-                                                  ? JSON.parse(data.inputs.agentToolsBuiltInGemini)
-                                                  : data.inputs.agentToolsBuiltInGemini
-                                              ).map((tool) => ({ builtInTool: tool }))
-                                            : [],
+                                        tools: builtInToolList(data.inputs?.agentToolsBuiltInGemini),
                                         toolProperty: 'builtInTool',
                                         isBuiltInGemini: true
                                     },
                                     {
-                                        tools: data.inputs?.agentToolsBuiltInAnthropic
-                                            ? (typeof data.inputs.agentToolsBuiltInAnthropic === 'string'
-                                                  ? JSON.parse(data.inputs.agentToolsBuiltInAnthropic)
-                                                  : data.inputs.agentToolsBuiltInAnthropic
-                                              ).map((tool) => ({ builtInTool: tool }))
-                                            : [],
+                                        tools: builtInToolList(data.inputs?.agentToolsBuiltInAnthropic),
                                         toolProperty: 'builtInTool',
                                         isBuiltInAnthropic: true
                                     }

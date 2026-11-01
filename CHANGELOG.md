@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   A JSON setting on a node, credential or document store whose saved value is only whitespace or is not valid JSON, for example a value cut off partway, no longer crashes the page with "Unexpected end of JSON input". The JSON editor opens it as an empty object (`{}`) and writes nothing back until you edit it; valid values open as before. An agentflow node whose saved built-in tool list cannot be read shows no built-in tools, and a multi-select field whose saved value cannot be read shows nothing selected, instead of crashing the page.
+
+-   When a page throws while it loads or renders, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen.
+
 ## [1.4.9] - 2026-10-31
 
 ### Added

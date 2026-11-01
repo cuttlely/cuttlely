@@ -1923,6 +1923,11 @@
             "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
         },
         {
+            "from": "packages/ui/src/ui-component/dropdown/MultiDropdown.test.js",
+            "to": "packages/ui/src/ui-component/dropdown/MultiDropdown.jsx",
+            "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
+        },
+        {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/store/actions.js"
         },
@@ -1977,6 +1982,11 @@
             "from": "packages/ui/src/ui-component/input/SensitiveInput.test.js",
             "to": "packages/ui/src/ui-component/input/SensitiveInput.jsx",
             "reason": "test of the inherited SensitiveInput component: the reveal prop stays removed"
+        },
+        {
+            "from": "packages/ui/src/ui-component/json/JsonEditor.test.js",
+            "to": "packages/ui/src/ui-component/json/JsonEditor.jsx",
+            "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
         },
         {
             "from": "packages/ui/src/utils/credentialSaveValues.js",
