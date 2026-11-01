@@ -1125,6 +1125,38 @@ test('single-source repair retains substantive evidence after the first hundred 
     assert.equal(out.calls.length, 1)
 })
 
+test('an interpreted report receipt includes the complete bounded factual set alongside sampled evidence', async () => {
+    const report = '| Ticket | Score |\n|---|---|\n' + Array.from({ length: 25 }, (_, i) => `| example-${i} | ${i} |`).join('\n')
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: {
+            rows: [
+                {
+                    scope: 'Selected records.',
+                    report,
+                    details: Array.from({ length: 12 }, (_, i) => ({ record_id: 'note-' + i, notes: 'Recorded concern. '.repeat(1000) }))
+                }
+            ]
+        },
+        prose: 'The returned records show a recorded concern. Confirm its current impact with the owner before changing the account plan.'
+    })
+    const receipt = JSON.parse(out.receipts[0])
+    assert.equal(receipt.sourceOverview.text, '## Outlook\n\nSelected records.\n\n' + report)
+    assert.equal(receipt.sourceOverview.complete, true)
+    assert(Buffer.byteLength(out.receipts[0]) <= 65536)
+    assert(Buffer.byteLength(out.receipts[0]) > 50000)
+    assert.equal(out.calls.length, 1)
+    const oversized = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: { rows: [{ scope: 'Complete source report.', report: 'x'.repeat(40000) }] },
+        prose: 'The source report is available. Confirm the operational meaning with the owner before drawing conclusions or changing the account plan.'
+    })
+    assert.equal(JSON.parse(oversized.receipts[0]).sourceOverview, undefined)
+    assert(oversized.payload.text.includes('x'.repeat(40000)))
+})
+
 test('a later specialist turn receives every source-backed selected key beyond the transcript clip', async () => {
     const records = Array.from({ length: 30 }, (_, i) => ({ ticket_id: `ticket-${i}`, name: `Example ticket ${i}` }))
     const report =

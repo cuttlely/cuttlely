@@ -550,7 +550,9 @@ function fullLiteralEvidence(raw, paths) {
                 queue.push({ path: item.path + '.' + key, value: child, narrative: item.narrative || narrativePath.test(key) })
             }
         } else if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
-            const safe = typeof value === 'string' ? clip(value, 65536).value : value
+            // A clipped numeral is not evidence for a smaller number.
+            if (typeof value === 'string' && value.length > 65536) continue
+            const safe = value
             const bytes = encoder.encode(JSON.stringify([item.path, safe])).length
             if (usedBytes + bytes > 1048576) continue
             usedBytes += bytes
@@ -1025,7 +1027,9 @@ export function protectedInterpretationIssues(interpretation, sources, paths = [
     if (!substantive(text)) return ['empty_or_template_interpretation']
     const sourceList = Array.isArray(sources) ? sources : [sources]
     if (unresolvedIdentity(sourceList)) return ['unresolved_source_identity']
-    const facts = sourceFacts(sourceList, paths, false, reportingSymbol)
+    // Model context is sampled; provenance is checked against original returned values
+    // under the same author-selected paths and the independent bounded source scan.
+    const facts = sourceFacts(sourceList, paths, true, reportingSymbol)
     if (!facts.evidence.length) return ['missing_source_evidence']
     return literalIssues(text, facts, numericDiagnosticSink(diagnosticOptions))
 }

@@ -39,6 +39,14 @@ const calendarSource = {
 }
 const calendarIssues = (claim, evidence = calendarSource) => protectedInterpretationIssues(useful + ' ' + claim, [evidence], [], '$')
 
+test('literal provenance uses original captured values, not clipped model-context numerals', () => {
+    const evidence = [{ rows: [{ notes: 'x '.repeat(5999) + '12345' }] }]
+    assert(protectedInterpretationIssues(useful + ' There are 12 records.', evidence).includes('unsupported_number'))
+    assert.deepEqual(protectedInterpretationIssues(useful + ' The recorded value is 12345.', evidence), [])
+    const large = [{ rows: [{ notes: 'x '.repeat(32767) + '12345', count: 10 }] }]
+    assert(protectedLiteralIssues('The recorded value is 12.', large).includes('unsupported_number'))
+})
+
 test('percentage intervals preserve both source bounds across typography without becoming point measurements', () => {
     const evidence = [{ rows: [{ consumption_band: '75-99%', negative_band: '-5 to 5%' }] }]
     for (const band of ['75–99%', '75% to 99%', 'between 75% and 99%', '75%—99%', '-5% to 5%'])
