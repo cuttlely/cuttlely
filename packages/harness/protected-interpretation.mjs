@@ -568,6 +568,13 @@ function fullLiteralEvidence(raw, paths) {
     return leaves
 }
 
+function decodeNumericEntities(value) {
+    return String(value ?? '').replace(/&#(?:x([0-9a-f]+)|([0-9]+));/gi, (whole, hex, decimal) => {
+        const n = Number.parseInt(hex || decimal, hex ? 16 : 10)
+        return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole
+    })
+}
+
 function sourceFacts(sources, paths, full = false, reportingSymbol) {
     const reporting = normalizeReportingCurrencySymbol(reportingSymbol)
     const evidence = sources.flatMap((source, sourceIndex) =>
@@ -577,14 +584,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
             sourceIndex
         }))
     )
-    const text = evidence
-        .map((item) =>
-            String(item.value ?? '').replace(/&#(?:x([0-9a-f]+)|([0-9]+));/gi, (whole, hex, decimal) => {
-                const n = Number.parseInt(hex || decimal, hex ? 16 : 10)
-                return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole
-            })
-        )
-        .join('\n')
+    const text = evidence.map((item) => decodeNumericEntities(item.value)).join('\n')
     const quantityText = timestampSpans(text).reduceRight(
         (masked, span) => masked.slice(0, span.start) + ' '.repeat(span.end - span.start) + masked.slice(span.end),
         text
@@ -598,7 +598,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
         if (unit && /^\d+(?:\.\d+)?$/.test(String(item.value))) durations.add(durationKey(item.value, unit))
     }
     const dates = new Set(dateLiterals(text))
-    const timestamps = evidence.flatMap((item) => timestampSpans(String(item.value ?? '')))
+    const timestamps = evidence.flatMap((item) => timestampSpans(decodeNumericEntities(item.value)))
     const currencies = new Set()
     const percentages = new Set()
     const percentageBands = new Set()
@@ -609,7 +609,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
     const monetary = []
     let calibratedProbability = false
     for (const item of evidence) {
-        const value = String(item.value ?? '')
+        const value = decodeNumericEntities(item.value)
         const field = item.column || item.path.split('.').at(-1)
         const typedPath = item.path + (item.column ? '.' + item.column : '')
         if (
@@ -886,7 +886,7 @@ function unresolvedIdentity(sources) {
 function literalIssues(text, facts, diagnostic) {
     const issues = []
     // List markers and heading numbers are presentation, not quantitative claims.
-    const claims = text
+    const claims = decodeNumericEntities(text)
         .replace(/^\s{0,3}\d+[.)]\s+/gm, '')
         .replace(/^\s*#{1,6}\s*\d+[.)]?\s+/gm, '')
         .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)]\1[ \t]+/gm, '')

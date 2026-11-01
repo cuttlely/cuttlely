@@ -12,6 +12,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Literal provenance gives numeric HTML references the same meaning in answers and captured evidence. Escaped timestamp offsets, currency symbols and percentages no longer create false business quantities; unsupported quantities and denominations still fail validation.
+
 -   Documentation companions with invalid citations receive one bounded tool-free repair against their original captured sources. The same exact-URL validator checks the repair; a still-invalid result stays unavailable without changing the protected business report or requerying data.
 
 -   Protected interpretation accepts a configured reporting symbol as metadata without an amount, while retaining typed amount and denomination checks. Currency rejections provide bounded literal feedback to the single tool-free repair and opt-in private author diagnostics.
