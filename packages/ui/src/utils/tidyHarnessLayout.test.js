@@ -99,6 +99,30 @@ describe('tidyHarnessLayout', () => {
         // Rows keep the Specialists' old top-to-bottom order, and each row is as tall as its tallest column.
         expect(at.specialist_research.y).toBe(at.specialist_summarizer.y + 420 + TIDY_CLEARANCE)
         expect(at.search_0.y).toBe(at.store_0.y + 420 + TIDY_CLEARANCE)
+        // A card wired into a card further right starts level with it.
+        expect(at.embed_0.y).toBe(at.store_0.y)
+        expect(overlaps(nodes)).toEqual([])
+    })
+
+    it('starts a deeper card level with the card it is wired into and pushes it down only to clear overlaps', () => {
+        const flow = messy()
+        // A second embeddings card wired into search_0, the lower card of the research row, and a third wired into
+        // store_0 that has to sit below embed_0.
+        flow.nodes.push(
+            card('embed_1', 'localHashEmbeddings', 'Embeddings', 80, 70),
+            card('embed_2', 'localHashEmbeddings', 'Embeddings', 90, 80)
+        )
+        flow.edges.push(
+            { id: 'e8', source: 'embed_1', target: 'search_0', sourceHandle: 's', targetHandle: 't' },
+            { id: 'e9', source: 'embed_2', target: 'store_0', sourceHandle: 's', targetHandle: 't' }
+        )
+        const { nodes } = tidyStep(flow.nodes, flow.edges)
+        const at = Object.fromEntries(nodes.map((node) => [node.id, node.position]))
+        expect(at.embed_0.y).toBe(at.store_0.y)
+        expect(at.embed_2.x).toBe(at.embed_0.x)
+        expect(at.embed_2.y).toBe(at.embed_0.y + 420 + TIDY_CLEARANCE)
+        expect(at.embed_1.x).toBe(at.embed_0.x)
+        expect(at.embed_1.y).toBe(Math.max(at.search_0.y, at.embed_2.y + 420 + TIDY_CLEARANCE))
         expect(overlaps(nodes)).toEqual([])
     })
 
@@ -129,20 +153,45 @@ describe('tidyHarnessLayout', () => {
         expect(positionSnapshot(tidyStep(cloneDeep(once), flow.edges).nodes)).toEqual(positionSnapshot(once))
     })
 
-    it('gives each card the larger of its measured size and the template estimate', () => {
+    it("uses a card's measured size and the template estimate only for a side not measured yet", () => {
         const node = { id: 'a', data: { inputParams: [{ type: 'string' }], inputAnchors: [{}], outputAnchors: [{}] } }
         const estimate = estimateNodeSize(node.data)
         expect(layoutSize(node)).toEqual(estimate)
-        expect(layoutSize({ ...node, width: 280, height: 130 })).toEqual(estimate)
+        expect(layoutSize({ ...node, width: 0, height: 0 })).toEqual(estimate)
+        expect(layoutSize({ ...node, width: 280, height: 130 })).toEqual({ width: 280, height: 130 })
         expect(layoutSize({ ...node, width: 900, height: 1500 })).toEqual({ width: 900, height: 1500 })
+        expect(layoutSize({ ...node, width: 280 })).toEqual({ width: 280, height: estimate.height })
     })
 
-    it('keeps a layout tidied with short compact cards clear of overlaps at the classic size', () => {
+    const measured = (nodes, width, height) => nodes.map((node) => (node.parentNode ? node : { ...node, width, height }))
+    const topOf = (nodes, id) => nodes.find((node) => node.id === id).position.y
+
+    it('packs compact cards into tight rows', () => {
         const flow = messy()
-        const compact = flow.nodes.map((node) => (node.parentNode ? node : { ...node, width: 240, height: 90 }))
-        const tidied = tidyStep(compact, flow.edges).nodes
-        const classic = tidied.map((node) => omit(node, ['width', 'height']))
-        expect(overlaps(classic)).toEqual([])
+        const tidied = tidyStep(measured(flow.nodes, 240, 190), flow.edges).nodes
+        expect(overlaps(tidied)).toEqual([])
+        const tops = ['specialist_research', 'specialist_summarizer'].map((id) => topOf(tidied, id)).sort((a, b) => a - b)
+        // The research row holds two stacked cards, so no row is taller than two cards plus their gaps.
+        expect(tops[1] - tops[0]).toBeLessThanOrEqual(2 * (190 + TIDY_CLEARANCE))
+        const bottom = Math.max(...tidied.filter((node) => !node.parentNode).map((node) => node.position.y + 190))
+        expect(bottom).toBeLessThan(2000)
+    })
+
+    it('gives tall measured classic cards the room they measure', () => {
+        const flow = messy()
+        const classic = measured(flow.nodes, 360, 1100)
+        const tidied = tidyStep(classic, flow.edges).nodes
+        expect(overlaps(tidied)).toEqual([])
+        const tops = ['specialist_research', 'specialist_summarizer'].map((id) => topOf(tidied, id))
+        expect(Math.abs(tops[0] - tops[1])).toBeGreaterThanOrEqual(1100 + TIDY_CLEARANCE)
+    })
+
+    it('clears overlaps when a layout tidied with compact cards is tidied again with classic cards', () => {
+        const flow = messy()
+        const compact = tidyStep(measured(flow.nodes, 240, 190), flow.edges).nodes
+        const classic = measured(compact, 360, 1100)
+        const retidied = tidyStep(classic, flow.edges).nodes
+        expect(overlaps(retidied)).toEqual([])
     })
 })
 

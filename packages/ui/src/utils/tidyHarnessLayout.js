@@ -53,17 +53,15 @@ export const estimateNodeSize = (data) => {
     return { width: ESTIMATE_WIDTH, height }
 }
 
-// The room a card gets: the larger of React Flow's measured size and the template estimate, per side. Compact
-// cards measure much shorter than classic cards, and a saved layout can be opened in either mode, so the estimate
-// (sized for a classic card) leaves room for classic cards when the layout was tidied with compact ones.
+// The room a card gets: React Flow's measured size on each side that has one, so compact cards (the default look)
+// pack tightly and tall classic cards get the room they measure. Only a side that has not been measured yet falls
+// back to the template estimate.
 export const layoutSize = (node) => {
-    const estimate = estimateNodeSize(node?.data)
     const width = Number(node?.width)
     const height = Number(node?.height)
-    return {
-        width: width > 0 ? Math.max(width, estimate.width) : estimate.width,
-        height: height > 0 ? Math.max(height, estimate.height) : estimate.height
-    }
+    if (width > 0 && height > 0) return { width, height }
+    const estimate = estimateNodeSize(node?.data)
+    return { width: width > 0 ? width : estimate.width, height: height > 0 ? height : estimate.height }
 }
 
 const isChief = (node) => node?.data?.name === 'harnessChief'
@@ -94,6 +92,8 @@ export function tidyHarnessLayout(nodes, edges, sizeOf = layoutSize) {
         sources.get(target).push(byId.get(source))
     }
     const taken = new Set()
+    // The card each walked card is wired into, by id.
+    const target = new Map()
 
     // Walks the cards wired into a root, depth 1 for direct inputs. A card shared by two roots stays with the
     // first. Harness cards start their own rows, so the walk stops at them.
@@ -108,6 +108,7 @@ export function tidyHarnessLayout(nodes, edges, sizeOf = layoutSize) {
                     const id = String(source.id)
                     if (taken.has(id) || isHarness(source)) continue
                     taken.add(id)
+                    target.set(id, String(node.id))
                     next.push(source)
                 }
             }
@@ -152,6 +153,10 @@ export function tidyHarnessLayout(nodes, edges, sizeOf = layoutSize) {
             columns.forEach((list, index) => {
                 let y = rowTop
                 for (const node of list) {
+                    // A card starts level with the card it is wired into when that card is already placed in
+                    // this row, and moves down only to clear the card above it.
+                    const into = positions.get(target.get(String(node.id)))
+                    if (into && into.y >= rowTop) y = Math.max(y, into.y)
                     positions.set(String(node.id), { x: xOf[index], y })
                     y += sizeOf(node).height + TIDY_CLEARANCE
                 }
