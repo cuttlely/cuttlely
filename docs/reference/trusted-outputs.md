@@ -223,3 +223,5 @@ A rejected argument set is marked before any query execution. It cannot replace 
 Markdown code fences retain their boundaries during path masking. Public HTTP(S) examples inside a fenced block remain readable; local paths inside code are still masked using the normal quoted-path rules.
 
 A source-backed reporting symbol can be stated as a label without claiming an amount or an ISO denomination. Monetary amounts still require the same typed source match. Tool-free repair receives rejected currency codes, symbols or monetary values as bounded validator feedback; optional author diagnostics retain the same strict atom-only privacy limits.
+
+A documentation-only specialist with captured sources can receive one tool-free repair when its citations fail validation. The repair sees its original task, draft and a bounded set of original source URLs and text; over-budget source bodies are omitted whole rather than clipped. It cannot query data, visit new pages or rewrite a protected business report. The same exact-source citation validator checks the result, and a failed repair remains unavailable.

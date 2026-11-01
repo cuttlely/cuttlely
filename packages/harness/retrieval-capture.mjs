@@ -56,19 +56,19 @@ export function endRetrievedSources(scope) {
 // This is a separate documentation section, not a verified financial result or a
 // replacement for protected facts. Only retrieval-only roles with cited receipts
 // may accompany a protected report; analyst and executable roles remain excluded.
-export function citedRetrievedGuidance(specialist, text, sources) {
-    if (
-        specialist.mcpServers?.length ||
-        specialist.trustedOutputs?.length ||
-        specialist.codeExecution ||
-        specialist.shell ||
-        specialist.fileAccess ||
-        !specialist.modules?.some((binding) => ['retrieverTool', 'webBrowser'].includes(binding.nodeName)) ||
-        typeof text !== 'string' ||
-        !text.trim() ||
-        Buffer.byteLength(text) > 65536
+export function retrievalOnlySpecialist(specialist) {
+    return (
+        !specialist.mcpServers?.length &&
+        !specialist.trustedOutputs?.length &&
+        !specialist.codeExecution &&
+        !specialist.shell &&
+        !specialist.fileAccess &&
+        Boolean(specialist.modules?.some((binding) => ['retrieverTool', 'webBrowser'].includes(binding.nodeName)))
     )
-        return null
+}
+
+export function citedRetrievedGuidance(specialist, text, sources) {
+    if (!retrievalOnlySpecialist(specialist) || typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 65536) return null
     const urls = new Set((sources || []).map((doc) => sourceUrl(doc?.metadata?.source)).filter(Boolean))
     if (!urls.size) return null
     let cited = false
