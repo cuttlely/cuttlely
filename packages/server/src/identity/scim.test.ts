@@ -1,7 +1,9 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { randomBytes } from 'crypto'
+import { inviteAccount, LinkDeps, liveInviteUser } from './actionLink'
 import { resetAuthSecretsForTests } from './authSecrets'
 import { deactivateUserInTransaction, DirectoryError, Sql } from './directory'
+import { LoginRateLimit } from './rateLimit'
 import {
     authenticateScimToken,
     createUser,
@@ -230,23 +232,31 @@ describe('SCIM users', () => {
         value.db.exec(`
             CREATE TABLE user (
                 id text primary key, name text, email text unique, credential text, status text,
+                externalId text, ssoProvider text, ssoSubjectId text,
                 createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP,
                 updatedDate text default CURRENT_TIMESTAMP, permissionVersion integer not null default 0
             );
             CREATE TABLE role (
-                id text primary key, organizationId text, name text, permissions text,
+                id text primary key, organizationId text, name text, description text, permissions text,
                 createdDate text default CURRENT_TIMESTAMP
             );
             CREATE TABLE organization_user (
                 organizationId text, userId text, roleId text, status text,
                 createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP, updatedDate text default CURRENT_TIMESTAMP
             );
-            CREATE TABLE workspace (id text primary key, organizationId text, name text);
+            CREATE TABLE workspace (id text primary key, organizationId text, name text, description text, updatedDate text);
             CREATE TABLE workspace_user (
                 workspaceId text, userId text, roleId text, status text, createdBy text, updatedBy text,
                 primary key (workspaceId, userId)
             );
-            CREATE TABLE identity_action_link (userId text, purpose text, usedAt text, consumeId text, organizationId text);
+            CREATE TABLE identity_action_link (
+                id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
+                userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
+            );
+            CREATE TABLE identity_action_audit (
+                id text primary key, action text, purpose text, organizationId text, workspaceId text,
+                userId text, actorId text, result text, reason text, createdDate text
+            );
             CREATE TABLE identity_local_session (id text, userId text);
             CREATE TABLE apikey (id text, ownerUserId text, disabledAt text);
             CREATE TABLE identity_personal_token (id text, ownerUserId text, tokenHash text, disabledAt text);
@@ -287,6 +297,73 @@ describe('SCIM users', () => {
         return value
     }
 
+    it('activates a matched pending account and closes its invitation', async () => {
+        const { sql, db } = directoryStore()
+        const now = Date.UTC(2026, 9, 31, 12)
+        db.prepare('INSERT INTO workspace (id, organizationId, name) VALUES (?, ?, ?)').run('invite-team', 'org-1', 'Invite Team')
+        const deps: LinkDeps = {
+            now: () => now,
+            env: {},
+            origin: () => 'https://example.com',
+            mailReady: () => false,
+            send: async () => undefined,
+            rateLimit: new LoginRateLimit(),
+            activeMethod: () => 'oidc'
+        }
+        const invitation = await inviteAccount(
+            sql,
+            { id: 'owner-1', organizationId: 'org-1', workspaceId: 'invite-team', owner: true },
+            {
+                user: { name: 'Invited User', email: 'invited@example.com' },
+                workspace: { id: 'invite-team' },
+                role: { id: 'member-role' },
+                link: true
+            },
+            deps
+        )
+        const token = decodeURIComponent(new URL(invitation.link || '').hash.slice('#token='.length))
+        await expect(liveInviteUser(sql, token, now)).resolves.toBe(invitation.id)
+
+        const provisioned = await createUser(sql, actor, { userName: 'invited@example.com' }, now + 1)
+
+        expect(provisioned).toMatchObject({ userId: invitation.id, userStatus: 'active', membershipStatus: 'active' })
+        await expect(liveInviteUser(sql, token, now + 2)).resolves.toBeNull()
+        expect(db.prepare('SELECT usedAt, consumeId FROM identity_action_link WHERE userId = ?').get(invitation.id)).toMatchObject({
+            usedAt: expect.any(String),
+            consumeId: 'revoked'
+        })
+        expect(db.prepare("SELECT summary FROM audit_event WHERE type = 'scim_user' AND userId = ?").get(invitation.id)).toMatchObject({
+            summary: 'SCIM user created'
+        })
+
+        const inactiveInvitation = await inviteAccount(
+            sql,
+            { id: 'owner-1', organizationId: 'org-1', workspaceId: 'invite-team', owner: true },
+            {
+                user: { name: 'Inactive Invite', email: 'inactive-invite@example.com' },
+                workspace: { id: 'invite-team' },
+                role: { id: 'member-role' },
+                link: true
+            },
+            deps
+        )
+        const inactive = await createUser(sql, actor, { userName: 'inactive-invite@example.com', active: false }, now + 3)
+        expect(inactive).toMatchObject({ userId: inactiveInvitation.id, userStatus: 'disable', membershipStatus: 'disable' })
+
+        db.prepare("UPDATE user SET status = 'invited' WHERE id = ?").run(inactive.userId)
+        db.prepare("UPDATE organization_user SET status = 'active' WHERE organizationId = ? AND userId = ?").run('org-1', inactive.userId)
+        db.prepare(
+            'INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, workspaceId, userId) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run('pending-update-link', 'pending-update-hash', 'invite', 'org-1', 'invite-team', inactive.userId)
+        const reactivated = await mutateUser(sql, actor, inactive.id, { active: true }, 'updated', now + 4)
+        expect(reactivated).toMatchObject({ userStatus: 'active', membershipStatus: 'active' })
+        expect(db.prepare('SELECT usedAt, consumeId FROM identity_action_link WHERE id = ?').get('pending-update-link')).toMatchObject({
+            usedAt: expect.any(String),
+            consumeId: 'revoked'
+        })
+        db.close()
+    })
+
     it('creates, reads, replaces, deactivates, deletes, and restores a stable resource', async () => {
         const { sql, db } = directoryStore()
         const created = await createUser(
@@ -307,7 +384,7 @@ describe('SCIM users', () => {
             roleId: 'member-role'
         })
         const mappedAt = '2026-10-31T12:30:00.000Z'
-        db.prepare('INSERT INTO workspace VALUES (?, ?, ?)').run('mapped-team', 'org-1', 'Mapped Team')
+        db.prepare('INSERT INTO workspace (id, organizationId, name) VALUES (?, ?, ?)').run('mapped-team', 'org-1', 'Mapped Team')
         db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, ?, NULL, ?, ?)').run(
             'mapped-group',
             'org-1',
@@ -436,8 +513,12 @@ describe('SCIM users', () => {
     ])('%s uses the complete deactivation transaction', async (_label, changes) => {
         const { sql, db } = directoryStore()
         const created = await createUser(sql, actor, { userName: 'deactivate@example.com' })
-        db.prepare('INSERT INTO identity_action_link VALUES (?, ?, NULL, NULL, ?)').run(created.userId, 'invite', 'org-1')
-        db.prepare('INSERT INTO identity_action_link VALUES (?, ?, NULL, NULL, ?)').run(created.userId, 'reset', 'org-1')
+        db.prepare(
+            'INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, userId, usedAt, consumeId) VALUES (?, ?, ?, ?, ?, NULL, NULL)'
+        ).run('invite-link', 'invite-hash', 'invite', 'org-1', created.userId)
+        db.prepare(
+            'INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, userId, usedAt, consumeId) VALUES (?, ?, ?, ?, ?, NULL, NULL)'
+        ).run('reset-link', 'reset-hash', 'reset', 'org-1', created.userId)
         db.prepare('INSERT INTO identity_local_session VALUES (?, ?)').run('session-1', created.userId)
         db.prepare('INSERT INTO apikey VALUES (?, ?, NULL)').run('key-1', created.userId)
         db.prepare('INSERT INTO identity_personal_token VALUES (?, ?, ?, NULL)').run('personal-1', created.userId, 'digest')

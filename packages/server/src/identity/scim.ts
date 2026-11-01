@@ -4,7 +4,7 @@ import express, { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { redactAudit, retentionDays, safeRecordAudit } from './auditLog'
 import { scimBearerSecret } from './authenticationSecrets'
-import { deactivateUserInTransaction, DirectoryError, QueryFn, Sql } from './directory'
+import { deactivateUserInTransaction, DirectoryError, QueryFn, revokeInviteLinks, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
 import { applicationSql } from './production'
 import {
@@ -660,6 +660,22 @@ async function auditUser(
     })
 }
 
+async function activateUserInTransaction(query: QueryFn, sql: Sql, organizationId: string, userId: string, now: number): Promise<void> {
+    const rows = await query(`SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ?`, [userId])
+    const pending = text(cell(rows[0] || {}, 'status')).toLowerCase() === 'invited'
+    await query(
+        `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+         WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) IN ('disable', 'invited')`,
+        [userId]
+    )
+    await query(
+        `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+         WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+        [organizationId, userId]
+    )
+    if (pending) await revokeInviteLinks(query, sql, userId, { organizationId }, now)
+}
+
 export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now = Date.now()): Promise<UserRecord> {
     const record = object(body)
     const userName = emailValue(record) || ''
@@ -770,18 +786,7 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
                 ]
             )
             if (active) {
-                await query(
-                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'disable'`,
-                    [internalId]
-                )
-                await query(
-                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(
-                        sql,
-                        'updatedDate'
-                    )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                    [actor.organizationId, internalId]
-                )
+                await activateUserInTransaction(query, sql, actor.organizationId, internalId, now)
             } else {
                 await deactivateUserInTransaction(query, sql, actor.organizationId, internalId, now)
             }
@@ -883,20 +888,7 @@ export async function mutateUser(
             if (!validUserName(userName)) throw new ScimError(400, 'userName must be a valid email address.', 'invalidValue')
             if (changes.active === false) await deactivateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
             if (changes.active === true) {
-                await query(
-                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = 'active', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP WHERE ${q(
-                        sql,
-                        'id'
-                    )} = ? AND LOWER(${q(sql, 'status')}) = 'disable'`,
-                    [current.userId]
-                )
-                await query(
-                    `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'active', ${q(
-                        sql,
-                        'updatedDate'
-                    )} = CURRENT_TIMESTAMP WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                    [actor.organizationId, current.userId]
-                )
+                await activateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
             }
             const externalId = changes.externalId === undefined ? current.externalId : changes.externalId
             const displayName = changes.displayName === undefined ? current.displayName : changes.displayName || userName
