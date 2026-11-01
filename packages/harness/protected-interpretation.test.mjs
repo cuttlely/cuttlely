@@ -240,7 +240,10 @@ test('compact and word-scale diagnostics report only rejected numeric notation a
     const args = { facts: 'FACTS', sources: [source], paths, reportingCurrencySymbol: '$', diagnostics: true }
     const compact = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $2.5M.' })
     assert(compact.reason.includes('unsupported_number'))
-    assert.deepEqual(compact.diagnostics, [{ issue: 'unsupported_number', literal: '2.5M', unit: 'M', contextType: 'compact_monetary' }])
+    assert.deepEqual(compact.diagnostics, [
+        { issue: 'unsupported_number', literal: '2.5M', unit: 'M', contextType: 'compact_monetary' },
+        { issue: 'unsupported_currency', literal: '2.5M', unit: '$', contextType: 'currency' }
+    ])
     const words = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $2.5 million.' })
     assert(
         words.diagnostics.some((record) => record.literal === '2.5M' && record.unit === 'M' && record.contextType === 'compact_monetary')
@@ -870,4 +873,20 @@ test('a monetary renewal modifier is not a renewal count', () => {
     for (const text of ['A $1.25M renewal.', '$1.25M renewal ACV.'])
         assert.deepEqual(protectedLiteralIssues(text, [data], [], '$'), [], text)
     assert(protectedLiteralIssues('ARR covers 1.25M renewals.', [data], [], '$').includes('unsupported_number'))
+})
+
+test('source-backed currency labels are metadata while monetary values and denominations remain checked', () => {
+    const values = [{ rows: [{ acv: '1250000', account_count: 42 }] }]
+    assert.deepEqual(protectedLiteralIssues('Amounts use the reporting symbol $.', values, [], '$'), [])
+    assert(protectedLiteralIssues('Amounts use $.', values).includes('unsupported_currency'))
+    assert(protectedLiteralIssues('Amounts use €. ', values, [], '$').includes('unsupported_currency'))
+    const claims = []
+    assert(
+        protectedLiteralIssues('ACV is USD 1250000. ACV is $42.', values, [], '$', {
+            diagnostics: true,
+            onDiagnostic: (c) => claims.push(c)
+        }).includes('unsupported_currency')
+    )
+    assert(claims.some((c) => c.issue === 'unsupported_currency' && c.literal === 'USD' && c.unit === 'USD'))
+    assert(claims.some((c) => c.issue === 'unsupported_currency' && c.literal === '42' && c.unit === '$'))
 })

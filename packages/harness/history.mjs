@@ -22,7 +22,8 @@ const DIAGNOSTIC_CONTEXTS = new Set([
     'duration',
     'percentage',
     'percentage_interval',
-    'date'
+    'date',
+    'currency'
 ])
 const DIAGNOSTIC_CURRENCIES = new Set(
     typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
@@ -84,7 +85,9 @@ function diagnosticClaims(value) {
         if (
             !item ||
             typeof item !== 'object' ||
-            !['unsupported_number', 'unsupported_duration', 'unsupported_percentage', 'unsupported_date'].includes(item.issue)
+            !['unsupported_number', 'unsupported_duration', 'unsupported_percentage', 'unsupported_date', 'unsupported_currency'].includes(
+                item.issue
+            )
         )
             continue
         const { literal, unit = '', contextType = 'number', specialist, pins } = item
@@ -92,10 +95,16 @@ function diagnosticClaims(value) {
         const numericLiteral = /^[-+]?\d+(?:,\d{3})*(?:\.\d+)?[KMB]?$/.test(literal)
         const intervalLiteral = /^[-+]?\d+(?:\.\d+)?:[-+]?\d+(?:\.\d+)?$/.test(literal)
         const dateLiteral = /^\d{4}-\d{2}-\d{2}$/.test(literal)
+        const currencyUnit = /^\p{Sc}$/u.test(unit) || DIAGNOSTIC_CURRENCIES.has(unit)
         if (
             typeof literal !== 'string' ||
             literal.length > 80 ||
-            !(numericLiteral || (contextType === 'percentage_interval' && intervalLiteral) || (contextType === 'date' && dateLiteral)) ||
+            !(
+                numericLiteral ||
+                (contextType === 'percentage_interval' && intervalLiteral) ||
+                (contextType === 'date' && dateLiteral) ||
+                (contextType === 'currency' && currencyUnit && literal === unit)
+            ) ||
             typeof unit !== 'string' ||
             unit.length > 80 ||
             (unit !== '' &&
@@ -109,6 +118,8 @@ function diagnosticClaims(value) {
         if ((item.issue === 'unsupported_duration') !== (contextType === 'duration')) continue
         if ((item.issue === 'unsupported_percentage') !== ['percentage', 'percentage_interval'].includes(contextType)) continue
         if ((item.issue === 'unsupported_date') !== (contextType === 'date')) continue
+        if ((item.issue === 'unsupported_currency') !== (contextType === 'currency')) continue
+        if (contextType === 'currency' && (!currencyUnit || !(numericLiteral || literal === unit))) continue
         if (contextType === 'percentage_interval' && (!intervalLiteral || unit !== '%')) continue
         if (contextType === 'percentage' && (!numericLiteral || unit !== '%')) continue
         if (contextType === 'date' && (!dateLiteral || unit !== 'calendar_date')) continue

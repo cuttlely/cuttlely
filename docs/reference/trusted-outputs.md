@@ -88,7 +88,7 @@ For author QA, add `"interpretationDiagnostics": true` to a matching **Markdown*
 }
 ```
 
-Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number`, `unsupported_duration`, `unsupported_percentage` or `unsupported_date` rejection with at most eight deduplicated numeric literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
+Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number`, `unsupported_duration`, `unsupported_percentage`, `unsupported_date` or `unsupported_currency` rejection with at most eight deduplicated numeric, calendar-date or currency literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
 
 After the run, a signed-in harness author can request:
 
@@ -221,3 +221,5 @@ Path privacy treats Markdown link labels and destinations as separate spans in b
 A rejected argument set is marked before any query execution. It cannot replace or erase an already completed, stamped capture of the same pin in the same worker turn. Without that completed result, verification still fails; executed source errors and changed pin identities remain failures.
 
 Markdown code fences retain their boundaries during path masking. Public HTTP(S) examples inside a fenced block remain readable; local paths inside code are still masked using the normal quoted-path rules.
+
+A source-backed reporting symbol can be stated as a label without claiming an amount or an ISO denomination. Monetary amounts still require the same typed source match. Tool-free repair receives rejected currency codes, symbols or monetary values as bounded validator feedback; optional author diagnostics retain the same strict atom-only privacy limits.
