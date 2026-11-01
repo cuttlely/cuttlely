@@ -246,6 +246,8 @@ let serial = 0
 async function runFixture({
     interpretationPaths,
     repairProse,
+    documentationProse,
+    documentationRepair,
     answerMode,
     enabled = true,
     result = body,
@@ -442,6 +444,8 @@ async function runFixture({
                 return {
                     invoke: async (messages) => {
                         prompts.push(messages)
+                        if (String(messages[0]?.content).startsWith('Repair a documentation answer'))
+                            return { content: documentationRepair || 'Still unsupported. https://unretrieved.example/' }
                         if (String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
                             return { content: repairProse ?? prose }
                         return {
@@ -564,7 +568,8 @@ async function runFixture({
             status: failWorker ? 'failed' : 'completed',
             output:
                 mixedDocs && person.name === 'report'
-                    ? 'Use the documented authentication method. [Documentation][doc]\n\n[doc]: https://example.org/docs/auth'
+                    ? documentationProse ??
+                      'Use the documented authentication method. [Documentation][doc]\n\n[doc]: https://example.org/docs/auth'
                     : prose,
             ...(failWorker ? { error: 'worker failed' } : {})
         })
@@ -1629,4 +1634,43 @@ test('currency repair receives the rejected denomination without relaxing moneta
     assert(out.payload.text.includes(repaired))
     assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
     assert.equal(out.calls.length, 1)
+})
+
+test('a rejected documentation citation receives one tool-free repair against the same captured sources', async () => {
+    const corrected = 'Use the documented authentication flow. [Documentation](https://example.org/docs/auth)'
+    const out = await runFixture({
+        multi: true,
+        mixedDocs: true,
+        documentationProse: 'Use the supported flow. [Documentation](https://unretrieved.example/)',
+        documentationRepair: corrected
+    })
+    assert(out.payload.text.endsWith(corrected))
+    assert(out.payload.text.includes('13 source observations'))
+    assert(!out.payload.text.includes('unretrieved.example'))
+    assert(!out.payload.text.includes('could not be completed'))
+    const repairs = out.prompts.filter((m) => String(m[0]?.content).startsWith('Repair a documentation answer'))
+    assert.equal(repairs.length, 1)
+    assert.deepEqual(
+        JSON.parse(repairs[0][1].content).sources.map((s) => s.url),
+        ['https://example.org/docs/auth']
+    )
+    assert.equal(out.payload.sources.length, 1)
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.equal(out.payload.trace.specialists.find((s) => s.name === 'report').recovery.reason, 'retrievedGuidanceRepaired')
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.requests.length, 2)
+})
+
+test('a still-invalid documentation repair remains unavailable without relaxing the source whitelist', async () => {
+    const out = await runFixture({
+        multi: true,
+        mixedDocs: true,
+        documentationProse: 'Read https://unretrieved.example/',
+        documentationRepair: 'Read https://another-unretrieved.example/'
+    })
+    assert(out.payload.text.includes('13 source observations'))
+    assert(out.payload.text.includes('could not be completed'))
+    assert(!out.payload.text.includes('another-unretrieved.example'))
+    assert.equal(out.prompts.filter((m) => String(m[0]?.content).startsWith('Repair a documentation answer')).length, 1)
+    assert.equal(out.payload.artifacts.length, 1)
 })
