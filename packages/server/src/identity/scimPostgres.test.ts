@@ -249,6 +249,33 @@ describePostgres('SCIM on PostgreSQL uuid core ids', () => {
         expect(invalid.status).toBe(404)
         expect(invalid.body).toMatchObject({ status: '404', scimType: 'noTarget' })
 
+        const failedUpdate = await request(app)
+            .put(`/api/v1/scim/v2/Users/${randomUUID()}`)
+            .set('Authorization', `Bearer ${token.clear}`)
+            .send({ userName: 'missing-update@example.test', displayName: 'Missing Update' })
+        expect(failedUpdate.status).toBe(404)
+        const failedDeactivation = await request(app)
+            .patch(`/api/v1/scim/v2/Users/${randomUUID()}`)
+            .set('Authorization', `Bearer ${token.clear}`)
+            .send({ Operations: [{ op: 'Replace', path: 'active', value: false }] })
+        expect(failedDeactivation.status).toBe(404)
+        const diagnosticIds = [failedUpdate.headers['x-correlation-id'], failedDeactivation.headers['x-correlation-id']]
+        let diagnosticRows: Record<string, unknown>[] = []
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+            diagnosticRows = (
+                await pool.query(
+                    `SELECT "correlationId", "category" FROM "identity_scim_diagnostic" WHERE "correlationId" = ANY($1::text[])`,
+                    [diagnosticIds]
+                )
+            ).rows
+            if (diagnosticRows.length === 2) break
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        expect(Object.fromEntries(diagnosticRows.map((row) => [row.correlationId, row.category]))).toEqual({
+            [String(failedUpdate.headers['x-correlation-id'])]: 'usersUpdated',
+            [String(failedDeactivation.headers['x-correlation-id'])]: 'usersDisabled'
+        })
+
         const group = await createGroup(activeSql, actor, {
             displayName: 'Made Up Group',
             externalId: 'made-up-provider-group',
@@ -285,5 +312,56 @@ describePostgres('SCIM on PostgreSQL uuid core ids', () => {
         expect(inactive.userStatus).toBe('disable')
         await deleteUser(activeSql, actor, user.id)
         expect(await usersForOrganization(activeSql.query, activeSql, organizationId)).toEqual([])
+    })
+
+    it.each([
+        ['the same email', 'used-exact@example.test', 'exact'],
+        ['a case variant', 'Used-Case@example.test', 'case']
+    ])('refuses recreation with %s owned by another PostgreSQL account without changing stored state', async (_label, userName, suffix) => {
+        if (!pool) throw new Error('PostgreSQL pool was not created')
+        const activePool = pool
+        const actor = {
+            organizationId,
+            tokenId: randomUUID(),
+            displayPrefix: 'cuttlely_scim_test…',
+            creatorId: ownerId
+        }
+        const created = await createUser(activeSql, actor, {
+            userName: `deleted-${suffix}@example.test`,
+            externalId: `made-up-deleted-${suffix}`,
+            displayName: `Deleted ${suffix}`
+        })
+        await deleteUser(activeSql, actor, created.id)
+        const emailOwnerId = randomUUID()
+        await activePool.query(
+            `INSERT INTO "user" ("id", "name", "email", "status", "createdBy", "updatedBy") VALUES ($1, $2, $3, 'active', $4, $4)`,
+            [emailOwnerId, `Email Owner ${suffix}`, userName.toLowerCase(), ownerId]
+        )
+        const state = async () =>
+            (
+                await activePool.query(
+                    `SELECT 'account' AS kind, "id"::text AS id, "name" AS value1, "email" AS value2, "status" AS value3
+                     FROM "user" WHERE "id" IN ($1, $2)
+                     UNION ALL
+                     SELECT 'membership', "userId"::text, "roleId"::text, "status", COALESCE("updatedBy"::text, '')
+                     FROM "organization_user" WHERE "organizationId" = $3 AND "userId" = $1
+                     UNION ALL
+                     SELECT 'resource', "userId"::text, COALESCE("externalId", ''), "userName", COALESCE("deletedAt"::text, '')
+                     FROM "identity_scim_user" WHERE "id" = $4
+                     ORDER BY kind, id`,
+                    [created.userId, emailOwnerId, organizationId, created.id]
+                )
+            ).rows
+        const before = await state()
+
+        await expect(
+            createUser(activeSql, actor, {
+                userName,
+                externalId: `made-up-deleted-${suffix}`,
+                displayName: `Changed ${suffix}`
+            })
+        ).rejects.toMatchObject({ status: 409, scimType: 'uniqueness', message: 'A matching value already exists.' })
+
+        expect(await state()).toEqual(before)
     })
 })

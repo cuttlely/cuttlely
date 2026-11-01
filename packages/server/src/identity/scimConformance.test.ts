@@ -329,6 +329,25 @@ describe('RFC 7644 route conformance', () => {
         expect(JSON.stringify(parserErrors)).not.toContain('x'.repeat(100))
     })
 
+    it('records parsed failed user mutations under their operation categories', async () => {
+        const failedUpdate = await authorized()
+            .put('/api/v1/scim/v2/Users/10000000-0000-4000-8000-000000000010')
+            .set('Authorization', `Bearer ${bearer}`)
+            .send({ userName: 'missing-update@example.test', displayName: 'Missing Update' })
+        expect(failedUpdate.status).toBe(404)
+        const failedDeactivation = await authorized()
+            .patch('/api/v1/scim/v2/Users/10000000-0000-4000-8000-000000000011')
+            .set('Authorization', `Bearer ${bearer}`)
+            .send({ Operations: [{ op: 'Replace', path: 'active', value: false }] })
+        expect(failedDeactivation.status).toBe(404)
+
+        await new Promise((resolve) => setImmediate(resolve))
+        const category = (correlationId: string) =>
+            db.prepare('SELECT category FROM identity_scim_diagnostic WHERE correlationId = ?').get(correlationId)
+        expect(category(String(failedUpdate.headers['x-correlation-id']))).toMatchObject({ category: 'usersUpdated' })
+        expect(category(String(failedDeactivation.headers['x-correlation-id']))).toMatchObject({ category: 'usersDisabled' })
+    })
+
     it('serves discovery documents and rejects unsupported operations in SCIM envelopes', async () => {
         const resourceTypes = await authorized().get('/api/v1/scim/v2/ResourceTypes').set('Authorization', `Bearer ${bearer}`)
         expect(resourceTypes.status).toBe(200)

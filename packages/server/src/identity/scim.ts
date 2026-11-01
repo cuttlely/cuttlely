@@ -738,6 +738,7 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
                 resourceId = deleted.id
                 internalId = deleted.userId
                 await requireScimOrganizationOnly(query, sql, actor.organizationId, internalId)
+                await refuseGlobalEmailConflict(query, sql, internalId, userName)
                 await query(
                     `UPDATE ${q(sql, 'identity_scim_user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'userName')} = ?, ${q(
                         sql,
@@ -848,6 +849,10 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
         if (error instanceof DirectoryError && error.status === 409) {
             await auditUser(sql, actor, 'created', internalId || null, 'refused')
             throw new ScimError(409, error.message, 'mutability')
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        if (/UNIQUE constraint failed|duplicate key|duplicate entry|ER_DUP_ENTRY|23505/i.test(message)) {
+            throw new ScimError(409, MATCHING_VALUE_EXISTS, 'uniqueness')
         }
         throw error
     }
@@ -1393,8 +1398,9 @@ async function scimAuthentication(req: Request, res: Response, next: NextFunctio
 }
 
 function operationCategory(req: Request, status: number): string {
-    if (status >= 400) return text(req.res?.locals.scimFailureCategory) || (status === 401 ? 'authentication' : 'request')
+    const failureCategory = text(req.res?.locals.scimFailureCategory)
     const parsedCategory = text(req.res?.locals.scimOperationCategory)
+    if (status >= 400) return failureCategory || parsedCategory || (status === 401 ? 'authentication' : 'request')
     if (parsedCategory) return parsedCategory
     const path = req.path.toLowerCase()
     if (path.startsWith('/users')) {
@@ -1596,8 +1602,8 @@ identityScimRouter.put(
         changes.familyName =
             record.name && typeof record.name === 'object' ? nullable((record.name as Record<string, unknown>).familyName) : null
         changes.workEmail = emailValue({ emails: record.emails })
-        const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'replaced')
         res.locals.scimOperationCategory = operationCategoryForUserChanges(changes)
+        const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'replaced')
         res.status(200).json(scimUser(updated, requestedAttributes(req.query)))
     })
 )
@@ -1607,8 +1613,8 @@ identityScimRouter.patch(
     asyncRoute(async (req, res) => {
         if (!validUuid(req.params.id)) throw new ScimError(404, 'User not found.', 'noTarget')
         const changes = patchChanges(req.body)
-        const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'updated')
         res.locals.scimOperationCategory = operationCategoryForUserChanges(changes)
+        const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'updated')
         res.status(200).json(scimUser(updated, requestedAttributes(req.query)))
     })
 )

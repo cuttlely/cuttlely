@@ -436,6 +436,88 @@ describe('SCIM users', () => {
         db.close()
     })
 
+    it.each([
+        ['the same email', 'used-email@example.test'],
+        ['a case variant', 'Used-Email@example.test']
+    ])('refuses recreation with %s owned by another account without changing stored state', async (_label, userName) => {
+        const { sql, db } = directoryStore()
+        const created = await createUser(sql, actor, {
+            userName: 'deleted-person@example.test',
+            externalId: 'made-up-deleted-person',
+            displayName: 'Deleted Person'
+        })
+        await deleteUser(sql, actor, created.id, Date.UTC(2026, 9, 31, 15))
+        db.prepare('INSERT INTO user (id, name, email, status, createdBy, updatedBy) VALUES (?, ?, ?, ?, ?, ?)').run(
+            'email-owner',
+            'Email Owner',
+            'used-email@example.test',
+            'active',
+            'owner-1',
+            'owner-1'
+        )
+        const before = {
+            account: db.prepare('SELECT name, email, status, updatedBy, updatedDate FROM user WHERE id = ?').get(created.userId),
+            membership: db
+                .prepare('SELECT roleId, status, updatedBy, updatedDate FROM organization_user WHERE organizationId = ? AND userId = ?')
+                .get('org-1', created.userId),
+            resource: db
+                .prepare(
+                    'SELECT externalId, userName, normalizedUserName, displayName, workEmail, deletedAt, updatedAt FROM identity_scim_user WHERE id = ?'
+                )
+                .get(created.id),
+            emailOwner: db.prepare('SELECT name, email, status, updatedBy, updatedDate FROM user WHERE id = ?').get('email-owner')
+        }
+
+        await expect(
+            createUser(sql, actor, { userName, externalId: 'made-up-deleted-person', displayName: 'Changed Person' })
+        ).rejects.toMatchObject({
+            status: 409,
+            scimType: 'uniqueness',
+            message: 'A matching value already exists.'
+        })
+
+        expect({
+            account: db.prepare('SELECT name, email, status, updatedBy, updatedDate FROM user WHERE id = ?').get(created.userId),
+            membership: db
+                .prepare('SELECT roleId, status, updatedBy, updatedDate FROM organization_user WHERE organizationId = ? AND userId = ?')
+                .get('org-1', created.userId),
+            resource: db
+                .prepare(
+                    'SELECT externalId, userName, normalizedUserName, displayName, workEmail, deletedAt, updatedAt FROM identity_scim_user WHERE id = ?'
+                )
+                .get(created.id),
+            emailOwner: db.prepare('SELECT name, email, status, updatedBy, updatedDate FROM user WHERE id = ?').get('email-owner')
+        }).toEqual(before)
+        db.close()
+    })
+
+    it.each([
+        ['SQLite', 'UNIQUE constraint failed: user.email'],
+        ['PostgreSQL', 'duplicate key value violates unique constraint "user_email_key"'],
+        ['MySQL', "Duplicate entry 'made-up@example.test' for key 'user.email'"],
+        ['MariaDB', "Duplicate entry 'made-up@example.test' for key 'user.email'"]
+    ])('maps a %s email constraint error during new-account creation to a generic conflict', async (_engine, message) => {
+        const { sql, db } = directoryStore()
+        const failingSql: Sql = {
+            ...sql,
+            transaction: (fn) =>
+                sql.transaction((query) =>
+                    fn(async (statement, params = []) => {
+                        if (/INSERT INTO ["`]user["`]/i.test(statement)) throw new Error(message)
+                        return query(statement, params)
+                    })
+                )
+        }
+
+        await expect(createUser(failingSql, actor, { userName: 'made-up@example.test' })).rejects.toMatchObject({
+            status: 409,
+            scimType: 'uniqueness',
+            message: 'A matching value already exists.'
+        })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_user').get()).toMatchObject({ count: 0 })
+        db.close()
+    })
+
     it('creates, reads, replaces, deactivates, deletes, and restores a stable resource', async () => {
         const { sql, db } = directoryStore()
         const created = await createUser(
