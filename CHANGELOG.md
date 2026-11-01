@@ -12,6 +12,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Source-capture receipts fit below the worker’s MCP spill threshold, including JSON envelope escaping. Complete report context stays inline; sampled evidence is reduced before omitting an oversized overview.
+
 -   A rejected pinned-query argument retry no longer discards a completed stamped report from the same source and turn. Missing results, changed stamps and executed query failures still fail verification.
 
 -   Markdown citations keep their HTTP(S) destinations during path masking, including streamed links, nested parentheses and adjacent links. Local paths in link labels, destinations and quoted titles remain hidden.
