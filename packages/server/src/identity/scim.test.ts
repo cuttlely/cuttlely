@@ -626,6 +626,66 @@ describe('SCIM users', () => {
         ).toEqual({ givenName: 'Casey', workEmail: 'casey.work@example.com', active: false })
     })
 
+    it('ignores well-formed unsupported user paths', () => {
+        const paths = [
+            'title',
+            'name.formatted',
+            'preferredLanguage',
+            'phoneNumbers[type eq "work"].value',
+            'addresses[type eq "work"].formatted',
+            'urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department'
+        ]
+        for (const path of paths) {
+            expect(patchChanges({ Operations: [{ op: 'Add', path, value: 'made-up value' }] })).toEqual({})
+        }
+        expect(patchChanges({ Operations: [{ op: 'Add', value: { title: 'Engineer', $ref: 'made-up reference' } }] })).toEqual({})
+    })
+
+    it('maps a supported user path with the core schema prefix', () => {
+        expect(
+            patchChanges({
+                Operations: [
+                    {
+                        op: 'Replace',
+                        path: 'urn:ietf:params:scim:schemas:core:2.0:User:displayName',
+                        value: 'Made Up Person'
+                    }
+                ]
+            })
+        ).toEqual({ displayName: 'Made Up Person' })
+    })
+
+    it('returns invalidSyntax for malformed user paths', () => {
+        const paths = [
+            'emails[type eq "work"',
+            'title]',
+            'name..formatted',
+            '[value eq "x"]',
+            'display Name',
+            'emails[]',
+            'emails[type eq "work].value'
+        ]
+        for (const path of paths) {
+            expect(() => patchChanges({ Operations: [{ op: 'Add', path, value: 'made-up value' }] })).toThrow(
+                expect.objectContaining({ status: 400, scimType: 'invalidSyntax' })
+            )
+        }
+    })
+
+    it('refuses intentionally immutable user attributes', () => {
+        const paths = ['id', 'password', 'roles', 'roles[primary eq true].value']
+        for (const path of paths) {
+            expect(() => patchChanges({ Operations: [{ op: 'Replace', path, value: 'made-up value' }] })).toThrow(
+                expect.objectContaining({ status: 400, scimType: 'mutability' })
+            )
+        }
+        for (const path of ['id', 'password', 'roles']) {
+            expect(() => patchChanges({ Operations: [{ op: 'Replace', value: { [path]: 'made-up value' } }] })).toThrow(
+                expect.objectContaining({ status: 400, scimType: 'mutability' })
+            )
+        }
+    })
+
     it('merges only attributes present in a pathless user PATCH', async () => {
         const { sql, db } = directoryStore()
         const created = await createUser(sql, actor, {

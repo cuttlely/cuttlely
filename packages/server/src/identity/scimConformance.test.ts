@@ -169,6 +169,7 @@ describe('published SCIM request fixtures', () => {
         const token = await createScimToken(sql, { id: 'owner-1', organizationId: 'org-1' })
         const captured: Record<string, string> = {}
         let internalUserId = ''
+        let supportedUserFields: Record<string, unknown> | undefined
         for (const step of fixture(provider).requests) {
             const path = replaceValues(step.path, captured) as string
             const body = replaceValues(step.body, captured)
@@ -179,6 +180,14 @@ describe('published SCIM request fixtures', () => {
             expect(response.headers['x-correlation-id']).toEqual(expect.any(String))
             if (step.capture) captured[step.capture] = response.body.id
             if (step.capture === 'userId') {
+                supportedUserFields = {
+                    userName: response.body.userName,
+                    externalId: response.body.externalId,
+                    displayName: response.body.displayName,
+                    name: response.body.name,
+                    emails: response.body.emails,
+                    active: response.body.active
+                }
                 internalUserId = String(db.prepare('SELECT userId FROM identity_scim_user WHERE id = ?').get(response.body.id)?.userId)
                 db.prepare('INSERT INTO identity_local_session VALUES (?, ?)').run(`${provider}-session`, internalUserId)
                 db.prepare('INSERT INTO apikey VALUES (?, ?, NULL)').run(`${provider}-key`, internalUserId)
@@ -225,6 +234,7 @@ describe('published SCIM request fixtures', () => {
                 )
             }
             if (step.name === 'connection probe') expect(response.body).toMatchObject({ totalResults: 0, Resources: [] })
+            if (step.name.startsWith('ignore ')) expect(response.body).toMatchObject(supportedUserFields || {})
             if (step.name === 'list groups without members') {
                 expect(response.body.Resources[0]).not.toHaveProperty('members')
             }
@@ -508,7 +518,13 @@ describe('RFC 7644 route conformance', () => {
             .patch(`/api/v1/scim/v2/Users/${second.body.id}`)
             .set('Authorization', `Bearer ${bearer}`)
             .type('application/scim+json')
-            .send({ Operations: [{ op: 'Replace', path: 'active', value: 'False' }] })
+            .send({
+                Operations: [
+                    { op: 'Replace', path: 'active', value: 'False' },
+                    { op: 'Add', path: 'title', value: 'Engineer' }
+                ]
+            })
+        expect(disabled.status).toBe(200)
         expect(disabled.body.active).toBe(false)
     })
 })

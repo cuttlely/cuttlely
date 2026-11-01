@@ -893,26 +893,69 @@ function replaceChanges(value: Record<string, unknown>): UserChanges {
 function pathlessPatchChanges(value: Record<string, unknown>): UserChanges {
     const changes: UserChanges = {}
     for (const [rawPath, rawValue] of Object.entries(value)) {
-        const path = rawPath.toLowerCase()
-        if (path === 'username') {
+        const parsed = readUserPatchPath(rawPath)
+        if (!parsed) continue
+        refuseUserPatchAttribute(parsed.attribute)
+        if (parsed.schema && parsed.schema !== `${CORE_USER.toLowerCase()}:`) continue
+        const attribute = parsed.attribute
+        const subAttribute = parsed.subAttribute
+        if (attribute === 'username' && !parsed.filter && !subAttribute) {
             if (typeof rawValue !== 'string') throw new ScimError(400, 'userName requires a value.', 'invalidValue')
             changes.userName = rawValue.trim()
-        } else if (path === 'externalid') changes.externalId = nullable(rawValue)
-        else if (path === 'displayname') changes.displayName = typeof rawValue === 'string' ? rawValue.trim() : undefined
-        else if (path === 'active') changes.active = booleanValue(rawValue)
-        else if (path === 'name') {
+        } else if (attribute === 'externalid' && !parsed.filter && !subAttribute) changes.externalId = nullable(rawValue)
+        else if (attribute === 'displayname' && !parsed.filter && !subAttribute) {
+            changes.displayName = typeof rawValue === 'string' ? rawValue.trim() : undefined
+        } else if (attribute === 'active' && !parsed.filter && !subAttribute) changes.active = booleanValue(rawValue)
+        else if (attribute === 'name' && !parsed.filter && !subAttribute) {
             const name = object(rawValue)
             for (const [rawNamePath, nameValue] of Object.entries(name)) {
                 const namePath = rawNamePath.toLowerCase()
                 if (namePath === 'givenname') changes.givenName = nullable(nameValue)
                 else if (namePath === 'familyname') changes.familyName = nullable(nameValue)
             }
-        } else if (path === 'name.givenname') changes.givenName = nullable(rawValue)
-        else if (path === 'name.familyname') changes.familyName = nullable(rawValue)
-        else if (path === 'emails') changes.workEmail = emailValue({ emails: rawValue })
-        else if (/^emails\s*\[\s*type\s+eq\s+"work"\s*\]\.value$/i.test(rawPath)) changes.workEmail = nullable(rawValue)
+        } else if (attribute === 'name' && !parsed.filter && subAttribute === 'givenname') changes.givenName = nullable(rawValue)
+        else if (attribute === 'name' && !parsed.filter && subAttribute === 'familyname') changes.familyName = nullable(rawValue)
+        else if (attribute === 'emails' && !parsed.filter && !subAttribute) changes.workEmail = emailValue({ emails: rawValue })
+        else if (workEmailPatchPath(parsed)) changes.workEmail = nullable(rawValue)
     }
     return changes
+}
+
+interface UserPatchPath {
+    schema?: string
+    attribute: string
+    filter?: string
+    subAttribute?: string
+}
+
+const USER_PATCH_PATH =
+    /^(?:(urn:[A-Za-z0-9][A-Za-z0-9.-]*(?::[A-Za-z0-9][A-Za-z0-9.-]*)*:))?([A-Za-z][A-Za-z0-9_-]*)(?:\[([A-Za-z][A-Za-z0-9_-]*\s+eq\s+(?:"(?:[^"\\]|\\.)*"|true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?))\])?(?:\.([A-Za-z][A-Za-z0-9_-]*))?$/i
+
+function readUserPatchPath(path: string): UserPatchPath | undefined {
+    const match = USER_PATCH_PATH.exec(path)
+    if (!match) return undefined
+    return {
+        schema: match[1]?.toLowerCase(),
+        attribute: match[2].toLowerCase(),
+        filter: match[3]?.toLowerCase(),
+        subAttribute: match[4]?.toLowerCase()
+    }
+}
+
+function parseUserPatchPath(path: string): UserPatchPath {
+    const parsed = readUserPatchPath(path)
+    if (!parsed) throw new ScimError(400, 'The PATCH path is malformed.', 'invalidSyntax')
+    return parsed
+}
+
+function refuseUserPatchAttribute(attribute: string): void {
+    if (attribute === 'id' || attribute === 'password' || attribute === 'roles') {
+        throw new ScimError(400, `The ${attribute} attribute cannot be changed.`, 'mutability')
+    }
+}
+
+function workEmailPatchPath(path: UserPatchPath): boolean {
+    return path.attribute === 'emails' && path.subAttribute === 'value' && /^type\s+eq\s+"work"$/i.test(path.filter || '')
 }
 
 export function patchChanges(body: unknown): UserChanges {
@@ -923,26 +966,34 @@ export function patchChanges(body: unknown): UserChanges {
         const operation = object(raw)
         const op = text(operation.op).toLowerCase()
         if (op !== 'replace' && op !== 'add' && op !== 'remove') throw new ScimError(400, 'Unsupported PATCH operation.', 'invalidSyntax')
-        const path = nullable(operation.path)?.toLowerCase()
-        if (!path) {
+        const rawPath = operation.path
+        if (rawPath === undefined || rawPath === null || rawPath === '') {
             if (op === 'remove') throw new ScimError(400, 'A path is required for remove.', 'invalidSyntax')
             Object.assign(changes, pathlessPatchChanges(object(operation.value)))
             continue
         }
+        if (typeof rawPath !== 'string') throw new ScimError(400, 'The PATCH path is malformed.', 'invalidSyntax')
+        const path = parseUserPatchPath(rawPath)
+        refuseUserPatchAttribute(path.attribute)
+        if (path.schema && path.schema !== `${CORE_USER.toLowerCase()}:`) continue
         const remove = op === 'remove'
-        if (path === 'active') {
+        if (path.attribute === 'active' && !path.filter && !path.subAttribute) {
             if (remove) throw new ScimError(400, 'active cannot be removed.', 'mutability')
             changes.active = booleanValue(operation.value)
-        } else if (path === 'username') {
+        } else if (path.attribute === 'username' && !path.filter && !path.subAttribute) {
             if (remove || typeof operation.value !== 'string') throw new ScimError(400, 'userName requires a value.', 'invalidValue')
             changes.userName = operation.value.trim()
-        } else if (path === 'externalid') changes.externalId = remove ? null : nullable(operation.value)
-        else if (path === 'displayname') changes.displayName = remove ? '' : text(operation.value).trim()
-        else if (path === 'name.givenname') changes.givenName = remove ? null : nullable(operation.value)
-        else if (path === 'name.familyname') changes.familyName = remove ? null : nullable(operation.value)
-        else if (/^emails\s*\[\s*type\s+eq\s+"work"\s*\]\.value$/i.test(path)) {
+        } else if (path.attribute === 'externalid' && !path.filter && !path.subAttribute) {
+            changes.externalId = remove ? null : nullable(operation.value)
+        } else if (path.attribute === 'displayname' && !path.filter && !path.subAttribute) {
+            changes.displayName = remove ? '' : text(operation.value).trim()
+        } else if (path.attribute === 'name' && !path.filter && path.subAttribute === 'givenname') {
+            changes.givenName = remove ? null : nullable(operation.value)
+        } else if (path.attribute === 'name' && !path.filter && path.subAttribute === 'familyname') {
+            changes.familyName = remove ? null : nullable(operation.value)
+        } else if (workEmailPatchPath(path)) {
             changes.workEmail = remove ? null : nullable(operation.value)
-        } else throw new ScimError(400, 'Unsupported PATCH path.', 'invalidSyntax')
+        }
     }
     return changes
 }

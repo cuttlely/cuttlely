@@ -426,7 +426,10 @@ export function groupPatchChanges(body: unknown): GroupChanges {
         if (/^displayname$/i.test(path)) changes.displayName = op === 'remove' ? '' : text(operation.value).trim()
         else if (/^externalid$/i.test(path)) changes.externalId = op === 'remove' ? null : nullable(operation.value)
         else if (/^members$/i.test(path)) {
-            changes.memberOperations?.push({ operation: op as GroupMemberOperation['operation'], ids: memberIds(operation.value) })
+            changes.memberOperations?.push({
+                operation: op === 'remove' && operation.value === undefined ? 'replace' : (op as GroupMemberOperation['operation']),
+                ids: memberIds(operation.value)
+            })
         } else {
             const selected = /^members\s*\[\s*value\s+eq\s+"([^"]+)"\s*\]$/i.exec(path)
             if (!selected || op !== 'remove') throw new ScimError(400, 'Unsupported PATCH path.', 'invalidSyntax')

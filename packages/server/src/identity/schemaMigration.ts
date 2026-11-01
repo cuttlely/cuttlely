@@ -759,8 +759,12 @@ export async function addScimProvisioning(runner: QueryRunner): Promise<void> {
     if (!(await tableExists(runner, dialect, 'identity_scim_user'))) await runner.query(scimUserSql(dialect))
     if (!(await tableExists(runner, dialect, 'identity_personal_token'))) await runner.query(personalTokenSql(dialect))
     const config = q(dialect, 'identity_scim_configuration')
+    const seedFrom = dialect === 'mysql' || dialect === 'mariadb' ? ' FROM DUAL' : ''
     await runner.query(
-        `INSERT INTO ${config} (${q(dialect, 'id')}) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM ${config} WHERE ${q(dialect, 'id')} = 1)`
+        `INSERT INTO ${config} (${q(dialect, 'id')}) SELECT 1${seedFrom} WHERE NOT EXISTS (SELECT 1 FROM ${config} WHERE ${q(
+            dialect,
+            'id'
+        )} = 1)`
     )
     await createIndex(runner, dialect, 'identity_scim_token', 'IDX_identity_scim_token_hmac', q(dialect, 'tokenHmac'), true)
     await createIndex(runner, dialect, 'identity_scim_user', 'IDX_identity_scim_user_user', q(dialect, 'userId'), true)

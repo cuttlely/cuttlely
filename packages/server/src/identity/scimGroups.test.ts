@@ -271,6 +271,52 @@ describe('SCIM groups', () => {
         db.close()
     })
 
+    it('clears all members and mapped access when Remove members has no value', async () => {
+        const { sql, db } = store()
+        const group = await createGroup(
+            sql,
+            tokenActor,
+            { displayName: 'All Members', members: [{ value: 'scim-user-1' }, { value: 'scim-user-2' }] },
+            start
+        )
+        const mapping = await createConfirmedMapping(sql, { groupId: group.id, workspaceId: 'team-1', roleId: 'role-viewer' }, start + 1)
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_assignment WHERE mappingId = ?').get(mapping.id)).toMatchObject({
+            count: 2
+        })
+
+        const removed = await mutateGroup(
+            sql,
+            tokenActor,
+            group.id,
+            groupPatchChanges({ Operations: [{ op: 'Remove', path: 'members' }] }),
+            start + 2
+        )
+        expect(removed.members).toEqual([])
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_assignment WHERE mappingId = ?').get(mapping.id)).toMatchObject({
+            count: 0
+        })
+        expect(
+            db
+                .prepare("SELECT COUNT(*) AS count FROM workspace_user WHERE workspaceId = ? AND userId IN ('user-1', 'user-2')")
+                .get('team-1')
+        ).toMatchObject({ count: 0 })
+
+        await mutateGroup(sql, tokenActor, group.id, { replaceMembers: ['scim-user-1', 'scim-user-2'] }, start + 3)
+        await mutateGroup(sql, tokenActor, group.id, { replaceMembers: [] }, start + 4)
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_group_member WHERE groupId = ?').get(group.id)).toMatchObject({
+            count: 0
+        })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_assignment WHERE mappingId = ?').get(mapping.id)).toMatchObject({
+            count: 0
+        })
+        expect(
+            db
+                .prepare("SELECT COUNT(*) AS count FROM workspace_user WHERE workspaceId = ? AND userId IN ('user-1', 'user-2')")
+                .get('team-1')
+        ).toMatchObject({ count: 0 })
+        db.close()
+    })
+
     it('restores a deleted group by name or external id with its stable id and requested members', async () => {
         const { sql, db } = store()
         const byName = await createGroup(

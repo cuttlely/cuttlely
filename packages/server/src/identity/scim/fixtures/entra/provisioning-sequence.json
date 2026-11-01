@@ -25,6 +25,42 @@
             "status": 201
         },
         {
+            "name": "ignore title mapping",
+            "method": "patch",
+            "path": "/Users/{{userId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "Add", "path": "title", "value": "Engineer" }]
+            },
+            "status": 200
+        },
+        {
+            "name": "ignore formatted name mapping",
+            "method": "patch",
+            "path": "/Users/{{userId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{ "op": "Replace", "path": "name.formatted", "value": "Test User, Engineer" }]
+            },
+            "status": 200
+        },
+        {
+            "name": "ignore enterprise department mapping",
+            "method": "patch",
+            "path": "/Users/{{userId}}",
+            "body": {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [
+                    {
+                        "op": "Add",
+                        "path": "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department",
+                        "value": "Engineering"
+                    }
+                ]
+            },
+            "status": 200
+        },
+        {
             "name": "capitalized disable",
             "method": "patch",
             "path": "/Users/{{userId}}",

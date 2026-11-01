@@ -80,6 +80,8 @@ The switch transaction increments the authentication epoch and ends every intera
 
 Every database-session request and every owned API credential request reads the current user status. A disabled user is refused on the next call. WorkOS or OIDC deactivation by itself does not change the Cuttlely user row; use SCIM provisioning, disable the user in Cuttlely, or wait for the session to expire. A SCIM deactivation also deletes every interactive session and disables every owned API key and personal token in the same database transaction. Enabling the user again does not restore those credentials.
 
+When SCIM provisioning is in use, the identity provider is authoritative for a provisioned user's active state: a manual disable in Cuttlely is reversed by the next provider update that sends `active: true`, so disable or unassign the user in the identity provider instead.
+
 ## SCIM provisioning
 
 On **Admin** > **Auth / SSO**, the **SCIM provisioning** card shows the base URL, credential status, display prefix, creator, creation time, and last-used time. Choose **Create** after a fresh sign-in, then copy the clear credential from the one-time display. Cuttlely stores only a keyed digest and never shows that clear value again.

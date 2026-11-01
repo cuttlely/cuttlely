@@ -205,6 +205,8 @@ describe.each(['mysql', 'mariadb'] as const)('SCIM schema on %s', (dialect) => {
         await addScimGroups(runner)
 
         const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE \`${table}\``))?.sql || ''
+        const configurationSeed = calls.find((call) => call.sql.startsWith('INSERT INTO `identity_scim_configuration`'))?.sql || ''
+        expect(configurationSeed).toContain('SELECT 1 FROM DUAL WHERE NOT EXISTS')
         expect(create('identity_scim_user')).toContain('`externalId` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL')
         expect(create('identity_scim_group')).toContain('`externalId` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL')
         expect(
@@ -231,6 +233,9 @@ describe('SCIM schema on postgres', () => {
         await addScimGroups(runner)
 
         const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE "${table}"`))?.sql || ''
+        const configurationSeed = calls.find((call) => call.sql.startsWith('INSERT INTO "identity_scim_configuration"'))?.sql || ''
+        expect(configurationSeed).toContain('SELECT 1 WHERE NOT EXISTS')
+        expect(configurationSeed).not.toContain('FROM DUAL')
         const uuidColumns: Record<string, string[]> = {
             identity_scim_configuration: ['organizationId', 'activeTokenId', 'previousTokenId'],
             identity_scim_token: ['id', 'organizationId', 'createdBy'],
@@ -307,6 +312,9 @@ describe('SCIM schema on sqlite', () => {
         }
         expect(columns.get('apikey')?.has('disabledAt')).toBe(true)
         expect(columns.get('identity_scim_group')?.has('normalizedDisplayName')).toBe(true)
+        const configurationSeed = calls.find((sql) => sql.startsWith('INSERT INTO "identity_scim_configuration"')) || ''
+        expect(configurationSeed).toContain('SELECT 1 WHERE NOT EXISTS')
+        expect(configurationSeed).not.toContain('FROM DUAL')
         expect(calls).toContain(
             'CREATE UNIQUE INDEX IF NOT EXISTS "IDX_identity_scim_group_name" ON "identity_scim_group" ("organizationId", "normalizedDisplayName")'
         )
