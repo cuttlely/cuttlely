@@ -26,6 +26,8 @@
             "packages/ui/src/views/chatmessage/Harness*",
             "packages/ui/src/api/harnesses.js",
             "packages/ui/src/utils/harness*",
+            "packages/ui/src/utils/tidyHarness*",
+            "packages/ui/src/views/canvas/TidyLayoutButton*",
             "packages/server/src/utils/harnessStream.test.ts",
             "packages/server/src/utils/harnessToolPayload.ts",
             "packages/server/src/utils/apiKeyAccess.ts",
