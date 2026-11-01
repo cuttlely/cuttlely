@@ -183,3 +183,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A bounded source receipt can still spill downstream: the Hermes MCP default is 50,000 characters and its handler JSON-escapes the receipt inside a result envelope. A 64 KiB receipt became a 1,500-character preview, concealing records from file-disabled specialists. Budget the actual escaped envelope and verify it with the worker persistence code.
 
 -   Triple-backtick fences left one unmatched inline-quote delimiter in the path scanner, so a public URL could mask the whole code block. Recognize the opening info-line newline, retain inline quoted-path behavior, and test all chunk boundaries for both public examples and local paths.
+
+-   A browser-capable documentation role could visit an authoritative page but lose its companion section because the composer only recognized retriever receipts. Capture the successful visited URL at the framework tool boundary, reject caught HTTP/network errors, and retain the same worker-turn and non-analyst restrictions. Model-supplied links alone remain insufficient.
