@@ -39,7 +39,7 @@ Commits need a git identity (`user.name` and `user.email`). On a machine without
 
 ```bash
 pnpm install
-pnpm harness:check             # node packages/harness/check.mjs — offline, no build, no key, no network
+pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no build, no key, no network
 pnpm etl:check                 # node packages/etl/check.mjs — the retriever and splitter cases need the components build
 node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
 ```
