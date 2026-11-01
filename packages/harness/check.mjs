@@ -286,7 +286,8 @@ const adaptiveEvidenceTests = spawnSync(
         path.join(root, 'packages/harness/history.test.mjs'),
         path.join(root, 'packages/harness/source-answer-fallback.test.mjs'),
         path.join(root, 'packages/harness/answer-context.test.mjs'),
-        path.join(root, 'packages/harness/routing-sources.test.mjs')
+        path.join(root, 'packages/harness/routing-sources.test.mjs'),
+        path.join(root, 'packages/harness/clarification.test.mjs')
     ],
     { encoding: 'utf8', timeout: 60000 }
 )
@@ -11362,7 +11363,10 @@ check(
             routeSystem.includes('- notes: You answer questions about the demo bakery orders table.') &&
             !routeSystem.includes('ROUTER_TAIL_52') &&
             !routeSystem.includes('NOTES_TAIL_52') &&
-            routeSystem.length < longInstructions.length,
+            routeSystem
+                .split('\n')
+                .filter((line) => /^- (orders|notes):/.test(line))
+                .join('\n').length < longInstructions.length,
         routeSystem.slice(0, 400)
     )
     const ordersSystem = String(

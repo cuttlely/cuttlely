@@ -179,6 +179,7 @@ describe('agentflow harness tool usage', () => {
         void model
     })
 
+    // The real Agent module is cold-loaded inside this integration test before the accounting assertions.
     it('stores the Agent calls and the harness tool calls once each', async () => {
         delete require.cache[modelFile]
         const spy = jest.spyOn(usage, 'recordCompletedRun').mockImplementation(() => Promise.resolve())
@@ -219,5 +220,5 @@ describe('agentflow harness tool usage', () => {
         } finally {
             spy.mockRestore()
         }
-    })
+    }, 15000)
 })
