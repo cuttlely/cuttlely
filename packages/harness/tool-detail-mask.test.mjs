@@ -16,11 +16,60 @@ const { parseAnalystToolDetail } = await import('./context.mjs')
 const { recordAnalystResult } = await import('./analyst-capture.mjs')
 const { compileProfile, specialistWorkspace } = await import('./profile.mjs')
 const { compilePinned } = await import('./runtime/pinned-query.mjs')
+const { scanWorkspaceText, workspaceMaskState } = await import('./images.mjs')
 
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 const crmUrl = 'https://crm.example.com/accounts/99?ref=acme'
 const secret = path.join(path.dirname(specialistWorkspace('_')), 'mask-unit', 'zz-secret-path.csv')
+
+test('Markdown citations preserve HTTPS destinations in batch, JSON and every streaming split', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    const values = [
+        '[Storage migration guide](https://docs.example.com/product/guide)',
+        '[Guide](https://docs.example.com/a_(v2))',
+        '[One](https://docs.example.com/a)[Two](https://docs.example.com/b)',
+        '[Guide](<https://docs.example.com/a>)',
+        '[Guide](https://docs.example.com/a "Migration guide")',
+        '[Guide](' + 'https://docs.example.com/a?value=' + 'x'.repeat(1500) + ')'
+    ]
+    for (const text of values) {
+        assert.equal(maskWorkspacePaths(text), text)
+        assert.equal(maskDetail(text), text)
+        assert.deepEqual(JSON.parse(maskDetail(JSON.stringify({ citation: text }))), { citation: text })
+        for (let split = 0; split <= text.length; split++) {
+            const state = workspaceMaskState()
+            assert.equal(
+                scanWorkspaceText(state, text.slice(0, split), root) + scanWorkspaceText(state, text.slice(split), root, true),
+                text
+            )
+        }
+    }
+})
+
+test('Markdown link boundaries do not exempt local paths in labels, destinations, titles or adjacent links', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    const values = [
+        `[${secret}](https://docs.example.com/a)`,
+        `[Guide](${secret})`,
+        `[Guide](file://${secret})`,
+        `[Guide](https://docs.example.com/a "See ${secret}")`,
+        `[One](https://docs.example.com/a)[${secret}](https://docs.example.com/b)`,
+        `[${JSON.stringify([secret])}](https://docs.example.com/a)`
+    ]
+    for (const text of values) {
+        const shown = maskWorkspacePaths(text)
+        assert(!shown.includes(secret), text)
+        assert(!maskDetail(text).includes(secret), text)
+        for (let split = 0; split <= text.length; split++) {
+            const state = workspaceMaskState()
+            assert.equal(
+                scanWorkspaceText(state, text.slice(0, split), root) + scanWorkspaceText(state, text.slice(split), root, true),
+                shown
+            )
+        }
+    }
+})
 
 function deal(index, extra = {}) {
     return {

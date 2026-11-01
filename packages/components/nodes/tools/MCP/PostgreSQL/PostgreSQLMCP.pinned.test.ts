@@ -611,6 +611,7 @@ describe('PostgreSQL MCP pinned queries', () => {
             const body = JSON.parse(await tools[0].invoke({ region: 'nope' }))
             expect(body.cuttlelyOutcome).toBe('expected')
             expect(body.error).toContain('Invalid parameter region')
+            expect(body.sourceExecution).toBe('not_executed')
             expect(sink.hits.n).toBe(0)
         } finally {
             await sink.close()

@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process'
 import { months, body, bodyFor, originalPayload, csvPayload, csvBody } from './test/trusted-output-fixture.mjs'
 import {
     trustedOutputContracts,
+    trustedOutputReceipt,
     utilizationPlan,
     utilizationPng,
     tablePayloadCsv,
@@ -1144,8 +1145,8 @@ test('an interpreted report receipt includes the complete bounded factual set al
     const receipt = JSON.parse(out.receipts[0])
     assert.equal(receipt.sourceOverview.text, '## Outlook\n\nSelected records.\n\n' + report)
     assert.equal(receipt.sourceOverview.complete, true)
-    assert(Buffer.byteLength(out.receipts[0]) <= 65536)
-    assert(Buffer.byteLength(out.receipts[0]) > 50000)
+    assert(Buffer.byteLength(JSON.stringify({ result: out.receipts[0] })) <= 48000)
+    assert(Buffer.byteLength(out.receipts[0]) > 30000)
     assert.equal(out.calls.length, 1)
     const oversized = await runFixture({
         markdownOnly: true,
@@ -1574,4 +1575,40 @@ test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-
             code: 'trusted_output'
         })
     assert.equal(trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: false }])[0].escapeFormulas, undefined)
+})
+
+test('pre-execution argument refusals preserve an existing stamped report but cannot supply missing results', async () => {
+    const report = { pin: contract.pin, hash: contract.hash, mode: 'markdown', fields: [{ path: 'rows.0.report' }] }
+    const specialist = { name: 'data', trustedOutputs: [report] }
+    const good = { ...capture({ rows: [{ report: 'Exact source report: 13 observations.' }] }), sourceTurn: 'turn-1' }
+    const bad = {
+        ...capture({ error: 'Invalid parameters', cuttlelyOutcome: 'expected', sourceExecution: 'not_executed' }),
+        callId: 'rejected-call',
+        sourceTurn: 'turn-1'
+    }
+    assert.equal((await renderTrustedOutputs(specialist, [good, bad])).text, 'Exact source report: 13 observations.')
+    assert.equal((await renderTrustedOutputs(specialist, [bad, good])).text, 'Exact source report: 13 observations.')
+    await assert.rejects(renderTrustedOutputs(specialist, [bad]), /complete successful/)
+    await assert.rejects(renderTrustedOutputs(specialist, [good, { ...bad, sourceTurn: 'another-turn' }]), /complete successful/)
+    const executed = { ...bad, result: { error: 'Query refused', cuttlelyOutcome: 'expected' } }
+    await assert.rejects(renderTrustedOutputs(specialist, [good, executed]), /complete successful/)
+    await assert.rejects(renderTrustedOutputs(specialist, [good, { ...bad, pinned: { ...bad.pinned, hash: 'f'.repeat(64) } }]), /identity/)
+})
+
+test('escaped source context cannot spill the worker MCP envelope or masquerade as a clipped complete report', () => {
+    const reportContract = { pin: contract.pin, hash: contract.hash, mode: 'markdown', fields: [{ path: 'rows.0.report' }] }
+    const source = {
+        rows: [{ report: '"'.repeat(15000), notes: 'Quoted "evidence" with \\ paths. '.repeat(4000) }],
+        pinned: { name: contract.pin, hash: contract.hash, version: 1 }
+    }
+    const receipt = trustedOutputReceipt(
+        { name: 'data', trustedOutputs: [reportContract], trustedInterpretation: true },
+        contract.pin,
+        source,
+        'source-call'
+    )
+    assert(Buffer.byteLength(JSON.stringify({ result: receipt })) <= 48000)
+    assert.equal(JSON.parse(receipt).sourceOverview, undefined)
+    assert(JSON.parse(receipt).interpretationEvidence)
+    assert.equal(source.rows[0].report.length, 15000)
 })
