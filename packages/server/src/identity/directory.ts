@@ -156,6 +156,52 @@ export function sqlFromDataSource(dataSource: DataSource): Sql {
     }
 }
 
+function missingOptionalIdentityTable(error: unknown): boolean {
+    const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code.toUpperCase() : ''
+    if (code === '42P01' || code === '42703') return true
+    const message = error instanceof Error ? error.message : String(error)
+    return /no such table|no such column|does not exist|doesn't exist|unknown table|unknown column|no column named/i.test(message)
+}
+
+/** Keep a missing optional table or column from aborting its surrounding PostgreSQL transaction. */
+async function optionalTableQuery(
+    query: QueryFn,
+    sql: Sql,
+    statement: string,
+    params: unknown[] = [],
+    inTransaction = false
+): Promise<Record<string, unknown>[] | undefined> {
+    if (sql.type !== 'postgres' || !inTransaction) {
+        try {
+            return await query(statement, params)
+        } catch (error) {
+            if (missingOptionalIdentityTable(error)) return undefined
+            throw error
+        }
+    }
+    const savepoint = `identity_optional_${randomUUID().replace(/-/g, '')}`
+    await query(`SAVEPOINT ${savepoint}`)
+    try {
+        const rows = await query(statement, params)
+        await query(`RELEASE SAVEPOINT ${savepoint}`)
+        return rows
+    } catch (error) {
+        const missing = missingOptionalIdentityTable(error)
+        try {
+            await query(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+        } catch (rollbackError) {
+            if (missing) throw rollbackError
+        }
+        try {
+            await query(`RELEASE SAVEPOINT ${savepoint}`)
+        } catch (releaseError) {
+            if (missing) throw releaseError
+        }
+        if (missing) return undefined
+        throw error
+    }
+}
+
 /** Bump the permission version, then delete every local session. An older cookie fails the version check. */
 export async function endLocalSessions(query: QueryFn, sql: Sql, userId: string): Promise<void> {
     await query(
@@ -295,17 +341,15 @@ export async function deactivateUserInTransaction(
     await endLocalSessions(query, sql, userId)
     const at = utcDbTime(sql.type, now)
     for (const table of ['apikey', 'identity_personal_token']) {
-        try {
-            await query(
-                `UPDATE ${q(sql, table)} SET ${q(sql, 'disabledAt')} = ?
-                 WHERE ${q(sql, 'ownerUserId')} = ? AND ${q(sql, 'disabledAt')} IS NULL`,
-                [at, userId]
-            )
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            // Supports an application copy completing this transaction while its schema migration is still pending.
-            if (!/no such table|does not exist|doesn't exist|unknown column|no column named/i.test(message)) throw error
-        }
+        // Supports an application copy completing this transaction while its schema migration is still pending.
+        await optionalTableQuery(
+            query,
+            sql,
+            `UPDATE ${q(sql, table)} SET ${q(sql, 'disabledAt')} = ?
+             WHERE ${q(sql, 'ownerUserId')} = ? AND ${q(sql, 'disabledAt')} IS NULL`,
+            [at, userId],
+            true
+        )
     }
 }
 
@@ -713,11 +757,6 @@ async function auditScimReferenceRefusal(
     })
 }
 
-function missingOptionalIdentityTable(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error)
-    return /no such table|does not exist|doesn't exist|unknown table/i.test(message)
-}
-
 async function scimMappingCount(
     query: QueryFn,
     sql: Sql,
@@ -725,19 +764,13 @@ async function scimMappingCount(
     column: 'roleId' | 'workspaceId',
     id: string
 ): Promise<number> {
-    try {
-        const rows = await query(
-            `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(
-                sql,
-                column
-            )} = ?`,
-            [organizationId, id]
-        )
-        return num(cell(rows[0] || {}, 'count'))
-    } catch (error) {
-        if (missingOptionalIdentityTable(error)) return 0
-        throw error
-    }
+    const rows = await optionalTableQuery(
+        query,
+        sql,
+        `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, column)} = ?`,
+        [organizationId, id]
+    )
+    return rows ? num(cell(rows[0] || {}, 'count')) : 0
 }
 
 async function scimLinksForOrganizationRemoval(
@@ -746,17 +779,15 @@ async function scimLinksForOrganizationRemoval(
     organizationId: string,
     userId: string
 ): Promise<Array<{ id: string; deleted: boolean }>> {
-    try {
-        const rows = await query(
-            `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'deletedAt')} AS deletedAt FROM ${q(sql, 'identity_scim_user')}
-             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?${sql.type === 'sqlite' ? '' : ' FOR UPDATE'}`,
-            [organizationId, userId]
-        )
-        return rows.map((row) => ({ id: text(cell(row, 'id')), deleted: Boolean(cell(row, 'deletedAt')) }))
-    } catch (error) {
-        if (missingOptionalIdentityTable(error)) return []
-        throw error
-    }
+    const rows = await optionalTableQuery(
+        query,
+        sql,
+        `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'deletedAt')} AS deletedAt FROM ${q(sql, 'identity_scim_user')}
+         WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?${sql.type === 'sqlite' ? '' : ' FOR UPDATE'}`,
+        [organizationId, userId],
+        true
+    )
+    return (rows || []).map((row) => ({ id: text(cell(row, 'id')), deleted: Boolean(cell(row, 'deletedAt')) }))
 }
 
 async function removeDeletedScimLinks(
@@ -768,20 +799,21 @@ async function removeDeletedScimLinks(
 ): Promise<void> {
     if (!resourceIds.length) return
     const marks = resourceIds.map(() => '?').join(', ')
-    try {
-        await query(`DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'scimUserId')} IN (${marks})`, resourceIds)
-    } catch (error) {
-        if (!missingOptionalIdentityTable(error)) throw error
-    }
-    try {
-        await query(
-            `DELETE FROM ${q(sql, 'identity_scim_assignment')} WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'mappingId')} IN
-             (SELECT ${q(sql, 'id')} FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ?)`,
-            [userId, organizationId]
-        )
-    } catch (error) {
-        if (!missingOptionalIdentityTable(error)) throw error
-    }
+    await optionalTableQuery(
+        query,
+        sql,
+        `DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'scimUserId')} IN (${marks})`,
+        resourceIds,
+        true
+    )
+    await optionalTableQuery(
+        query,
+        sql,
+        `DELETE FROM ${q(sql, 'identity_scim_assignment')} WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'mappingId')} IN
+         (SELECT ${q(sql, 'id')} FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ?)`,
+        [userId, organizationId],
+        true
+    )
     await query(
         `DELETE FROM ${q(sql, 'identity_scim_user')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
          AND ${q(sql, 'deletedAt')} IS NOT NULL AND ${q(sql, 'id')} IN (${marks})`,
@@ -1291,14 +1323,14 @@ export async function updateWorkspace(sql: Sql, actor: DirectoryActor, body: unk
 }
 
 async function workspaceRowCount(query: QueryFn, sql: Sql, table: string, workspaceId: string): Promise<number> {
-    try {
-        const rows = await query(`SELECT COUNT(*) AS count FROM ${q(sql, table)} WHERE ${q(sql, 'workspaceId')} = ?`, [workspaceId])
-        return num(cell(rows[0] || {}, 'count'))
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (/no such table|does not exist|doesn't exist/i.test(message)) return 0
-        throw error
-    }
+    const rows = await optionalTableQuery(
+        query,
+        sql,
+        `SELECT COUNT(*) AS count FROM ${q(sql, table)} WHERE ${q(sql, 'workspaceId')} = ?`,
+        [workspaceId],
+        true
+    )
+    return rows ? num(cell(rows[0] || {}, 'count')) : 0
 }
 
 async function chatflowCount(query: QueryFn, sql: Sql, workspaceId: string): Promise<number> {

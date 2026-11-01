@@ -26,6 +26,7 @@ import {
     Sql,
     createEmailUser,
     createRole,
+    deactivateUserInTransaction,
     deleteOrganizationUser,
     deleteRole,
     deleteWorkspace,
@@ -351,6 +352,51 @@ describe('change a team role from User Management', () => {
 })
 
 describe('local directory rules', () => {
+    it('recovers a PostgreSQL transaction after an optional table is missing', async () => {
+        const statements: string[] = []
+        let aborted = false
+        const query: Sql['query'] = async (statement) => {
+            statements.push(statement)
+            if (/^SAVEPOINT /i.test(statement)) return []
+            if (/^ROLLBACK TO SAVEPOINT /i.test(statement)) {
+                aborted = false
+                return []
+            }
+            if (/^RELEASE SAVEPOINT /i.test(statement)) return []
+            if (aborted) throw new Error('current transaction is aborted, commands ignored until end of transaction block')
+            if (/UPDATE "apikey"/i.test(statement)) {
+                aborted = true
+                throw Object.assign(new Error('relation "apikey" does not exist'), { code: '42P01' })
+            }
+            if (/AS status FROM "organization_user"/i.test(statement)) return [{ status: 'disable' }]
+            if (/SELECT "userId" AS userId FROM "organization_user"/i.test(statement) && !/FOR UPDATE/i.test(statement)) {
+                return [{ userId: 'member-1' }]
+            }
+            if (/SELECT ou\."userId" AS userId/i.test(statement)) return []
+            return []
+        }
+        const sql: Sql = {
+            type: 'postgres',
+            query,
+            transaction: async (fn) => fn((statement, params) => query(statement, params))
+        }
+
+        await sql.transaction(async (transactionQuery) => {
+            await deactivateUserInTransaction(transactionQuery, sql, ORG, 'member-1')
+            await transactionQuery('SELECT 1 AS continued')
+        })
+
+        const missingIndex = statements.findIndex((statement) => /UPDATE "apikey"/i.test(statement))
+        const savepoint = statements[missingIndex - 1]
+        const savepointName = savepoint.match(/^SAVEPOINT (identity_optional_[a-f0-9]+)$/i)?.[1]
+        expect(savepointName).toBeTruthy()
+        expect(statements.slice(missingIndex + 1, missingIndex + 3)).toEqual([
+            `ROLLBACK TO SAVEPOINT ${savepointName}`,
+            `RELEASE SAVEPOINT ${savepointName}`
+        ])
+        expect(statements).toContain('SELECT 1 AS continued')
+    })
+
     it('rejects edits to built-in roles and a grant the caller does not hold', async () => {
         const { sql } = memorySql()
         await expect(updateRole(sql, admin, { id: 'role-admin', name: 'Admin2', permissions: '["chatflows:view"]' })).rejects.toMatchObject(
