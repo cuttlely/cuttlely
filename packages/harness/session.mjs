@@ -52,6 +52,10 @@ function connection(harnessName, { create }) {
             pins TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS answer_context (
+            session_key TEXT PRIMARY KEY,
+            selections TEXT NOT NULL
+        );
     `)
     const entry = {
         db,
@@ -64,6 +68,9 @@ function connection(harnessName, { create }) {
         all: db.prepare(`SELECT role, content, created_at FROM messages WHERE session_key = ? ORDER BY id ASC`),
         recent: db.prepare(`SELECT role, content, created_at FROM messages WHERE session_key = ? ORDER BY id DESC LIMIT ?`),
         memoryGet: db.prepare(`SELECT summary, pins FROM memory WHERE session_key = ?`),
+        selectionsGet: db.prepare(`SELECT selections FROM answer_context WHERE session_key = ?`),
+        selectionsPut: db.prepare(`INSERT INTO answer_context (session_key, selections) VALUES (?, ?)
+            ON CONFLICT(session_key) DO UPDATE SET selections = excluded.selections`),
         memoryPut: db.prepare(
             `INSERT INTO memory (session_key, summary, pins, updated_at) VALUES (?, ?, ?, ?)
              ON CONFLICT(session_key) DO UPDATE SET summary = excluded.summary, pins = excluded.pins, updated_at = excluded.updated_at`
@@ -95,7 +102,7 @@ export function closeSessions() {
     for (const file of [...connections.keys()]) closeConnection(file)
 }
 
-function writeMessages(harnessName, chatId, messages) {
+function writeMessages(harnessName, chatId, messages, selections) {
     const key = sessionKey(harnessName, chatId)
     const entry = connection(harnessName, { create: true })
     const now = new Date().toISOString()
@@ -103,6 +110,7 @@ function writeMessages(harnessName, chatId, messages) {
     try {
         entry.ensure.run(key, harnessName, chatId, now)
         for (const [role, content] of messages) entry.insert.run(key, role, content, now)
+        if (selections?.length) entry.selectionsPut.run(key, JSON.stringify(selections))
         entry.db.exec('COMMIT')
     } catch (error) {
         entry.db.exec('ROLLBACK')
@@ -215,14 +223,26 @@ export function readPromptContext(harnessName, chatId) {
     const stored = readMemory(harnessName, chatId)
     const summary = summarizeOlder(older)
     const memory = { summary, pins: stored.pins }
-    return { messages: all.slice(-RAW_MESSAGES), summary, pins: stored.pins, block: memoryBlock(memory) }
+    const raw = connection(harnessName, { create: false })?.selectionsGet.get(sessionKey(harnessName, chatId))?.selections
+    let selections = []
+    try {
+        if (raw && raw.length <= 16000) selections = JSON.parse(raw)
+    } catch {
+        /* Older or damaged context is unavailable. */
+    }
+    return { messages: all.slice(-RAW_MESSAGES), summary, pins: stored.pins, block: memoryBlock(memory), selections }
 }
 
-export function appendTurn(harnessName, chatId, question, answer, pins = []) {
-    const key = writeMessages(harnessName, chatId, [
-        ['user', question],
-        ['assistant', answer]
-    ])
+export function appendTurn(harnessName, chatId, question, answer, pins = [], selections) {
+    const key = writeMessages(
+        harnessName,
+        chatId,
+        [
+            ['user', question],
+            ['assistant', answer]
+        ],
+        selections
+    )
     refreshMemory(harnessName, chatId, [...pinsFromText(question), ...pinsFromText(answer), ...pins])
     return key
 }

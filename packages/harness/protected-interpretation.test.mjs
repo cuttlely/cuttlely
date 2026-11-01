@@ -167,13 +167,35 @@ test('compact and word-scale diagnostics report only rejected numeric notation a
     assert.deepEqual(compact.diagnostics, [{ issue: 'unsupported_number', literal: '2.5M', unit: 'M', contextType: 'compact_monetary' }])
     const words = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $2.5 million.' })
     assert(
-        words.diagnostics.some(
-            (record) => record.literal === '2.5' && record.unit === 'million' && record.contextType === 'word_scale_monetary'
-        )
+        words.diagnostics.some((record) => record.literal === '2.5M' && record.unit === 'M' && record.contextType === 'compact_monetary')
     )
     const valid = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $1.25M.' })
     assert.equal(valid.included, true)
     assert.deepEqual(valid.diagnostics, [])
+})
+
+test('duration abbreviations and typed duration fields preserve quantity and dimension', () => {
+    const evidence = { rows: [{ notes: 'No feedback in the last 180d.', timeout_hours: 24, record_id: 'case180d' }] }
+    for (const claim of ['The gap spans 180 days.', 'The gap spans 180-day coverage.', 'The timeout is 24 hours.'])
+        assert.deepEqual(protectedLiteralIssues(claim, [evidence]), [], claim)
+    for (const claim of ['The gap spans 180 hours.', 'The gap spans 181 days.', 'There are 180 records.'])
+        assert(protectedLiteralIssues(claim, [evidence]).length, claim)
+    assert(
+        protectedLiteralIssues('The gap spans 180 days.', [{ rows: [{ record_id: 'case180d', count: 180 }] }]).includes(
+            'unsupported_duration'
+        )
+    )
+})
+
+test('word-scale money uses the existing typed denomination, sign and rounding protections', () => {
+    for (const [value, claim] of [
+        ['1250000', '$1.25 million'],
+        ['-1250000', '-$1.25 million'],
+        ['1250', '$1.25 thousand']
+    ])
+        assert.deepEqual(protectedLiteralIssues('Reported revenue is ' + claim + '.', [{ rows: [{ revenue: value }] }], [], '$'), [])
+    for (const row of [{ revenue: '1250000', currency: 'EUR' }, { count: 1250000 }, { notes: 'revenue 1250000' }, { revenue: '-1250000' }])
+        assert(protectedLiteralIssues('Revenue is $1.25 million.', [{ rows: [row] }], [], '$').length)
 })
 
 test('numeric diagnostics are bounded and contain no draft or source-body snippets', () => {

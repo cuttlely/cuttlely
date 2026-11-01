@@ -510,6 +510,13 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
         )
         .join('\n')
     const numbers = new Set(numberLiterals(text))
+    const durations = new Set(durationLiterals(text).map((item) => item.key))
+    for (const item of evidence) {
+        const unit = (item.column || item.path.split('.').at(-1)).match(
+            /(?:^|_)(milliseconds?|seconds?|minutes?|hours?|days?|weeks?)$/i
+        )?.[1]
+        if (unit && /^\d+(?:\.\d+)?$/.test(String(item.value))) durations.add(durationKey(item.value, unit))
+    }
     const dates = new Set(dateLiterals(text))
     const currencies = new Set()
     const percentages = new Set()
@@ -616,6 +623,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
         evidence,
         text,
         numbers,
+        durations,
         dates,
         currencies,
         reportingCurrencySymbol: reporting,
@@ -661,6 +669,29 @@ const compactPattern = /(?<![\p{L}\p{N}_])([-+]?\d+(?:,\d{3})*(?:\.\d+)?)([KMB])
 const countUnit =
     /^\s*(?:%|(?:accounts?|customers?|opportunities|renewals|deals|seats|licenses|events?|rows?|users?|tickets?|contracts?|records?|employees?|percent|points?)\b)/i
 const monetaryContext = /\b(?:acv|nacv|racv|arr|tcv|ram|revenue|bookings|sales|churn|loss|amount)\b/i
+const durationUnits = {
+    ms: 'millisecond',
+    s: 'second',
+    sec: 'second',
+    m: 'minute',
+    min: 'minute',
+    h: 'hour',
+    hr: 'hour',
+    d: 'day',
+    w: 'week',
+    wk: 'week'
+}
+function durationKey(value, unit) {
+    const name = unit.toLowerCase().replace(/s$/, '')
+    return `${normalizeNumber(String(value))}:${durationUnits[unit.toLowerCase()] || durationUnits[name] || name}`
+}
+function durationLiterals(text) {
+    return [
+        ...text.matchAll(
+            /(?<![\p{L}\p{N}_])([-+]?\d+(?:\.\d+)?)[ -]*(milliseconds?|seconds?|minutes?|hours?|days?|weeks?|ms|sec|min|hr|wk|[sdhw])(?![\p{L}\p{N}_])/giu
+        )
+    ].map((match) => ({ start: match.index, length: match[0].length, key: durationKey(match[1], match[2]) }))
+}
 
 // Diagnostic records deliberately contain no surrounding prose or source values.
 // Collection is opt-in and cannot change the literal validation outcome.
@@ -772,6 +803,11 @@ function literalIssues(text, facts, diagnostic) {
         .replace(/^\s*#{1,6}\s*\d+[.)]?\s+/gm, '')
         .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)]\1[ \t]+/gm, '')
         .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)][ \t]+(?=[^\n]*\1[ \t]*$)/gm, '')
+        // Written scales use exactly the same typed-money and rounding checks as K/M/B.
+        .replace(
+            /([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s+(thousand|million|billion)\b/gi,
+            (whole, value, scale) => value + { thousand: 'K', million: 'M', billion: 'B' }[scale.toLowerCase()]
+        )
     const spans = dateSpans(claims)
     const claimDates = spans.flatMap((span) => span.dates)
     if (claimDates.some((date) => !date || !facts.dates.has(date))) issues.push('unsupported_date')
@@ -780,7 +816,11 @@ function literalIssues(text, facts, diagnostic) {
         (value, span) => value.slice(0, span.start) + ' '.repeat(span.end - span.start) + value.slice(span.end),
         claims
     )
-    const compactMasked = facts.reportingCurrencySymbol ? compactClaims(dateMasked, facts, issues, diagnostic) : dateMasked
+    const durationMasked = durationLiterals(dateMasked).reduceRight((value, item) => {
+        if (!facts.durations.has(item.key)) issues.push('unsupported_duration')
+        return value.slice(0, item.start) + ' '.repeat(item.length) + value.slice(item.start + item.length)
+    }, dateMasked)
+    const compactMasked = facts.reportingCurrencySymbol ? compactClaims(durationMasked, facts, issues, diagnostic) : durationMasked
     if (numberLiterals(compactMasked).some((number) => !facts.numbers.has(number))) issues.push('unsupported_number')
     if (diagnostic) {
         for (const match of compactMasked.matchAll(/(?<![\p{L}\p{N}_])[-+]?\d+(?:,\d{3})*(?:\.\d+)?(?![\p{L}\p{N}_])/gu)) {
