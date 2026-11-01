@@ -2,7 +2,7 @@
 
 ## Status and intent
 
-This note records the provider-neutral authentication and provisioning design for Cuttlely. Phase B2, now on the main line, implements the shared database session, one selected interactive sign-in method, the **Auth / SSO** page, and permanent owner recovery. This branch adds the generic OIDC B1 implementation on that base. SCIM v2 remains later work.
+This note records the provider-neutral authentication and provisioning design for Cuttlely. Phase A, generic OIDC (B1) and Phase B2 are on the main line; B2 implements the shared database session, one selected interactive sign-in method, the **Auth / SSO** page, and permanent owner recovery. Phase C SCIM v2 provisioning is in review in [#361](https://github.com/cuttlely/cuttlely/pull/361). Phase D remains.
 
 The selectable methods are:
 

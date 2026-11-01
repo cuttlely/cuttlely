@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
-1. **Auth / SSO SCIM review.** Phase A ([#352](https://github.com/cuttlely/cuttlely/pull/352)), generic OIDC ([#359](https://github.com/cuttlely/cuttlely/pull/359)) and database-session convergence with always-available owner recovery ([#360](https://github.com/cuttlely/cuttlely/pull/360)) are on `main` and shipped in 1.4.9. SCIM v2 provisioning is open as [#361](https://github.com/cuttlely/cuttlely/pull/361) and is not part of 1.4.10.
+1. **Auth / SSO SCIM review.** Phase A ([#352](https://github.com/cuttlely/cuttlely/pull/352)), generic OIDC ([#359](https://github.com/cuttlely/cuttlely/pull/359)) and database-session convergence with always-available owner recovery ([#360](https://github.com/cuttlely/cuttlely/pull/360)) are on `main` and shipped in 1.4.9. Phase C SCIM v2 provisioning is in review in [#361](https://github.com/cuttlely/cuttlely/pull/361). Phase D remains.
 2. **Orchestrate live test.** The `external_chat` route is built (D101). The live tenant check in the architect's section 2.12 is a separate run: no tunnel or tenant from the PR1 builder.
 3. **After v1.0.1.** Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
 4. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Use a maintainer's test credentials.
