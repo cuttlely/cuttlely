@@ -919,6 +919,33 @@ test('CSV rejects incomplete, over-cap, malformed or imprecise table sources and
     assert.throws(() => tablePayloadCsv(csvBody(), {}, { signal: AbortSignal.abort() }), { code: 'aborted' })
 })
 
+test('CSV authors can opt into larger complete exports and a captured source report without changing default bounds', () => {
+    const authored = trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', maxRows: 10000, reportPath: 'rows.0.report' }])[0]
+    const source = csvBody(577)
+    source.rows[0].report = '| Name |\n| --- |\n| Exact source label |\n\nSource: sample ledger.'
+    const rendered = tablePayloadCsv(source, authored)
+    assert.match(rendered.text, /577 source rows/)
+    assert.ok(rendered.text.endsWith(source.rows[0].report))
+    assert.equal(Buffer.from(rendered.artifact.base64, 'base64').toString('utf8').split('\r\n').length > 577, true)
+    assert.throws(() => tablePayloadCsv(source), /at most 100 rows/)
+    for (const maxRows of [0, 1.5, '1000', 10001]) {
+        assert.throws(() => trustedOutputContracts([{ ...authored, maxRows }]), { code: 'trusted_output' })
+        assert.throws(() => tablePayloadCsv(source, { maxRows }), { code: 'trusted_output' })
+    }
+    assert.throws(() => tablePayloadCsv(csvBody(10001), { maxRows: 10000 }), { code: 'trusted_output' })
+    for (const reportPath of ['rows.__proto__.report', 'rows.0.*', ''])
+        assert.throws(() => trustedOutputContracts([{ ...authored, reportPath }]), { code: 'trusted_output' })
+    assert.throws(() => tablePayloadCsv(csvBody(1), authored), /field is missing/)
+    source.rows[0].table_payload.complete = false
+    assert.throws(() => tablePayloadCsv(source, authored), { code: 'trusted_output' })
+})
+
+test('a specialist can protect more than sixteen source intents while preserving the contract budget', () => {
+    const entries = Array.from({ length: 32 }, (_, i) => ({ ...contract, pin: `pq_report_${i}` }))
+    assert.equal(trustedOutputContracts(entries).length, 32)
+    assert.throws(() => trustedOutputContracts([...entries, { ...contract, pin: 'pq_over_budget' }]), /At most 32/)
+})
+
 test('actual captured CSV and mixed PNG/CSV replace model artifacts, preserve native types, and recover final model failure', async () => {
     const out = await runFixture({ csv: true, failWorker: true })
     assert.equal(out.calls.length, 1)
