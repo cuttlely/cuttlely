@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Agent-team follow-ups can retain the exact source-backed record selection and order across shortened history and specialist changes. The shared router distinguishes factual presentation from analysis. Protected analysis gets one tool-free, revalidated repair for unsupported claims, and an unmapped source fallback presents bounded business records instead of nested field paths. Equivalent duration abbreviations and written monetary scales retain unit and denomination checks. See [team tuning](./docs/how-to/tune-agent-team.md#carry-intent-and-record-scope-between-turns).
+-   Agent-team follow-ups can retain the exact source-backed record selection and order across shortened history and specialist changes. The shared router distinguishes factual presentation from analysis and recognizes shared query scopes when choosing an owner for a complete deliverable. Protected analysis gets one tool-free, revalidated repair for unsupported claims, and an unmapped source fallback presents bounded business records instead of nested field paths. Equivalent duration abbreviations and written monetary scales retain unit and denomination checks. See [team tuning](./docs/how-to/tune-agent-team.md#carry-intent-and-record-scope-between-turns).
 
 ## [1.4.10] - 2026-11-01
 

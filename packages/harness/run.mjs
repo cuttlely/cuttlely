@@ -1467,14 +1467,35 @@ export const ROUTE_IMAGES =
 export const ROUTE_ANALYST =
     'Any SQL, database, or analyst-addressed request must go to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. Never return an empty steps list. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst. Do not answer it yourself.'
 export const ROUTE_ANALYSTS =
-    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request must go to the analyst whose summary and tables fit it. When several fit, send a step to each of them. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. Never return an empty steps list. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst that returned it. Do not answer it yourself.'
+    'Several specialists can query databases; they may share a source. Any SQL, database, or analyst-addressed request must go to the specialist whose source scope and capabilities fit the whole deliverable. Prefer a single owner when one specialist can retrieve the data and complete the requested analysis, table or artifact. Multiple matching specialists do not by themselves require multiple steps. Use several for distinct required sources or genuinely separate work; use a dependency when a later role needs evidence or analysis it cannot obtain itself. Never answer those directly. Never return an empty steps list. Paging goes to the analyst that returned the page.'
 export const ROUTE_CHOOSE_ANALYST =
     'This request is a database task and no analyst was chosen for it. Choose the analyst whose summary and tables fit the request. Choose more than one only when the request needs data from more than one. Reply with JSON only: {"analysts":["NAME"]}.'
 
 export function routeAnalystNote(specialists) {
     const count = (specialists || []).filter((specialist) => hasAnalystTool(specialist)).length
     if (!count) return ''
-    return count === 1 ? ROUTE_ANALYST : ROUTE_ANALYSTS
+    return count === 1 ? ROUTE_ANALYST : [ROUTE_ANALYSTS, sharedAnalystSources(specialists)].filter(Boolean).join('\n')
+}
+
+// A shared author-wired query node is evidence of the same tool scope. Do not
+// infer equivalence from a credential, display label or a similar table name.
+// Only role names and local source numbers enter the model prompt.
+export function sharedAnalystSources(specialists = []) {
+    const groups = new Map()
+    for (const specialist of specialists) {
+        for (const binding of [...(specialist.modules || []), ...(specialist.mcpServers || [])]) {
+            if (binding?.nodeName !== 'postgreSQLMCP' || typeof binding.nodeId !== 'string' || !binding.nodeId) continue
+            if (!groups.has(binding.nodeId)) groups.set(binding.nodeId, new Set())
+            groups.get(binding.nodeId).add(specialist.name)
+        }
+    }
+    const shared = [...groups.values()].filter((names) => names.size > 1)
+    if (!shared.length) return ''
+    return [
+        'Shared query tool scopes (alternative owners for work within that scope):',
+        ...shared.map((names, index) => `Source ${index + 1}: ${[...names].map((name) => JSON.stringify(name)).join(', ')}.`),
+        'When one of these roles can complete the requested deliverable end to end, assign it the whole task. Do not add a query-only predecessor merely to retrieve the same data again.'
+    ].join('\n')
 }
 
 export const HANDOFF_GROUNDING =
@@ -1636,6 +1657,7 @@ export async function chooseAnalysts(context, input, history, analysts) {
     const system = [
         `You choose the analyst for a database request in the "${context.name}" harness.`,
         ROUTE_CHOOSE_ANALYST,
+        sharedAnalystSources(analysts),
         'Analysts:',
         ...analysts.map((specialist) => routerLine(specialist, analysts.length))
     ].join('\n')
