@@ -804,9 +804,8 @@ function literalIssues(text, facts, diagnostic) {
         .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)]\1[ \t]+/gm, '')
         .replace(/^[ \t]{0,3}(\*\*|__)\d+[.)][ \t]+(?=[^\n]*\1[ \t]*$)/gm, '')
         // Written scales use exactly the same typed-money and rounding checks as K/M/B.
-        .replace(
-            /([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s+(thousand|million|billion)\b/gi,
-            (whole, value, scale) => value + { thousand: 'K', million: 'M', billion: 'B' }[scale.toLowerCase()]
+        .replace(/(?<![\p{L}\p{N}_])([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s+(thousand|million|billion)\b/giu, (whole, value, scale) =>
+            facts.reportingCurrencySymbol ? value + { thousand: 'K', million: 'M', billion: 'B' }[scale.toLowerCase()] : whole
         )
     const spans = dateSpans(claims)
     const claimDates = spans.flatMap((span) => span.dates)

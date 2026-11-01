@@ -90,7 +90,7 @@ function plainCell(value) {
             const n = Number.parseInt(hex || dec, hex ? 16 : 10)
             return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole
         })
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/\[([^[\]]+)\]\([^)]*\)/g, '$1')
         .replace(/`|\*\*|__/g, '')
         .trim()
 }

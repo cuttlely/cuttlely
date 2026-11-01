@@ -196,6 +196,12 @@ test('word-scale money uses the existing typed denomination, sign and rounding p
         assert.deepEqual(protectedLiteralIssues('Reported revenue is ' + claim + '.', [{ rows: [{ revenue: value }] }], [], '$'), [])
     for (const row of [{ revenue: '1250000', currency: 'EUR' }, { count: 1250000 }, { notes: 'revenue 1250000' }, { revenue: '-1250000' }])
         assert(protectedLiteralIssues('Revenue is $1.25 million.', [{ rows: [row] }], [], '$').length)
+    assert(protectedLiteralIssues('There are 9.99 million users.', [{ rows: [{ count: 1250000 }] }]).includes('unsupported_number'))
+    assert(
+        protectedLiteralIssues('There are 9.99 million users.', [{ rows: [{ revenue: '9990000' }] }], [], '$').includes(
+            'unsupported_number'
+        )
+    )
 })
 
 test('numeric diagnostics are bounded and contain no draft or source-body snippets', () => {
