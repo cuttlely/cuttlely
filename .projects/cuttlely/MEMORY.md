@@ -185,3 +185,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   Triple-backtick fences left one unmatched inline-quote delimiter in the path scanner, so a public URL could mask the whole code block. Recognize the opening info-line newline, retain inline quoted-path behavior, and test all chunk boundaries for both public examples and local paths.
 
 -   A browser-capable documentation role could visit an authoritative page but lose its companion section because the composer only recognized retriever receipts. Capture the successful visited URL at the framework tool boundary, reject caught HTTP/network errors, and retain the same worker-turn and non-analyst restrictions. Model-supplied links alone remain insufficient.
+
+-   Extending a source type also requires compiler turn-scope injection and an on-disk compiler-version bump. Test browser-only profiles through the actual gateway and stdio path, including wrong-turn and revoked-token calls; a mixed retriever/browser profile can conceal a missing environment flag.
