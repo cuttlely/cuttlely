@@ -179,3 +179,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **A shortened transcript is not a record selection.** Preserve source-matched keys and order separately from prose so follow-ups can change the analysis or specialist without silently reranking the population. Ambiguous names or grains must not create a certified selection. Keep business source definitions in tool contracts; avoid multiplying wording-specific routing instructions.
 
 -   A malformed extra tool call can poison an already completed protected report. Mark argument validation before execution explicitly and require a matching completed stamped capture in the same worker turn before ignoring that refusal. Do not ignore executed source failures or authorize model prose from error bodies.
+
+-   A bounded source receipt can still spill downstream: the Hermes MCP default is 50,000 characters and its handler JSON-escapes the receipt inside a result envelope. A 64 KiB receipt became a 1,500-character preview, concealing records from file-disabled specialists. Budget the actual escaped envelope and verify it with the worker persistence code.
