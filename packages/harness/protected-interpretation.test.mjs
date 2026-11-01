@@ -890,3 +890,21 @@ test('source-backed currency labels are metadata while monetary values and denom
     assert(claims.some((c) => c.issue === 'unsupported_currency' && c.literal === 'USD' && c.unit === 'USD'))
     assert(claims.some((c) => c.issue === 'unsupported_currency' && c.literal === '42' && c.unit === '$'))
 })
+
+test('numeric HTML references have the same literal meaning in claims and original source evidence', () => {
+    const values = [{ rows: [{ note: 'Source refresh 2026-10-27 00:00:00+00.', acv: '1250000', currency: null }] }]
+    assert.deepEqual(protectedLiteralIssues('Source refresh: 2026-10-27 00:00:00&#43;00. ACV is &#36;1,250,000.', values, [], '$'), [])
+    assert.deepEqual(protectedLiteralIssues('ACV is &#x24;1,250,000.', values, [], '$'), [])
+    assert(protectedLiteralIssues('ACV is &#36;2,500,000.', values, [], '$').length)
+    assert(protectedLiteralIssues('ACV is &#8364;1,250,000.', values, [], '$').includes('unsupported_currency'))
+    const claims = []
+    protectedLiteralIssues('There are &#52;&#51; accounts.', values, [], '$', { diagnostics: true, onDiagnostic: (c) => claims.push(c) })
+    assert(claims.some((c) => c.issue === 'unsupported_number' && c.literal === '43'))
+})
+
+test('HTML-encoded source timestamps and percentages retain the same semantic witnesses', () => {
+    const values = [{ rows: [{ note: 'Observed utilization 75&#37; at 2026-10-27T00:00:00&#43;00:00.' }] }]
+    assert.deepEqual(protectedLiteralIssues('Observed utilization was 75% at 2026-10-27 00:00:00 UTC.', values), [])
+    assert(protectedLiteralIssues('Observed utilization was 99%.', values).includes('unsupported_percentage'))
+    assert(protectedLiteralIssues('Observed at 2026-10-28 00:00:00 UTC.', values).includes('unsupported_timestamp'))
+})
