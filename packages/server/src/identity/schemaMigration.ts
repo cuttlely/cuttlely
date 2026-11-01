@@ -375,6 +375,10 @@ function timeType(dialect: Dialect): string {
     return dialect === 'postgres' ? 'TIMESTAMP' : 'datetime'
 }
 
+function uuidType(dialect: Dialect): string {
+    return dialect === 'postgres' ? 'uuid' : 'varchar(36)'
+}
+
 function linkTableSql(dialect: Dialect): string {
     const time = timeType(dialect)
     if (dialect === 'mysql' || dialect === 'mariadb') {
@@ -684,21 +688,21 @@ export async function removeWorkosSessionId(runner: QueryRunner): Promise<void> 
 function scimConfigurationSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_scim_configuration')} (
         ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,
-        ${q(dialect, 'organizationId')} varchar(36) NULL,
-        ${q(dialect, 'activeTokenId')} varchar(36) NULL,
-        ${q(dialect, 'previousTokenId')} varchar(36) NULL
+        ${q(dialect, 'organizationId')} ${uuidType(dialect)} NULL,
+        ${q(dialect, 'activeTokenId')} ${uuidType(dialect)} NULL,
+        ${q(dialect, 'previousTokenId')} ${uuidType(dialect)} NULL
     )`
 }
 
 function scimTokenSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_scim_token')} (
-        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'id')} ${uuidType(dialect)} NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} ${uuidType(dialect)} NOT NULL,
         ${q(dialect, 'tokenHmac')} varchar(64) NOT NULL,
         ${q(dialect, 'displayPrefix')} varchar(32) NOT NULL,
         ${q(dialect, 'status')} varchar(16) NOT NULL,
         ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
-        ${q(dialect, 'createdBy')} varchar(36) NOT NULL,
+        ${q(dialect, 'createdBy')} ${uuidType(dialect)} NOT NULL,
         ${q(dialect, 'lastUsedAt')} ${timeType(dialect)} NULL,
         ${q(dialect, 'overlapEndsAt')} ${timeType(dialect)} NULL,
         ${q(dialect, 'revokedAt')} ${timeType(dialect)} NULL
@@ -711,9 +715,9 @@ function scimUserSql(dialect: Dialect): string {
             ? `${q(dialect, 'externalId')} varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL`
             : `${q(dialect, 'externalId')} varchar(255) NULL`
     return `CREATE TABLE ${q(dialect, 'identity_scim_user')} (
-        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
-        ${q(dialect, 'userId')} varchar(36) NOT NULL,
+        ${q(dialect, 'id')} ${uuidType(dialect)} NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'userId')} ${uuidType(dialect)} NOT NULL,
         ${externalId},
         ${q(dialect, 'userName')} varchar(255) NOT NULL,
         ${q(dialect, 'normalizedUserName')} varchar(255) NOT NULL,
@@ -729,8 +733,8 @@ function scimUserSql(dialect: Dialect): string {
 
 function personalTokenSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_personal_token')} (
-        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'ownerUserId')} varchar(36) NOT NULL,
+        ${q(dialect, 'id')} ${uuidType(dialect)} NOT NULL PRIMARY KEY,
+        ${q(dialect, 'ownerUserId')} ${uuidType(dialect)} NOT NULL,
         ${q(dialect, 'tokenHash')} varchar(64) NOT NULL,
         ${q(dialect, 'disabledAt')} ${timeType(dialect)} NULL,
         ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL
@@ -794,8 +798,8 @@ function scimGroupSql(dialect: Dialect): string {
             ? `${q(dialect, 'externalId')} varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL`
             : `${q(dialect, 'externalId')} varchar(255) NULL`
     return `CREATE TABLE ${q(dialect, 'identity_scim_group')} (
-        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'id')} ${uuidType(dialect)} NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} ${uuidType(dialect)} NOT NULL,
         ${externalId},
         ${q(dialect, 'displayName')} varchar(255) NOT NULL,
         ${q(dialect, 'normalizedDisplayName')} varchar(255) NOT NULL,
@@ -807,8 +811,8 @@ function scimGroupSql(dialect: Dialect): string {
 
 function scimGroupMemberSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_scim_group_member')} (
-        ${q(dialect, 'groupId')} varchar(36) NOT NULL,
-        ${q(dialect, 'scimUserId')} varchar(36) NOT NULL,
+        ${q(dialect, 'groupId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'scimUserId')} ${uuidType(dialect)} NOT NULL,
         ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
         PRIMARY KEY (${q(dialect, 'groupId')}, ${q(dialect, 'scimUserId')})
     )`
@@ -816,22 +820,22 @@ function scimGroupMemberSql(dialect: Dialect): string {
 
 function scimMappingSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_scim_mapping')} (
-        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
-        ${q(dialect, 'groupId')} varchar(36) NOT NULL,
-        ${q(dialect, 'workspaceId')} varchar(36) NOT NULL,
-        ${q(dialect, 'roleId')} varchar(36) NULL,
+        ${q(dialect, 'id')} ${uuidType(dialect)} NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'groupId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'workspaceId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'roleId')} ${uuidType(dialect)} NULL,
         ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
-        ${q(dialect, 'createdBy')} varchar(36) NOT NULL
+        ${q(dialect, 'createdBy')} ${uuidType(dialect)} NOT NULL
     )`
 }
 
 function scimAssignmentSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_scim_assignment')} (
-        ${q(dialect, 'mappingId')} varchar(36) NOT NULL,
-        ${q(dialect, 'userId')} varchar(36) NOT NULL,
-        ${q(dialect, 'workspaceId')} varchar(36) NOT NULL,
-        ${q(dialect, 'roleId')} varchar(36) NOT NULL,
+        ${q(dialect, 'mappingId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'userId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'workspaceId')} ${uuidType(dialect)} NOT NULL,
+        ${q(dialect, 'roleId')} ${uuidType(dialect)} NOT NULL,
         ${q(dialect, 'createdAt')} ${timeType(dialect)} NOT NULL,
         PRIMARY KEY (${q(dialect, 'mappingId')}, ${q(dialect, 'userId')})
     )`
@@ -839,8 +843,8 @@ function scimAssignmentSql(dialect: Dialect): string {
 
 function scimDiagnosticSql(dialect: Dialect): string {
     return `CREATE TABLE ${q(dialect, 'identity_scim_diagnostic')} (
-        ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
-        ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
+        ${q(dialect, 'id')} ${uuidType(dialect)} NOT NULL PRIMARY KEY,
+        ${q(dialect, 'organizationId')} ${uuidType(dialect)} NOT NULL,
         ${q(dialect, 'category')} varchar(48) NOT NULL,
         ${q(dialect, 'outcome')} varchar(16) NOT NULL,
         ${q(dialect, 'correlationId')} varchar(64) NOT NULL,

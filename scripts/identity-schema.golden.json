@@ -8700,13 +8700,13 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "ownerUserId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -8747,25 +8747,25 @@
             "columns": [
                 {
                     "name": "mappingId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "userId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "workspaceId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "roleId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -8794,13 +8794,13 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "organizationId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -8858,13 +8858,13 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "organizationId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -8928,13 +8928,13 @@
             "columns": [
                 {
                     "name": "groupId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "scimUserId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -8958,31 +8958,31 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "organizationId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "groupId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "workspaceId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "roleId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": true,
                     "default": null
                 },
@@ -8994,7 +8994,7 @@
                 },
                 {
                     "name": "createdBy",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 }
@@ -9023,19 +9023,19 @@
                 },
                 {
                     "name": "organizationId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": true,
                     "default": null
                 },
                 {
                     "name": "activeTokenId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": true,
                     "default": null
                 },
                 {
                     "name": "previousTokenId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": true,
                     "default": null
                 }
@@ -9053,13 +9053,13 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "organizationId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -9089,7 +9089,7 @@
                 },
                 {
                     "name": "createdBy",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
@@ -9130,19 +9130,19 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "organizationId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "userId",
-                    "type": "varchar(36)",
+                    "type": "uuid",
                     "nullable": false,
                     "default": null
                 },

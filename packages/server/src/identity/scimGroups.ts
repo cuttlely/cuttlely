@@ -4,7 +4,7 @@ import { safeRecordAudit } from './auditLog'
 import { builtInPermissionKeys, scimMappingRoleAllowed } from './builtInRoles'
 import { QueryFn, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
-import { queryString, ScimError, TokenActor } from './scim'
+import { queryString, ScimError, TokenActor, validUuid } from './scim'
 
 const MAX_COUNT = 100
 const DIAGNOSTIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -102,6 +102,12 @@ function nullable(value: unknown): string | null {
 
 function normalizedDisplayName(value: string): string {
     return value.trim().toLowerCase()
+}
+
+function requirePostgresUuid(sql: Sql, value: string, message: string, status = 400): void {
+    if (sql.type === 'postgres' && !validUuid(value)) {
+        throw new ScimError(status, message, status === 404 ? 'noTarget' : 'invalidValue')
+    }
 }
 
 function iso(value: unknown): string | null {
@@ -437,6 +443,7 @@ export async function mutateGroup(
     changes: GroupChanges,
     now = Date.now()
 ): Promise<GroupRecord> {
+    requirePostgresUuid(sql, groupId, 'Group not found.', 404)
     await sql.transaction(async (query) => {
         const groups = await groupsForOrganization(query, sql, actor.organizationId)
         const current = groups.find((group) => group.id === groupId)
@@ -715,6 +722,7 @@ export async function reconcileMappings(
 }
 
 export async function deleteGroup(sql: Sql, actor: TokenActor, groupId: string, now = Date.now()): Promise<void> {
+    requirePostgresUuid(sql, groupId, 'Group not found.', 404)
     let deleted: GroupRecord | null = null
     let removedMapping: { id: string; groupId: string; workspaceId: string; roleId: string | null } | null = null
     let removedAssignmentCount = 0
@@ -853,6 +861,9 @@ async function mappingCreationSnapshot(
     const workspaceId = text(record.workspaceId).trim()
     const roleId = nullable(record.roleId)
     if (!groupId || !workspaceId) throw new ScimError(400, 'Choose a SCIM group and team.', 'invalidValue')
+    requirePostgresUuid(sql, groupId, 'Choose a current SCIM group.')
+    requirePostgresUuid(sql, workspaceId, 'Choose a team in this organization.')
+    if (roleId) requirePostgresUuid(sql, roleId, 'Choose a current role.')
     const groups = await groupsForOrganization(query, sql, actor.organizationId)
     const group = groups.find((item) => item.id === groupId)
     if (!group) throw new ScimError(400, 'Choose a current SCIM group.', 'invalidValue')
@@ -1060,6 +1071,7 @@ function previewFingerprint(mappingId: string, assignments: Array<Record<string,
 }
 
 export async function previewMappingRemoval(sql: Sql, actor: MappingAdminActor, mappingId: string): Promise<Record<string, unknown>> {
+    requirePostgresUuid(sql, mappingId, 'Mapping not found.', 404)
     const mapping = (await mappingRows(sql, actor.organizationId)).find((item) => item.id === mappingId)
     if (!mapping) throw new ScimError(404, 'Mapping not found.', 'noTarget')
     const assignments = await assignmentPreview(sql, actor, mappingId)
@@ -1073,6 +1085,7 @@ export async function removeMapping(
     fingerprint: unknown,
     now = Date.now()
 ): Promise<void> {
+    requirePostgresUuid(sql, mappingId, 'Mapping not found.', 404)
     let removed: { id: string; groupId: string; workspaceId: string; roleId: string | null } | null = null
     let removedAssignmentCount = 0
     await sql.transaction(async (query) => {

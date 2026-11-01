@@ -637,6 +637,14 @@ function validUserName(value: string): boolean {
     return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+export function validUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
+function requirePostgresUuid(sql: Sql, value: string, resource: 'User' | 'Group'): void {
+    if (sql.type === 'postgres' && !validUuid(value)) throw new ScimError(404, `${resource} not found.`, 'noTarget')
+}
+
 async function memberRoleId(query: QueryFn, sql: Sql): Promise<string> {
     const rows = await query(
         `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'role')} WHERE LOWER(${q(sql, 'name')}) = 'member'
@@ -749,6 +757,25 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
             if (candidates.length === 1) {
                 internalId = text(cell(candidates[0], 'id'))
             } else {
+                const existingAccounts = await query(
+                    `SELECT u.${q(sql, 'id')} AS id,
+                            CASE WHEN ou.${q(sql, 'userId')} IS NULL THEN 0 ELSE 1 END AS sameOrganization
+                     FROM ${q(sql, 'user')} u
+                     LEFT JOIN ${q(sql, 'organization_user')} ou ON ou.${q(sql, 'userId')} = u.${q(sql, 'id')}
+                        AND ou.${q(sql, 'organizationId')} = ?
+                     WHERE LOWER(u.${q(sql, 'email')}) = ? LIMIT 1`,
+                    [actor.organizationId, normalized]
+                )
+                if (existingAccounts.length) {
+                    const sameOrganization = Number(cell(existingAccounts[0], 'sameOrganization')) === 1
+                    throw new ScimError(
+                        409,
+                        sameOrganization
+                            ? 'An account with this email cannot be provisioned by SCIM.'
+                            : 'An account with this email belongs to another organization.',
+                        'uniqueness'
+                    )
+                }
                 internalId = randomUUID()
                 await query(
                     `INSERT INTO ${q(sql, 'user')} (${q(sql, 'id')}, ${q(sql, 'name')}, ${q(sql, 'email')}, ${q(sql, 'credential')}, ${q(
@@ -903,6 +930,7 @@ export async function mutateUser(
     operation: string,
     now = Date.now()
 ): Promise<UserRecord> {
+    requirePostgresUuid(sql, resourceId, 'User')
     let internalId = ''
     let auditedOperation = operation
     try {
@@ -970,6 +998,7 @@ export async function mutateUser(
 }
 
 export async function deleteUser(sql: Sql, actor: TokenActor, resourceId: string, now = Date.now()): Promise<void> {
+    requirePostgresUuid(sql, resourceId, 'User')
     let internalId = ''
     try {
         await sql.transaction(async (query) => {
@@ -1445,6 +1474,7 @@ identityScimRouter.post(
 identityScimRouter.get(
     '/Groups/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'Group not found.', 'noTarget')
         const actor = req.scimActor as TokenActor
         const found = (await groupsForOrganization(applicationSql().query, applicationSql(), actor.organizationId)).find(
             (group) => group.id === req.params.id
@@ -1457,6 +1487,7 @@ identityScimRouter.get(
 identityScimRouter.put(
     '/Groups/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'Group not found.', 'noTarget')
         const record = object(req.body)
         const changes: GroupChanges = {
             displayName: text(record.displayName).trim(),
@@ -1472,6 +1503,7 @@ identityScimRouter.put(
 identityScimRouter.patch(
     '/Groups/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'Group not found.', 'noTarget')
         const changes = groupPatchChanges(req.body)
         res.locals.scimOperationCategory = operationCategoryForGroupChanges(changes)
         const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, changes)
@@ -1482,6 +1514,7 @@ identityScimRouter.patch(
 identityScimRouter.delete(
     '/Groups/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'Group not found.', 'noTarget')
         await deleteGroup(applicationSql(), req.scimActor as TokenActor, req.params.id)
         res.status(204).end()
     })
@@ -1516,6 +1549,7 @@ identityScimRouter.post(
 identityScimRouter.get(
     '/Users/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'User not found.', 'noTarget')
         const actor = req.scimActor as TokenActor
         const found = (await usersForOrganization(applicationSql().query, applicationSql(), actor.organizationId)).find(
             (item) => item.id === req.params.id
@@ -1528,6 +1562,7 @@ identityScimRouter.get(
 identityScimRouter.put(
     '/Users/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'User not found.', 'noTarget')
         const record = object(req.body)
         if (typeof record.userName !== 'string') throw new ScimError(400, 'userName is required.', 'invalidValue')
         const changes = replaceChanges(record)
@@ -1547,6 +1582,7 @@ identityScimRouter.put(
 identityScimRouter.patch(
     '/Users/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'User not found.', 'noTarget')
         const changes = patchChanges(req.body)
         const updated = await mutateUser(applicationSql(), req.scimActor as TokenActor, req.params.id, changes, 'updated')
         res.locals.scimOperationCategory = operationCategoryForUserChanges(changes)
@@ -1557,6 +1593,7 @@ identityScimRouter.patch(
 identityScimRouter.delete(
     '/Users/:id',
     asyncRoute(async (req, res) => {
+        if (!validUuid(req.params.id)) throw new ScimError(404, 'User not found.', 'noTarget')
         await deleteUser(applicationSql(), req.scimActor as TokenActor, req.params.id)
         res.status(204).end()
     })

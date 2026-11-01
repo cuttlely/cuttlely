@@ -364,6 +364,29 @@ describe('SCIM users', () => {
         db.close()
     })
 
+    it('returns a generic uniqueness conflict for an account in another organization', async () => {
+        const { sql, db } = directoryStore()
+        db.prepare('INSERT INTO user (id, name, email, status, createdBy, updatedBy) VALUES (?, ?, ?, ?, ?, ?)').run(
+            'outside-user',
+            'Outside User',
+            'outside@example.com',
+            'active',
+            'outside-user',
+            'outside-user'
+        )
+        db.prepare(
+            'INSERT INTO organization_user (organizationId, userId, roleId, status, createdBy, updatedBy) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run('org-2', 'outside-user', 'member-role', 'active', 'outside-user', 'outside-user')
+
+        await expect(createUser(sql, actor, { userName: 'outside@example.com' })).rejects.toMatchObject({
+            status: 409,
+            scimType: 'uniqueness',
+            message: 'An account with this email belongs to another organization.'
+        })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_user').get()).toMatchObject({ count: 0 })
+        db.close()
+    })
+
     it('creates, reads, replaces, deactivates, deletes, and restores a stable resource', async () => {
         const { sql, db } = directoryStore()
         const created = await createUser(

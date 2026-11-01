@@ -224,6 +224,30 @@ describe.each(['mysql', 'mariadb'] as const)('SCIM schema on %s', (dialect) => {
     })
 })
 
+describe('SCIM schema on postgres', () => {
+    it('uses uuid for SCIM ids and every reference to a core uuid id', async () => {
+        const { runner, calls } = postgresRunner(new Set(['apikey']))
+        await addScimProvisioning(runner)
+        await addScimGroups(runner)
+
+        const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE "${table}"`))?.sql || ''
+        const uuidColumns: Record<string, string[]> = {
+            identity_scim_configuration: ['organizationId', 'activeTokenId', 'previousTokenId'],
+            identity_scim_token: ['id', 'organizationId', 'createdBy'],
+            identity_scim_user: ['id', 'organizationId', 'userId'],
+            identity_personal_token: ['id', 'ownerUserId'],
+            identity_scim_group: ['id', 'organizationId'],
+            identity_scim_group_member: ['groupId', 'scimUserId'],
+            identity_scim_mapping: ['id', 'organizationId', 'groupId', 'workspaceId', 'roleId', 'createdBy'],
+            identity_scim_assignment: ['mappingId', 'userId', 'workspaceId', 'roleId'],
+            identity_scim_diagnostic: ['id', 'organizationId']
+        }
+        for (const [table, columns] of Object.entries(uuidColumns)) {
+            for (const column of columns) expect(create(table)).toContain(`"${column}" uuid`)
+        }
+    })
+})
+
 describe('SCIM schema on sqlite', () => {
     it('is idempotent and its down path removes every added object', async () => {
         const tables = new Set(['apikey'])
