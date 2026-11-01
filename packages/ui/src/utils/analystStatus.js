@@ -47,6 +47,26 @@ export function serverAnalystMode(nodeData, post) {
     return serverWide
 }
 
+// A connection picked in the panel is written onto the node data in place, which does not redraw other cards.
+// The panel calls notifyConnectionPicked so the link notes on the canvas read the node data again.
+const pickListeners = new Set()
+
+export function notifyConnectionPicked() {
+    for (const listener of [...pickListeners]) listener()
+}
+
+export function useConnectionPicks() {
+    const [count, setCount] = useState(0)
+    useEffect(() => {
+        const listener = () => setCount((value) => value + 1)
+        pickListeners.add(listener)
+        return () => {
+            pickListeners.delete(listener)
+        }
+    }, [])
+    return count
+}
+
 export function resetAnalystModeCache() {
     serverWide = null
 }
@@ -109,7 +129,7 @@ export const MODE_TEXT = {
     readonly: {
         severity: 'info',
         badge: 'Read-only database.',
-        detail: 'Queries read your database through the chosen connection and never change it.'
+        detail: 'Queries read the configured Postgres database and never change it.'
     },
     sandbox: {
         severity: 'info',

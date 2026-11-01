@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Box, Dialog, Stack, Typography } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import { FREE_SQL_NUDGE, PARAM_TYPES, PIN_COLLAPSE_AT, filterPins, needsRetestMark, pinTitle } from './model'
 
 export function FreeSqlNote() {
@@ -14,61 +15,63 @@ export function FreeSqlNote() {
 function ParamTable({ editor, onParam = () => {}, onSample = () => {} }) {
     if (!editor.params.length) return <p>No parameters yet. Write :name in the SQL to add one, for example :region.</p>
     return (
-        <table data-testid='param-table'>
-            <thead>
-                <tr>
-                    <th scope='col'>Name</th>
-                    <th scope='col'>Type</th>
-                    <th scope='col'>Required</th>
-                    <th scope='col'>Sample</th>
-                </tr>
-            </thead>
-            <tbody>
-                {editor.params.map((param) => (
-                    <tr key={param.name}>
-                        <td>{param.name}</td>
-                        <td>
-                            <label>
-                                Type for {param.name}
-                                <select
-                                    data-testid={`type-${param.name}`}
-                                    value={param.type || ''}
-                                    onChange={(event) => onParam(param.name, { type: event.target.value })}
-                                >
-                                    <option value=''>Choose a type</option>
-                                    {PARAM_TYPES.map((type) => (
-                                        <option key={type} value={type}>
-                                            {type}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        </td>
-                        <td>
-                            <label>
-                                Required
-                                <input
-                                    type='checkbox'
-                                    data-testid={`required-${param.name}`}
-                                    checked={param.required !== false}
-                                    onChange={(event) => onParam(param.name, { required: event.target.checked })}
-                                />
-                            </label>
-                        </td>
-                        <td>
-                            <label>
-                                Sample for {param.name}
-                                <input
-                                    data-testid={`sample-${param.name}`}
-                                    value={editor.samples?.[param.name] ?? ''}
-                                    onChange={(event) => onSample(param.name, event.target.value)}
-                                />
-                            </label>
-                        </td>
+        <div style={{ overflowX: 'auto' }}>
+            <table data-testid='param-table' style={{ minWidth: 420 }}>
+                <thead>
+                    <tr>
+                        <th scope='col'>Name</th>
+                        <th scope='col'>Type</th>
+                        <th scope='col'>Required</th>
+                        <th scope='col'>Sample</th>
                     </tr>
-                ))}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {editor.params.map((param) => (
+                        <tr key={param.name}>
+                            <td>{param.name}</td>
+                            <td>
+                                <label>
+                                    Type for {param.name}
+                                    <select
+                                        data-testid={`type-${param.name}`}
+                                        value={param.type || ''}
+                                        onChange={(event) => onParam(param.name, { type: event.target.value })}
+                                    >
+                                        <option value=''>Choose a type</option>
+                                        {PARAM_TYPES.map((type) => (
+                                            <option key={type} value={type}>
+                                                {type}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </td>
+                            <td>
+                                <label>
+                                    Required
+                                    <input
+                                        type='checkbox'
+                                        data-testid={`required-${param.name}`}
+                                        checked={param.required !== false}
+                                        onChange={(event) => onParam(param.name, { required: event.target.checked })}
+                                    />
+                                </label>
+                            </td>
+                            <td>
+                                <label>
+                                    Sample for {param.name}
+                                    <input
+                                        data-testid={`sample-${param.name}`}
+                                        value={editor.samples?.[param.name] ?? ''}
+                                        onChange={(event) => onSample(param.name, event.target.value)}
+                                    />
+                                </label>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
     )
 }
 
@@ -98,26 +101,28 @@ function ResultPanel({ result }) {
                 ))}
             </ul>
             {rows.length ? (
-                <table data-testid='result-rows'>
-                    <thead>
-                        <tr>
-                            {Object.keys(rows[0]).map((name) => (
-                                <th key={name} scope='col'>
-                                    {name}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row, index) => (
-                            <tr key={index}>
+                <div style={{ overflowX: 'auto' }}>
+                    <table data-testid='result-rows'>
+                        <thead>
+                            <tr>
                                 {Object.keys(rows[0]).map((name) => (
-                                    <td key={name}>{row[name] == null ? '' : String(row[name])}</td>
+                                    <th key={name} scope='col'>
+                                        {name}
+                                    </th>
                                 ))}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {rows.map((row, index) => (
+                                <tr key={index}>
+                                    {Object.keys(rows[0]).map((name) => (
+                                        <td key={name}>{row[name] == null ? '' : String(row[name])}</td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             ) : null}
             <details data-testid='tool-preview'>
                 <summary>Tool the agent will see</summary>
@@ -156,15 +161,22 @@ const badge = {
     background: 'rgba(128,128,128,0.18)'
 }
 
-const warnBadge = { background: 'rgba(237,108,2,0.14)', color: '#b25400', cursor: 'help' }
+// Warning text dark enough to read on the light panel, and light enough on the dark one.
+export function useWarnText() {
+    const theme = useTheme()
+    return theme?.palette?.mode === 'dark' ? '#ffb74d' : '#8a4b00'
+}
+
+const warnBadge = { background: 'rgba(237,108,2,0.14)', cursor: 'help' }
 
 const canUseDom = typeof window !== 'undefined' && typeof document !== 'undefined' && typeof document.createElement === 'function'
 
 // The editor opens as a dialog over the panel. Where there is no DOM (server render, tests) it renders in place.
-function EditorShell({ onClose, children }) {
+function EditorShell({ onClose, busy = false, children }) {
     if (!canUseDom) return children
+    // While Test & save runs the dialog stays open, so the answer lands in the editor that asked for it.
     return (
-        <Dialog open onClose={onClose} fullWidth maxWidth='md' aria-label='Pinned query' scroll='paper'>
+        <Dialog open onClose={busy ? undefined : onClose} fullWidth maxWidth='md' aria-label='Pinned query' scroll='paper'>
             <Box sx={{ p: 3 }}>{children}</Box>
         </Dialog>
     )
@@ -172,6 +184,7 @@ function EditorShell({ onClose, children }) {
 
 EditorShell.propTypes = {
     onClose: PropTypes.func,
+    busy: PropTypes.bool,
     children: PropTypes.node
 }
 
@@ -208,114 +221,123 @@ function PinEditor({
             </Typography>
             {needsRetestMark(editor) ? <p data-testid='editor-needs-retest'>Needs re-test</p> : null}
             <Stack spacing={1.5}>
-                <label>
-                    Purpose
-                    <input
-                        data-testid='purpose'
-                        style={inputStyle}
-                        value={editor.purpose}
-                        onChange={(event) => onField('purpose', event.target.value)}
-                    />
-                </label>
-                <label>
-                    Tool name
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span data-testid='tool-prefix'>pq_</span>
-                        <input
-                            data-testid='tool-slug'
-                            style={inputStyle}
-                            value={editor.slug}
-                            onChange={(event) => onField('slug', event.target.value)}
-                        />
-                    </span>
-                </label>
-                <label>
-                    SQL
-                    <textarea
-                        data-testid='sql'
-                        rows={6}
-                        style={{ ...inputStyle, fontFamily: 'monospace' }}
-                        value={editor.sql}
-                        onChange={(event) => onField('sql', event.target.value)}
-                    />
-                </label>
-                <span>
-                    <button type='button' style={rowButton} data-testid='remove-semicolon' onClick={onRemoveSemicolon}>
-                        Remove trailing semicolon
-                    </button>
-                    <button type='button' style={rowButton} data-testid='add-limit' onClick={onAddLimit}>
-                        Add LIMIT 100
-                    </button>
-                </span>
-                <ParamTable editor={editor} onParam={onParam} onSample={onSample} />
-                <details data-testid='advanced'>
-                    <summary>Advanced</summary>
-                    <label>
-                        Description
-                        <textarea
-                            data-testid='description'
-                            style={inputStyle}
-                            value={editor.description || ''}
-                            onChange={(event) => onField('description', event.target.value)}
-                        />
-                    </label>
-                    <label>
-                        Row cap
-                        <input
-                            data-testid='row-cap'
-                            style={inputStyle}
-                            placeholder='Server limit (100 by default)'
-                            value={editor.rowCap ?? ''}
-                            onChange={(event) => onField('rowCap', event.target.value)}
-                        />
-                    </label>
-                    {editor.params.map((param) => (
-                        <fieldset key={param.name}>
-                            <legend>{param.name}</legend>
-                            <label>
-                                Default
+                {/* A read-only flow can open a pin to read it; every field is locked. */}
+                <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                    <Stack spacing={1.5}>
+                        <label>
+                            Purpose
+                            <input
+                                data-testid='purpose'
+                                style={inputStyle}
+                                value={editor.purpose}
+                                onChange={(event) => onField('purpose', event.target.value)}
+                            />
+                        </label>
+                        <label>
+                            Tool name
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span data-testid='tool-prefix'>pq_</span>
                                 <input
-                                    data-testid={`default-${param.name}`}
-                                    value={param.default ?? ''}
-                                    onChange={(event) => onParam(param.name, { default: event.target.value })}
+                                    data-testid='tool-slug'
+                                    style={inputStyle}
+                                    value={editor.slug}
+                                    onChange={(event) => onField('slug', event.target.value)}
+                                />
+                            </span>
+                        </label>
+                        <label>
+                            SQL
+                            <textarea
+                                data-testid='sql'
+                                rows={6}
+                                style={{ ...inputStyle, fontFamily: 'monospace' }}
+                                value={editor.sql}
+                                onChange={(event) => onField('sql', event.target.value)}
+                            />
+                        </label>
+                        <span>
+                            <button type='button' style={rowButton} data-testid='remove-semicolon' onClick={onRemoveSemicolon}>
+                                Remove trailing semicolon
+                            </button>
+                            <button type='button' style={rowButton} data-testid='add-limit' onClick={onAddLimit}>
+                                Add LIMIT 100
+                            </button>
+                        </span>
+                        <ParamTable editor={editor} onParam={onParam} onSample={onSample} />
+                        <details data-testid='advanced'>
+                            <summary>Advanced</summary>
+                            <label>
+                                Description
+                                <textarea
+                                    data-testid='description'
+                                    style={inputStyle}
+                                    value={editor.description || ''}
+                                    onChange={(event) => onField('description', event.target.value)}
                                 />
                             </label>
                             <label>
-                                Allowed values
+                                Row cap
                                 <input
-                                    data-testid={`allowed-${param.name}`}
-                                    value={Array.isArray(param.allowedValues) ? param.allowedValues.join(', ') : param.allowedValues ?? ''}
-                                    onChange={(event) => onParam(param.name, { allowedValues: event.target.value })}
+                                    data-testid='row-cap'
+                                    style={inputStyle}
+                                    placeholder='Server limit (100 by default)'
+                                    value={editor.rowCap ?? ''}
+                                    onChange={(event) => onField('rowCap', event.target.value)}
                                 />
                             </label>
-                            <label>
-                                Min
-                                <input
-                                    data-testid={`min-${param.name}`}
-                                    value={param.min ?? ''}
-                                    onChange={(event) => onParam(param.name, { min: event.target.value })}
-                                />
-                            </label>
-                            <label>
-                                Max
-                                <input
-                                    data-testid={`max-${param.name}`}
-                                    value={param.max ?? ''}
-                                    onChange={(event) => onParam(param.name, { max: event.target.value })}
-                                />
-                            </label>
-                            <label>
-                                Secure
-                                <input
-                                    type='checkbox'
-                                    data-testid={`secure-${param.name}`}
-                                    checked={param.secure === true}
-                                    onChange={(event) => onParam(param.name, { secure: event.target.checked })}
-                                />
-                            </label>
-                        </fieldset>
-                    ))}
-                </details>
+                            {editor.params.map((param) => (
+                                <fieldset key={param.name}>
+                                    <legend>{param.name}</legend>
+                                    <label>
+                                        Default
+                                        <input
+                                            data-testid={`default-${param.name}`}
+                                            value={param.default ?? ''}
+                                            onChange={(event) => onParam(param.name, { default: event.target.value })}
+                                        />
+                                    </label>
+                                    <label>
+                                        Allowed values
+                                        <input
+                                            data-testid={`allowed-${param.name}`}
+                                            value={
+                                                Array.isArray(param.allowedValues)
+                                                    ? param.allowedValues.join(', ')
+                                                    : param.allowedValues ?? ''
+                                            }
+                                            onChange={(event) => onParam(param.name, { allowedValues: event.target.value })}
+                                        />
+                                    </label>
+                                    <label>
+                                        Min
+                                        <input
+                                            data-testid={`min-${param.name}`}
+                                            value={param.min ?? ''}
+                                            onChange={(event) => onParam(param.name, { min: event.target.value })}
+                                        />
+                                    </label>
+                                    <label>
+                                        Max
+                                        <input
+                                            data-testid={`max-${param.name}`}
+                                            value={param.max ?? ''}
+                                            onChange={(event) => onParam(param.name, { max: event.target.value })}
+                                        />
+                                    </label>
+                                    <label>
+                                        Secure
+                                        <input
+                                            type='checkbox'
+                                            data-testid={`secure-${param.name}`}
+                                            checked={param.secure === true}
+                                            onChange={(event) => onParam(param.name, { secure: event.target.checked })}
+                                        />
+                                    </label>
+                                </fieldset>
+                            ))}
+                        </details>
+                    </Stack>
+                </fieldset>
                 {error ? (
                     <p data-testid='pinned-error' role='alert'>
                         {error}
@@ -326,7 +348,7 @@ function PinEditor({
                     <button type='button' style={rowButton} data-testid='test-save' disabled={busy || disabled} onClick={onTestSave}>
                         {busy ? 'Testing…' : 'Test & save'}
                     </button>
-                    <button type='button' style={rowButton} data-testid='editor-close' onClick={onClose}>
+                    <button type='button' style={rowButton} data-testid='editor-close' onClick={onClose} disabled={busy}>
                         Close
                     </button>
                 </span>
@@ -352,6 +374,7 @@ PinEditor.propTypes = {
 
 function PinRow({ pin, busy, disabled, onEdit, onRemove }) {
     const title = pinTitle(pin)
+    const warnText = useWarnText()
     return (
         <li
             data-testid={`pin-${pin.id}`}
@@ -389,7 +412,7 @@ function PinRow({ pin, busy, disabled, onEdit, onRemove }) {
                 </span>
             </span>
             {needsRetestMark(pin) ? (
-                <span data-testid='needs-retest' style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 11, color: '#b26a00' }}>
+                <span data-testid='needs-retest' style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 11, color: warnText }}>
                     Needs re-test
                 </span>
             ) : null}
@@ -443,6 +466,9 @@ export function PinnedQueriesView({
     const [open, setOpen] = useState(!long)
     const [query, setQuery] = useState('')
     const [onlyRetest, setOnlyRetest] = useState(false)
+    const listId = useId()
+    const [showWarning, setShowWarning] = useState(false)
+    const warnText = useWarnText()
     if (!enabled) return null
     const retestCount = pins.filter(needsRetestMark).length
     const shown = filterPins(pins, query, onlyRetest)
@@ -455,18 +481,27 @@ export function PinnedQueriesView({
                     type='button'
                     data-testid='pinned-toggle'
                     aria-expanded={listVisible}
+                    aria-controls={listId}
                     onClick={() => setOpen(!open)}
                     style={{ ...rowButton, border: 'none', marginLeft: 0, padding: 0, fontWeight: 600, fontSize: 13 }}
                 >
-                    {listVisible ? '▾' : '▸'} Pinned queries
+                    <span aria-hidden='true'>{listVisible ? '▾' : '▸'}</span> Pinned queries
                 </button>
                 <span data-testid='pin-count' style={badge} aria-label={`${pins.length} pinned queries`}>
                     {pins.length}
                 </span>
                 {warning ? (
-                    <span data-testid='pin-warning' role='status' title={warning} aria-label={warning} style={{ ...badge, ...warnBadge }}>
+                    <button
+                        type='button'
+                        data-testid='pin-warning'
+                        title={warning}
+                        aria-label={`Crowded: ${warning}`}
+                        aria-expanded={showWarning}
+                        onClick={() => setShowWarning(!showWarning)}
+                        style={{ ...badge, ...warnBadge, color: warnText, border: 'none', font: 'inherit', fontSize: 11, fontWeight: 600 }}
+                    >
                         Crowded
-                    </span>
+                    </button>
                 ) : null}
                 <Box sx={{ flexGrow: 1 }} />
                 <button type='button' data-testid='pinned-add' onClick={onAdd} style={rowButton} disabled={busy || disabled}>
@@ -506,7 +541,7 @@ export function PinnedQueriesView({
                 </Typography>
             ) : null}
             {listVisible ? (
-                <ul data-testid='pinned-list' style={{ margin: 0, padding: 0, maxHeight: 360, overflowY: 'auto' }}>
+                <ul id={listId} data-testid='pinned-list' style={{ margin: 0, padding: 0, maxHeight: 360, overflowY: 'auto' }}>
                     {shown.map((pin) => (
                         <PinRow key={pin.id} pin={pin} busy={busy} disabled={disabled} onEdit={onEdit} onRemove={onRemove} />
                     ))}
@@ -515,6 +550,11 @@ export function PinnedQueriesView({
             {listVisible && shown.length > 7 ? (
                 <Typography variant='caption' color='text.secondary' data-testid='pinned-scroll' sx={{ display: 'block' }}>
                     {searching ? `${shown.length} of ${pins.length} match.` : `${pins.length} queries.`} Scroll the list to see them all.
+                </Typography>
+            ) : null}
+            {warning && showWarning ? (
+                <Typography variant='caption' data-testid='pin-warning-text' sx={{ display: 'block', mb: 0.5, color: warnText }}>
+                    {warning}
                 </Typography>
             ) : null}
             {listVisible && searching && !shown.length ? (
@@ -526,7 +566,7 @@ export function PinnedQueriesView({
                 {searching ? `${shown.length} of ${pins.length} pinned queries shown` : ''}
             </span>
             {editor ? (
-                <EditorShell onClose={onClose}>
+                <EditorShell onClose={onClose} busy={busy}>
                     <PinEditor
                         editor={editor}
                         busy={busy}

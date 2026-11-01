@@ -69,7 +69,8 @@ describe('settings panel width', () => {
         expect(readPanelWidth(store, panelWidthKey('user-a'))).toBe(640)
     })
 
-    it('leaves room for the canvas in a narrow window', () => {
+    // Below 600px wide the panel keeps its 360px minimum and the canvas gets what is left.
+    it('leaves room for the canvas when it can, and keeps the panel minimum when it cannot', () => {
         expect(panelMaxFor(800)).toBe(560)
         expect(panelMaxFor(300)).toBe(PANEL_MIN_WIDTH)
         expect(clampPanelWidth(900, 800)).toBe(560)

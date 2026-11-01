@@ -27,6 +27,6 @@ describe('result table export', () => {
     })
 
     it('copies as tab-separated text', () => {
-        expect(tableText(view)).toBe('region\tnote\nNorth\ta, "b"\n=SUM(A1)\tline break')
+        expect(tableText(view)).toBe(`region\tnote\nNorth\ta, "b"\n'=SUM(A1)\tline break`)
     })
 })

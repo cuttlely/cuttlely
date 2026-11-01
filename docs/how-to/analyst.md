@@ -62,6 +62,8 @@ Each specialist **Chat Model** input can stay empty. The specialist uses Harness
 
 ![The chief-of-staff harness canvas in the dark theme, with the PostgreSQL MCP card in view. Available Actions has QUERY selected with its description below, Connect Credential reads Auto mode: isolated analyst store, no credential needed, and Tables and views says isolated analyst storage has nothing to pick.](../images/analyst/postgres-mcp-query.png)
 
+This picture is from before the panel was regrouped. Today the same card says **Sandbox.** in its **Data source** group, and **Tables and views** is not shown in sandbox mode.
+
 **Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. When a specialist on the agent runtime queries Postgres through a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the Postgres (MCP) node or auto storage on Postgres, that query step in the run trace also carries `timings`, in milliseconds unless noted: `connectMs`, `guardMs` (the read-only transactions and the table, view and function checks; for auto storage, the session settings), `planMs`, `countMs`, `pageMs`, `probeMs` (the column type probe and the row length pass), `serializeMs` (Postgres (MCP) node only), `totalMs`, and the counts `statementRuns` and `roundTrips`. Those steps are wall time. The same total is also split three ways: `dbMs` is the summed round trip of every query sent to Postgres (the statement, its count and probes, the transaction and `SET LOCAL` lines, the table and function checks, savepoints, the rollback, and the Postgres (MCP) node's table selection lookup when it is not cached), `connectMs` is the connection or connections, and `cuttlelyMs` is the rest: the check logic, parsing, page shaping, serialization and the gateway bridge (`bridgeMs`, the tool call's time outside its query and lookup). `connectMs`, `dbMs` and `cuttlelyMs` add up to `totalMs`. The guard's catalog checks run with JIT off and fold their transaction ends into the next batch, which saves round trips; your own statement keeps the login's JIT setting. The run card does not draw them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
 This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run card names the analyst, its model, and the tool count. The answer shown here opens with the totals by region before the update.
@@ -76,19 +78,19 @@ In **Add Nodes**, the tool is **Postgres (MCP)** in the **Database** group. Sear
 
 The settings panel puts the fields in groups:
 
-| Group                 | Fields                                                                                    |
-| --------------------- | ----------------------------------------------------------------------------------------- |
-| **Data source**       | **Database connection**, with a badge that says where queries go                          |
-| **What it can see**   | **Tables and views**, **Pinned queries**, **Tools it can use**, **Notes for the analyst** |
-| **Model**             | A note: the tool has no model of its own                                                  |
-| **Limits** (folded)   | **Most rows per query**, **Query time limit (seconds)**                                   |
-| **Advanced** (folded) | **Allowed functions**, **Let the analyst read saved query SQL**                           |
+| Group                 | Fields                                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Data source**       | **Database connection**, with a badge that says where queries go                                                                 |
+| **What it can see**   | **Tables and views**, **Pinned queries** (when `CUTTLELY_PINNED_QUERIES` is on), **Tools it can use**, **Notes for the analyst** |
+| **Model**             | A note: the tool has no model of its own                                                                                         |
+| **Limits** (folded)   | **Most rows per query**, **Query time limit (seconds)**                                                                          |
+| **Advanced** (folded) | **Allowed functions**, **Let the analyst read saved query SQL**                                                                  |
 
 The badge asks the server and shows one of these:
 
 -   **Read-only database.** A connection is chosen on the card, or the server has `CUTTLELY_POSTGRES_URL`.
 -   **Sandbox.** No connection, and the server runs `CUTTLELY_ANALYST=auto`, so the analyst uses its own storage. **Tables and views** is not shown, because there is nothing to pick.
--   **Not connected.** No connection, and the server has neither. Choose a connection, then select **Check again**.
+-   **Not connected.** No connection, and the server has neither. Choose a connection; the badge checks again by itself. **Check again** is there to retry after the server settings change or the check fails.
 
 When the server cannot answer, the badge is not shown. When a list on the card cannot load, a yellow note under the field says why, with **Retry**.
 
@@ -221,11 +223,11 @@ The row cap itself is the **Row cap** rule under [Safety](#safety). The default 
 
 A database description pasted into the specialist's instructions travels with every prompt, whatever the question. The table picker replaces it. You tick the tables and views the analyst may use. The analyst gets one short line for each with its column names, reads the column types and keys of one when it needs them, and cannot query anything else.
 
-This works on a database the node connects to by URL: a Postgres URL credential on the node, or `CUTTLELY_POSTGRES_URL`. Isolated analyst storage (`CUTTLELY_ANALYST=auto`) holds only the analyst's own tables, so the field says **Isolated analyst storage** and there is nothing to pick. The examples below use the made-up bakery database in `samples/demo/bakery/bakery-postgres.sql`.
+This works on a database the node connects to by URL: a Postgres URL credential on the node, or `CUTTLELY_POSTGRES_URL`. Isolated analyst storage (`CUTTLELY_ANALYST=auto`) holds only the analyst's own tables, so there is nothing to pick and the panel does not show the field. The examples below use the made-up bakery database in `samples/demo/bakery/bakery-postgres.sql`.
 
 ### Tick tables and views
 
-Open the **Postgres (MCP)** card. **Tables and views** lists every table, view and materialized view the credential's login can read. Materialized views come first, then views, then tables, because a view usually answers a question in one step. Each row has the name, the kind, the column count, and the comment from `COMMENT ON`, when there is one. With eight or more rows there is a filter box. **Tick All** ticks the rows the filter shows, and **Clear** unticks everything. The refresh button lists the database again.
+Open the **Postgres (MCP)** card. **Tables and views** lists every table, view and materialized view the credential's login can read. Materialized views come first, then views, then tables, because a view usually answers a question in one step. Each row has the name, the kind, the column count, and the comment from `COMMENT ON`, when there is one. With eight or more rows there is a filter box. **Tick all** ticks every row; with a filter typed it reads **Tick all shown** and ticks the rows the filter shows. **Clear** unticks everything. The refresh button lists the database again.
 
 ![The Tables and views field on the PostgreSQL MCP card in the dark theme. A filter box, Clear, Tick All and a refresh button sit above the list. public.monthly_sales and public.top_products are materialized views with 6 and 3 columns, public.account_balances is a view with 6 columns, and all three are ticked with their comments under the names. public.open_orders is a view and is not ticked. The line under the list reads 6 of 20 ticked. Queries that read anything else are refused.](../images/analyst/postgres-mcp-table-picker.png)
 

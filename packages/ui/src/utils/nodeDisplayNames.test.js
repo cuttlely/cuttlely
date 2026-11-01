@@ -14,6 +14,8 @@ describe('display labels', () => {
     it('draws the stock saved label as Postgres (MCP) and keeps a custom saved label', () => {
         expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP' })).toBe('Postgres (MCP)')
         expect(displayLabel({ name: 'postgreSQLMCP', label: 'Sales replica' })).toBe('Sales replica')
+        expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP (1)' })).toBe('Postgres (MCP) (1)')
+        expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP (copy)' })).toBe('PostgreSQL MCP (copy)')
         expect(displayLabel({ name: 'chatOpenAI', label: 'ChatOpenAI' })).toBe('ChatOpenAI')
     })
 

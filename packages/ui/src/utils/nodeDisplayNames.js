@@ -23,6 +23,9 @@ export function displayLabel(data) {
     const saved = typeof data?.label === 'string' ? data.label : ''
     if (!entry) return saved
     if (!saved || saved === entry.savedLabel) return entry.label
+    // A duplicated card saves the stock label plus " (n)", and it reads the same way.
+    const copy = saved.startsWith(`${entry.savedLabel} (`) ? saved.slice(entry.savedLabel.length).match(/^ \(\d+\)$/) : null
+    if (copy) return `${entry.label}${copy[0]}`
     return saved
 }
 

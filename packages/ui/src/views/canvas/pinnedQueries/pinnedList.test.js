@@ -82,6 +82,10 @@ describe('pinned query list', () => {
         const warning = byTestId(renderer.root, 'pin-warning')[0]
         expect(text(warning)).toBe('Crowded')
         expect(warning.props.title).toBe(pinWarning(60))
+        expect(warning.type).toBe('button')
+        expect(byTestId(renderer.root, 'pin-warning-text')).toHaveLength(0)
+        act(() => warning.props.onClick())
+        expect(text(byTestId(renderer.root, 'pin-warning-text')[0])).toBe(pinWarning(60))
         act(() => renderer.unmount())
     })
 
@@ -151,5 +155,84 @@ describe('pinned query list', () => {
         expect(pinTitle({ name: 'pq_weekly_signups' })).toBe('weekly signups')
         expect(filterPins(pins, 'SALES region')).toHaveLength(1)
         expect(JSON.stringify(pins)).toBe(before)
+    })
+})
+
+describe('pinned query editor', () => {
+    const editor = {
+        id: 'zz-fake-1',
+        purpose: 'Weekly signups',
+        slug: 'weekly_signups',
+        sql: 'SELECT 1 FROM demo_signups LIMIT 100',
+        params: []
+    }
+    const open = (props) => {
+        let renderer
+        act(() => {
+            renderer = TestRenderer.create(
+                createElement(PinnedQueriesView, { enabled: true, pins: [], editor, onClose: () => {}, onAdd: () => {}, ...props })
+            )
+        })
+        return renderer
+    }
+
+    test('Close is off while Test & save runs, so the answer lands in the editor that asked', () => {
+        const renderer = open({ busy: true })
+        expect(byTestId(renderer.root, 'editor-close')[0].props.disabled).toBe(true)
+        expect(byTestId(renderer.root, 'test-save')[0].props.disabled).toBe(true)
+        act(() => renderer.unmount())
+    })
+
+    test('a read-only flow can open a pin to read it, with every field locked', () => {
+        const renderer = open({ disabled: true })
+        const sql = byTestId(renderer.root, 'sql')[0]
+        expect(sql.props.value).toBe(editor.sql)
+        const lock = renderer.root.findAll((node) => node.type === 'fieldset' && node.props.disabled === true)
+        expect(lock).toHaveLength(1)
+        expect(lock[0].findAll((node) => node === sql)).toHaveLength(1)
+        expect(byTestId(renderer.root, 'editor-close')[0].props.disabled).toBe(false)
+        act(() => renderer.unmount())
+    })
+
+    // With a browser DOM the editor sits in an MUI Dialog. Escape and a backdrop click reach it as onClose.
+    test('in a browser the dialog ignores Escape and backdrop clicks while Test & save runs', () => {
+        const seen = []
+        let View
+        // The MUI modules load here first, with the real globals; only the view itself is read with a browser-like
+        // document, which is what makes it use the dialog.
+        const material = jest.requireActual('@mui/material')
+        const styles = jest.requireActual('@mui/material/styles')
+        const react = jest.requireActual('react')
+        jest.isolateModules(() => {
+            jest.doMock('@mui/material', () => ({
+                ...material,
+                Dialog: (props) => {
+                    seen.push(props)
+                    return props.children
+                }
+            }))
+            jest.doMock('@mui/material/styles', () => styles)
+            jest.doMock('react', () => react)
+            const savedDocument = global.document
+            global.document = { createElement: () => ({}) }
+            global.window = {}
+            View = require('./PinnedQueriesView').PinnedQueriesView
+            global.document = savedDocument
+            delete global.window
+        })
+        const onClose = jest.fn()
+        for (const busy of [true, false]) {
+            let renderer
+            act(() => {
+                renderer = TestRenderer.create(createElement(View, { enabled: true, pins: [], editor, busy, onClose, onAdd: () => {} }))
+            })
+            act(() => renderer.unmount())
+        }
+        expect(seen.length).toBeGreaterThanOrEqual(2)
+        expect(seen.find((props) => props.onClose === undefined)).toBeTruthy()
+        expect(seen.find((props) => props.onClose === onClose)).toBeTruthy()
+        jest.dontMock('@mui/material')
+        jest.dontMock('@mui/material/styles')
+        jest.dontMock('react')
     })
 })

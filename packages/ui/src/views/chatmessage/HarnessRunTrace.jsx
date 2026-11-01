@@ -117,6 +117,10 @@ function downloadCsv(view) {
 // Pages served over plain http have no clipboard API, so copy through a hidden text box there.
 function copyWithSelection(text) {
     if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+    // Put focus and any text the user had selected back where they were.
+    const focused = document.activeElement
+    const selection = typeof document.getSelection === 'function' ? document.getSelection() : null
+    const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, at) => selection.getRangeAt(at)) : []
     const box = document.createElement('textarea')
     box.value = text
     box.setAttribute('readonly', '')
@@ -131,6 +135,11 @@ function copyWithSelection(text) {
         done = false
     }
     document.body.removeChild(box)
+    if (selection) {
+        selection.removeAllRanges()
+        for (const range of ranges) selection.addRange(range)
+    }
+    if (focused && typeof focused.focus === 'function') focused.focus()
     return done
 }
 
@@ -396,39 +405,27 @@ const HarnessRunTrace = ({ trace, question }) => {
                                                 const key = `${specialist.name}:${index}`
                                                 const expandable = Boolean(view?.rows?.length)
                                                 const countLabel = friendlyChipLabel(tool, view)
+                                                const fullName =
+                                                    tool.status === 'retried' && tool.detail ? `${tool.name}: ${tool.detail}` : tool.name
+                                                const chipProps = {
+                                                    size: 'small',
+                                                    color: tool.status === 'failed' ? 'error' : 'default',
+                                                    label: countLabel,
+                                                    // The tool's own name stays one hover or one Tab key away.
+                                                    'aria-label': `${countLabel}. ${fullName}`
+                                                }
                                                 const chip = expandable ? (
                                                     <Chip
-                                                        size='small'
+                                                        {...chipProps}
                                                         variant={openRows === index ? 'filled' : 'outlined'}
-                                                        color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={countLabel}
                                                         aria-expanded={openRows === index}
                                                         onClick={() => setRowsKey(rowsKey === key ? '' : key)}
                                                     />
-                                                ) : view ? (
-                                                    <Chip
-                                                        size='small'
-                                                        variant='outlined'
-                                                        color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={countLabel}
-                                                    />
                                                 ) : (
-                                                    <Chip
-                                                        size='small'
-                                                        variant='outlined'
-                                                        color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={countLabel}
-                                                    />
+                                                    <Chip {...chipProps} variant='outlined' tabIndex={0} />
                                                 )
-                                                if (tool.status !== 'retried' || !tool.detail) {
-                                                    return (
-                                                        <span key={`${tool.name}-${index}`} title={tool.name}>
-                                                            {chip}
-                                                        </span>
-                                                    )
-                                                }
                                                 return (
-                                                    <Tooltip key={`${tool.name}-${index}`} title={tool.detail} placement='top'>
+                                                    <Tooltip key={`${tool.name}-${index}`} title={fullName} placement='top'>
                                                         <span>{chip}</span>
                                                     </Tooltip>
                                                 )

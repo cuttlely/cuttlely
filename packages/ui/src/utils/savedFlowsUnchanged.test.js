@@ -3,7 +3,8 @@
 // states, and a save with no edits must write exactly what a save without those helpers writes.
 import fs from 'fs'
 import path from 'path'
-import { cloneDeep } from 'lodash'
+import crypto from 'crypto'
+import { cloneDeep, isEqual } from 'lodash'
 
 import { normalizeCanvasFlow } from './normalizeCanvasFlow'
 import { canvasSaveDocument } from './canvasSave'
@@ -75,6 +76,25 @@ function readForDisplay(flow, mode) {
     return MODE_TEXT[mode]
 }
 
+// SHA-256 of every complete saved document, one per sample and catalog, written by the load and save code that
+// shipped before this change (normalizeCanvasFlow.js and canvasSave.js are not changed by it). Regenerate only
+// for an intended change to the saved format: CUTTLELY_WRITE_SAVED_GOLDEN=1 npx jest savedFlowsUnchanged.
+const goldenPath = path.join(__dirname, '__fixtures__', 'savedFlows.golden.json')
+const golden = fs.existsSync(goldenPath) ? JSON.parse(fs.readFileSync(goldenPath, 'utf8')) : {}
+const written = {}
+const sha = (text) => crypto.createHash('sha256').update(text).digest('hex')
+
+afterAll(() => {
+    if (process.env.CUTTLELY_WRITE_SAVED_GOLDEN !== '1') return
+    fs.mkdirSync(path.dirname(goldenPath), { recursive: true })
+    const sorted = Object.fromEntries(
+        Object.keys(written)
+            .sort()
+            .map((key) => [key, written[key]])
+    )
+    fs.writeFileSync(goldenPath, JSON.stringify(sorted, null, 4) + '\n')
+})
+
 const PICKED = ['id', 'label', 'name', 'version', 'type', 'category', 'inputs', 'credential', 'outputs']
 const picked = (data) => Object.fromEntries(PICKED.filter((key) => key in (data || {})).map((key) => [key, data[key]]))
 
@@ -93,6 +113,9 @@ describe('saved flows load and save unchanged', () => {
                 const loaded = deepFreeze(normalizeCanvasFlow(cloneDeep(original), catalog))
                 expect(() => readForDisplay(loaded, mode)).not.toThrow()
                 expect(saveWithoutEdits(loaded)).toBe(baseline)
+                const key = `${file.split(path.sep).join('/')} ${catalog.length ? 'with-spec' : 'no-spec'}`
+                written[key] = sha(baseline)
+                if (process.env.CUTTLELY_WRITE_SAVED_GOLDEN !== '1') expect(sha(baseline)).toBe(golden[key])
 
                 const saved = JSON.parse(saveWithoutEdits(loaded))
                 const byId = new Map(original.nodes.map((node) => [node.id, node]))
@@ -102,6 +125,18 @@ describe('saved flows load and save unchanged', () => {
                     const keep = picked(before.data)
                     // A load fills defaults for fields a compact sample left out. Saved values stay as written.
                     expect({ ...picked(node.data), inputs: picked(node.data).inputs && pick(node.data.inputs, keep.inputs) }).toEqual(keep)
+                }
+                // Every field the file had is saved back with the same value; a load only adds missing defaults.
+                for (const before of original.nodes) {
+                    const after = saved.nodes.find((node) => node.id === before.id)
+                    for (const [field, value] of Object.entries(before.data || {})) {
+                        if (field === 'inputs' && value && typeof value === 'object') {
+                            for (const [input, inputValue] of Object.entries(value))
+                                expect(isEqual(after.data.inputs[input], inputValue)).toBe(true)
+                        } else if (!isEqual(after.data[field], value)) {
+                            expect({ node: before.id, field, value: after.data[field] }).toEqual({ node: before.id, field, value })
+                        }
+                    }
                 }
                 expect(saved.edges).toEqual(original.edges)
             }

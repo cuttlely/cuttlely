@@ -9,7 +9,7 @@ import axios from 'axios'
 
 import NodeLinkNotes from './NodeLinkNotes'
 import { flowContext } from '@/store/context/ReactFlowContext'
-import { resetAnalystModeCache } from '@/utils/analystStatus'
+import { notifyConnectionPicked, resetAnalystModeCache } from '@/utils/analystStatus'
 
 // A made-up harness: one Postgres tool wired into an analyst specialist, one wired into a plain agent.
 const flowNodes = () => [
@@ -92,5 +92,21 @@ describe('link notes when the server cannot be read', () => {
         const tree = await render('spec_1', nodes)
         expect(text(tree, 'analyst-off-note')).toHaveLength(0)
         expect(axios.post).not.toHaveBeenCalled()
+    })
+})
+
+describe('link notes after a connection is picked in the panel', () => {
+    it('the specialist drops the turned-off note once its tool has a connection', async () => {
+        resetAnalystModeCache()
+        axios.post.mockReset()
+        axios.post.mockResolvedValue({ data: [{ label: 'x', name: 'unavailable' }] })
+        mockEdges.current = [{ source: 'pg_1', target: 'spec_1' }]
+        const nodes = flowNodes()
+        const tree = await render('spec_1', nodes)
+        expect(text(tree, 'analyst-off-note')).toHaveLength(1)
+        // The panel writes the picked connection onto the node data in place, then tells the canvas.
+        nodes[0].data.credential = 'cred-demo'
+        await act(async () => notifyConnectionPicked())
+        expect(text(tree, 'analyst-off-note')).toHaveLength(0)
     })
 })

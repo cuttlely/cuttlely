@@ -100,7 +100,7 @@ The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime st
 
 The row cap is the page size. A lower cap puts fewer rows into the specialist's prompt and into the handoff Harness Prime reads, so the turn uses less context. Say `show more` for the next page. The rows stay in the database.
 
-The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A Postgres (MCP) node can set a lower **Most rows per query** or a shorter **Query time limit (seconds)** under **Additional Parameters**. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
+The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A Postgres (MCP) node can set a lower **Most rows per query** or a shorter **Query time limit (seconds)** under **Limits** in its settings panel. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
 
 ## Testing and Limits
 

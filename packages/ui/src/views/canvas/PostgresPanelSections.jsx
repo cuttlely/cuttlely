@@ -4,14 +4,14 @@ import { Alert, Box, Button, Divider, Typography } from '@mui/material'
 
 import NodeInputHandler from './NodeInputHandler'
 import { MODEL_NOTE, fieldHint, postgresGroups, setCount } from '@/utils/postgresPanel'
-import { MODE_TEXT, useAnalystMode } from '@/utils/analystStatus'
+import { MODE_TEXT, notifyConnectionPicked, useAnalystMode } from '@/utils/analystStatus'
 
 // The mode the server would use for this card, read from the server, never guessed from text.
 export const ModeBadge = ({ mode, loading, onRetry }) => {
     if (loading) {
         return (
             <Typography variant='caption' color='text.secondary' role='status' sx={{ display: 'block', px: 2, pt: 1 }}>
-                Checking the connection…
+                Checking where queries go…
             </Typography>
         )
     }
@@ -44,7 +44,7 @@ const GroupHeader = ({ title, open, onToggle, count, id }) => {
     const folding = typeof onToggle === 'function'
     const text = (
         <Typography variant='overline' sx={{ fontWeight: 600, lineHeight: 1.6 }}>
-            {folding ? (open ? '▾ ' : '▸ ') : ''}
+            {folding ? <span aria-hidden='true'>{open ? '▾ ' : '▸ '}</span> : null}
             {title}
             {!open && count > 0 ? ` · ${count} set` : ''}
         </Typography>
@@ -125,7 +125,10 @@ const PostgresPanelSections = ({ node, readOnly = false }) => {
                                     data={data}
                                     isAdditionalParams={true}
                                     disabled={readOnly}
-                                    onCredentialSelect={() => redraw((value) => value + 1)}
+                                    onCredentialSelect={() => {
+                                        redraw((value) => value + 1)
+                                        notifyConnectionPicked()
+                                    }}
                                 />
                                 {fieldHint(inputParam.name) && (
                                     <Typography variant='caption' color='text.secondary' sx={{ display: 'block', px: 2, mt: -1, pb: 1 }}>

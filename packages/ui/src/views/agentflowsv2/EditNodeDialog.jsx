@@ -10,7 +10,7 @@ import { IconPencil, IconX, IconCheck, IconInfoCircle } from '@tabler/icons-reac
 import { useTheme } from '@mui/material/styles'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { applyVisibleInputDefaults, showHideInputParams } from '@/utils/genericHelper'
-import { PanelResizeHandle, useNodePanelWidth } from '@/views/canvas/NodePanelResize'
+import { PanelResizeHandle, useNodePanelWidth, useReturnFocus } from '@/views/canvas/NodePanelResize'
 import NodePanelHeader from '@/views/canvas/NodePanelHeader'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 
@@ -109,6 +109,7 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
 
     const panelRef = useRef(null)
     const size = useNodePanelWidth()
+    useReturnFocus(Boolean(asPanel && show), panelRef)
     useEffect(() => {
         if (asPanel && show) panelRef.current?.focus({ preventScroll: true })
     }, [asPanel, show, data?.id])

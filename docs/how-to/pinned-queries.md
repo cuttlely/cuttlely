@@ -62,7 +62,7 @@ The credential, the ticked tables and views, and the allowed functions are the n
 
 ## Find a pin in a long list
 
-Each pin shows its purpose as the title and its tool name, such as `pq_sales_by_region`, under it. The count next to **Pinned queries** is a badge, and **Crowded** appears beside it when the list is long enough to crowd the specialist's tool list (hover it for the reason).
+Each pin shows its purpose as the title and its tool name, such as `pq_sales_by_region`, under it. The count next to **Pinned queries** is a badge, and **Crowded** appears beside it when the pins on all the Postgres (MCP) cards wired to the same specialist add up to enough to crowd its tool list. Select **Crowded** to read the reason.
 
 A list of more than 8 pins starts folded. Type in the search box to find pins by title or tool name, or select **Pinned queries** to open the whole list. **To re-test** shows only the pins marked **Needs re-test**. **Edit** opens the pin in a dialog. The pins are saved in the same `pinnedQueries` field as before.
 

@@ -8,7 +8,7 @@ import { Box, Divider, Typography } from '@mui/material'
 // project imports
 import NodeInputHandler from './NodeInputHandler'
 import NodePanelHeader from './NodePanelHeader'
-import { PanelResizeHandle, useNodePanelWidth } from './NodePanelResize'
+import { PanelResizeHandle, useNodePanelWidth, useReturnFocus } from './NodePanelResize'
 import { baseURL } from '@/store/constant'
 import { panelSections } from '@/utils/canvasLook'
 import NodeLinkNotes from './NodeLinkNotes'
@@ -32,6 +32,7 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
     const locked = readOnly || !onDelete
     const size = useNodePanelWidth()
 
+    useReturnFocus(true, panelRef)
     // Move focus into the panel when it opens on a card, so Escape and Tab work from the keyboard.
     useEffect(() => {
         panelRef.current?.focus({ preventScroll: true })

@@ -19,6 +19,24 @@ import {
 const storage = () => (typeof window === 'undefined' ? null : window.localStorage)
 const viewportWidth = () => (typeof window === 'undefined' ? undefined : window.innerWidth)
 
+// When the panel closes, focus goes back to what had it when the panel opened (usually the card), unless the
+// user has already moved focus somewhere else. Call it before the effect that moves focus into the panel.
+export function useReturnFocus(open, panelRef) {
+    const opener = useRef(null)
+    useEffect(() => {
+        if (!open || typeof document === 'undefined') return undefined
+        opener.current = document.activeElement
+        const panel = panelRef?.current
+        return () => {
+            const target = opener.current
+            opener.current = null
+            const active = document.activeElement
+            const leftInPanel = !active || active === document.body || (panel && panel.contains(active))
+            if (leftInPanel && target && target.isConnected && typeof target.focus === 'function') target.focus({ preventScroll: true })
+        }
+    }, [open, panelRef])
+}
+
 // Panel width remembered per signed-in user in this browser, plus a session-only expanded state.
 export function useNodePanelWidth() {
     const userId = useSelector((state) => state?.auth?.user?.id)
@@ -51,8 +69,15 @@ export function useNodePanelWidth() {
         setWidth,
         commit,
         toggleExpanded: () => setExpanded((value) => !value),
-        // Expanded keeps a thin strip of canvas so the flow stays mounted and a click there still closes the panel.
-        widthSx: expanded ? { width: 'calc(100% - 48px)' } : { width, maxWidth: `calc(100% - ${CANVAS_MIN_WIDTH}px)` }
+        // Expanded keeps a thin band of canvas so the flow stays mounted and a click there still closes the panel.
+        // In a window too narrow for both minimums the panel keeps its own minimum and the canvas gets less.
+        widthSx: expanded
+            ? { width: `max(min(${PANEL_MIN_WIDTH}px, 100%), calc(100% - 48px))` }
+            : {
+                  width,
+                  minWidth: `min(${PANEL_MIN_WIDTH}px, 100%)`,
+                  maxWidth: `max(min(${PANEL_MIN_WIDTH}px, 100%), calc(100% - ${CANVAS_MIN_WIDTH}px))`
+              }
     }
 }
 

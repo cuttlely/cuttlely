@@ -35,10 +35,11 @@ export function friendlyChipLabel(tool, view) {
     return parts.join(' · ')
 }
 
+// A leading =, +, - or @ would run as a formula in a spreadsheet, so it is kept as text.
+const asText = (text) => (/^[=+\-@\t\r]/.test(text) ? `'${text}` : text)
+
 function csvCell(value) {
-    const text = value == null ? '' : String(value)
-    // A leading =, +, - or @ would run as a formula in a spreadsheet, so it is kept as text.
-    const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
+    const safe = asText(value == null ? '' : String(value))
     return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
 }
 
@@ -52,5 +53,5 @@ export function tableCsv(view) {
 export function tableText(view) {
     const columns = Array.isArray(view?.columns) ? view.columns : []
     const rows = Array.isArray(view?.rows) ? view.rows : []
-    return [columns, ...rows].map((row) => row.map((cell) => String(cell ?? '').replace(/[\t\r\n]+/g, ' ')).join('\t')).join('\n')
+    return [columns, ...rows].map((row) => row.map((cell) => asText(String(cell ?? '')).replace(/[\t\r\n]+/g, ' ')).join('\t')).join('\n')
 }
