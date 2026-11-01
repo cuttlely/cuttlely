@@ -460,10 +460,11 @@ export async function utilizationPng(body, contract, { specialist = '', signal, 
 }
 
 const FORMULA_START = /^[=+@\t\r-]/
-const PLAIN_NEGATIVE = /^-(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/
-// Opt-in: prefix a single quote so spreadsheet apps keep the cell as text. Plain negative numbers stay as they are.
+// Same plain-number shape as the run card's Copy/CSV guard (packages/ui/src/utils/traceChips.js).
+const PLAIN_NUMBER = /^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?$/
+// Opt-in: prefix a single quote so spreadsheet apps keep the cell as text. Plain signed numbers stay as they are.
 export function escapeCsvFormula(value) {
-    return FORMULA_START.test(value) && !PLAIN_NEGATIVE.test(value) ? "'" + value : value
+    return FORMULA_START.test(value) && !PLAIN_NUMBER.test(value) ? "'" + value : value
 }
 
 // CSV consumes an author-owned complete table payload, never model arguments or renderer code.
@@ -563,7 +564,7 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
             rows.length
         } source rows exported in source order with exact string values${
             escapeFormulas
-                ? ", except that text starting with =, +, -, @, tab or carriage return (other than a plain negative number) has a leading ' so spreadsheet apps keep it as text"
+                ? ", except that text starting with =, +, -, @, tab or carriage return (other than a plain signed number) has a leading ' so spreadsheet apps keep it as text"
                 : ''
         }. NULL values are empty CSV fields.\n\n${captions.join('\n')}${report ? '\n\n' + report : ''}`,
         artifact: { name, type: 'csv', mime: 'text/csv', base64: bytes.toString('base64'), specialist, mtime: Date.now() }

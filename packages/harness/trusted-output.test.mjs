@@ -1417,7 +1417,7 @@ test('capped readout exception requires every real capture, author opt-in and th
     assert.equal(verifiedMonetaryQueryReadout(specialist, captured, 'The loss is $999M.'), false)
 })
 
-test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-like text and leaves plain negatives', () => {
+test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-like text and leaves plain signed numbers', () => {
     const values = [
         '=SUM(A1:A2)',
         '+1+2',
@@ -1429,6 +1429,9 @@ test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-
         '-1.25',
         '-.5',
         '+5',
+        '-1e3',
+        '+1.2E-4',
+        '-e3',
         'plain text',
         'a=b',
         '',
@@ -1458,7 +1461,7 @@ test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-
     const authored = trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: true }])[0]
     assert.equal(authored.escapeFormulas, true)
     const on = tablePayloadCsv(body, authored)
-    const escaped = { '=SUM(A1:A2)': 1, '+1+2': 1, '-2+3': 1, '@cmd': 1, '\tTabbed': 1, '\rReturn': 1, '+5': 1, '=header': 1 }
+    const escaped = { '=SUM(A1:A2)': 1, '+1+2': 1, '-2+3': 1, '@cmd': 1, '\tTabbed': 1, '\rReturn': 1, '-e3': 1, '=header': 1 }
     assert.equal(
         csv(on),
         [
@@ -1466,7 +1469,8 @@ test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-
             ...values.map((v, i) => `"${i}",${v === null ? '' : cell(escaped[v] ? "'" + v : v)}`)
         ].join('\r\n') + '\r\n'
     )
-    for (const kept of ['"-5"', '"-1.25"', '"-.5"', '"plain text"', '"a=b"']) assert.ok(csv(on).includes(',' + kept + '\r\n'))
+    for (const kept of ['"-5"', '"-1.25"', '"-.5"', '"+5"', '"-1e3"', '"+1.2E-4"', '"plain text"', '"a=b"'])
+        assert.ok(csv(on).includes(',' + kept + '\r\n'))
     assert.match(on.text, /leading ' so spreadsheet apps keep it as text/)
     assert.notEqual(on.artifact.name, off.artifact.name)
 

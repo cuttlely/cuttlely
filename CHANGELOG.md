@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Trusted-output CSV reports have an opt-in `escapeFormulas` setting on the CSV contract, off by default. When it is on, a header or cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, which keeps spreadsheet apps from treating the cell text as a formula. Plain negative numbers such as `-5` are left unchanged. With the setting off, files are exactly as before. See [Trusted outputs](./docs/reference/trusted-outputs.md).
+-   Trusted-output CSV reports have an opt-in `escapeFormulas` setting on the CSV contract, off by default. When it is on, a header or cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, which keeps spreadsheet apps from treating the cell text as a formula. Plain signed numbers such as `-5`, `+5` or `-1e3` are left unchanged. With the setting off, files are exactly as before. See [Trusted outputs](./docs/reference/trusted-outputs.md).
 
 ### Fixed
 
