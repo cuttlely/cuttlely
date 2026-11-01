@@ -1,6 +1,6 @@
 {
     "name": "cuttlely-workspace",
-    "version": "1.4.9",
+    "version": "1.4.10",
     "private": true,
     "license": "Apache-2.0",
     "description": "The open-source agent platform for applications.",

@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.9)
+# Cuttlely FAQ (1.4.10)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,16 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.10?
+
+-   If you're on 1.4.9, upgrade. A JSON setting on a node, credential or document store whose saved value is blank or cut off partway no longer crashes the page. The JSON editor opens it as `{}` and writes nothing back until you edit it; valid values open as before.
+-   If a page still fails to load or render, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen.
+-   This release has no upgrade notes of its own. Coming from 1.4.8, read the [1.4.9 upgrade notes](./CHANGELOG.md#149---2026-10-31) first.
+-   The [changelog](./CHANGELOG.md#1410---2026-10-31) lists every change.
+-   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.10`, or run `npm i cuttlely@1.4.10`.
+
+Full notes: [v1.4.10 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.10).
 
 ### What's new in 1.4.9?
 
