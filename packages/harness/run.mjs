@@ -1518,7 +1518,7 @@ export function sharedAnalystSources(specialists = []) {
 }
 
 export const HANDOFF_GROUNDING =
-    'State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with "rows ", or a summary that starts with "returned ", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as "Dropped table", "Created table", or "Inserted 3 rows".'
+    'State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with "rows ", or a summary that starts with "returned ", keep that line after the rows. Never answer with only that count line. Preserve citations that support the answer. Retrieved evidence context is internal grounding input: do not append its snippets, unused retrieval hits, or internal headings to the answer. Do not echo raw tool JSON. A database change is plain words such as "Dropped table", "Created table", or "Inserted 3 rows".'
 
 // Files a specialist made reach the chat as downloads on their own, once. The answer names them by file name and
 // does not repeat a file list or a server path. A step that failed on the way is not reported when the request was

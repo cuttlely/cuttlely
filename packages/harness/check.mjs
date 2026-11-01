@@ -1443,7 +1443,7 @@ check(
     )
 }
 {
-    // A source whose only http(s) URL is in link or href still reaches Harness Prime's Sources list.
+    // A source whose only http(s) URL is in link or href still reaches Harness Prime's internal evidence context.
     const linkOnly = fitHandoff({
         system: 'Combine.',
         request: 'Answer',
@@ -1467,7 +1467,7 @@ check(
         linkOnly.messages
             .at(-1)
             .content.includes(
-                'Sources:\n- [https://example.com/linked] Linked evidence\n- [Page - https://example.com/page] Titled evidence'
+                'Retrieved evidence context (internal; do not copy this list into the answer):\n- [https://example.com/linked] Linked evidence\n- [Page - https://example.com/page] Titled evidence'
             ),
         linkOnly.messages.at(-1).content.slice(-300)
     )
@@ -3609,7 +3609,7 @@ const sourcedHandoffUser = String(sourcedHandoff?.messages.at(-1).content || '')
 check(
     'the chief sees each source file name next to its passage',
     sourcedHandoffUser.includes(
-        'Sources:\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md - https://example.com/a/b] The mirror is 4.7 m.'
+        'Retrieved evidence context (internal; do not copy this list into the answer):\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md - https://example.com/a/b] The mirror is 4.7 m.'
     ),
     sourcedHandoffUser.slice(0, 600)
 )
