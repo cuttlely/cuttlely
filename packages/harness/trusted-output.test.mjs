@@ -1612,3 +1612,21 @@ test('escaped source context cannot spill the worker MCP envelope or masquerade 
     assert(JSON.parse(receipt).interpretationEvidence)
     assert.equal(source.rows[0].report.length, 15000)
 })
+
+test('currency repair receives the rejected denomination without relaxing monetary provenance', async () => {
+    const repaired = 'Returned amount is $8.20. Confirm the decision owner before changing the account plan.'
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        reportingSymbol: '$',
+        result: { rows: [{ scope: 'Verified source scope.', report: 'EXACT SOURCE REPORT', amount: '8.20' }] },
+        prose: 'Returned amount is USD 8.20. Confirm the decision owner before changing the account plan.',
+        repairProse: repaired
+    })
+    const repair = out.prompts.find((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(repair)
+    assert(JSON.parse(repair[1].content).rejectedClaims.some((c) => c.issue === 'unsupported_currency' && c.literal === 'USD'))
+    assert(out.payload.text.includes(repaired))
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert.equal(out.calls.length, 1)
+})

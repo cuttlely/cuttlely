@@ -88,7 +88,7 @@ For author QA, add `"interpretationDiagnostics": true` to a matching **Markdown*
 }
 ```
 
-Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number`, `unsupported_duration`, `unsupported_percentage` or `unsupported_date` rejection with at most eight deduplicated numeric literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
+Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number`, `unsupported_duration`, `unsupported_percentage`, `unsupported_date` or `unsupported_currency` rejection with at most eight deduplicated numeric, calendar-date or currency literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
 
 After the run, a signed-in harness author can request:
 
@@ -165,7 +165,7 @@ A valid captured mapped source can still be delivered if the specialist model fa
 
 ### Documentation alongside a protected report
 
-A separate documentation specialist can contribute requested guidance to the same answer. It must use a Retriever Tool, have no MCP servers, shell, code execution, file access or protected-output contracts, and cite HTTP(S) source URLs returned by an actual retriever call in its current turn. Markdown links, reference definitions and bare source URLs are supported; an unreturned destination or missing source receipt leaves that section unavailable. Model-written source metadata and streamed previews cannot create receipts. Receipts are bounded and discarded when the turn finishes or is cancelled.
+A separate documentation specialist can contribute requested guidance to the same answer. It must use a Retriever Tool or Web Browser, have no MCP servers, shell, code execution, file access or protected-output contracts, and cite HTTP(S) source URLs from actual successful calls in its current turn. Web Browser receipts identify the visited URL only after a successful page summary; caught HTTP/network failures, credential-bearing URLs and non-web inputs do not create evidence. Markdown links, reference definitions and bare source URLs are supported; an unreturned destination or missing source receipt leaves that section unavailable. Model-written source metadata and streamed previews cannot create receipts. Receipts are bounded and discarded when the turn finishes or is cancelled.
 
 The guidance appears under **Additional requested guidance from retrieved documentation**. This establishes retrieval and citation provenance, not independent verification of every interpretation in the guidance. The protected report, its source captions and its files remain unchanged; Harness Prime does not rewrite them. Analyst results still require their existing protected or verified-passthrough path. A failed or uncited companion cannot replace protected facts or attach a conflicting file.
 
@@ -219,3 +219,7 @@ For an interpreted Markdown capture, the model can receive the complete configur
 Path privacy treats Markdown link labels and destinations as separate spans in both complete and streamed text. Public HTTP(S) citations retain their destinations, including balanced parentheses and adjacent links; local filesystem paths in labels, destinations and quoted titles still receive masking.
 
 A rejected argument set is marked before any query execution. It cannot replace or erase an already completed, stamped capture of the same pin in the same worker turn. Without that completed result, verification still fails; executed source errors and changed pin identities remain failures.
+
+Markdown code fences retain their boundaries during path masking. Public HTTP(S) examples inside a fenced block remain readable; local paths inside code are still masked using the normal quoted-path rules.
+
+A source-backed reporting symbol can be stated as a label without claiming an amount or an ISO denomination. Monetary amounts still require the same typed source match. Tool-free repair receives rejected currency codes, symbols or monetary values as bounded validator feedback; optional author diagnostics retain the same strict atom-only privacy limits.

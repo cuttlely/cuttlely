@@ -251,7 +251,10 @@ export function workspaceMaskState() {
         emitted: 0,
         word: '',
         bs: 0,
-        linkDepth: 0
+        linkDepth: 0,
+        lineStart: true,
+        lineTicks: 0,
+        fenceStart: false
     }
 }
 
@@ -299,6 +302,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         state.word = ''
         state.bs = 0
         state.linkDepth = 0
+        state.fenceStart = false
     }
     // A {/[ token stays whole only while it could still be valid JSON (rule 3a exemption).
     const trackJson = (char) => {
@@ -319,6 +323,14 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         else state.json = false
     }
     for (const char of text) {
+        // An opening backtick fence is not an inline quoted span across its body.
+        // Only release its info line at the newline; inline quoted paths stay whole.
+        if ((char === '\n' || char === '\r') && state.fenceStart && state.quote === '`') finish()
+        if (char === '\n' || char === '\r') {
+            state.lineStart = true
+            state.lineTicks = 0
+        } else if (state.lineStart && char === '`') state.lineTicks++
+        else if (!(state.lineStart && char === ' ' && state.lineTicks === 0)) state.lineStart = false
         // A Markdown destination is a new token. Otherwise "guide](https://...)"
         // looks like a relative path containing //, corrupting ordinary citations.
         // Complete destinations also end their token so an adjacent local path
@@ -349,6 +361,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                 state.quote = char
             }
         }
+        if (char === '`' && state.lineStart && state.lineTicks >= 3 && state.quote === '`') state.fenceStart = true
         if (!state.overflow) {
             if (state.allowJson && !state.token && (char === '{' || char === '[')) {
                 state.json = true

@@ -181,3 +181,11 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A malformed extra tool call can poison an already completed protected report. Mark argument validation before execution explicitly and require a matching completed stamped capture in the same worker turn before ignoring that refusal. Do not ignore executed source failures or authorize model prose from error bodies.
 
 -   A bounded source receipt can still spill downstream: the Hermes MCP default is 50,000 characters and its handler JSON-escapes the receipt inside a result envelope. A 64 KiB receipt became a 1,500-character preview, concealing records from file-disabled specialists. Budget the actual escaped envelope and verify it with the worker persistence code.
+
+-   Triple-backtick fences left one unmatched inline-quote delimiter in the path scanner, so a public URL could mask the whole code block. Recognize the opening info-line newline, retain inline quoted-path behavior, and test all chunk boundaries for both public examples and local paths.
+
+-   A browser-capable documentation role could visit an authoritative page but lose its companion section because the composer only recognized retriever receipts. Capture the successful visited URL at the framework tool boundary, reject caught HTTP/network errors, and retain the same worker-turn and non-analyst restrictions. Model-supplied links alone remain insufficient.
+
+-   Extending a source type also requires compiler turn-scope injection and an on-disk compiler-version bump. Test browser-only profiles through the actual gateway and stdio path, including wrong-turn and revoked-token calls; a mixed retriever/browser profile can conceal a missing environment flag.
+
+-   Reporting currency metadata is not a monetary amount. A configured symbol can label a report without implying an ISO code. Currency rejection feedback needs the concrete code, symbol or amount so a one-pass repair can correct the rejected claim; retain amount/unit checks and atom-only private storage.

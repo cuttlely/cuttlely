@@ -943,9 +943,14 @@ function literalIssues(text, facts, diagnostic) {
         const precedingSign = claims.slice(Math.max(0, match.index - 1), match.index) === '-' ? '-' : ''
         const value = amount && precedingSign + amount[1]
         const after = amount ? claims.slice(match.index + symbol.length + amount[0].length) : ''
-        if (facts.reportingCurrencySymbol) {
-            if (!amount || countUnit.test(after) || !monetaryMatches(facts, value, amount[2], symbol)) issues.push('unsupported_currency')
-        } else if (!supportsSymbol(facts.currencies, symbol)) issues.push('unsupported_currency')
+        const unsupported =
+            facts.reportingCurrencySymbol && amount
+                ? countUnit.test(after) || !monetaryMatches(facts, value, amount[2], symbol)
+                : symbol !== facts.reportingCurrencySymbol && !supportsSymbol(facts.currencies, symbol)
+        if (unsupported) {
+            issues.push('unsupported_currency')
+            diagnostic?.(amount ? value + (amount[2] || '') : symbol, symbol, 'currency', 'unsupported_currency')
+        }
         if (facts.reportingCurrencySymbol && /^\s*(?:thousand|million|billion)\b/i.test(after)) {
             issues.push('unsupported_number')
             diagnostic?.(amount[1], after.match(/^\s*(thousand|million|billion)\b/i)[1], 'word_scale_monetary')
@@ -967,12 +972,17 @@ function literalIssues(text, facts, diagnostic) {
             /^\s*\d[\d,.]*\s+(?:opportunities|accounts|records|rows|renewals|contracts|tickets|customers|observations)\b/i.test(after)
         const sourceEntity = facts.entityCodes.has(code) && !/[-+]?\d[\d,.]*\s*$/.test(before)
         if (denomination || currencyHeader || (amountAdjacent && !countQuantifier && !sourceEntity)) {
-            if (!facts.currencies.has(code)) issues.push('unsupported_currency')
-            else if (facts.reportingCurrencySymbol && amountAdjacent && !countQuantifier && !sourceEntity) {
+            if (!facts.currencies.has(code)) {
+                issues.push('unsupported_currency')
+                diagnostic?.(code, code, 'currency', 'unsupported_currency')
+            } else if (facts.reportingCurrencySymbol && amountAdjacent && !countQuantifier && !sourceEntity) {
                 const amount =
                     after.match(/^\s*([-+]?\d+(?:,\d{3})*(?:\.\d+)?)([KMB])?(?![\p{L}\p{N}_])/u) ||
                     before.match(/([-+]?\d+(?:,\d{3})*(?:\.\d+)?)([KMB])?\s*$/u)
-                if (!amount || !monetaryMatches(facts, amount[1], amount[2], code)) issues.push('unsupported_currency')
+                if (!amount || !monetaryMatches(facts, amount[1], amount[2], code)) {
+                    issues.push('unsupported_currency')
+                    diagnostic?.(amount ? amount[1] + (amount[2] || '') : code, code, 'currency', 'unsupported_currency')
+                }
             }
         }
     }
