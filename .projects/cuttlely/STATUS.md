@@ -1,3 +1,5 @@
+Opening backtick code fences release their info line at the newline instead of opening a quoted span across the whole body. Public URL examples remain intact; local paths within code and inline spans still mask. Focused and fuzz checks pass; full verification and deployment remain pending for this revision.
+
 Worker-facing source receipts now account for escaped MCP envelopes and stay under 48,000 bytes, below the worker’s 50,000-character spill threshold. Complete overviews stay whole; sampled evidence is reduced first. Focused tests pass; full release verification is pending for this revision.
 
 # Status

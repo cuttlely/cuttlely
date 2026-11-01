@@ -181,3 +181,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A malformed extra tool call can poison an already completed protected report. Mark argument validation before execution explicitly and require a matching completed stamped capture in the same worker turn before ignoring that refusal. Do not ignore executed source failures or authorize model prose from error bodies.
 
 -   A bounded source receipt can still spill downstream: the Hermes MCP default is 50,000 characters and its handler JSON-escapes the receipt inside a result envelope. A 64 KiB receipt became a 1,500-character preview, concealing records from file-disabled specialists. Budget the actual escaped envelope and verify it with the worker persistence code.
+
+-   Triple-backtick fences left one unmatched inline-quote delimiter in the path scanner, so a public URL could mask the whole code block. Recognize the opening info-line newline, retain inline quoted-path behavior, and test all chunk boundaries for both public examples and local paths.
