@@ -187,3 +187,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A browser-capable documentation role could visit an authoritative page but lose its companion section because the composer only recognized retriever receipts. Capture the successful visited URL at the framework tool boundary, reject caught HTTP/network errors, and retain the same worker-turn and non-analyst restrictions. Model-supplied links alone remain insufficient.
 
 -   Extending a source type also requires compiler turn-scope injection and an on-disk compiler-version bump. Test browser-only profiles through the actual gateway and stdio path, including wrong-turn and revoked-token calls; a mixed retriever/browser profile can conceal a missing environment flag.
+
+-   Reporting currency metadata is not a monetary amount. A configured symbol can label a report without implying an ISO code. Currency rejection feedback needs the concrete code, symbol or amount so a one-pass repair can correct the rejected claim; retain amount/unit checks and atom-only private storage.

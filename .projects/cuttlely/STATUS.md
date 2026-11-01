@@ -1,3 +1,5 @@
+Reporting-symbol labels are checked independently of monetary amounts. Rejected currency codes, symbols and amounts now reach the single tool-free repair as bounded literal feedback, with strict private diagnostic storage. Typed monetary amounts and denomination checks remain enforced; release validation is tracked per tested revision.
+
 Browser-only documentation specialists receive turn-scope injection through the same bridge as retrievers. Profile compiler version 7 rebuilds existing on-disk configurations with that environment. Real gateway tests cover both source types, wrong turns and revoked tokens.
 
 Documentation companions can recognize successful Web Browser page receipts as well as Retriever Tool documents, through the same token and worker-turn capture path. Failed requests and non-web or credential-bearing URLs do not create receipts, and analyst/executable roles remain excluded. Focused and gateway checks pass; release verification and deployment are tracked per tested revision.
