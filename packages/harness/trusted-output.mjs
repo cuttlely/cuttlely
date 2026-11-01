@@ -563,7 +563,7 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
             rows.length
         } source rows exported in source order with exact string values${
             escapeFormulas
-                ? ", except that text starting with =, +, -, @, tab or carriage return has a leading ' so spreadsheet apps keep it as text"
+                ? ", except that text starting with =, +, -, @, tab or carriage return (other than a plain negative number) has a leading ' so spreadsheet apps keep it as text"
                 : ''
         }. NULL values are empty CSV fields.\n\n${captions.join('\n')}${report ? '\n\n' + report : ''}`,
         artifact: { name, type: 'csv', mime: 'text/csv', base64: bytes.toString('base64'), specialist, mtime: Date.now() }
