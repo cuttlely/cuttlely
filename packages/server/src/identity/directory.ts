@@ -288,6 +288,31 @@ async function lockOrgOwners(query: QueryFn, sql: Sql, organizationId: string, u
     )
 }
 
+/** Lock every organization's membership rows that can affect a global disable. */
+async function lockUserOrganizations(query: QueryFn, sql: Sql, userId: string): Promise<string[]> {
+    const memberships = await query(
+        `SELECT ${q(sql, 'organizationId')} AS organizationId FROM ${q(sql, 'organization_user')}
+         WHERE ${q(sql, 'userId')} = ? ORDER BY ${q(sql, 'organizationId')} ASC`,
+        [userId]
+    )
+    const organizationIds = [...new Set(memberships.map((row) => text(cell(row, 'organizationId'))).filter(Boolean))]
+    if (sql.type !== 'sqlite') {
+        for (const organizationId of organizationIds) {
+            await query(
+                `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
+                 WHERE ${q(sql, 'organizationId')} = ? ORDER BY ${q(sql, 'userId')} ASC FOR UPDATE`,
+                [organizationId]
+            )
+        }
+        await query(
+            `SELECT ${q(sql, 'workspaceId')} AS workspaceId FROM ${q(sql, 'workspace_user')}
+             WHERE ${q(sql, 'userId')} = ? FOR UPDATE`,
+            [userId]
+        )
+    }
+    return organizationIds
+}
+
 /**
  * Read the enabled owners after the row lock, then a plain UPDATE. The same statement
  * cannot both read and write organization_user. Returns last when the row stays active.
@@ -320,13 +345,12 @@ export async function deactivateUserInTransaction(
     now = Date.now(),
     options: { preservePendingStatus?: boolean } = {}
 ): Promise<void> {
-    await lockOrgOwners(query, sql, organizationId, userId)
-    const membership = await query(
-        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
-         WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-        [organizationId, userId]
-    )
-    if (!membership.length) throw new DirectoryError(404, 'User not found')
+    const organizationIds = await lockUserOrganizations(query, sql, userId)
+    if (!organizationIds.includes(organizationId)) throw new DirectoryError(404, 'User not found')
+    for (const memberOrganizationId of organizationIds) {
+        const owners = await enabledOwnerIds(query, sql, memberOrganizationId)
+        if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
+    }
     if ((await refuseLastOwnerDisable(query, sql, organizationId, userId)) === 'last') {
         throw new DirectoryError(409, 'The last owner cannot be removed')
     }

@@ -30,6 +30,8 @@ const SCHEMA_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:Schema'
 const TOKEN_PREFIX = 'cuttlely_scim_'
 const MAX_COUNT = 100
 const MAX_OVERLAP_HOURS = 24
+const OTHER_ORGANIZATION_ACCOUNT = 'An account with this email belongs to another organization.'
+const MATCHING_VALUE_EXISTS = 'A matching value already exists.'
 
 type TokenStatus = 'active' | 'overlap' | 'revoked'
 
@@ -655,6 +657,24 @@ async function memberRoleId(query: QueryFn, sql: Sql): Promise<string> {
     return id
 }
 
+async function requireScimOrganizationOnly(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<void> {
+    const otherMembership = await query(
+        `SELECT ${q(sql, 'organizationId')} AS organizationId FROM ${q(sql, 'organization_user')}
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'organizationId')} <> ? LIMIT 1`,
+        [userId, organizationId]
+    )
+    if (otherMembership.length) throw new ScimError(409, OTHER_ORGANIZATION_ACCOUNT, 'uniqueness')
+}
+
+async function refuseGlobalEmailConflict(query: QueryFn, sql: Sql, userId: string, email: string): Promise<void> {
+    const matches = await query(
+        `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'user')}
+         WHERE LOWER(TRIM(${q(sql, 'email')})) = LOWER(TRIM(?)) AND ${q(sql, 'id')} <> ? LIMIT 1`,
+        [email, userId]
+    )
+    if (matches.length) throw new ScimError(409, MATCHING_VALUE_EXISTS, 'uniqueness')
+}
+
 async function auditUser(
     sql: Sql,
     actor: TokenActor,
@@ -717,6 +737,7 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
             if (deleted) {
                 resourceId = deleted.id
                 internalId = deleted.userId
+                await requireScimOrganizationOnly(query, sql, actor.organizationId, internalId)
                 await query(
                     `UPDATE ${q(sql, 'identity_scim_user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'userName')} = ?, ${q(
                         sql,
@@ -756,6 +777,7 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
             )
             if (candidates.length === 1) {
                 internalId = text(cell(candidates[0], 'id'))
+                await requireScimOrganizationOnly(query, sql, actor.organizationId, internalId)
             } else {
                 const existingAccounts = await query(
                     `SELECT u.${q(sql, 'id')} AS id,
@@ -770,9 +792,7 @@ export async function createUser(sql: Sql, actor: TokenActor, body: unknown, now
                     const sameOrganization = Number(cell(existingAccounts[0], 'sameOrganization')) === 1
                     throw new ScimError(
                         409,
-                        sameOrganization
-                            ? 'An account with this email cannot be provisioned by SCIM.'
-                            : 'An account with this email belongs to another organization.',
+                        sameOrganization ? 'An account with this email cannot be provisioned by SCIM.' : OTHER_ORGANIZATION_ACCOUNT,
                         'uniqueness'
                     )
                 }
@@ -944,7 +964,9 @@ export async function mutateUser(
             }
             const userName = changes.userName === undefined ? current.userName : changes.userName
             if (!validUserName(userName)) throw new ScimError(400, 'userName must be a valid email address.', 'invalidValue')
+            await refuseGlobalEmailConflict(query, sql, current.userId, userName)
             if (changes.active === false) await deactivateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
+            await requireScimOrganizationOnly(query, sql, actor.organizationId, current.userId)
             if (changes.active === true) {
                 await activateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
             }
@@ -988,7 +1010,7 @@ export async function mutateUser(
             throw new ScimError(409, error.message, 'mutability')
         }
         const message = error instanceof Error ? error.message : ''
-        if (/unique|duplicate/i.test(message)) throw new ScimError(409, 'A matching value already exists.', 'uniqueness')
+        if (/unique|duplicate/i.test(message)) throw new ScimError(409, MATCHING_VALUE_EXISTS, 'uniqueness')
         throw error
     }
     await auditUser(sql, actor, auditedOperation, internalId)
@@ -1006,6 +1028,7 @@ export async function deleteUser(sql: Sql, actor: TokenActor, resourceId: string
             if (!current) throw new ScimError(404, 'User not found.', 'noTarget')
             internalId = current.userId
             await deactivateUserInTransaction(query, sql, actor.organizationId, current.userId, now)
+            await requireScimOrganizationOnly(query, sql, actor.organizationId, current.userId)
             await query(`DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'scimUserId')} = ?`, [resourceId])
             await query(
                 `UPDATE ${q(sql, 'identity_scim_user')} SET ${q(sql, 'deletedAt')} = ?, ${q(sql, 'updatedAt')} = ? WHERE ${q(

@@ -369,6 +369,7 @@ describe('local directory rules', () => {
                 throw Object.assign(new Error('relation "apikey" does not exist'), { code: '42P01' })
             }
             if (/AS status FROM "organization_user"/i.test(statement)) return [{ status: 'disable' }]
+            if (/SELECT "organizationId" AS organizationId FROM "organization_user"/i.test(statement)) return [{ organizationId: ORG }]
             if (/SELECT "userId" AS userId FROM "organization_user"/i.test(statement) && !/FOR UPDATE/i.test(statement)) {
                 return [{ userId: 'member-1' }]
             }
@@ -664,6 +665,37 @@ describe('local directory rules', () => {
         expect(
             db.prepare('SELECT "roleId" AS roleId FROM workspace_user WHERE "userId" = ? AND "workspaceId" = ?').all('member-1', TEAM)
         ).toEqual([{ roleId: 'role-viewer' }])
+    })
+
+    it('audits an administrator disable refused by another organization last-owner check', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO organization (id, name) VALUES ('org-2', 'Made Up Organization');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('org-2', 'member-1', 'role-owner', 'active');
+        `)
+
+        await expect(
+            updateOrganizationUser(sql, owner, { userId: 'member-1', organizationId: ORG, status: 'inactive' })
+        ).rejects.toMatchObject({ status: 409, message: 'The last owner cannot be removed' })
+
+        expect(db.prepare('SELECT status, permissionVersion FROM "user" WHERE id = ?').get('member-1')).toMatchObject({
+            status: 'active',
+            permissionVersion: 0
+        })
+        expect(
+            db
+                .prepare(
+                    'SELECT "organizationId" AS organizationId, status FROM organization_user WHERE "userId" = ? ORDER BY "organizationId"'
+                )
+                .all('member-1')
+        ).toEqual([
+            { organizationId: ORG, status: 'active' },
+            { organizationId: 'org-2', status: 'active' }
+        ])
+        expect(
+            db.prepare("SELECT type, summary FROM audit_event WHERE userId = ? AND summary = 'Last owner change refused'").get('member-1')
+        ).toMatchObject({ type: 'user_disable', summary: 'Last owner change refused' })
     })
 
     it('refuses a non-owner invite, disable, or delete in another team', async () => {

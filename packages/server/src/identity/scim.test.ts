@@ -387,6 +387,55 @@ describe('SCIM users', () => {
         db.close()
     })
 
+    it('refuses to link an account that is already a member of this and another organization', async () => {
+        const { sql, db } = directoryStore()
+        db.prepare('INSERT INTO user (id, name, email, status, createdBy, updatedBy) VALUES (?, ?, ?, ?, ?, ?)').run(
+            'shared-user',
+            'Shared User',
+            'shared@example.test',
+            'active',
+            'owner-1',
+            'owner-1'
+        )
+        const addMembership = db.prepare(
+            'INSERT INTO organization_user (organizationId, userId, roleId, status, createdBy, updatedBy) VALUES (?, ?, ?, ?, ?, ?)'
+        )
+        addMembership.run('org-1', 'shared-user', 'member-role', 'active', 'owner-1', 'owner-1')
+        addMembership.run('org-2', 'shared-user', 'member-role', 'active', 'shared-user', 'shared-user')
+
+        await expect(createUser(sql, actor, { userName: 'shared@example.test' })).rejects.toMatchObject({
+            status: 409,
+            scimType: 'uniqueness',
+            message: 'An account with this email belongs to another organization.'
+        })
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_scim_user').get()).toMatchObject({ count: 0 })
+        expect(db.prepare('SELECT status FROM user WHERE id = ?').get('shared-user')).toMatchObject({ status: 'active' })
+        db.close()
+    })
+
+    it('refuses a case-only userName collision during an update', async () => {
+        const { sql, db } = directoryStore()
+        const first = await createUser(sql, actor, { userName: 'ada@example.test', displayName: 'Ada One' })
+        const second = await createUser(sql, actor, { userName: 'grace@example.test', displayName: 'Grace Two' })
+
+        await expect(mutateUser(sql, actor, second.id, { userName: 'Ada@example.test' }, 'updated')).rejects.toMatchObject({
+            status: 409,
+            scimType: 'uniqueness',
+            message: 'A matching value already exists.'
+        })
+        expect(db.prepare('SELECT email, name FROM user WHERE id = ?').get(second.userId)).toMatchObject({
+            email: 'grace@example.test',
+            name: 'Grace Two'
+        })
+        expect(db.prepare('SELECT userName FROM identity_scim_user WHERE id = ?').get(first.id)).toMatchObject({
+            userName: 'ada@example.test'
+        })
+        expect(db.prepare('SELECT userName FROM identity_scim_user WHERE id = ?').get(second.id)).toMatchObject({
+            userName: 'grace@example.test'
+        })
+        db.close()
+    })
+
     it('creates, reads, replaces, deactivates, deletes, and restores a stable resource', async () => {
         const { sql, db } = directoryStore()
         const created = await createUser(
@@ -690,6 +739,54 @@ describe('atomic deactivation', () => {
             sql.transaction((query) => deactivateUserInTransaction(query, sql, 'org-1', 'owner-2', Date.UTC(2026, 9, 31)))
         ).rejects.toBeInstanceOf(DirectoryError)
         expect(db.prepare('SELECT status FROM user WHERE id = ?').get('owner-2')).toMatchObject({ status: 'active' })
+        db.close()
+    })
+
+    it('keeps the account active when it is the only owner of another organization', async () => {
+        const { sql, db } = sqlite()
+        db.exec(`
+            CREATE TABLE user (id text primary key, status text, permissionVersion integer not null default 0, updatedDate text);
+            CREATE TABLE role (id text primary key, name text);
+            CREATE TABLE organization_user (organizationId text, userId text, roleId text, status text, updatedDate text);
+            CREATE TABLE workspace_user (workspaceId text, userId text);
+            CREATE TABLE identity_action_link (userId text, purpose text, usedAt text, consumeId text, organizationId text);
+            CREATE TABLE identity_local_session (id text, userId text);
+            CREATE TABLE apikey (id text, ownerUserId text, disabledAt text);
+            CREATE TABLE identity_personal_token (id text, ownerUserId text, tokenHash text, disabledAt text);
+            INSERT INTO role VALUES ('owner-role', 'owner'), ('member-role', 'member');
+            INSERT INTO user VALUES ('shared-owner', 'active', 0, NULL), ('home-owner', 'active', 0, NULL);
+            INSERT INTO organization_user VALUES
+                ('org-1', 'shared-owner', 'member-role', 'active', NULL),
+                ('org-1', 'home-owner', 'owner-role', 'active', NULL),
+                ('org-2', 'shared-owner', 'owner-role', 'active', NULL);
+            INSERT INTO identity_action_link VALUES ('shared-owner', 'reset', NULL, NULL, 'org-2');
+            INSERT INTO identity_local_session VALUES ('shared-session', 'shared-owner');
+            INSERT INTO apikey VALUES ('shared-key', 'shared-owner', NULL);
+            INSERT INTO identity_personal_token VALUES ('shared-personal', 'shared-owner', 'digest', NULL);
+        `)
+
+        await expect(
+            sql.transaction((query) => deactivateUserInTransaction(query, sql, 'org-1', 'shared-owner', Date.UTC(2026, 10, 1)))
+        ).rejects.toMatchObject({ status: 409, message: 'The last owner cannot be removed' })
+
+        expect(db.prepare('SELECT status, permissionVersion FROM user WHERE id = ?').get('shared-owner')).toMatchObject({
+            status: 'active',
+            permissionVersion: 0
+        })
+        expect(
+            db.prepare('SELECT organizationId, status FROM organization_user WHERE userId = ? ORDER BY organizationId').all('shared-owner')
+        ).toEqual([
+            { organizationId: 'org-1', status: 'active' },
+            { organizationId: 'org-2', status: 'active' }
+        ])
+        expect(db.prepare('SELECT COUNT(*) AS count FROM identity_local_session WHERE userId = ?').get('shared-owner')).toMatchObject({
+            count: 1
+        })
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE userId = ?').get('shared-owner')).toMatchObject({ usedAt: null })
+        expect(db.prepare('SELECT disabledAt FROM apikey WHERE ownerUserId = ?').get('shared-owner')).toMatchObject({ disabledAt: null })
+        expect(db.prepare('SELECT disabledAt FROM identity_personal_token WHERE ownerUserId = ?').get('shared-owner')).toMatchObject({
+            disabledAt: null
+        })
         db.close()
     })
 })
