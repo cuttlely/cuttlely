@@ -341,7 +341,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         // populated token (note:"/tmp/a b"); the text before it is judged as its own token.
         // A token that starts like JSON stays whole so rule 3a can see the JSON span.
         if (!state.quote && !state.overflow && QUOTES.includes(char) && !state.slash) {
-            if (LEAD.test(state.token)) state.quote = char
+            if (!state.json && LEAD.test(state.token)) state.quote = char
             else if (!state.json && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
                 // A token that is already a path candidate reads on through the quoted span and is
                 // masked whole at its boundary; only other text is judged on its own first.

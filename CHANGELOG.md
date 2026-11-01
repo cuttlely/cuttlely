@@ -12,6 +12,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A rejected pinned-query argument retry no longer discards a completed stamped report from the same source and turn. Missing results, changed stamps and executed query failures still fail verification.
+
 -   Markdown citations keep their HTTP(S) destinations during path masking, including streamed links, nested parentheses and adjacent links. Local paths in link labels, destinations and quoted titles remain hidden.
 
 -   Interpreted captures can expose a bounded complete factual overview alongside sampled notes, and literal provenance checks original values independently of context clipping. Protected analysis recognizes source percentage bands across equivalent dash and word displays without treating their endpoints as point measurements. Tool-free repair receives bounded rejected literals and uses the same source selection as the original validator.

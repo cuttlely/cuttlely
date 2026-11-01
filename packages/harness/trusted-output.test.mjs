@@ -1575,3 +1575,21 @@ test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-
         })
     assert.equal(trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: false }])[0].escapeFormulas, undefined)
 })
+
+test('pre-execution argument refusals preserve an existing stamped report but cannot supply missing results', async () => {
+    const report = { pin: contract.pin, hash: contract.hash, mode: 'markdown', fields: [{ path: 'rows.0.report' }] }
+    const specialist = { name: 'data', trustedOutputs: [report] }
+    const good = { ...capture({ rows: [{ report: 'Exact source report: 13 observations.' }] }), sourceTurn: 'turn-1' }
+    const bad = {
+        ...capture({ error: 'Invalid parameters', cuttlelyOutcome: 'expected', sourceExecution: 'not_executed' }),
+        callId: 'rejected-call',
+        sourceTurn: 'turn-1'
+    }
+    assert.equal((await renderTrustedOutputs(specialist, [good, bad])).text, 'Exact source report: 13 observations.')
+    assert.equal((await renderTrustedOutputs(specialist, [bad, good])).text, 'Exact source report: 13 observations.')
+    await assert.rejects(renderTrustedOutputs(specialist, [bad]), /complete successful/)
+    await assert.rejects(renderTrustedOutputs(specialist, [good, { ...bad, sourceTurn: 'another-turn' }]), /complete successful/)
+    const executed = { ...bad, result: { error: 'Query refused', cuttlelyOutcome: 'expected' } }
+    await assert.rejects(renderTrustedOutputs(specialist, [good, executed]), /complete successful/)
+    await assert.rejects(renderTrustedOutputs(specialist, [good, { ...bad, pinned: { ...bad.pinned, hash: 'f'.repeat(64) } }]), /identity/)
+})

@@ -590,6 +590,33 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
             !Number.isInteger(item.pinned?.version)
         )
             fail('Verified output pin identity changed or its test stamp is missing.')
+        // A rejected argument set never reached the source. It cannot erase a complete
+        // stamped result of this same pin in this turn; executed failures remain strict.
+        if (
+            item.result?.sourceExecution === 'not_executed' &&
+            item.result?.cuttlelyOutcome === 'expected' &&
+            item.result?.error &&
+            !Array.isArray(item.result?.rows) &&
+            matched.some(({ item: other, contract: otherContract }) => {
+                if (
+                    other === item ||
+                    otherContract !== contract ||
+                    !other.callId ||
+                    other.sourceTurn !== item.sourceTurn ||
+                    other.pinned?.hash !== contract.hash ||
+                    other.pinned?.name !== contract.pin ||
+                    !Number.isInteger(other.pinned?.version)
+                )
+                    return false
+                try {
+                    completeResult(other.result, { allowEmpty: Boolean(contract.emptyText) })
+                    return true
+                } catch {
+                    return false
+                }
+            })
+        )
+            continue
         const id = hash(JSON.stringify([contract.pin, item.result]))
         if (seen.has(id)) continue
         seen.add(id)
