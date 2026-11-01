@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Trusted-output CSV reports have an opt-in `escapeFormulas` setting on the CSV contract, off by default. When it is on, a header or cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, which keeps spreadsheet apps from treating the cell text as a formula. Plain negative numbers such as `-5` are left unchanged. With the setting off, files are exactly as before. See [Trusted outputs](./docs/reference/trusted-outputs.md).
+
 ### Fixed
 
 -   Agent-team follow-ups can retain the exact source-backed record selection and order across shortened history and specialist changes. The shared router distinguishes factual presentation from analysis and recognizes shared query scopes when choosing an owner for a complete deliverable. Protected analysis gets one tool-free, revalidated repair for unsupported claims, and an unmapped source fallback presents bounded business records instead of nested field paths. Equivalent duration abbreviations and written monetary scales retain unit and denomination checks. See [team tuning](./docs/how-to/tune-agent-team.md#carry-intent-and-record-scope-between-turns).

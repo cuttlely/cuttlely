@@ -1416,3 +1416,63 @@ test('capped readout exception requires every real capture, author opt-in and th
         assert.equal(verifiedMonetaryQueryReadout(specialist, items, prose), false)
     assert.equal(verifiedMonetaryQueryReadout(specialist, captured, 'The loss is $999M.'), false)
 })
+
+test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-like text and leaves plain negatives', () => {
+    const values = [
+        '=SUM(A1:A2)',
+        '+1+2',
+        '-2+3',
+        '@cmd',
+        '\tTabbed',
+        '\rReturn',
+        '-5',
+        '-1.25',
+        '-.5',
+        '+5',
+        'plain text',
+        'a=b',
+        '',
+        null
+    ]
+    const body = {
+        rows: [
+            {
+                table_payload: {
+                    headers: ['=header', 'note'],
+                    complete_rows: values.map((v, i) => [String(i), v]),
+                    total_rows: values.length,
+                    complete: true,
+                    truncated: false
+                }
+            }
+        ]
+    }
+    const csv = (rendered) => Buffer.from(rendered.artifact.base64, 'base64').toString('utf8')
+    const cell = (v) => (v === null ? '' : '"' + v.replaceAll('"', '""') + '"')
+
+    const off = tablePayloadCsv(body, trustedOutputContracts([{ ...contract, mode: 'table-payload-csv' }])[0])
+    assert.equal(csv(off), [[cell('=header'), '"note"'].join(','), ...values.map((v, i) => `"${i}",${cell(v)}`)].join('\r\n') + '\r\n')
+    assert.equal(csv(tablePayloadCsv(body, { escapeFormulas: false })), csv(off))
+    assert.doesNotMatch(off.text, /leading '/)
+
+    const authored = trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: true }])[0]
+    assert.equal(authored.escapeFormulas, true)
+    const on = tablePayloadCsv(body, authored)
+    const escaped = { '=SUM(A1:A2)': 1, '+1+2': 1, '-2+3': 1, '@cmd': 1, '\tTabbed': 1, '\rReturn': 1, '+5': 1, '=header': 1 }
+    assert.equal(
+        csv(on),
+        [
+            [cell("'=header"), '"note"'].join(','),
+            ...values.map((v, i) => `"${i}",${v === null ? '' : cell(escaped[v] ? "'" + v : v)}`)
+        ].join('\r\n') + '\r\n'
+    )
+    for (const kept of ['"-5"', '"-1.25"', '"-.5"', '"plain text"', '"a=b"']) assert.ok(csv(on).includes(',' + kept + '\r\n'))
+    assert.match(on.text, /leading ' so spreadsheet apps keep it as text/)
+    assert.notEqual(on.artifact.name, off.artifact.name)
+
+    for (const escapeFormulas of ['true', 1, {}])
+        assert.throws(() => trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas }]), {
+            code: 'trusted_output'
+        })
+    assert.equal(trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: false }])[0].escapeFormulas, undefined)
+})
