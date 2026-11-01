@@ -384,6 +384,9 @@
             "packages/ui/src/views/canvas/MissingNodeCard.test.js",
             "packages/ui/src/views/canvas/NodePanelHeader.jsx",
             "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+            "packages/ui/src/views/canvas/NodePanelResize.jsx",
+            "packages/ui/src/utils/nodePanelWidth.js",
+            "packages/ui/src/utils/nodePanelWidth.test.js",
             "packages/ui/src/views/canvas/cardActions.js"
         ],
         "inherited": [
@@ -1160,6 +1163,9 @@
                 "packages/ui/src/views/canvas/MissingNodeCard.test.js",
                 "packages/ui/src/views/canvas/NodePanelHeader.jsx",
                 "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+                "packages/ui/src/views/canvas/NodePanelResize.jsx",
+                "packages/ui/src/utils/nodePanelWidth.js",
+                "packages/ui/src/utils/nodePanelWidth.test.js",
                 "packages/ui/src/views/canvas/cardActions.js"
             ],
             "entryPoints": [
@@ -1229,6 +1235,8 @@
                 "packages/ui/src/views/canvas/MissingNodeCard.jsx",
                 "packages/ui/src/views/canvas/NodePanelHeader.jsx",
                 "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+                "packages/ui/src/views/canvas/NodePanelResize.jsx",
+                "packages/ui/src/utils/nodePanelWidth.js",
                 "packages/ui/src/views/canvas/cardActions.js",
                 "packages/ui/src/views/notfound/index.jsx"
             ]

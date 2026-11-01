@@ -8,10 +8,11 @@ import { Box, Divider, Typography } from '@mui/material'
 // project imports
 import NodeInputHandler from './NodeInputHandler'
 import NodePanelHeader from './NodePanelHeader'
+import { PanelResizeHandle, useNodePanelWidth } from './NodePanelResize'
 import { baseURL } from '@/store/constant'
 import { panelSections } from '@/utils/canvasLook'
 
-export const NODE_SIDE_PANEL_WIDTH = 400
+export { PANEL_DEFAULT_WIDTH as NODE_SIDE_PANEL_WIDTH } from '@/utils/nodePanelWidth'
 
 // ===========================|| NODE SIDE PANEL ||=========================== //
 
@@ -21,6 +22,7 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
     const data = node.data
     const { main, more } = panelSections(data)
     const locked = readOnly || !onDelete
+    const size = useNodePanelWidth()
 
     // Move focus into the panel when it opens on a card, so Escape and Tab work from the keyboard.
     useEffect(() => {
@@ -53,75 +55,82 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
             role='complementary'
             aria-label={`${data.label} settings`}
             data-testid='node-side-panel'
+            data-expanded={size.expanded ? 'true' : 'false'}
             onKeyDown={onKeyDown}
             sx={{
-                width: NODE_SIDE_PANEL_WIDTH,
+                ...size.widthSx,
+                position: 'relative',
+                display: 'flex',
                 flexShrink: 0,
                 height: '100%',
-                overflowY: 'auto',
-                overflowX: 'hidden',
+                overflow: 'hidden',
                 borderLeft: `1px solid ${theme.palette.divider}`,
                 backgroundColor: theme.palette.background.paper,
                 outline: 'none'
             }}
         >
-            <NodePanelHeader
-                label={data.label}
-                subtitle={locked ? `${data.id}, read only` : data.id}
-                nodeName={data.name}
-                readOnly={locked}
-                onDuplicate={onDuplicate}
-                onDelete={() => {
-                    onDelete()
-                    onClose()
-                }}
-                onClose={onClose}
-                icon={
-                    <Box
-                        sx={{
-                            width: 36,
-                            height: 36,
-                            flexShrink: 0,
-                            borderRadius: '50%',
-                            backgroundColor: 'white',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                    >
-                        <img
-                            style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
-                            src={`${baseURL}/api/v1/node-icon/${data.name}`}
-                            alt=''
-                        />
-                    </Box>
-                }
-            />
-            {main.length === 0 && more.length === 0 && (
-                <Typography sx={{ p: 2 }} color='text.secondary'>
-                    This card has no settings. Connect it on the canvas.
-                </Typography>
-            )}
-            {main.length > 0 && section('Settings')}
-            {main.map((inputParam) => (
-                <NodeInputHandler
-                    key={`${node.id}:${inputParam.name}`}
-                    inputParam={inputParam}
-                    data={data}
-                    isAdditionalParams={true}
-                    disabled={readOnly}
+            <PanelResizeHandle width={size.width} onPreview={size.setWidth} onCommit={size.commit} hidden={size.expanded} />
+            <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
+                <NodePanelHeader
+                    label={data.label}
+                    subtitle={locked ? `${data.id}, read only` : data.id}
+                    nodeName={data.name}
+                    readOnly={locked}
+                    onDuplicate={onDuplicate}
+                    onDelete={() => {
+                        onDelete()
+                        onClose()
+                    }}
+                    onClose={onClose}
+                    expanded={size.expanded}
+                    onToggleExpand={size.toggleExpanded}
+                    icon={
+                        <Box
+                            sx={{
+                                width: 36,
+                                height: 36,
+                                flexShrink: 0,
+                                borderRadius: '50%',
+                                backgroundColor: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            <img
+                                style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
+                                src={`${baseURL}/api/v1/node-icon/${data.name}`}
+                                alt=''
+                            />
+                        </Box>
+                    }
                 />
-            ))}
-            {more.length > 0 && section('More settings')}
-            {more.map((inputParam) => (
-                <NodeInputHandler
-                    key={`${node.id}:${inputParam.name}`}
-                    inputParam={inputParam}
-                    data={data}
-                    isAdditionalParams={true}
-                    disabled={readOnly}
-                />
-            ))}
+                {main.length === 0 && more.length === 0 && (
+                    <Typography sx={{ p: 2 }} color='text.secondary'>
+                        This card has no settings. Connect it on the canvas.
+                    </Typography>
+                )}
+                {main.length > 0 && section('Settings')}
+                {main.map((inputParam) => (
+                    <NodeInputHandler
+                        key={`${node.id}:${inputParam.name}`}
+                        inputParam={inputParam}
+                        data={data}
+                        isAdditionalParams={true}
+                        disabled={readOnly}
+                    />
+                ))}
+                {more.length > 0 && section('More settings')}
+                {more.map((inputParam) => (
+                    <NodeInputHandler
+                        key={`${node.id}:${inputParam.name}`}
+                        inputParam={inputParam}
+                        data={data}
+                        isAdditionalParams={true}
+                        disabled={readOnly}
+                    />
+                ))}
+            </Box>
         </Box>
     )
 }

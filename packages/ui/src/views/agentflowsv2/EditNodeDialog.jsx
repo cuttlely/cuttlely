@@ -10,7 +10,7 @@ import { IconPencil, IconX, IconCheck, IconInfoCircle } from '@tabler/icons-reac
 import { useTheme } from '@mui/material/styles'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { applyVisibleInputDefaults, showHideInputParams } from '@/utils/genericHelper'
-import { NODE_SIDE_PANEL_WIDTH } from '@/views/canvas/NodeSidePanel'
+import { PanelResizeHandle, useNodePanelWidth } from '@/views/canvas/NodePanelResize'
 import NodePanelHeader from '@/views/canvas/NodePanelHeader'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 
@@ -108,6 +108,7 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
     }, [show, dispatch, asPanel])
 
     const panelRef = useRef(null)
+    const size = useNodePanelWidth()
     useEffect(() => {
         if (asPanel && show) panelRef.current?.focus({ preventScroll: true })
     }, [asPanel, show, data?.id])
@@ -291,35 +292,49 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
                 data-testid='node-side-panel'
                 onKeyDown={onPanelKeyDown}
                 sx={{
-                    width: NODE_SIDE_PANEL_WIDTH,
+                    ...size.widthSx,
+                    display: 'flex',
                     flexShrink: 0,
                     height: '100%',
-                    overflowY: 'auto',
-                    overflowX: 'hidden',
+                    overflow: 'hidden',
                     borderLeft: `1px solid ${theme.palette.divider}`,
                     backgroundColor: theme.palette.background.paper,
                     outline: 'none',
-                    position: 'relative',
-                    pt: 1.5,
-                    pr: 1
+                    position: 'relative'
                 }}
             >
-                <NodePanelHeader
-                    nodeName={data?.name}
-                    readOnly={Boolean(dialogProps.disabled)}
-                    onClose={onCancel}
-                    onDuplicate={() => {
-                        const created = duplicateNode(data.id)
-                        if (created?.id) onDuplicated(created)
-                    }}
-                    onDelete={() => {
-                        deleteNode(data.id)
-                        onCancel()
+                <PanelResizeHandle width={size.width} onPreview={size.setWidth} onCommit={size.commit} hidden={size.expanded} />
+                <Box
+                    sx={{
+                        flexGrow: 1,
+                        minWidth: 0,
+                        height: '100%',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        position: 'relative',
+                        pt: 1.5,
+                        pr: 1
                     }}
                 >
-                    <span />
-                </NodePanelHeader>
-                <Box>{content}</Box>
+                    <NodePanelHeader
+                        nodeName={data?.name}
+                        readOnly={Boolean(dialogProps.disabled)}
+                        onClose={onCancel}
+                        expanded={size.expanded}
+                        onToggleExpand={size.toggleExpanded}
+                        onDuplicate={() => {
+                            const created = duplicateNode(data.id)
+                            if (created?.id) onDuplicated(created)
+                        }}
+                        onDelete={() => {
+                            deleteNode(data.id)
+                            onCancel()
+                        }}
+                    >
+                        <span />
+                    </NodePanelHeader>
+                    <Box>{content}</Box>
+                </Box>
             </Box>
         )
     }
