@@ -2,6 +2,7 @@ import React from 'react'
 import App from '@/App'
 import config from '@/config'
 import routes from '@/routes'
+import RouteErrorPage from '@/routes/RouteErrorPage'
 import { store } from '@/store'
 import { createRoot } from 'react-dom/client'
 
@@ -34,7 +35,10 @@ const AppShell = () => (
     </SnackbarProvider>
 )
 
-const router = createBrowserRouter([{ element: <AppShell />, children: routes }], { basename: config.basename || '/' })
+// errorElement replaces the default router crash screen when a page throws while it renders or loads.
+const router = createBrowserRouter([{ element: <AppShell />, errorElement: <RouteErrorPage />, children: routes }], {
+    basename: config.basename || '/'
+})
 
 const container = document.getElementById('root')
 const root = createRoot(container)
