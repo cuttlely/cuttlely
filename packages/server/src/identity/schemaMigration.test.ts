@@ -59,6 +59,9 @@ function mysqlFamilyRunner(type: 'mysql' | 'mariadb'): { runner: QueryRunner; ca
     const calls: Call[] = []
     const runner = {
         connection: { options: { type } },
+        async hasColumn() {
+            return false
+        },
         async query(sql: string, params?: unknown[]) {
             calls.push({ sql, params })
             return []
@@ -192,6 +195,32 @@ describe.each([
         expect(migration).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
         expect(calls.some((call) => call.sql.includes('information_schema.TABLES') && call.sql.includes('TABLE_NAME = ?'))).toBe(true)
         expect(calls.some((call) => call.sql.includes('$1'))).toBe(false)
+    })
+})
+
+describe.each(['mysql', 'mariadb'] as const)('SCIM schema on %s', (dialect) => {
+    it('uses binary comparison for provider external ids while retaining unique indexes', async () => {
+        const { runner, calls } = mysqlFamilyRunner(dialect)
+        await addScimProvisioning(runner)
+        await addScimGroups(runner)
+
+        const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE \`${table}\``))?.sql || ''
+        expect(create('identity_scim_user')).toContain('`externalId` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL')
+        expect(create('identity_scim_group')).toContain('`externalId` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL')
+        expect(
+            calls.some(
+                (call) =>
+                    call.sql ===
+                    'CREATE UNIQUE INDEX `IDX_identity_scim_user_external` ON `identity_scim_user` (`organizationId`, `externalId`)'
+            )
+        ).toBe(true)
+        expect(
+            calls.some(
+                (call) =>
+                    call.sql ===
+                    'CREATE UNIQUE INDEX `IDX_identity_scim_group_external` ON `identity_scim_group` (`organizationId`, `externalId`)'
+            )
+        ).toBe(true)
     })
 })
 

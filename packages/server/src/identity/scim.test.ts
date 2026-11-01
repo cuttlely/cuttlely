@@ -456,6 +456,44 @@ describe('SCIM users', () => {
         expect(
             patchChanges({ Operations: [{ op: 'Replace', path: 'emails[type eq "work"].value', value: 'work@example.com' }] })
         ).toMatchObject({ workEmail: 'work@example.com' })
+        expect(
+            patchChanges({
+                Operations: [
+                    {
+                        op: 'Replace',
+                        value: {
+                            'NAME.GIVENNAME': 'Casey',
+                            'emails[type eq "WORK"].value': 'casey.work@example.com',
+                            ACTIVE: 'False'
+                        }
+                    }
+                ]
+            })
+        ).toEqual({ givenName: 'Casey', workEmail: 'casey.work@example.com', active: false })
+    })
+
+    it('merges only attributes present in a pathless user PATCH', async () => {
+        const { sql, db } = directoryStore()
+        const created = await createUser(sql, actor, {
+            userName: 'mira@example.com',
+            externalId: 'Directory-Mira-1',
+            displayName: 'Mira Vale',
+            name: { givenName: 'Mira', familyName: 'Vale' },
+            emails: [{ type: 'work', value: 'mira.work@example.com' }]
+        })
+        const changes = patchChanges({ Operations: [{ op: 'replace', value: { displayName: 'Mira North' } }] })
+        expect(changes).toEqual({ displayName: 'Mira North' })
+
+        const updated = await mutateUser(sql, actor, created.id, changes, 'updated')
+
+        expect(updated).toMatchObject({
+            displayName: 'Mira North',
+            givenName: 'Mira',
+            familyName: 'Vale',
+            workEmail: 'mira.work@example.com',
+            externalId: 'Directory-Mira-1'
+        })
+        db.close()
     })
 
     it('classifies every supported inactive mutation as a disabled-user operation', () => {
@@ -482,6 +520,7 @@ describe('SCIM users', () => {
                 groupPatchChanges({ Operations: [{ op: 'Add', path: 'members', value: [{ value: 'scim-user-1' }] }] })
             )
         ).toBe('membershipOperations')
+        expect(operationCategoryForGroupChanges({ replaceMembers: [] })).toBe('membershipOperations')
     })
 
     it('audits PATCH and PUT active-state transitions with their resulting actions', async () => {
@@ -584,6 +623,7 @@ describe('SCIM users', () => {
         })
         expect(pageUsers(users, { filter: 'userName eq "unknown@example.com"' })).toMatchObject({ totalResults: 0, resources: [] })
         expect(pageUsers(users, { filter: 'externalId eq "unknown-provider-id"' })).toMatchObject({ totalResults: 0, resources: [] })
+        expect(pageUsers(users, { filter: 'externalId eq "FIRST-PROVIDER-ID"' })).toMatchObject({ totalResults: 0, resources: [] })
         expect(pageUsers(users, { filter: 'displayName eq "first person"' })).toMatchObject({ totalResults: 1 })
         expect(pageUsers(users, { filter: 'USERNAME eq "FIRST@example.com" or externalId eq "second-provider-id"' })).toMatchObject({
             totalResults: 2

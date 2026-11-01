@@ -363,6 +363,19 @@ describe('RFC 7644 route conformance', () => {
         expect(media.status).toBe(415)
     })
 
+    it.each([
+        ['filter', '/api/v1/scim/v2/Users?filter=a&filter=b'],
+        ['attributes', '/api/v1/scim/v2/Users?attributes=x&attributes=y']
+    ])('returns invalidValue for a repeated %s query parameter', async (_name, path) => {
+        const response = await authorized().get(path).set('Authorization', `Bearer ${bearer}`)
+        expect(response.status).toBe(400)
+        expect(response.body).toMatchObject({
+            schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+            status: '400',
+            scimType: 'invalidValue'
+        })
+    })
+
     it('creates a new resource after SCIM deletion and direct organization removal', async () => {
         const userName = 'reprovisioned@example.test'
         const externalId = 'directory-user-17'

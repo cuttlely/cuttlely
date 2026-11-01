@@ -706,11 +706,15 @@ function scimTokenSql(dialect: Dialect): string {
 }
 
 function scimUserSql(dialect: Dialect): string {
+    const externalId =
+        dialect === 'mysql' || dialect === 'mariadb'
+            ? `${q(dialect, 'externalId')} varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL`
+            : `${q(dialect, 'externalId')} varchar(255) NULL`
     return `CREATE TABLE ${q(dialect, 'identity_scim_user')} (
         ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
         ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
         ${q(dialect, 'userId')} varchar(36) NOT NULL,
-        ${q(dialect, 'externalId')} varchar(255) NULL,
+        ${externalId},
         ${q(dialect, 'userName')} varchar(255) NOT NULL,
         ${q(dialect, 'normalizedUserName')} varchar(255) NOT NULL,
         ${q(dialect, 'displayName')} varchar(255) NOT NULL,
@@ -785,10 +789,14 @@ export async function removeScimProvisioning(runner: QueryRunner): Promise<void>
 }
 
 function scimGroupSql(dialect: Dialect): string {
+    const externalId =
+        dialect === 'mysql' || dialect === 'mariadb'
+            ? `${q(dialect, 'externalId')} varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL`
+            : `${q(dialect, 'externalId')} varchar(255) NULL`
     return `CREATE TABLE ${q(dialect, 'identity_scim_group')} (
         ${q(dialect, 'id')} varchar(36) NOT NULL PRIMARY KEY,
         ${q(dialect, 'organizationId')} varchar(36) NOT NULL,
-        ${q(dialect, 'externalId')} varchar(255) NULL,
+        ${externalId},
         ${q(dialect, 'displayName')} varchar(255) NOT NULL,
         ${q(dialect, 'normalizedDisplayName')} varchar(255) NOT NULL,
         ${q(dialect, 'deletedAt')} ${timeType(dialect)} NULL,

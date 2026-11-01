@@ -153,6 +153,7 @@ describe('SCIM groups', () => {
             totalResults: 1,
             itemsPerPage: 1
         })
+        expect(pageGroups([group], { filter: 'externalId eq "PROVIDER-GROUP-1"' })).toMatchObject({ totalResults: 0 })
         await expect(
             createGroup(sql, tokenActor, { displayName: ' engineering ', externalId: 'different-provider-group' }, start)
         ).rejects.toMatchObject({ status: 409, scimType: 'uniqueness' })

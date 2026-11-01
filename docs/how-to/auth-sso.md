@@ -88,6 +88,8 @@ Use **Rotate** to create a replacement. Choose no overlap or an overlap of 1, 4,
 
 Configure the identity provider with the displayed base URL, ending in `/api/v1/scim/v2`, and bearer authentication. The service supports User create, read, list, replace, patch, deactivate, and delete. List filters support `eq` with `and`, `or`, and parentheses for `userName`, `externalId`, and `displayName`. A connection probe for an unknown `userName` or `externalId` returns an empty list.
 
+Pathless User and Group PATCH Add or Replace operations merge only the attributes present in `value`; attributes omitted from `value` remain unchanged. Repeated list query parameters return `400 invalidValue`. `externalId` matching is case-sensitive on every supported database, while user and group name matching remains case-insensitive.
+
 When User creation or an update with `active: true` matches a pending invited account, SCIM activates the account and organization membership and closes its outstanding invitation links; `active: false` leaves it disabled.
 
 `DELETE /Users/{id}` keeps the internal account disabled for audit and ownership records, removes its provider group memberships, and removes the SCIM resource from reads and lists. While the organization membership remains, a later create with the same `userName` restores that resource id and account, but not its previous group memberships or mapped team access. Its old sessions, API keys, and personal tokens remain disabled. Deactivating or deleting the last active owner returns `409 Conflict` without changing the account or its credentials. See the [SCIM API](../reference/scim-api.md).

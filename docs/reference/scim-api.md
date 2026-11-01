@@ -17,9 +17,9 @@ Every request receives a correlation id and passes the SCIM request limit before
 
 -   `POST /Users` creates or cautiously links a user. `userName` is an email address. `externalId`, `displayName`, `name.givenName`, `name.familyName`, a work email, and `active` are supported.
 -   `GET /Users/{id}` reads the stable SCIM resource id. The internal user id and email are never used as that resource id.
--   `GET /Users` accepts `startIndex`, `count`, `attributes`, `excludedAttributes`, and a filter. The supported grammar is `eq` with `and`, `or`, and parentheses on `userName`, `externalId`, and `displayName`. Attribute names, `userName`, and `displayName` comparisons are case-insensitive. Results have stable order and `count` is at most 100.
+-   `GET /Users` accepts `startIndex`, `count`, `attributes`, `excludedAttributes`, and a filter. The supported grammar is `eq` with `and`, `or`, and parentheses on `userName`, `externalId`, and `displayName`. Attribute names, `userName`, and `displayName` comparisons are case-insensitive; `externalId` comparisons are case-sensitive on every supported database. Results have stable order and `count` is at most 100.
 -   `PUT /Users/{id}` replaces supported values. `active: false` deactivates the account.
--   `PATCH /Users/{id}` accepts case-insensitive Add, Replace, and Remove operations. Supported paths are `active`, `userName`, `externalId`, `displayName`, `name.givenName`, `name.familyName`, and `emails[type eq "work"].value`. A pathless replacement object is also accepted, and `active` accepts boolean or case-insensitive string values.
+-   `PATCH /Users/{id}` accepts case-insensitive Add, Replace, and Remove operations. Supported paths are `active`, `userName`, `externalId`, `displayName`, `name.givenName`, `name.familyName`, and `emails[type eq "work"].value`. Pathless Add and Replace merge only the attributes present in `value`; omitted attributes remain unchanged. Case-insensitive path keys in `value`, including `name.givenName`, `emails[type eq "work"].value`, and `active`, are accepted for Entra ID. `active` accepts boolean or case-insensitive string values.
 -   `DELETE /Users/{id}` returns `204`, deactivates the internal account, removes its group memberships, reconciles mapped assignments, and removes the resource from later GET, list, and filter results.
 
 Creation never grants the owner role. An exact normalized email may link only one unlinked, non-owner account; otherwise Cuttlely creates an organization member with no password, session, or invitation email. If a deleted SCIM resource is created again with the same `userName` while its organization membership remains, Cuttlely restores its stable resource id and account. No previous session, API key, or personal token is restored.
@@ -31,10 +31,10 @@ SCIM deactivation also changes a linked pending account to disabled. Administrat
 ## Groups
 
 -   `POST /Groups` creates a provider group with required `displayName`, optional `externalId`, and an optional `members` array. `displayName` is trimmed and unique per organization without regard to letter case. If the name or external id matches a deleted group, the request restores that stable group id and replaces its members with the requested set. A match with a current group returns `409 uniqueness`.
--   `GET /Groups/{id}` reads a stable group id. `GET /Groups` accepts `startIndex`, `count`, `attributes`, `excludedAttributes`, and `eq` filters joined by `and`, `or`, and parentheses on `displayName` and `externalId`. `displayName` comparison is case-insensitive.
+-   `GET /Groups/{id}` reads a stable group id. `GET /Groups` accepts `startIndex`, `count`, `attributes`, `excludedAttributes`, and `eq` filters joined by `and`, `or`, and parentheses on `displayName` and `externalId`. `displayName` comparison is case-insensitive and `externalId` comparison is case-sensitive on every supported database.
 -   `excludedAttributes=members` omits the member list.
 -   `PUT /Groups/{id}` replaces the supported attributes and complete membership.
--   `PATCH /Groups/{id}` accepts case-insensitive Add, Replace, and Remove operations. Members may be added, removed, or replaced with value arrays. Remove also accepts `members[value eq "id"]`. Pathless replacement supports `displayName`, `externalId`, and `members`. When one request contains several membership operations, they are applied sequentially in request order before one reconciliation.
+-   `PATCH /Groups/{id}` accepts case-insensitive Add, Replace, and Remove operations. Members may be added, removed, or replaced with value arrays. Remove also accepts `members[value eq "id"]`. Pathless Add and Replace merge only `displayName`, `externalId`, or `members` attributes present in `value`; omitted attributes remain unchanged. When one request contains several membership operations, they are applied sequentially in request order before one reconciliation.
 -   Member additions and full replacements require current SCIM User ids. An unknown or deleted id returns `400 invalidValue` and the request makes no partial change. Removing an unknown or already-deleted id succeeds as a no-op.
 -   `DELETE /Groups/{id}` returns 204, removes the group from later reads, and transactionally removes assignments owned by its mapping.
 
@@ -57,3 +57,5 @@ The fixture suites follow published Okta and Entra ID request examples. They do 
 ## Errors
 
 Errors use schema `urn:ietf:params:scim:api:messages:2.0:Error`, a string `status`, a `detail`, a correlation id, and `scimType` where defined. Cuttlely uses `invalidFilter`, `invalidValue`, `invalidSyntax`, `uniqueness`, `mutability`, `noTarget`, and `tooMany`.
+
+Each supported query parameter may appear only once. Repeated parameters, including `filter`, `attributes`, `excludedAttributes`, `startIndex`, and `count`, return `400 invalidValue` in the SCIM error shape.

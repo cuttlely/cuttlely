@@ -14295,7 +14295,7 @@
                     "nullable": true,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_general_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "displayName",
@@ -14639,7 +14639,7 @@
                     "nullable": true,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_general_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "userName",
@@ -19810,7 +19810,7 @@
                     "nullable": true,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "displayName",
@@ -20154,7 +20154,7 @@
                     "nullable": true,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "userName",

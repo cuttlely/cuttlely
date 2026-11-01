@@ -483,20 +483,27 @@ function matchesFilter(user: UserRecord, filter: FilterNode): boolean {
         : actual === filter.value
 }
 
+export function queryString(query: { [key: string]: unknown }, name: string): string | undefined {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value === 'string') return value
+    throw new ScimError(400, `${name} must be provided once as a string.`, 'invalidValue')
+}
+
 export function pageUsers(
     users: UserRecord[],
     query: { startIndex?: unknown; count?: unknown; filter?: unknown }
 ): { totalResults: number; startIndex: number; itemsPerPage: number; resources: UserRecord[] } {
-    const startIndex = query.startIndex === undefined ? 1 : Number(query.startIndex)
-    const count = query.count === undefined ? MAX_COUNT : Number(query.count)
+    const startIndexValue = queryString(query, 'startIndex')
+    const countValue = queryString(query, 'count')
+    const startIndex = startIndexValue === undefined ? 1 : Number(startIndexValue)
+    const count = countValue === undefined ? MAX_COUNT : Number(countValue)
     if (!Number.isInteger(startIndex) || startIndex < 1 || !Number.isInteger(count) || count < 0 || count > MAX_COUNT) {
         throw new ScimError(400, `startIndex must be at least 1 and count must be between 0 and ${MAX_COUNT}.`, 'invalidValue')
     }
     let selected = users
-    if (query.filter !== undefined) {
-        if (typeof query.filter !== 'string') throw new ScimError(400, 'Invalid filter.', 'invalidFilter')
-        selected = users.filter((item) => matchesFilter(item, parseScimFilter(query.filter as string)))
-    }
+    const filter = queryString(query, 'filter')
+    if (filter !== undefined) selected = users.filter((item) => matchesFilter(item, parseScimFilter(filter)))
     const resources = selected.slice(startIndex - 1, startIndex - 1 + count)
     return { totalResults: selected.length, startIndex, itemsPerPage: resources.length, resources }
 }
@@ -548,15 +555,13 @@ export async function usersForOrganization(
 }
 
 function requestedAttributes(query: Request['query']): { include: Set<string> | null; exclude: Set<string> } {
-    const list = (value: unknown): string[] =>
-        typeof value === 'string'
-            ? value
-                  .split(',')
-                  .map((item) => item.trim().toLowerCase())
-                  .filter(Boolean)
-            : []
-    const includeList = list(query.attributes)
-    return { include: includeList.length ? new Set(includeList) : null, exclude: new Set(list(query.excludedAttributes)) }
+    const list = (name: string): string[] =>
+        (queryString(query, name) || '')
+            .split(',')
+            .map((item) => item.trim().toLowerCase())
+            .filter(Boolean)
+    const includeList = list('attributes')
+    return { include: includeList.length ? new Set(includeList) : null, exclude: new Set(list('excludedAttributes')) }
 }
 
 function scimUser(user: UserRecord, selection?: { include: Set<string> | null; exclude: Set<string> }): Record<string, unknown> {
@@ -833,6 +838,31 @@ function replaceChanges(value: Record<string, unknown>): UserChanges {
     return changes
 }
 
+function pathlessPatchChanges(value: Record<string, unknown>): UserChanges {
+    const changes: UserChanges = {}
+    for (const [rawPath, rawValue] of Object.entries(value)) {
+        const path = rawPath.toLowerCase()
+        if (path === 'username') {
+            if (typeof rawValue !== 'string') throw new ScimError(400, 'userName requires a value.', 'invalidValue')
+            changes.userName = rawValue.trim()
+        } else if (path === 'externalid') changes.externalId = nullable(rawValue)
+        else if (path === 'displayname') changes.displayName = typeof rawValue === 'string' ? rawValue.trim() : undefined
+        else if (path === 'active') changes.active = booleanValue(rawValue)
+        else if (path === 'name') {
+            const name = object(rawValue)
+            for (const [rawNamePath, nameValue] of Object.entries(name)) {
+                const namePath = rawNamePath.toLowerCase()
+                if (namePath === 'givenname') changes.givenName = nullable(nameValue)
+                else if (namePath === 'familyname') changes.familyName = nullable(nameValue)
+            }
+        } else if (path === 'name.givenname') changes.givenName = nullable(rawValue)
+        else if (path === 'name.familyname') changes.familyName = nullable(rawValue)
+        else if (path === 'emails') changes.workEmail = emailValue({ emails: rawValue })
+        else if (/^emails\s*\[\s*type\s+eq\s+"work"\s*\]\.value$/i.test(rawPath)) changes.workEmail = nullable(rawValue)
+    }
+    return changes
+}
+
 export function patchChanges(body: unknown): UserChanges {
     const record = object(body)
     if (!Array.isArray(record.Operations)) throw new ScimError(400, 'Operations are required.', 'invalidSyntax')
@@ -844,7 +874,7 @@ export function patchChanges(body: unknown): UserChanges {
         const path = nullable(operation.path)?.toLowerCase()
         if (!path) {
             if (op === 'remove') throw new ScimError(400, 'A path is required for remove.', 'invalidSyntax')
-            Object.assign(changes, replaceChanges(object(operation.value)))
+            Object.assign(changes, pathlessPatchChanges(object(operation.value)))
             continue
         }
         const remove = op === 'remove'
@@ -1328,7 +1358,12 @@ function operationCategory(req: Request, status: number): string {
 }
 
 export function operationCategoryForGroupChanges(changes: GroupChanges): 'membershipOperations' | 'groupOperations' {
-    return changes.memberOperations?.length ? 'membershipOperations' : 'groupOperations'
+    return changes.memberOperations?.length ||
+        changes.replaceMembers !== undefined ||
+        changes.addMembers !== undefined ||
+        changes.removeMembers !== undefined
+        ? 'membershipOperations'
+        : 'groupOperations'
 }
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): (req: Request, res: Response, next: NextFunction) => void {
@@ -1386,12 +1421,13 @@ identityScimRouter.get(
     asyncRoute(async (req, res) => {
         const actor = req.scimActor as TokenActor
         const page = pageGroups(await groupsForOrganization(applicationSql().query, applicationSql(), actor.organizationId), req.query)
+        const selection = requestedAttributes(req.query)
         res.status(200).json({
             schemas: [LIST_SCHEMA],
             totalResults: page.totalResults,
             startIndex: page.startIndex,
             itemsPerPage: page.itemsPerPage,
-            Resources: page.resources.map((group) => scimGroup(group, requestedAttributes(req.query)))
+            Resources: page.resources.map((group) => scimGroup(group, selection))
         })
     })
 )
@@ -1422,11 +1458,13 @@ identityScimRouter.put(
     '/Groups/:id',
     asyncRoute(async (req, res) => {
         const record = object(req.body)
-        const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, {
+        const changes: GroupChanges = {
             displayName: text(record.displayName).trim(),
             externalId: nullable(record.externalId),
             replaceMembers: Array.isArray(record.members) ? record.members.map((member) => text(object(member).value)).filter(Boolean) : []
-        })
+        }
+        res.locals.scimOperationCategory = operationCategoryForGroupChanges(changes)
+        const updated = await mutateGroup(applicationSql(), req.scimActor as TokenActor, req.params.id, changes)
         res.status(200).json(scimGroup(updated, requestedAttributes(req.query)))
     })
 )
@@ -1454,12 +1492,13 @@ identityScimRouter.get(
     asyncRoute(async (req, res) => {
         const actor = req.scimActor as TokenActor
         const page = pageUsers(await usersForOrganization(applicationSql().query, applicationSql(), actor.organizationId), req.query)
+        const selection = requestedAttributes(req.query)
         res.status(200).json({
             schemas: [LIST_SCHEMA],
             totalResults: page.totalResults,
             startIndex: page.startIndex,
             itemsPerPage: page.itemsPerPage,
-            Resources: page.resources.map((item) => scimUser(item, requestedAttributes(req.query)))
+            Resources: page.resources.map((item) => scimUser(item, selection))
         })
     })
 )

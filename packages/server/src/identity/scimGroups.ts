@@ -4,7 +4,7 @@ import { safeRecordAudit } from './auditLog'
 import { builtInPermissionKeys, scimMappingRoleAllowed } from './builtInRoles'
 import { QueryFn, Sql } from './directory'
 import { utcDbTime, utcEpoch } from './dbTime'
-import { ScimError, TokenActor } from './scim'
+import { queryString, ScimError, TokenActor } from './scim'
 
 const MAX_COUNT = 100
 const DIAGNOSTIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -290,15 +290,17 @@ export function pageGroups(
     groups: GroupRecord[],
     query: { startIndex?: unknown; count?: unknown; filter?: unknown }
 ): { totalResults: number; startIndex: number; itemsPerPage: number; resources: GroupRecord[] } {
-    const startIndex = query.startIndex === undefined ? 1 : Number(query.startIndex)
-    const count = query.count === undefined ? MAX_COUNT : Number(query.count)
+    const startIndexValue = queryString(query, 'startIndex')
+    const countValue = queryString(query, 'count')
+    const startIndex = startIndexValue === undefined ? 1 : Number(startIndexValue)
+    const count = countValue === undefined ? MAX_COUNT : Number(countValue)
     if (!Number.isInteger(startIndex) || startIndex < 1 || !Number.isInteger(count) || count < 0 || count > MAX_COUNT) {
         throw new ScimError(400, `startIndex must be at least 1 and count must be between 0 and ${MAX_COUNT}.`, 'invalidValue')
     }
     let selected = groups
-    if (query.filter !== undefined) {
-        if (typeof query.filter !== 'string') throw new ScimError(400, 'Invalid filter.', 'invalidFilter')
-        const parsed = parseGroupFilter(query.filter)
+    const filter = queryString(query, 'filter')
+    if (filter !== undefined) {
+        const parsed = parseGroupFilter(filter)
         selected = groups.filter((group) => matches(group, parsed))
     }
     const resources = selected.slice(startIndex - 1, startIndex - 1 + count)
