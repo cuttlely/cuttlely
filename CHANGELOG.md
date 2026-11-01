@@ -4,11 +4,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-11-01
+
+### Added
+
+-   Verified CSV reports are delivered with their source tables: complete rows, up to the contract limit. The CSV contract may set `maxRows` from 1 through 10,000 (the default stays 100) to attach a complete table of up to that many rows, and `reportPath` to append a source-owned Markdown report after the attachment note. Delivery is refused when the table is incomplete, over the contract limit, or the report is missing; the model cannot supply a replacement. A specialist can have up to 32 trusted-output contracts, up from 16. See [Trusted outputs](./docs/reference/trusted-outputs.md). [#369](https://github.com/cuttlely/cuttlely/pull/369).
+
 ### Changed
 
--   The **Postgres (MCP)** card is easier to read. It is listed as **Postgres (MCP)** in a **Database** group, and searching `postgres` or `mcp` still finds it. Its settings sit in **Data source**, **What it can see**, **Model**, **Limits** and **Advanced**, with plain field labels. A badge says whether queries go to a read-only database, the sandbox, or nowhere yet, and a list that cannot load shows a note with **Retry**. Wired cards show **Used by:** and **Data:** notes. Long pinned query lists start folded, can be searched, and open a pin in a dialog. Run trace chips read like **Query · 4 rows**, and a result table has **Show SQL**, **Copy** and **CSV**. When the run card kept only a preview of the result, those read **Copy preview** and **Preview CSV**. A CSV that a verified CSV output attaches to the answer is still the complete table. The settings panel is wider, can be resized by dragging its edge (the width is remembered in the browser) and has an **Expand** button. Labels are display only: saved harnesses, node names, field names and runs are unchanged. A new Postgres (MCP) card starts with **Query** ticked; saved cards keep their tools. See [Analyst mode](./docs/how-to/analyst.md#the-postgres-mcp-card).
-
-## [1.4.10] - 2026-10-31
+-   The settings panel of the **Postgres (MCP)** node is redesigned. It is listed as **Postgres (MCP)** in a **Database** group, and searching `postgres` or `mcp` still finds it. Its fields sit in **Data source**, **What it can see**, **Model**, **Limits** and **Advanced**, with clearer labels. A badge says where queries go, and a list that cannot load shows a note with **Retry**. Wired cards show **Used by:** and **Data:** notes. Run trace chips read like **Query · 4 rows**, and a result table has **Show SQL**, **Copy** and **CSV** (**Copy preview** and **Preview CSV** when the run card kept only part of the result). The settings panel is wider, can be resized by dragging its edge (the width is remembered in the browser) and has an **Expand** button. The analyst extras show only when the server's analyst settings turn them on, and those settings are off by default: the searchable pinned query list, which starts folded and opens a pin in a dialog, needs `CUTTLELY_PINNED_QUERIES`, and the **Sandbox** badge needs `CUTTLELY_ANALYST=auto`. Labels are display only: saved harnesses, node names, field names and runs are unchanged. A new Postgres (MCP) card starts with **Query** ticked; saved cards keep their tools. See [Analyst mode](./docs/how-to/analyst.md#the-postgres-mcp-card). [#370](https://github.com/cuttlely/cuttlely/pull/370).
 
 ### Fixed
 

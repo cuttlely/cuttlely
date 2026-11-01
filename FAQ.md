@@ -42,8 +42,10 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 -   If you're on 1.4.9, upgrade. A JSON setting on a node, credential or document store whose saved value is blank or cut off partway no longer crashes the page. The JSON editor opens it as `{}` and writes nothing back until you edit it; valid values open as before.
 -   If a page still fails to load or render, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen.
+-   Verified CSV reports are delivered with their source tables: complete rows, up to the contract limit.
+-   The **Postgres (MCP)** node's settings panel is redesigned, with clearer labels and a panel you can resize or expand. When the server's analyst settings turn it on (off by default), its pinned query list can be searched.
 -   This release has no upgrade notes of its own. Coming from 1.4.8, read the [1.4.9 upgrade notes](./CHANGELOG.md#149---2026-10-31) first.
--   The [changelog](./CHANGELOG.md#1410---2026-10-31) lists every change.
+-   The [changelog](./CHANGELOG.md#1410---2026-11-01) lists every change.
 -   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.10`, or run `npm i cuttlely@1.4.10`.
 
 Full notes: [v1.4.10 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.10).
