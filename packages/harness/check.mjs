@@ -284,7 +284,9 @@ const adaptiveEvidenceTests = spawnSync(
         path.join(root, 'packages/harness/verified-query-output.test.mjs'),
         path.join(root, 'packages/harness/protected-interpretation.test.mjs'),
         path.join(root, 'packages/harness/history.test.mjs'),
-        path.join(root, 'packages/harness/source-answer-fallback.test.mjs')
+        path.join(root, 'packages/harness/source-answer-fallback.test.mjs'),
+        path.join(root, 'packages/harness/answer-context.test.mjs'),
+        path.join(root, 'packages/harness/routing-sources.test.mjs')
     ],
     { encoding: 'utf8', timeout: 60000 }
 )
@@ -1872,7 +1874,7 @@ check(
         routeAnalystNote([notesSpecialist, bakery]) === ROUTE_ANALYST &&
             routeAnalystNote(roster) === ROUTE_ANALYSTS &&
             routeAnalystNote([notesSpecialist]) === '' &&
-            ROUTE_ANALYSTS.includes('send a step to each of them') &&
+            ROUTE_ANALYSTS.includes('single owner') &&
             ROUTE_ANALYSTS.includes('Never answer those directly') &&
             loneChief.includes(CHIEF_ANALYST) &&
             !loneChief.includes(CHIEF_ANALYSTS) &&

@@ -243,6 +243,8 @@ test('Markdown source bytes, reference definitions and each scoped section survi
 
 let serial = 0
 async function runFixture({
+    repairProse,
+    answerMode,
     enabled = true,
     result = body,
     prose = 'MODEL TAMPERED DATA AND SCOPE',
@@ -437,12 +439,15 @@ async function runFixture({
                 return {
                     invoke: async (messages) => {
                         prompts.push(messages)
+                        if (String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+                            return { content: repairProse ?? prose }
                         return {
                             content: String(messages[0]?.content).includes('You route work')
                                 ? JSON.stringify({
                                       steps: people.map((p) => ({
                                           specialist: p.name,
-                                          task: 'Query the database and produce the requested output.'
+                                          task: 'Query the database and produce the requested output.',
+                                          ...(answerMode ? { answerMode } : {})
                                       }))
                                   })
                                 : 'CHIEF REWROTE AND DROPPED THE REFERENCES'
@@ -1050,6 +1055,86 @@ test('opted-in unsupported currency cannot enter a protected final answer', asyn
     assert.equal(out.payload.artifacts.length, 1)
 })
 
+test('a rejected interpretation is repaired once without tools, requerying or changing protected facts', async () => {
+    const repaired =
+        'Procurement approval is pending in the returned notes. Confirm the approval path with the owner before treating the commitment as final.'
+    const result = {
+        rows: [
+            { scope: 'Verified source scope.', report: 'EXACT SOURCE REPORT', amount: '8.20', notes: 'Procurement approval is pending.' }
+        ]
+    }
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result,
+        prose: 'There is an unsupported loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse: repaired
+    })
+    assert(out.payload.text.includes(repaired))
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert(!out.payload.text.includes('99999999'))
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.requests.length, 1)
+    const repairs = out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert.equal(repairs.length, 1)
+    const evidence = JSON.parse(repairs[0][1].content)
+    assert(evidence.evidence[0].sourceEvidence.some((item) => item.value === '8.20'))
+})
+
+test('a still-invalid repair is rejected after one attempt and retains source output', async () => {
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: { rows: [{ scope: 'Verified source scope.', report: 'EXACT SOURCE REPORT', amount: '8.20' }] },
+        prose: 'There is a loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse: 'There is a loss of $88888888 and the owner should investigate this commercial issue.'
+    })
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert(!/99999999|88888888/.test(out.payload.text))
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 1)
+    assert.equal(out.calls.length, 1)
+})
+
+test('a later specialist turn receives every source-backed selected key beyond the transcript clip', async () => {
+    const records = Array.from({ length: 30 }, (_, i) => ({ ticket_id: `ticket-${i}`, name: `Example ticket ${i}` }))
+    const report =
+        '| Ticket ID | Name |\n|---|---|\n' +
+        records.map((row) => `| ${row.ticket_id} | ${row.name} ${'long description '.repeat(10)} |`).join('\n')
+    const result = { rows: [{ scope: 'Verified source scope.', report, records }] }
+    const first = await runFixture({ markdownOnly: true, result })
+    const next = await runFixture({
+        markdownOnly: true,
+        result,
+        harnessName: first.name,
+        input: 'Assess these records using current evidence.'
+    })
+    const request = next.requests[0].input
+    assert(request.includes('Previous displayed record selections'))
+    const block = request.slice(request.indexOf('Previous displayed record selections'))
+    for (const record of records) assert(block.includes(JSON.stringify(record.ticket_id)))
+    const unrelated = await runFixture({
+        markdownOnly: true,
+        result,
+        harnessName: first.name,
+        chatId: 'different-chat',
+        input: 'Assess these records.'
+    })
+    assert(!unrelated.requests[0].input.includes('Previous displayed record selections'))
+})
+
+test('router-selected facts retain mapped source output without optional interpretation or repair', async () => {
+    const out = await runFixture({
+        multi: true,
+        interpretation: true,
+        answerMode: 'facts',
+        prose: 'There is a loss of $99999999 and the owner should investigate this commercial issue.'
+    })
+    assert(!out.payload.text.includes('99999999'))
+    assert(!out.payload.text.includes('could not be verified'))
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
+    assert.equal(out.calls.length, 2)
+})
+
 test('rejected-number diagnostics stay private and leave the answer, events and public history unchanged', async () => {
     const { listRuns, getRun, getRunResult, getRunDiagnostics } = await import('./history.mjs')
     const options = {
@@ -1115,6 +1200,25 @@ test('opted-in unmapped answers cannot deliver an invented figure or currency an
     assert.match(out.payload.text, /source-backed values/)
     assert.equal(out.payload.artifacts.length, 0)
     assert.equal(out.payload.trace.specialists[0].recovery.reason, 'interpretationOmitted')
+})
+
+test('an accepted unmapped repair replaces the rejected draft before any chief handoff', async () => {
+    const repaired =
+        'The recorded amount is 8.20. Procurement approval remains pending in the source notes; confirm the approval path with the owner.'
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        result: { rows: [{ amount: '8.20', notes: 'Procurement approval is pending.' }] },
+        prose: 'There is an invented loss of 99999999 and the owner must investigate.',
+        repairProse: repaired
+    })
+    const handoffs = out.prompts.filter((messages) => !String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(handoffs.length > 0)
+    assert(handoffs.some((messages) => JSON.stringify(messages).includes(repaired)))
+    assert(handoffs.every((messages) => !JSON.stringify(messages).includes('99999999')))
+    assert.equal(out.calls.length, 1)
+    assert(!out.payload.text.includes('99999999'))
 })
 
 test('interpretation opt-in takes precedence over a matching pin-first shortcut without a duplicate query', async () => {
@@ -1188,7 +1292,7 @@ test('unmapped query uses a consistent author convention without permitting inve
             result,
             prose
         })
-        assert.match(refused.payload.text, /source-backed values are shown/)
+        assert.match(refused.payload.text, /source-backed values follow/)
         assert.match(refused.payload.text, /Monetary amounts use the reporting symbol/)
         assert(!refused.payload.text.includes('$999M'))
         assert(!refused.payload.text.includes('USD 1,250,000'))

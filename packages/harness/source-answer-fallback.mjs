@@ -1,4 +1,5 @@
-import { protectedInterpretationEvidence, protectedReportingCaption } from './protected-interpretation.mjs'
+import { protectedReportingCaption } from './protected-interpretation.mjs'
+import { sourceRecordTables } from './answer-context.mjs'
 
 const privatePath =
     /(?:^|\.)(?:_cuttlely[^.]*|[^.]*(?:password|api_?key|credential|secret|token|authorization)[^.]*|connection_?string|testedStamp|sql|queryEvidence)(?:\.|$)/i
@@ -16,34 +17,51 @@ const escapeCell = (value) =>
         })
         .join('')
 
-function label(path) {
-    return path
-        .split('.')
-        .filter((part) => part !== 'rows' && !/_payload$/i.test(part))
-        .map((part) => (/^\d+$/.test(part) ? `Record ${Number(part) + 1}` : part.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')))
-        .join(' / ')
-}
-
-// Emergency delivery only: no generated conclusion survives a failed literal
-// check. Fields come directly from bounded server captures, not model JSON.
-export function sourceAnswerFallback(captured, reportingCurrencySymbol) {
-    const rows = []
+// The fallback is a bounded table of returned business records. Nested resolver
+// packets, source metadata and arbitrary internal paths are never field-dumped.
+export function sourceAnswerFallback(captured, reportingCurrencySymbol, { interpretationFailed = true } = {}) {
+    const tables = captured.flatMap((item) => sourceRecordTables(item.result, { maxRows: 10000 }))
+    const rendered = []
+    let remaining = 100
+    let remainingBytes = 128000
     let bounded = false
-    for (let source = 0; source < captured.length; source++) {
-        const body = captured[source]?.result
-        const view = protectedInterpretationEvidence(body, ['rows'])
-        bounded ||= !view.evidenceCoverage.complete
-        for (const field of view.sourceEvidence) {
-            if (privatePath.test(field.path)) continue
-            if (rows.length >= 100) {
+    for (const rows of tables) {
+        if (!remaining) {
+            bounded = true
+            break
+        }
+        const keys = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => !privatePath.test(key))
+        if (!keys.length) continue
+        const columns = keys.slice(0, 12)
+        bounded ||= rows.length > remaining || keys.length > columns.length
+        const shown = rows.slice(0, remaining)
+        remaining -= shown.length
+        const cell = (value) =>
+            escapeCell(
+                value === null
+                    ? 'Unavailable (NULL)'
+                    : value === undefined
+                    ? 'Unavailable'
+                    : String(value).length > 1500
+                    ? 'Long source value omitted.'
+                    : value
+            )
+        const lines = [
+            '| ' + columns.map((key) => escapeCell(key.replace(/_/g, ' '))).join(' | ') + ' |',
+            '|' + columns.map(() => '---').join('|') + '|'
+        ]
+        remainingBytes -= Buffer.byteLength(lines.join('\n'))
+        for (const row of shown) {
+            const line = '| ' + columns.map((key) => cell(row[key])).join(' | ') + ' |'
+            if (Buffer.byteLength(line) > remainingBytes) {
                 bounded = true
+                remaining = 0
                 break
             }
-            const value = field.value === null ? 'Unavailable (NULL)' : String(field.value)
-            // Large records remain in the trace; do not show a clipped number as an exact amount.
-            const shown = value.length > 1500 ? 'Long source value omitted from this bounded display.' : value
-            rows.push(`| ${captured.length > 1 ? `Source ${source + 1} / ` : ''}${escapeCell(label(field.path))} | ${escapeCell(shown)} |`)
+            lines.push(line)
+            remainingBytes -= Buffer.byteLength(line) + 1
         }
+        rendered.push(lines.join('\n'))
     }
     const caption = protectedReportingCaption(
         captured.map((item) => item.result),
@@ -51,14 +69,15 @@ export function sourceAnswerFallback(captured, reportingCurrencySymbol) {
         reportingCurrencySymbol
     )
     const introduction =
-        'The additional interpretation could not be verified. The source-backed values are shown below.' + (caption ? `\n\n${caption}` : '')
-    if (!rows.length) {
+        (interpretationFailed ? 'I could not verify the additional analysis. The source-backed values follow.' : '') +
+        (caption ? `\n\n${caption}` : '')
+    if (!rendered.length) {
         const empty = captured.length && captured.every((item) => Array.isArray(item.result?.rows) && item.result.rows.length === 0)
-        return `${introduction}\n\n${empty ? 'The executed query returned no rows.' : 'No displayable source values were returned.'}`
+        return `${introduction}\n\n${
+            empty
+                ? 'The executed query returned no rows.'
+                : 'The returned source packet could not be presented as a reliable business table.'
+        }`
     }
-    return `${introduction}\n\n| Source field | Returned value |\n|---|---|\n${rows.join('\n')}\n\n${
-        bounded
-            ? 'This is a bounded display of returned source fields; it is not a complete population claim.'
-            : 'Fields retain their returned values; source coverage remains as reported.'
-    }`
+    return `${introduction}\n\n${rendered.join('\n\n')}${bounded ? '\n\nThis is a bounded display of returned records.' : ''}`
 }

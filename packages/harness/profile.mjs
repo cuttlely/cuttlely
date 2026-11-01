@@ -1445,7 +1445,7 @@ function writeProfileSecrets(name, creds, extra = {}) {
 export const CHIEF_ANALYST =
     'Any SQL, database, or analyst-addressed request goes to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Do not answer those yourself.'
 export const CHIEF_ANALYSTS =
-    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request goes to the analyst whose summary and tables fit it, and to each of them when several fit. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Do not answer those yourself.'
+    'Several specialists can query databases, including shared sources. Assign a single owner whose source scope and capabilities cover the complete database deliverable. Use multiple specialists for distinct required sources or separate work, rather than multiple matching summaries. Any SQL, database, or analyst-addressed request needs an authorized analyst. Do not answer those yourself.'
 
 const SQLITE_ID_NOTE = 'An id column is INTEGER PRIMARY KEY. SERIAL is not a SQLite type.'
 
