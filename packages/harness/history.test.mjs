@@ -115,17 +115,23 @@ test('diagnostics persist for failed runs while malformed metadata cannot fail c
 })
 
 test('private storage retains each supported numeric diagnostic context without rewriting literals or units', () => {
-    const pending = beginHarnessRun({ name: 'diagnostics-contexts' })
     const claims = [
         { ...claim('-1.25M'), unit: 'M', contextType: 'compact_monetary' },
         { ...claim('2.5'), unit: 'million', contextType: 'word_scale_monetary' },
         { ...claim('+2,500'), unit: 'USD' },
         { ...claim('7'), unit: '%' },
         { ...claim('8'), unit: '€' },
-        { ...claim('9'), issue: 'unsupported_duration', unit: 'day', contextType: 'duration' }
+        { ...claim('9'), issue: 'unsupported_duration', unit: 'day', contextType: 'duration' },
+        { ...claim('10'), issue: 'unsupported_percentage', unit: '%', contextType: 'percentage' },
+        { ...claim('25:49'), issue: 'unsupported_percentage', unit: '%', contextType: 'percentage_interval' },
+        { ...claim('2032-05-03'), issue: 'unsupported_date', unit: 'calendar_date', contextType: 'date' }
     ]
-    finishHarnessRun(pending, { result, diagnostics: claims })
-    assert.deepEqual(getRunDiagnostics(pending.harness, pending.id).claims, claims)
+    for (let start = 0; start < claims.length; start += 8) {
+        const pending = beginHarnessRun({ name: 'diagnostics-contexts-' + start })
+        const batch = claims.slice(start, start + 8)
+        finishHarnessRun(pending, { result, diagnostics: batch })
+        assert.deepEqual(getRunDiagnostics(pending.harness, pending.id).claims, batch)
+    }
 })
 
 test('private claims are bounded, deduplicated and exclude arbitrary draft, source and credential text', () => {
