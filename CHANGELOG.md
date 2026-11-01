@@ -8,6 +8,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   The **Postgres (MCP)** card is easier to read. It is listed as **Postgres (MCP)** in a **Database** group, and searching `postgres` or `mcp` still finds it. Its settings sit in **Data source**, **What it can see**, **Model**, **Limits** and **Advanced**, with plain field labels. A badge says whether queries go to a read-only database, the sandbox, or nowhere yet, and a list that cannot load shows a note with **Retry**. Wired cards show **Used by:** and **Data:** notes. Long pinned query lists start folded, can be searched, and open a pin in a dialog. Run trace chips read like **Query · 4 rows**, and a result table has **Show SQL**, **Copy** and **CSV**. The settings panel is wider, can be resized by dragging its edge (the width is remembered in the browser) and has an **Expand** button. Labels are display only: saved harnesses, node names, field names and runs are unchanged. A new Postgres (MCP) card starts with **Query** ticked; saved cards keep their tools. See [Analyst mode](./docs/how-to/analyst.md#the-postgres-mcp-card).
 
+### Fixed
+
+-   A JSON setting on a node, credential or document store whose saved value is only whitespace or is not valid JSON, for example a value cut off partway, no longer crashes the page with "Unexpected end of JSON input". The JSON editor opens it as an empty object (`{}`) and writes nothing back until you edit it; valid values open as before. An agentflow node whose saved built-in tool list cannot be read shows no built-in tools, and a multi-select field whose saved value cannot be read shows nothing selected, instead of crashing the page.
+
+-   When a page throws while it loads or renders, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen.
+
 ## [1.4.9] - 2026-10-31
 
 ### Added

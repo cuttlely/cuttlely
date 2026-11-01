@@ -1928,6 +1928,11 @@
             "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
         },
         {
+            "from": "packages/ui/src/ui-component/dropdown/MultiDropdown.test.js",
+            "to": "packages/ui/src/ui-component/dropdown/MultiDropdown.jsx",
+            "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
+        },
+        {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/store/actions.js"
         },
@@ -1987,6 +1992,11 @@
             "from": "packages/ui/src/utils/analystStatus.js",
             "to": "packages/ui/src/store/constant.js",
             "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/ui-component/json/JsonEditor.test.js",
+            "to": "packages/ui/src/ui-component/json/JsonEditor.jsx",
+            "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
         },
         {
             "from": "packages/ui/src/utils/credentialSaveValues.js",
