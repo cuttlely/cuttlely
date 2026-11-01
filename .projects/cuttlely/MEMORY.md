@@ -1,5 +1,7 @@
 # Memory
 
+Evidence paths belong to a capture, not the whole specialist turn. Applying one mapped report's fields to an additional authorized raw query can discard real facts during repair. Reuse the existing capture-identity and passthrough checks for additional results, preserve mapped field restrictions, and keep initial validation and repair on the same per-source selection.
+
 Label internal retrieval context separately from an answer's citations. A generic source-list heading after specialist prose can look like part of that prose and cause the chief to copy clipped or unrelated retrieval hits into the answer. Retain the grounding passages and exact URLs while making the input/output boundary explicit; preserve actual specialist citation lines.
 
 A Markdown label and its destination are separate privacy-scanning spans. Keeping them as one token can turn `label](https://...)` into a false local path. Preserve streaming boundaries and balanced parentheses, and test local paths in labels and titles so recognizing a public URL cannot exempt adjacent filesystem text.
