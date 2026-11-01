@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   **Tidy layout** on the harness canvas rearranges the cards: Harness Prime and its chat model first, one row per Harness Specialist with its wired cards to the right, and sticky notes and unwired cards in a last column. It moves cards only; connections, settings and card ids do not change. It rearranges the canvas; Save to keep it. **Undo** in the message, or Ctrl/Cmd+Z, puts the cards back until you move, add or remove a card, or save. See [Tidy the layout](./docs/how-to/harnesses.md#tidy-the-layout).
+
 -   Trusted-output CSV reports have an opt-in `escapeFormulas` setting on the CSV contract, off by default. When it is on, a header or cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, which keeps spreadsheet apps from treating the cell text as a formula. Plain signed numbers such as `-5`, `+5` or `-1e3` are left unchanged. With the setting off, files are exactly as before. See [Trusted outputs](./docs/reference/trusted-outputs.md).
 
 ### Fixed

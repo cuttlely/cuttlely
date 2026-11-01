@@ -22,6 +22,7 @@ import { useTheme } from '@mui/material/styles'
 import CanvasNode from './CanvasNode'
 import ButtonEdge from './ButtonEdge'
 import StickyNote from './StickyNote'
+import TidyLayoutButton from './TidyLayoutButton'
 import CanvasHeader from './CanvasHeader'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
@@ -1369,6 +1370,17 @@ const Canvas = () => {
                                             >
                                                 {sidePanelOn ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
                                             </button>
+                                            {isHarnessCanvas && (
+                                                <TidyLayoutButton
+                                                    nodes={nodes || []}
+                                                    edges={edges || []}
+                                                    setNodes={setNodes}
+                                                    isDirty={Boolean(canvasDataStore.isDirty)}
+                                                    onDirty={setDirty}
+                                                    enqueueSnackbar={enqueueSnackbar}
+                                                    closeSnackbar={closeSnackbar}
+                                                />
+                                            )}
                                         </Controls>
                                         {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
                                         <AddNodes
