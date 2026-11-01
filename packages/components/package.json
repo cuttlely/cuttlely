@@ -85,7 +85,7 @@
         "clean": "rimraf dist",
         "nuke": "pnpm clean && rimraf node_modules .turbo",
         "test": "jest",
-        "test:pinned": "NODE_OPTIONS=--experimental-vm-modules CUTTLELY_PINNED_NODE_TESTS=1 nice -n 19 jest --maxWorkers=3 --watchAll=false --forceExit nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.pinned.test.ts",
+        "test:pinned": "NODE_OPTIONS=--experimental-vm-modules CUTTLELY_PINNED_NODE_TESTS=1 nice -n 19 jest --maxWorkers=3 --watchAll=false --forceExit nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.pinned.test.ts nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts",
         "test:watch": "jest --watch",
         "test:coverage": "node --max-old-space-size=4096 node_modules/jest/bin/jest.js --coverage"
     },

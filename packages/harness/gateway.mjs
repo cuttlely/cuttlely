@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { analystSqlTrace, noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
+import { recordRetrievedSources } from './retrieval-capture.mjs'
 import {
     guardedQueryEvidence,
     verifiedSourceTurn,
@@ -1108,11 +1109,15 @@ async function callTool(req, res, meta) {
     // Step timings for the run trace. The tool result itself is unchanged.
     const timings = []
     const callStarted = performance.now()
+    let retrievedSources = []
     const result = await withAnalystScope(
         scope,
         () =>
             executeSpecialistTool(record.name, meta.specialistName, body.name, args, {
                 ...routeFor(meta.profileName, body.name),
+                onRetrievedSources: (documents) => {
+                    retrievedSources = documents
+                },
                 harness: record,
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,
@@ -1126,6 +1131,12 @@ async function callTool(req, res, meta) {
     )
     finishAnalystCallTimings(timings, performance.now() - callStarted)
     assertStillValid(meta)
+    if (retrievedSources.length && verifiedSourceTurn(meta.profileName, body.scope)) {
+        recordRetrievedSources(
+            { harness: record.name, specialist: meta.specialistName, sourceTurn: body.scope },
+            { callId: callId || crypto.randomUUID(), documents: retrievedSources }
+        )
+    }
     const shown = modelToolResult(result)
     rememberAnalystResult(record.name, meta.specialistName, shown.result, scope, args, captureId, timings.at(-1), {
         executedSql: shown.traceSql,

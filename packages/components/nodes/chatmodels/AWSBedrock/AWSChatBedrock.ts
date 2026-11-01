@@ -8,6 +8,7 @@ import { BedrockChat } from './FlowiseAWSChatBedrock'
 import { validateEndpointHost, resolveBedrockModel, discoverInferenceProfiles, getStopSeqUnsupportedModels } from './utils'
 import { BedrockImportedChat, getImportedModelInfo, detectFormat } from './FlowiseAWSChatBedrockImported'
 import { supportsSamplingParams } from '../../../src/anthropicUtils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class AWSChatBedrock_ChatModels implements INode {
     label: string
@@ -182,6 +183,7 @@ class AWSChatBedrock_ChatModels implements INode {
         const latencyOptimized = nodeData.inputs?.latencyOptimized as boolean
         const useGlobalEndpoint = nodeData.inputs?.useGlobalEndpoint as boolean
         const endpointHost = (nodeData.inputs?.endpointHost as string)?.trim()
+        const parsedTemperature = parseOptionalNumber(iTemperature)
 
         let sanitizedEndpointHost: string | undefined
         let endpointMigratedArn: string | undefined
@@ -220,7 +222,7 @@ class AWSChatBedrock_ChatModels implements INode {
                     region: iRegion,
                     modelId: effectiveModel,
                     format,
-                    temperature: !isNaN(parseFloat(iTemperature)) ? parseFloat(iTemperature) : 0.7,
+                    ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
                     maxTokens: !isNaN(parseInt(iMax_tokens_to_sample, 10)) ? parseInt(iMax_tokens_to_sample, 10) : 200,
                     streaming: streaming ?? true,
                     credentials: credentialConfig.credentials
@@ -262,8 +264,8 @@ class AWSChatBedrock_ChatModels implements INode {
         // Newer Anthropic Claude models (Opus 4.7+) don't accept sampling
         // parameters. AWS Bedrock surfaces those models with names like
         // "anthropic.claude-opus-4-7-v1" or "us.anthropic.claude-opus-4-7-...".
-        if (supportsSamplingParams(modelId)) {
-            obj.temperature = !isNaN(parseFloat(iTemperature)) ? parseFloat(iTemperature) : 0.7
+        if (supportsSamplingParams(modelId) && parsedTemperature !== undefined) {
+            obj.temperature = parsedTemperature
         }
 
         if (applicationInferenceProfile) {

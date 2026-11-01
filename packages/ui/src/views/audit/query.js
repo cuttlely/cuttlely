@@ -13,6 +13,7 @@ export const AUDIT_TYPES = [
     { value: 'harness_schedule', label: 'Harness schedule' },
     { value: 'pinned_query_change', label: 'Pinned query change' },
     { value: 'auth_method_change', label: 'Sign-in method changed' },
+    { value: 'auth_config_change', label: 'OIDC configuration changed' },
     { value: 'auth_config_warning_ack', label: 'Authentication warning acknowledged' },
     { value: 'owner_recovery', label: 'Owner recovery sign-in' },
     { value: 'scim_token', label: 'SCIM credential changed' },

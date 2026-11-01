@@ -1,6 +1,6 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { Request, Response, Router } from 'express'
-import { rateLimit } from 'express-rate-limit'
+import { MemoryStore, rateLimit } from 'express-rate-limit'
 import {
     acknowledgeAuthenticationWarning,
     initializeAuthenticationState,
@@ -22,6 +22,14 @@ import type { IdentityStore } from './store'
 import { applicationDataSource, applicationSql, identityStore } from './production'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
+import {
+    oidcConfigurationTestPassed,
+    providerLinkMigrationComplete,
+    readOidcConfiguration,
+    testedOidcDraftDiffersFromActive
+} from './oidcStore'
+import { oidcCallbackError } from './oidcProvider'
+import { publicOrigin } from './setupCode'
 import { acknowledgeRecoveryAlert, currentRecoveryAlert } from './recovery'
 import { createScimToken, endScimOverlap, readScimTokenState, revokeScimTokens, rotateScimToken, ScimError } from './scim'
 import {
@@ -50,15 +58,19 @@ export async function databaseSessionRecentlyAuthenticated(
 ): Promise<boolean> {
     if (!token) return false
     const session = await store.findLocalSession(hashSessionToken(token))
+    if (!session) return false
+    const authenticatedAt = session.authenticationMethod === 'oidc' ? session.recentAuthenticationAt : session.issuedAt
     return Boolean(
-        session?.issuedAt &&
-            (session.authenticationMethod === 'local' || session.authenticationMethod === 'recovery') &&
-            now >= session.issuedAt.getTime() &&
-            now - session.issuedAt.getTime() <= RECENT_MS
+        authenticatedAt &&
+            (session.authenticationMethod === 'local' ||
+                session.authenticationMethod === 'oidc' ||
+                session.authenticationMethod === 'recovery') &&
+            now >= authenticatedAt.getTime() &&
+            now - authenticatedAt.getTime() <= RECENT_MS
     )
 }
 
-async function recentlyAuthenticated(req: Request): Promise<boolean> {
+export async function recentlyAuthenticated(req: Request): Promise<boolean> {
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
     return databaseSessionRecentlyAuthenticated(identityStore(), cookies[LOCAL_SESSION_COOKIE])
 }
@@ -67,7 +79,7 @@ async function ownerLocalPasswordReady(): Promise<boolean> {
     return usableLocalOwnerReady(applicationDataSource())
 }
 
-async function ownerRecoveryReady(): Promise<boolean> {
+export async function ownerRecoveryReady(): Promise<boolean> {
     return ownerLocalPasswordReady()
 }
 
@@ -86,9 +98,12 @@ async function auditAttempt(who: { id: string; organizationId: string }, detail:
 
 identityAuthenticationRouter.use(requirePermission('authentication:manage'))
 
+const switchStageStore = new MemoryStore()
+const switchApplyStore = new MemoryStore()
 const switchStageLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
     max: 10,
+    store: switchStageStore,
     standardHeaders: false,
     legacyHeaders: false,
     message: { type: 'authentication_rate_limit', message: 'Too many authentication changes. Try again later.' }
@@ -96,6 +111,7 @@ const switchStageLimit = rateLimit({
 const switchApplyLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
     max: 10,
+    store: switchApplyStore,
     standardHeaders: false,
     legacyHeaders: false,
     message: { type: 'authentication_rate_limit', message: 'Too many authentication changes. Try again later.' }
@@ -108,11 +124,17 @@ const scimChangeLimit = rateLimit({
     message: { type: 'authentication_rate_limit', message: 'Too many SCIM administration requests. Try again later.' }
 })
 
+export async function resetAuthenticationRouteLimitsForTests(): Promise<void> {
+    if (process.env.NODE_ENV !== 'test') return
+    await Promise.all([switchStageStore.resetAll(), switchApplyStore.resetAll()])
+}
+
 identityAuthenticationRouter.get('/', async (req: Request, res: Response) => {
     try {
         const who = actor(req)
         const state =
             (await readAuthenticationState(applicationDataSource())) || (await initializeAuthenticationState(applicationDataSource()))
+        const oidcDraft = await readOidcConfiguration(applicationDataSource(), 'draft')
         const localUsersConfigured = localUsersSetting()
         const localOwnerConfigured = localAdminEnabled()
         res.set('Cache-Control', 'no-store')
@@ -129,7 +151,7 @@ identityAuthenticationRouter.get('/', async (req: Request, res: Response) => {
                         label: 'Local login'
                     },
                     workos: { configured: workosEnvironmentConfigured(), label: 'WorkOS' },
-                    oidc: { configured: false, available: false, label: 'Generic OIDC' }
+                    oidc: { configured: Boolean(oidcDraft), available: true, label: 'Generic OIDC' }
                 },
                 recovery: {
                     available: await ownerRecoveryReady(),
@@ -268,24 +290,42 @@ identityAuthenticationRouter.post('/stage', switchStageLimit, async (req: Reques
     if (!who) return void res.status(401).json({ message: 'Unauthorized' })
     try {
         const version = Number((req.body as { version?: unknown })?.version)
-        if (method !== 'local' && method !== 'workos')
+        if (method !== 'local' && method !== 'workos' && method !== 'oidc')
             return void res.status(400).json({ message: 'That sign-in method is not available.' })
+        const oidc = method === 'oidc' ? await readOidcConfiguration(applicationDataSource(), 'draft') : null
         if (method === 'local' && !localUsersSetting())
             return void res.status(409).json({
                 code: 'METHOD_NOT_READY',
                 message: 'Set CUTTLELY_LOCAL_USERS=true before switching to Local.'
             })
-        if (method === 'workos' && !workosEnvironmentConfigured())
+        if ((method === 'workos' && !workosEnvironmentConfigured()) || (method === 'oidc' && (!oidc || oidc.health !== 'ready')))
             return void res.status(409).json({ message: 'Configure this method before selecting it.' })
-        if (method === 'workos' && !(await ownerRecoveryReady())) {
+        if ((method === 'workos' || method === 'oidc') && !(await ownerRecoveryReady())) {
             await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'owner_recovery_unavailable' })
             return void res.status(409).json({
                 code: 'RECOVERY_REQUIRED',
-                message: 'WorkOS cannot be activated until an active owner has a usable local password.'
+                message: 'A remote sign-in method cannot be activated until owner recovery is ready.'
             })
         }
+        if (method === 'oidc' && oidc && !oidcConfigurationTestPassed(oidc)) {
+            return void res.status(409).json({ code: 'OIDC_TEST_REQUIRED', message: 'Test this OIDC configuration before activation.' })
+        }
+        if (method === 'oidc' && !(await providerLinkMigrationComplete(applicationDataSource()))) {
+            return void res.status(409).json({ code: 'LINK_MIGRATION_REQUIRED', message: 'Identity link migration must complete first.' })
+        }
+        if (method === 'oidc') {
+            const configuredOrigin = process.env.RENDER_EXTERNAL_URL?.trim() || process.env.APP_URL?.trim()
+            const callbackError = oidcCallbackError(
+                configuredOrigin || `${publicOrigin(process.env.PORT || '3000')}/api/v1/auth/oidc/callback`
+            )
+            if (callbackError) return void res.status(409).json({ code: 'OIDC_HTTPS_REQUIRED', message: callbackError })
+        }
         const state = await readAuthenticationState(applicationDataSource())
-        if (method === 'local' && state?.activeMethod === 'workos' && !(await ownerLocalPasswordReady())) {
+        if (
+            method === 'local' &&
+            (state?.activeMethod === 'workos' || state?.activeMethod === 'oidc') &&
+            !(await ownerLocalPasswordReady())
+        ) {
             await auditAttempt(who, { newMethod: method, outcome: 'refused', reason: 'local_owner_unavailable' })
             return void res.status(409).json({
                 code: 'LOCAL_OWNER_REQUIRED',
@@ -296,22 +336,39 @@ identityAuthenticationRouter.post('/stage', switchStageLimit, async (req: Reques
             return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the sign-in method.' })
         if (!state || state.version !== version)
             return void res.status(409).json({ code: 'STATE_CHANGED', message: 'Authentication settings changed. Reload and try again.' })
-        const staged = await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version)
+        const staged =
+            method === 'oidc' && oidc
+                ? await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version, oidc.fingerprint)
+                : await stageAuthenticationMethodSwitch(applicationDataSource(), who.id, method, version)
+        const oidcRefresh = Boolean(
+            method === 'oidc' &&
+                oidc &&
+                state.activeMethod === 'oidc' &&
+                state.configurationFingerprint === oidc.fingerprint &&
+                testedOidcDraftDiffersFromActive(oidc, await readOidcConfiguration(applicationDataSource(), 'active'))
+        )
         res.status(200).json({
             stage: staged.id,
             stageVersion: staged.version,
             method,
-            sessionsWillEnd: state.activeMethod !== method,
+            action: oidcRefresh ? 'oidc_refresh' : 'method_change',
+            sessionsWillEnd: state.activeMethod !== method || (method === 'oidc' && state.configurationFingerprint !== oidc?.fingerprint),
             apiKeysWillRemain: true,
             expiresAt: staged.expiresAt
         })
     } catch (error) {
+        const code = error instanceof Error ? error.message : ''
         await auditAttempt(who, {
             newMethod: method,
             outcome: 'failed',
-            reason: error instanceof Error ? error.message : 'unexpected_error'
+            reason: code || 'unexpected_error'
         })
-        res.status(500).json({ message: 'The sign-in method could not be staged.' })
+        res.status(code === 'AUTH_STATE_CHANGED' ? 409 : 500).json({
+            message:
+                code === 'AUTH_STATE_CHANGED'
+                    ? 'Authentication settings changed. Reload and try again.'
+                    : 'The sign-in method could not be staged.'
+        })
     }
 })
 
@@ -322,15 +379,29 @@ identityAuthenticationRouter.post('/apply', switchApplyLimit, async (req: Reques
     if (
         typeof body.stage !== 'string' ||
         Number(body.stageVersion) !== 1 ||
-        (body.method !== 'local' && body.method !== 'workos') ||
+        (body.method !== 'local' && body.method !== 'workos' && body.method !== 'oidc') ||
         !Number.isInteger(Number(body.stateVersion))
     ) {
         await auditAttempt(who, { outcome: 'refused', reason: 'stage_expired' })
         return void res.status(409).json({ message: 'The staged change expired. Start again.' })
     }
-    if (body.confirm !== 'END SESSIONS') {
+    const current = await readAuthenticationState(applicationDataSource())
+    const oidcDraft = body.method === 'oidc' ? await readOidcConfiguration(applicationDataSource(), 'draft') : null
+    const oidcRefreshConfirmation = Boolean(
+        body.method === 'oidc' &&
+            current?.activeMethod === 'oidc' &&
+            current.version === Number(body.stateVersion) &&
+            oidcDraft &&
+            current.configurationFingerprint === oidcDraft.fingerprint
+    )
+    const expectedConfirmation = oidcRefreshConfirmation ? 'APPLY SETTINGS' : 'END SESSIONS'
+    if (body.confirm !== expectedConfirmation) {
         await auditAttempt(who, { newMethod: body.method, outcome: 'refused', reason: 'confirmation_missing' })
-        return void res.status(400).json({ message: 'Type END SESSIONS to apply this change.' })
+        return void res.status(400).json({
+            message: oidcRefreshConfirmation
+                ? 'Confirm that you want to apply these provider settings.'
+                : 'Type END SESSIONS to apply this change.'
+        })
     }
     if (!(await recentlyAuthenticated(req))) {
         await auditAttempt(who, { newMethod: body.method, outcome: 'refused', reason: 'reauth_required' })
@@ -346,10 +417,11 @@ identityAuthenticationRouter.post('/apply', switchApplyLimit, async (req: Reques
         )
         res.status(200).json({
             applied: true,
-            redirectTo: '/signin',
+            refreshed: after.change === 'oidc_refresh',
+            redirectTo: after.change === 'method' ? '/signin' : null,
             activeMethod: after.activeMethod,
             authenticationEpoch: after.authenticationEpoch,
-            sessionsEnded: after.sessionsEnded
+            sessionsEnded: after.change === 'method' ? after.sessionsEnded : 0
         })
     } catch (error) {
         const code = error instanceof Error ? error.message : ''
@@ -359,7 +431,9 @@ identityAuthenticationRouter.post('/apply', switchApplyLimit, async (req: Reques
                 code === 'AUTH_STAGE_STALE' ||
                 code === 'METHOD_NOT_READY' ||
                 code === 'LOCAL_OWNER_REQUIRED' ||
-                code === 'RECOVERY_REQUIRED'
+                code === 'RECOVERY_REQUIRED' ||
+                code === 'OIDC_TEST_REQUIRED' ||
+                code === 'LINK_MIGRATION_REQUIRED'
                 ? 409
                 : 500
         ).json({
@@ -369,7 +443,11 @@ identityAuthenticationRouter.post('/apply', switchApplyLimit, async (req: Reques
                     : code === 'LOCAL_OWNER_REQUIRED'
                     ? 'Local login requires an active owner with a usable local password.'
                     : code === 'RECOVERY_REQUIRED'
-                    ? 'WorkOS cannot be activated until an active owner has a usable local password.'
+                    ? 'A remote sign-in method cannot be activated until owner recovery is ready.'
+                    : code === 'OIDC_TEST_REQUIRED'
+                    ? 'Test this OIDC configuration before activation.'
+                    : code === 'LINK_MIGRATION_REQUIRED'
+                    ? 'Identity link migration must complete first.'
                     : code === 'METHOD_NOT_READY' && body.method === 'local'
                     ? 'Set CUTTLELY_LOCAL_USERS=true before switching to Local.'
                     : 'The sign-in method was not changed.'

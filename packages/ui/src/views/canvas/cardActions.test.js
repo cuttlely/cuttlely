@@ -14,6 +14,7 @@ import { createStore } from 'redux'
 
 import { SET_DIRTY } from '@/store/actions'
 import { ReactFlowContext, flowContext } from '@/store/context/ReactFlowContext'
+import { applyEdgeRefs } from '@/utils/edgeRefs'
 import { getCustomConditionOutputs } from '@/utils/genericHelper'
 import {
     actionBarSide,
@@ -125,6 +126,16 @@ describe('settings panel header', () => {
         expect(html).toContain('data-testid="close-settings"')
         const source = fs.readFileSync(path.join(__dirname, 'NodePanelHeader.jsx'), 'utf8')
         expect(source).toMatch(/color: 'text\.primary'/)
+    })
+
+    test('offers an Expand toggle only when the panel can expand, and says when it is expanded', () => {
+        expect(header({ onClose: () => {} })).not.toContain('data-testid="panel-expand"')
+        const collapsed = header({ onClose: () => {}, onToggleExpand: () => {} })
+        expect(collapsed).toContain('aria-label="Expand panel"')
+        expect(collapsed).toContain('aria-pressed="false"')
+        const expanded = header({ onClose: () => {}, onToggleExpand: () => {}, expanded: true })
+        expect(expanded).toContain('aria-label="Restore panel width"')
+        expect(expanded).toContain('aria-pressed="true"')
     })
 
     test('a read-only header has the close button and no Duplicate or Delete', () => {
@@ -300,6 +311,32 @@ describe('keyboard delete on a connected card', () => {
             '{{promptTemplate_0.data.instance}}',
             'keep'
         ])
+    })
+
+    test('deleting a single input line lets a different source reconnect', () => {
+        const targetHandle = 'chain_0-input-model-BaseChatModel'
+        const nodes = [
+            { id: 'model_1', data: { id: 'model_1', label: 'First model', inputs: {} } },
+            { id: 'model_2', data: { id: 'model_2', label: 'Second model', inputs: {} } },
+            {
+                id: 'chain_0',
+                data: {
+                    id: 'chain_0',
+                    label: 'Chain',
+                    inputAnchors: [{ id: targetHandle, label: 'Model', name: 'model', type: 'BaseChatModel' }],
+                    inputParams: [],
+                    inputs: { model: '{{model_1.data.instance}}' }
+                }
+            }
+        ]
+        const oldEdge = { id: 'old-line', source: 'model_1', target: 'chain_0', targetHandle }
+        const removed = canvasAfterDelete({ nodes, edges: [oldEdge], edgeIds: [oldEdge.id] })
+        expect(removed.nodes.find((node) => node.id === 'chain_0').data.inputs.model).toBe('')
+
+        const newEdge = { id: 'new-line', source: 'model_2', target: 'chain_0', targetHandle }
+        const connected = applyEdgeRefs(removed.nodes, [newEdge])
+        expect(connected.unmatched).toEqual([])
+        expect(connected.nodes.find((node) => node.id === 'chain_0').data.inputs.model).toBe('{{model_2.data.instance}}')
     })
 
     test('keyboard delete of one card, two cards, and a loop each remove every card, edge, and reference', async () => {

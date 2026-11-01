@@ -11,6 +11,7 @@ git fetch origin
 git switch -c <short-topic> origin/main     # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
 pnpm install --frozen-lockfile
 pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
+pnpm --filter './packages/node-pack-*' build   # verify-test also loads the built node packs (components package alias test)
 ```
 
 -   One concern per pull request, against `main`. Commit messages are one plain sentence describing the user-visible change, then a short body.
@@ -38,7 +39,7 @@ Commits need a git identity (`user.name` and `user.email`). On a machine without
 
 ```bash
 pnpm install
-pnpm harness:check             # node packages/harness/check.mjs — offline, no build, no key, no network
+pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no build, no key, no network
 pnpm etl:check                 # node packages/etl/check.mjs — the retriever and splitter cases need the components build
 node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
 ```
@@ -149,8 +150,10 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `CUTTLELY_ANALYST`                                          | unset                                       | `auto` creates isolated analyst storage (D23)                                                                                                                                                                                                                                                   |
 | `CUTTLELY_POSTGRES_URL`                                     | unset                                       | A separate analyst database. Never the application database. Needs `sslmode` for hosted Postgres                                                                                                                                                                                                |
 | `CUTTLELY_VERSIONS_DIR`, `CUTTLELY_DRAFTS`                  | `$CUTTLELY_DATA_DIR/versions`, on           | Version history location; `off` turns drafts off (D25)                                                                                                                                                                                                                                          |
+| `APP_URL`                                                   | unset                                       | Public origin used to derive generic OIDC callback URLs. Public callbacks require HTTPS; HTTP is limited to the three local development hosts                                                                                                                                                   |
+| `CUTTLELY_OIDC_CLIENT_SECRET`                               | unset                                       | Default host-only secret named by a generic OIDC draft. If the draft names another variable, pass that exact name to every server                                                                                                                                                               |
 | `CUTTLELY_LOCAL_ADMIN`                                      | unset                                       | `true` enables the older owner compatibility route. While Local is selected it creates an ordinary Local session; under another active method it uses recovery treatment. `/owner-recovery` stays available independently                                                                       |
-| `CUTTLELY_LOCAL_USERS`                                      | off                                         | `true` lets any active user who already has a password sign in when AuthKit is not configured (D74). Restart to apply. AuthKit leaves `POST /api/v1/auth/local/login` at 404                                                                                                                    |
+| `CUTTLELY_LOCAL_USERS`                                      | off                                         | `true` lets an active user with a password sign in while Local is the durable selected method. Restart to apply. WorkOS and generic OIDC leave `POST /api/v1/auth/local/login` at 404                                                                                                           |
 | `TRUST_PROXY`                                               | unset (trust none)                          | Proxy hop count in front of the server (D20)                                                                                                                                                                                                                                                    |
 | `MODEL_LIST_CONFIG_JSON`                                    | unset                                       | `bundled` turns off the daily model list fetch (D32)                                                                                                                                                                                                                                            |
 | `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                                                                                                                                                                                                                        |
@@ -213,7 +216,7 @@ CUTTLELY_HARNESS_QUEUE=external CUTTLELY_HARNESS_WORKERS=1 bash scripts/start-cu
 The Blueprint is `render.yaml` (D29). Apply it from the Render Dashboard; this repository never calls the Render API, and `pnpm verify` only checks the file. The full steps, including sign-in, are in `docs/how-to/render.md` and `docs/identity/workos-authkit-setup.md`.
 
 -   A `render.yaml` change is server config: run the full `pnpm verify`.
--   The first sync asks for the `sync: false` values (the AuthKit variables and `CUTTLELY_BOOTSTRAP_EMAIL`). Never put their values in git, chat or shell history. Do not add provider API keys; harness models come from in-app credentials.
+-   The first sync asks for the `sync: false` identity values and `CUTTLELY_BOOTSTRAP_EMAIL`. For generic OIDC, set `APP_URL` and the secret variable named on the setup card on every server. Never put their values in git, chat or shell history. Do not add model-provider credentials; harness models use in-app credentials.
 -   Confirm the plans before the first sync. The database name, user, region and Postgres major version, and the web runtime, cannot change after create.
 -   Leave `numInstances` at 1. Wait for `GET /api/v1/ping` to return `pong`; the first boot is slow.
 -   Losing `FLOWISE_SECRETKEY_OVERWRITE` or `CUTTLELY_SECRETKEY_OVERWRITE` makes stored credentials unreadable. If both are set to different values, Cuttlely refuses to start.

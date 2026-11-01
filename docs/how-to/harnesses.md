@@ -44,11 +44,11 @@ What the template contains:
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **Harness Prime**                   | Routes each message. Its instructions send document questions to the researcher and database questions to the analyst. |
 | **Harness Specialist** `researcher` | Answers from the note. Its tool is the In-Memory Vector Store.                                                         |
-| **Harness Specialist** `analyst`    | Answers database questions. Its tool is PostgreSQL MCP.                                                                |
+| **Harness Specialist** `analyst`    | Answers database questions. Its tool is Postgres (MCP).                                                                |
 | **xAI Grok**                        | The sample chat model for Harness Prime. It has no credential. You replace it below.                                   |
 | **In-Memory Vector Store**          | Holds the note. **Local Hash Embeddings** builds the vectors on the server, with no provider key.                      |
 | **Plain Text**                      | The demo note the researcher reads.                                                                                    |
-| **PostgreSQL MCP**                  | The analyst's database tool.                                                                                           |
+| **Postgres (MCP)**                  | The analyst's database tool.                                                                                           |
 
 A specialist with nothing connected to its own **Chat Model** uses Harness Prime's model and credential.
 
@@ -93,12 +93,12 @@ With no key saved yet, the template's xAI Grok node has no credential, so a save
 
 ## Turn on the analyst's database tool
 
-The template stores no action on PostgreSQL MCP. Until you pick one, the analyst has no database tool.
+The template stores no action on Postgres (MCP). Until you pick one, the analyst has no database tool.
 
-1. On **PostgreSQL MCP**, open **Available Actions**.
+1. On **Postgres (MCP)**, open **Tools it can use**.
 2. Select **QUERY**.
 
-With `CUTTLELY_ANALYST=auto` the description under the field starts with `Run one SQL statement in the isolated analyst store`, and **Connect Credential** reads `Auto mode: isolated analyst store, no credential needed`. Other cases are in [Analyst mode](./analyst.md).
+With `CUTTLELY_ANALYST=auto` the description under the field starts with `Run one SQL statement in the isolated analyst store`, and **Database connection** reads `Auto mode: isolated analyst store, no credential needed`. Other cases are in [Analyst mode](./analyst.md).
 
 ![The PostgreSQL MCP node in the dark theme, with QUERY selected under Available Actions. Connect Credential reads Auto mode: isolated analyst store, no credential needed, and the QUERY description is below the field. Tables and views says isolated analyst storage has nothing to pick.](../images/harnesses/postgres-mcp-query.png)
 
@@ -118,6 +118,18 @@ The specialist always sees each name and its when-to-use line: its instructions 
 A specialist with playbooks runs in the agent runtime. It can list and read its playbooks. It cannot change them, and it cannot write new ones. Save the harness after you edit a playbook.
 
 A playbook can ask for a closing line, such as `Source: sales warehouse`. When the specialist's answer ends with a line that starts with `Source:`, `Sources:`, `Citation:` or `References:`, Harness Prime keeps that line at the end of its own answer. If its rewrite drops the line, Cuttlely puts it back.
+
+## Tidy the layout
+
+**Tidy layout**, in the control bar at the bottom of a harness canvas, rearranges the cards so the team reads left to right. The button turns on once the cards are drawn. Harness Prime and its chat model go in the first columns. Each Harness Specialist gets its own row, with the cards wired into it to its right. A card starts level with the card it is wired into, lower only when that would overlap another card. Sticky notes and cards that are not wired to the team go in a last column, so nothing is removed. Cards inside another card, such as an iteration, stay where they are. Each card gets the room it takes on screen. If you switch to classic cards after a tidy, select **Tidy layout** again. The view does not move: select the fit view button beside it to see every card.
+
+![The field-notes-desk harness canvas in the dark theme, before Tidy layout. Calculator, Requests Get, In-Memory Vector Store, Harness Prime, xAI Grok, Local Hash Embeddings, and three Harness Specialist cards named Research Chief, Summarizer, and Fact Checker are scattered, and the Research Chief and Summarizer cards overlap.](../images/harnesses/canvas-tidy-before.png)
+
+![The same canvas in the dark theme after Tidy layout. xAI Grok and Harness Prime are in the first two columns. Fact Checker, Research Chief, and Summarizer each have a row, with Calculator to the right of Fact Checker, Requests Get and In-Memory Vector Store stacked to the right of Research Chief, and Local Hash Embeddings level with In-Memory Vector Store. The compact cards sit in tight rows with no overlaps, and Summarizer is the last row. A green message at the bottom reads Tidied the canvas. Save to keep the new layout, with Undo. The fit view button was selected after the tidy.](../images/harnesses/canvas-tidy-after.png)
+
+Tidy layout rearranges the canvas; Save to keep it. It moves cards only. Connections, card settings, and card ids do not change, and the harness runs the same way. Nothing is saved until you select **Save Harness**, and the asterisk before the name shows the change is not saved yet. When the cards are already in place, it says `The canvas is already tidy.`
+
+To go back, select **Undo** in the message or press Ctrl+Z (Cmd+Z on a Mac) on the canvas, outside a text field or dialog. Undo is one step: it puts every card back where it was before the last tidy. Settings you changed after the tidy stay. The message stays until you select Undo or close it. Closing it keeps Ctrl+Z. Undo is no longer offered after you move, add, or remove a card, or save. The canvas stays marked as not saved after Undo.
 
 ## Save the harness
 
@@ -195,7 +207,7 @@ Select a specialist row to open it. It shows the task Harness Prime gave that sp
 
 Those same steps can be sent as an OpenTelemetry trace: the run, the route, each specialist, each tool call, and the handoff. See [Harness runs](./observability.md#harness-runs).
 
-Each chip is the tool name and `done`, `retried`, or `failed`. A specialist's tools are offered to it directly, so the first chip is the tool itself, such as `mcp__analyst__query`, not a `tool_search` and `tool_call` lookup first. A failed chip is red. Hold the pointer over a `retried` chip for the reason. An analyst query chip that returned rows also says how many, such as `mcp__analyst__query · done · 100 rows`. Select it to open a short preview of those rows, never more than the configured row cap (at most 1000). The table starts closed. It shows the first few rows and columns, with long values cut short. When the preview is shorter than a finished page with no page line, the caption says the answer can show fewer rows than the query returned. When the result has a page line and the question asks for the rows, the caption says the rest of these rows are in the answer in this chat. A count or a total does not. It says to say `show more` only when another page exists. Select the chip again to close it. The preview is saved with the run trace. It is only rows that query already returned. Harness Prime gets a short handoff, and the answer can show only the top rows. A database result that stopped at the row cap ends with a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The cap is 100 rows unless you change it, and never more than 1000. Say `show more` for the next page. See [Query preview on the run card](./analyst.md#query-preview-on-the-run-card).
+Each chip names the tool, and says `running`, `retried`, or `failed` while that applies. Analyst tools have plain names such as **Query**. A tool on another MCP server shows its server and tool name, such as **demo_tracker · search**. Hover a chip for the stored name. A specialist's tools are offered to it directly, so the first chip is the tool itself, such as `mcp__analyst__query`, not a `tool_search` and `tool_call` lookup first. A failed chip is red. Hold the pointer over a `retried` chip for the reason. An analyst query chip that returned rows also says how many, such as **Query · 100 rows**. Select it to open a short preview of those rows, never more than the configured row cap (at most 1000). The table starts closed. It shows the first few rows and columns, with long values cut short. When the preview is shorter than a finished page with no page line, the caption says the answer can show fewer rows than the query returned. When the result has a page line and the question asks for the rows, the caption says the rest of these rows are in the answer in this chat. A count or a total does not. It says to say `show more` only when another page exists. Select the chip again to close it. The preview is saved with the run trace. It is only rows that query already returned. Harness Prime gets a short handoff, and the answer can show only the top rows. A database result that stopped at the row cap ends with a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The cap is 100 rows unless you change it, and never more than 1000. Say `show more` for the next page. See [Query preview on the run card](./analyst.md#query-preview-on-the-run-card).
 
 For source-defined reports, monthly-utilization PNGs and exact table CSVs that must bypass model transcription, see [Trusted pinned-query outputs](../reference/trusted-outputs.md). This optional per-specialist setting consumes actual captured pin results; empty remains off.
 
@@ -390,17 +402,17 @@ At startup Cuttlely looks for profiles whose harness no longer exists, for examp
 
 ## Troubleshooting
 
-| You see                                                                                                      | What to do                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.` | Select a credential on that node, or delete it and connect another chat model. See [Connect a chat model](#connect-a-chat-model-to-harness-prime).                                    |
-| `Harness name "..." is not valid. Use a letter followed by letters, numbers, "_" or "-".`                    | Save under an id such as `chief-of-staff`. Spaces are not allowed.                                                                                                                    |
-| `Save this harness before chatting.`                                                                         | The canvas chat runs the saved harness. Save first. The rest of the message says what else is missing.                                                                                |
-| `Connect a chat model to the Harness Prime. A chat model is required. ...`                                   | Nothing is connected to **Chat Model** on Harness Prime. Connect one and save.                                                                                                        |
-| `The chat model on the Harness Prime needs a credential. ...`                                                | Select a credential on the chat model node and save. A key in the server environment does not fill in a missing credential.                                                           |
-| Orange triangle on a card, **Sync Nodes** button                                                             | The node was saved with an older node version. Select **Sync Nodes**, then save.                                                                                                      |
-| The analyst says its tool is unavailable, or **Available Actions** shows `Analyst tool unavailable`          | The agent runtime has not registered the query tool yet. Wait a few seconds and refresh **Available Actions**, or restart Cuttlely. See [Analyst mode](./analyst.md#troubleshooting). |
-| The analyst answers without querying                                                                         | **QUERY** is not selected on PostgreSQL MCP. Select it and save.                                                                                                                      |
-| The wrong specialist answers                                                                                 | Make the Harness Prime **Instructions** say which kind of question goes to which specialist, by name. Give each specialist a **Routing summary** that says what it handles. Save.     |
+| You see                                                                                                      | What to do                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.` | Select a credential on that node, or delete it and connect another chat model. See [Connect a chat model](#connect-a-chat-model-to-harness-prime).                                   |
+| `Harness name "..." is not valid. Use a letter followed by letters, numbers, "_" or "-".`                    | Save under an id such as `chief-of-staff`. Spaces are not allowed.                                                                                                                   |
+| `Save this harness before chatting.`                                                                         | The canvas chat runs the saved harness. Save first. The rest of the message says what else is missing.                                                                               |
+| `Connect a chat model to the Harness Prime. A chat model is required. ...`                                   | Nothing is connected to **Chat Model** on Harness Prime. Connect one and save.                                                                                                       |
+| `The chat model on the Harness Prime needs a credential. ...`                                                | Select a credential on the chat model node and save. A key in the server environment does not fill in a missing credential.                                                          |
+| Orange triangle on a card, **Sync Nodes** button                                                             | The node was saved with an older node version. Select **Sync Nodes**, then save.                                                                                                     |
+| The analyst says its tool is unavailable, or **Tools it can use** shows `Analyst tool unavailable`           | The agent runtime has not registered the query tool yet. Wait a few seconds and refresh **Tools it can use**, or restart Cuttlely. See [Analyst mode](./analyst.md#troubleshooting). |
+| The analyst answers without querying                                                                         | **QUERY** is not selected on Postgres (MCP). Select it and save.                                                                                                                     |
+| The wrong specialist answers                                                                                 | Make the Harness Prime **Instructions** say which kind of question goes to which specialist, by name. Give each specialist a **Routing summary** that says what it handles. Save.    |
 
 ## Prediction API
 
@@ -427,3 +439,5 @@ Specialists run in the agent runtime, which `scripts/start-cuttlely.sh` starts a
 Missed health checks in the first 60 seconds after a start (`CUTTLELY_HERMES_HEALTH_GRACE`) do not count. After that, one miss is `degraded`. A restart needs about 15 seconds of continuous misses (`CUTTLELY_HERMES_HEALTH_WINDOW`) and `CUTTLELY_HERMES_HEALTH_FAILS` misses (default 3). Each check waits about 2 seconds. A run that is still streaming from the agent runtime is not killed for those misses.
 
 `X-Cuttlely-Analyst` is `ready` when the analyst tool is registered, `missing` when the bridge recorded 0 tools, and `unknown` before that file exists.
+
+Harness Prime can ask a fixed clarification for missing essential record selection, entity, measure, period, region, record type or comparison scope. It first uses the current request, conversation, source-backed selections and documented defaults. A clarification runs no specialist or query; ordinary fulfillable requests continue through the planner.

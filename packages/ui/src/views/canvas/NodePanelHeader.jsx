@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types'
 
 import { Box, IconButton, Typography } from '@mui/material'
-import { IconCopy, IconTrash, IconX } from '@tabler/icons-react'
+import { IconArrowsMaximize, IconArrowsMinimize, IconCopy, IconTrash, IconX } from '@tabler/icons-react'
 
 import { panelHeaderActions } from './cardActions'
 
@@ -14,7 +14,19 @@ const actionButtonSx = {
     bgcolor: 'background.default'
 }
 
-const NodePanelHeader = ({ label, subtitle, icon, nodeName, readOnly = false, onDuplicate, onDelete, onClose, children }) => {
+const NodePanelHeader = ({
+    label,
+    subtitle,
+    icon,
+    nodeName,
+    readOnly = false,
+    expanded = false,
+    onToggleExpand,
+    onDuplicate,
+    onDelete,
+    onClose,
+    children
+}) => {
     const actions = panelHeaderActions({ nodeName, readOnly })
     return (
         <Box
@@ -40,11 +52,24 @@ const NodePanelHeader = ({ label, subtitle, icon, nodeName, readOnly = false, on
                     </Typography>
                 )}
                 {subtitle && (
-                    <Typography variant='caption' color='text.secondary' noWrap>
+                    <Typography variant='caption' component='div' color='text.secondary' noWrap title={subtitle}>
                         {subtitle}
                     </Typography>
                 )}
             </Box>
+            {onToggleExpand && (
+                <IconButton
+                    title={expanded ? 'Restore panel width' : 'Expand panel'}
+                    aria-label={expanded ? 'Restore panel width' : 'Expand panel'}
+                    aria-pressed={expanded}
+                    data-testid='panel-expand'
+                    size='small'
+                    onClick={onToggleExpand}
+                    sx={actionButtonSx}
+                >
+                    {expanded ? <IconArrowsMinimize size={18} /> : <IconArrowsMaximize size={18} />}
+                </IconButton>
+            )}
             {actions.duplicate && (
                 <IconButton
                     title='Duplicate'
@@ -91,6 +116,8 @@ NodePanelHeader.propTypes = {
     icon: PropTypes.node,
     nodeName: PropTypes.string,
     readOnly: PropTypes.bool,
+    expanded: PropTypes.bool,
+    onToggleExpand: PropTypes.func,
     onDuplicate: PropTypes.func,
     onDelete: PropTypes.func,
     onClose: PropTypes.func,

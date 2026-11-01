@@ -1232,6 +1232,452 @@
                 }
             ]
         },
+        "identity_authentication_state": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "installationId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "activeMethod",
+                    "type": "varchar(32)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "authenticationEpoch",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "authenticationBaselineEpoch",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "warning",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sessionsEnded",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "changedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "inferredAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "version",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": []
+        },
+        "identity_authentication_switch_stage": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "method",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "stateVersion",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "version",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_identity_authentication_switch_stage_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_oidc_configuration": {
+            "columns": [
+                {
+                    "name": "slot",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "issuer",
+                    "type": "TEXT",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "clientId",
+                    "type": "TEXT",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "clientSecretEnvVar",
+                    "type": "varchar(128)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "trustMissingEmailVerification",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "privateIssuerHosts",
+                    "type": "TEXT",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "fingerprint",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "discovery",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "health",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "healthError",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "checkedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "testedFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "testedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "testResult",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "version",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_identity_oidc_configuration_1",
+                    "unique": true,
+                    "columns": ["slot"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_oidc_transaction": {
+            "columns": [
+                {
+                    "name": "stateHash",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "envelope",
+                    "type": "TEXT",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_oidc_transaction_expiry",
+                    "unique": false,
+                    "columns": ["expiresAt"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_oidc_transaction_1",
+                    "unique": true,
+                    "columns": ["stateHash"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_provider_link": {
+            "columns": [
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "subject",
+                    "type": "varchar(512)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "userId",
+                    "type": "uuid",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "emailAtLink",
+                    "type": "varchar(254)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "assuranceBasis",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_provider_link_user",
+                    "unique": false,
+                    "columns": ["userId"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_provider_link_1",
+                    "unique": true,
+                    "columns": ["providerKey", "subject"],
+                    "origin": "u"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_provider_link_2",
+                    "unique": true,
+                    "columns": ["providerKey", "userId"],
+                    "origin": "u"
+                }
+            ]
+        },
+        "identity_provider_link_migration": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "INTEGER",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "migratedCount",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "inertCount",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
+                },
+                {
+                    "name": "completedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "error",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": []
+        },
         "identity_authkit_switch": {
             "columns": [
                 {
@@ -1335,6 +1781,13 @@
                     "type": "INTEGER",
                     "nullable": false,
                     "default": "0",
+                    "pk": 0
+                },
+                {
+                    "name": "recentAuthenticationAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
                     "pk": 0
                 },
                 {
@@ -3730,158 +4183,6 @@
                 }
             ]
         },
-        "identity_authentication_state": {
-            "columns": [
-                {
-                    "name": "id",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 1
-                },
-                {
-                    "name": "installationId",
-                    "type": "varchar(64)",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "activeMethod",
-                    "type": "varchar(32)",
-                    "nullable": true,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "authenticationEpoch",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "authenticationBaselineEpoch",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "providerKey",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "warning",
-                    "type": "varchar(255)",
-                    "nullable": true,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "sessionsEnded",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "changedAt",
-                    "type": "datetime",
-                    "nullable": true,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "inferredAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "version",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                }
-            ],
-            "foreignKeys": [],
-            "indexes": []
-        },
-        "identity_authentication_switch_stage": {
-            "columns": [
-                {
-                    "name": "id",
-                    "type": "varchar(36)",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 1
-                },
-                {
-                    "name": "actorId",
-                    "type": "varchar(36)",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "method",
-                    "type": "varchar(32)",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "stateVersion",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "expiresAt",
-                    "type": "datetime",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "consumedAt",
-                    "type": "datetime",
-                    "nullable": true,
-                    "default": null,
-                    "pk": 0
-                },
-                {
-                    "name": "version",
-                    "type": "INTEGER",
-                    "nullable": false,
-                    "default": null,
-                    "pk": 0
-                }
-            ],
-            "foreignKeys": [],
-            "indexes": [
-                {
-                    "name": "sqlite_autoindex_identity_authentication_switch_stage_1",
-                    "unique": true,
-                    "columns": ["id"],
-                    "origin": "pk"
-                }
-            ]
-        },
         "identity_recovery_alert": {
             "columns": [
                 {
@@ -5780,6 +6081,12 @@
                     "type": "integer",
                     "nullable": false,
                     "default": "0"
+                },
+                {
+                    "name": "recentAuthenticationAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
                 },
                 {
                     "name": "authenticationMethod",
@@ -7991,6 +8298,12 @@
                     "type": "integer",
                     "nullable": false,
                     "default": null
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [],
@@ -8044,6 +8357,12 @@
                     "name": "version",
                     "type": "integer",
                     "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
                     "default": null
                 }
             ],
@@ -8117,6 +8436,261 @@
             "indexes": [
                 {
                     "name": "identity_session_convergence_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_provider_link": {
+            "columns": [
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "subject",
+                    "type": "varchar(512)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "userId",
+                    "type": "uuid",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "emailAtLink",
+                    "type": "varchar(254)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "assuranceBasis",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_provider_link_user",
+                    "unique": false,
+                    "columns": ["userId"]
+                },
+                {
+                    "name": "uq_identity_provider_subject",
+                    "unique": true,
+                    "columns": ["providerKey", "subject"]
+                },
+                {
+                    "name": "uq_identity_provider_user",
+                    "unique": true,
+                    "columns": ["providerKey", "userId"]
+                }
+            ]
+        },
+        "identity_oidc_configuration": {
+            "columns": [
+                {
+                    "name": "slot",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "issuer",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "clientId",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "clientSecretEnvVar",
+                    "type": "varchar(128)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "trustMissingEmailVerification",
+                    "type": "boolean",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "privateIssuerHosts",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "fingerprint",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "discovery",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "health",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "healthError",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "checkedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "testedFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "testedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "testResult",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "version",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_oidc_configuration_pkey",
+                    "unique": true,
+                    "columns": ["slot"]
+                }
+            ]
+        },
+        "identity_oidc_transaction": {
+            "columns": [
+                {
+                    "name": "stateHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "envelope",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_oidc_transaction_pkey",
+                    "unique": true,
+                    "columns": ["stateHash"]
+                },
+                {
+                    "name": "idx_identity_oidc_transaction_expiry",
+                    "unique": false,
+                    "columns": ["expiresAt"]
+                }
+            ]
+        },
+        "identity_provider_link_migration": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "migratedCount",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "inertCount",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": "0"
+                },
+                {
+                    "name": "completedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "error",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_provider_link_migration_pkey",
                     "unique": true,
                     "columns": ["id"]
                 }
@@ -10159,6 +10733,14 @@
                     "type": "int(11)",
                     "nullable": false,
                     "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "recentAuthenticationAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -13003,6 +13585,14 @@
                     "default": null,
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
                 }
             ],
             "foreignKeys": [],
@@ -13071,6 +13661,14 @@
                     "default": null,
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
                 }
             ],
             "foreignKeys": [],
@@ -13151,6 +13749,325 @@
                     "default": null,
                     "extra": "",
                     "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_provider_link": {
+            "columns": [
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "subject",
+                    "type": "varchar(512)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "emailAtLink",
+                    "type": "varchar(254)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "assuranceBasis",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_provider_link_user",
+                    "unique": false,
+                    "columns": ["userId"]
+                },
+                {
+                    "name": "uq_identity_provider_subject",
+                    "unique": true,
+                    "columns": ["providerKey", "subject"]
+                },
+                {
+                    "name": "uq_identity_provider_user",
+                    "unique": true,
+                    "columns": ["providerKey", "userId"]
+                }
+            ]
+        },
+        "identity_oidc_configuration": {
+            "columns": [
+                {
+                    "name": "slot",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "issuer",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "clientId",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "clientSecretEnvVar",
+                    "type": "varchar(128)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "trustMissingEmailVerification",
+                    "type": "tinyint(1)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "privateIssuerHosts",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "fingerprint",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "discovery",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "health",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "healthError",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "checkedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "testedFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "testedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "testResult",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "version",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["slot"]
+                }
+            ]
+        },
+        "identity_oidc_transaction": {
+            "columns": [
+                {
+                    "name": "stateHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "envelope",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_oidc_transaction_expiry",
+                    "unique": false,
+                    "columns": ["expiresAt"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["stateHash"]
+                }
+            ]
+        },
+        "identity_provider_link_migration": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "migratedCount",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "inertCount",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "completedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "error",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
                 }
             ],
             "foreignKeys": [],
@@ -15331,6 +16248,14 @@
                     "type": "int",
                     "nullable": false,
                     "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "recentAuthenticationAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -18175,6 +19100,14 @@
                     "default": null,
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],
@@ -18243,6 +19176,14 @@
                     "default": null,
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "configurationFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],
@@ -18323,6 +19264,325 @@
                     "default": null,
                     "extra": "",
                     "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_provider_link": {
+            "columns": [
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "subject",
+                    "type": "varchar(512)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "emailAtLink",
+                    "type": "varchar(254)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "assuranceBasis",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_provider_link_user",
+                    "unique": false,
+                    "columns": ["userId"]
+                },
+                {
+                    "name": "uq_identity_provider_subject",
+                    "unique": true,
+                    "columns": ["providerKey", "subject"]
+                },
+                {
+                    "name": "uq_identity_provider_user",
+                    "unique": true,
+                    "columns": ["providerKey", "userId"]
+                }
+            ]
+        },
+        "identity_oidc_configuration": {
+            "columns": [
+                {
+                    "name": "slot",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "issuer",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "clientId",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "clientSecretEnvVar",
+                    "type": "varchar(128)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "trustMissingEmailVerification",
+                    "type": "tinyint(1)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "privateIssuerHosts",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "fingerprint",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "discovery",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "health",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "healthError",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "checkedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "testedFingerprint",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "testedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "testResult",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "version",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["slot"]
+                }
+            ]
+        },
+        "identity_oidc_transaction": {
+            "columns": [
+                {
+                    "name": "stateHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "envelope",
+                    "type": "text",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_identity_oidc_transaction_expiry",
+                    "unique": false,
+                    "columns": ["expiresAt"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["stateHash"]
+                }
+            ]
+        },
+        "identity_provider_link_migration": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "providerKey",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "migratedCount",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "inertCount",
+                    "type": "int",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "completedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "error",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],

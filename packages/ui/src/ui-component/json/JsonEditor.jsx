@@ -5,6 +5,7 @@ import ReactJson from 'flowise-react-json-view'
 import SelectVariable from './SelectVariable'
 import { cloneDeep } from 'lodash'
 import { getAvailableNodesForVariable } from '@/utils/genericHelper'
+import { safeJsonParse } from '@/utils/safeJsonParse'
 
 export const JsonEditorInput = ({
     value,
@@ -17,7 +18,8 @@ export const JsonEditorInput = ({
     isDarkMode = false,
     isSequentialAgent = false
 }) => {
-    const [myValue, setMyValue] = useState(value ? JSON.parse(value) : {})
+    // A whitespace-only or unreadable saved value opens as {}. Nothing is written back until the user edits.
+    const [myValue, setMyValue] = useState(() => safeJsonParse(value, {}))
     const [availableNodesForVariable, setAvailableNodesForVariable] = useState([])
     const [mouseUpKey, setMouseUpKey] = useState('')
 

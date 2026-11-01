@@ -3,6 +3,7 @@ import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { ChatWatsonx, ChatWatsonxInput } from '@langchain/community/chat_models/ibm'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 interface WatsonxAuth {
     watsonxAIApikey?: string
@@ -161,6 +162,7 @@ class ChatIBMWatsonx_ChatModels implements INode {
         const watsonxAIAuthType = getCredentialParam('watsonxAIAuthType', credentialData, nodeData)
         const watsonxAIApikey = getCredentialParam('watsonxAIApikey', credentialData, nodeData)
         const watsonxAIBearerToken = getCredentialParam('watsonxAIBearerToken', credentialData, nodeData)
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         const auth = {
             version,
@@ -175,7 +177,7 @@ class ChatIBMWatsonx_ChatModels implements INode {
             ...auth,
             streaming: streaming ?? true,
             model: modelName,
-            temperature: temperature ? parseFloat(temperature) : undefined
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {})
         } as ChatWatsonxInput & WatsonxAuth
 
         if (cache) obj.cache = cache

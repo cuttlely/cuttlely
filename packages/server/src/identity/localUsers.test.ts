@@ -34,8 +34,10 @@ import {
     handleLocalPassword,
     handleLoginPost,
     handleLogout,
-    handleRefresh
+    handleRefresh,
+    issueDatabaseSession
 } from './handlers'
+import { oidcSessionCookieSecure } from './cookies'
 import { DUMMY_BCRYPT_HASH, hashPassword, hashSessionToken, isBcryptHash } from './password'
 import { LoginRateLimit, accountLockKey } from './rateLimit'
 import { addIdentityLoginGuards } from './schemaMigration'
@@ -510,6 +512,40 @@ describe('local users mode', () => {
             if (previous === undefined) delete process.env.NODE_ENV
             else process.env.NODE_ENV = previous
         }
+    })
+
+    it.each([
+        ['an HTTP request with an HTTPS APP_URL', undefined],
+        ['an HTTP WORKOS_REDIRECT_URI', 'http://old.example/api/v1/auth/callback']
+    ])('keeps an OIDC session cookie Secure while sliding after %s', async (_case, workosRedirectUri) => {
+        const { store } = await seed()
+        const env: NodeJS.ProcessEnv = { APP_URL: 'https://app.example' }
+        if (workosRedirectUri) env.WORKOS_REDIRECT_URI = workosRedirectUri
+        const oidcSecure = oidcSessionCookieSecure(false, env)
+        expect(oidcSecure).toBe(true)
+        const base = ctx({
+            store,
+            localUsers: false,
+            oidcActive: true,
+            oidcSessionSecure: oidcSecure,
+            redirectUri: workosRedirectUri,
+            secure: false
+        })
+        const issued = json(await issueDatabaseSession(base, 'user-a'))
+        const raw = issued.cookies?.[0].value || ''
+        expect(issued.cookies?.[0].options.secure).toBe(true)
+
+        const slid = await establishSession({
+            ...base,
+            now: NOW + 61_000,
+            cookies: { 'cuttlely-local-session': raw }
+        })
+        expect(slid.user?.id).toBe('user-a')
+        expect(slid.secure).toBe(true)
+        expect(slid.cookies?.[0].options.secure).toBe(true)
+
+        const loggedOut = json(await handleLogout({ ...base, internal: true, cookies: { 'cuttlely-local-session': raw } }))
+        expect(loggedOut.secure).toBe(true)
     })
 
     it('rotates the cookie on each sign-in and keeps the idle and absolute limits', async () => {

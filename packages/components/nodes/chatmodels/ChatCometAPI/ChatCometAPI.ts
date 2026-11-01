@@ -3,6 +3,7 @@ import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { ChatOpenAI, ChatOpenAIFields } from '@langchain/openai'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatCometAPI_ChatModels implements INode {
     readonly baseURL: string = 'https://api.cometapi.com/v1'
@@ -143,8 +144,9 @@ class ChatCometAPI_ChatModels implements INode {
 
         const cache = nodeData.inputs?.cache as BaseCache
 
+        const parsedTemperature = parseOptionalNumber(temperature)
         const obj: ChatOpenAIFields = {
-            temperature: parseFloat(temperature),
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             modelName,
             openAIApiKey,
             apiKey: openAIApiKey,

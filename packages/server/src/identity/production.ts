@@ -18,7 +18,7 @@ import { Request } from 'express'
 import { DataSource } from 'typeorm'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
-import { cookieSecure } from './cookies'
+import { cookieSecure, oidcSessionCookieSecure } from './cookies'
 import { organizationsForUser, recordAudit } from './auditLog'
 import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
@@ -33,11 +33,13 @@ import { createRecoveryAlert, notifyRecoverySuccess, recordRecoveryAttempt } fro
 import {
     automaticWorkosLinkingAllowed,
     initializeAuthenticationState,
+    readAuthenticationState,
     recordInferredWorkosActivation,
     refreshAuthenticationState,
     selectedAuthenticationEpoch,
     selectedAuthenticationMethod
 } from './authenticationState'
+import { createProviderLink, findProviderLink, migrateLegacyProviderLinks } from './oidcStore'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
@@ -58,6 +60,7 @@ export function applicationDataSource(): DataSource {
  */
 export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
     const durable = await initializeAuthenticationState(dataSource)
+    await migrateLegacyProviderLinks(dataSource, durable)
     await activateSessionConvergence(dataSource)
     const switchStore = new SqlIdentityStore(dataSource)
     const before = await switchStore.readAuthKitSwitch()
@@ -99,8 +102,14 @@ export async function refreshAuthenticationView(): Promise<void> {
 
 export async function buildAuthContext(req: Request): Promise<AuthContext> {
     await refreshAuthenticationState(getDataSource())
+    const authenticationState = await readAuthenticationState(getDataSource())
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
+    const state = req.query?.state
+    const activeMethod = selectedAuthenticationMethod()
+    const requestIsHttps = Boolean(req.secure) || req.protocol === 'https'
+    const secure = cookieSecure(redirectUri, requestIsHttps)
+    const oidcSecure = oidcSessionCookieSecure(requestIsHttps)
     return {
         dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
@@ -108,18 +117,21 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
+        oidcActive: activeMethod === 'oidc',
+        oidcSessionSecure: oidcSecure,
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         cookiePassword: process.env.WORKOS_COOKIE_PASSWORD,
         epochBindingSecret: epochBindingSecret(),
         sealedWorkosSessionsAccepted: !sessionConvergenceActive(),
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,
-        secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
+        secure,
         now: Date.now(),
         ip: req.ip || req.socket?.remoteAddress || 'unknown',
         socketAddress: socketAddress(req.socket?.remoteAddress),
         internal: req.headers['x-request-from'] === 'internal',
         code: typeof code === 'string' ? code : Array.isArray(code) ? String(code[0] || '') : undefined,
+        state: typeof state === 'string' ? state : Array.isArray(state) ? String(state[0] || '') : undefined,
         body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
         cookies: (req.cookies || {}) as Record<string, string | undefined>,
         store: identityStore(),
@@ -127,6 +139,27 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         rateLimit: loginLimiter(),
         recoveryRateLimit: ownerRecoveryLimiter(),
         automaticWorkosLinkingAllowed: () => automaticWorkosLinkingAllowed(getDataSource()),
+        workosProviderKey: authenticationState?.activeMethod === 'workos' ? authenticationState.providerKey || undefined : undefined,
+        findWorkosProviderLinkedUser: async (subject) => {
+            if (!authenticationState?.providerKey || authenticationState.activeMethod !== 'workos') return null
+            const link = await findProviderLink(getDataSource(), authenticationState.providerKey, subject)
+            if (!link) return null
+            const session = await identityStore().sessionFor(link.userId)
+            if (!session) return null
+            const users = await identityStore().findUsersByEmail(session.email)
+            return users.find((user) => user.id === link.userId) || null
+        },
+        recordWorkosProviderLink: async (user, subject, basis) => {
+            if (!authenticationState?.providerKey || authenticationState.activeMethod !== 'workos') return false
+            const result = await createProviderLink(getDataSource(), {
+                providerKey: authenticationState.providerKey,
+                subject,
+                userId: user.id,
+                emailAtLink: user.email.trim().toLowerCase(),
+                assuranceBasis: basis
+            })
+            return result === 'linked' || Boolean(await findProviderLink(getDataSource(), authenticationState.providerKey, subject))
+        },
         noteRecoveryAttempt: (outcome, userId) => recordRecoveryAttempt(applicationSql(), { outcome, userId, at: Date.now() }),
         raiseRecoveryAlert: async (userId) => {
             const alert = await createRecoveryAlert(getDataSource(), userId, Date.now())

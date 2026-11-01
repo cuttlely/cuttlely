@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto'
 import { connect as tlsConnect } from 'tls'
 import { accountLinkSnapshot, effectiveAccountEnv } from '../settings/accountLinks'
 import { safeRecordAudit } from './auditLog'
+import type { AuthenticationMethod } from './authenticationState'
 import { workosConfigured } from './constants'
 import { utcDbTime } from './dbTime'
 import { DirectoryActor, DirectoryError, QueryFn, Sql, createEmailUser } from './directory'
@@ -32,7 +33,7 @@ export const MAIL_FAILED = 'Mail could not be sent. Nothing was saved.'
 export const TOO_MANY_LINKS = 'Too many attempts. Try again later.'
 export const PASSWORD_SAVED = 'Password saved.'
 export const INVITE_NEEDS_AUTHKIT =
-    'This invite is accepted by signing in with WorkOS, not with a password. Open your invite link and select Accept invite with WorkOS.'
+    'This invite is accepted with the active sign-in method, not with a password. Open your invite link and select Accept invite.'
 
 const INVITE_DEFAULT_HOURS = 72
 const INVITE_MIN_HOURS = 1
@@ -57,6 +58,7 @@ export interface LinkDeps {
     mailReady(): boolean
     send(message: OutboundMail): Promise<void>
     rateLimit: LoginLimiter
+    activeMethod(): AuthenticationMethod | null | undefined
 }
 
 interface AuditRow {
@@ -90,7 +92,11 @@ function defaultDeps(): LinkDeps {
         origin: () => publicOrigin(process.env.PORT || '3000'),
         mailReady: () => smtpReady(env),
         send: (message) => sendSmtp(message, env),
-        rateLimit: acceptLimiter
+        rateLimit: acceptLimiter,
+        activeMethod: () => {
+            const { selectedAuthenticationMethod } = require('./authenticationState') as typeof import('./authenticationState')
+            return selectedAuthenticationMethod()
+        }
     }
 }
 
@@ -130,15 +136,31 @@ export function linkMode(body: unknown): true | false | undefined {
 
 /**
  * An explicit link field wins. Otherwise the invite delivery setting fills in. Reset links are unchanged.
- * With AuthKit on, an invite always carries a link, because the invite link is the only way to join.
+ * With a remote method active, an invite always carries a link, because the invite link is the only way to join.
  */
-function inviteMode(body: unknown, env: NodeJS.ProcessEnv): true | false | undefined {
+function configuredMethod(deps: LinkDeps): AuthenticationMethod | null | undefined {
+    return deps.activeMethod()
+}
+
+function remoteMethodActive(deps: LinkDeps): boolean {
+    const method = configuredMethod(deps)
+    if (method !== undefined) return method === 'workos' || method === 'oidc'
+    return workosConfigured(deps.env)
+}
+
+function localInviteAcceptBlocked(deps: LinkDeps): boolean {
+    const method = configuredMethod(deps)
+    if (method !== undefined) return method !== 'local'
+    return workosConfigured(deps.env)
+}
+
+function inviteMode(body: unknown, deps: LinkDeps): true | false | undefined {
     const explicit = linkMode(body)
     if (explicit !== undefined) return explicit
-    const delivery = (env.INVITE_DELIVERY || accountLinkSnapshot(env).get('INVITE_DELIVERY')?.value || '').trim()
+    const delivery = (deps.env.INVITE_DELIVERY || accountLinkSnapshot(deps.env).get('INVITE_DELIVERY')?.value || '').trim()
     if (delivery === 'link') return true
     if (delivery === 'email') return false
-    return workosConfigured(env) ? true : undefined
+    return remoteMethodActive(deps) ? true : undefined
 }
 
 /** Fragment only. The browser posts the token. The server path and query do not carry it. */
@@ -374,7 +396,7 @@ async function removeFreshUser(sql: Sql, userId: string): Promise<void> {
 
 async function deliver(deps: LinkDeps, to: string, purpose: LinkPurpose, link: string): Promise<boolean> {
     if (!deps.mailReady()) return false
-    const join = purpose === 'invite' && workosConfigured(deps.env)
+    const join = purpose === 'invite' && remoteMethodActive(deps)
     const subject = join ? 'Join Cuttlely' : purpose === 'invite' ? 'Set your Cuttlely password' : 'Reset your Cuttlely password'
     const action = join ? 'accept your invite and sign in' : 'set a password'
     const text = `Open this one-time link to ${action}. It works once. Do not share it.\n\n${link}\n`
@@ -388,7 +410,7 @@ export async function inviteAccount(
     body: unknown,
     deps: LinkDeps = defaultDeps()
 ): Promise<{ id: string; link?: string; mailed?: boolean }> {
-    const mode = inviteMode(body, deps.env)
+    const mode = inviteMode(body, deps)
     const workspaceId = workspaceOf(body)
     if (mode !== undefined && !canIssueInviteLink(actor, workspaceId)) throw new DirectoryError(403, 'Forbidden')
     if (mode === false && !deps.mailReady()) throw new DirectoryError(400, MAIL_REQUIRED)
@@ -678,6 +700,14 @@ async function findLink(query: QueryFn, sql: Sql, hash: string): Promise<StoredL
     }
 }
 
+export async function liveInviteUser(sql: Sql, token: string, now = Date.now()): Promise<string | null> {
+    const found = await findLink(sql.query, sql, hashSessionToken(token))
+    if (!found || found.purpose !== 'invite' || found.usedAt || !found.expiresAt || found.expiresAt <= now) return null
+    const target = await loadTarget(sql.query, sql, found.organizationId, found.workspaceId, found.userId)
+    if (blockReason(target, 'invite', true) || !target || target.status !== 'invited') return null
+    return found.userId
+}
+
 export interface AcceptInput {
     body: Record<string, unknown>
     /** Ignored. A token in the query is not a credential. */
@@ -716,24 +746,25 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         return json(400, { message: LINK_INVALID })
     }
     const target = await loadTarget(sql.query, sql, found.organizationId, found.workspaceId, found.userId)
-    // With AuthKit on, a live owner invite reaches the AuthKit refusal below, which never sets a password.
-    const authKitInvite = found.purpose === 'invite' && workosConfigured(deps.env)
-    const blocked = blockReason(target, found.purpose as LinkPurpose, authKitInvite)
+    // With a remote method active, a live owner invite reaches the refusal below, which never sets a password.
+    const remoteInvite = found.purpose === 'invite' && localInviteAcceptBlocked(deps)
+    const blocked = blockReason(target, found.purpose as LinkPurpose, remoteInvite)
     if (blocked) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, blocked, input.now)
         return json(400, { message: LINK_INVALID })
     }
-    // With AuthKit on, only the AuthKit callback may use an invite: it checks the verified email and binds the sign-in.
+    // With a remote method active, only its callback may use an invite: it checks the email and binds the sign-in.
     // Checked last, so a used, expired, or revoked token gets the same answer as any other invalid link.
-    if (authKitInvite) {
+    if (remoteInvite) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
-        await rejectAudit(sql, found, 'authkit-only', input.now)
+        await rejectAudit(sql, found, 'remote-only', input.now)
         return json(400, { message: INVITE_NEEDS_AUTHKIT })
     }
     const credential = await hashPassword(password)
     const consumeId = randomUUID()
     let won = false
+    let remoteOnly = false
     try {
         await sql.transaction(async (query) => {
             await query(
@@ -752,7 +783,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
             const purpose = text(cell(marked[0], 'purpose'))
             const organizationId = text(cell(marked[0], 'organizationId'))
             const workspaceId = text(cell(marked[0], 'workspaceId'))
-            if (purpose === 'invite' && workosConfigured(deps.env)) throw new Error('authkit-only')
+            if (purpose === 'invite' && localInviteAcceptBlocked(deps)) throw new Error('remote-only')
             const again = await loadTarget(query, sql, organizationId, workspaceId, userId)
             if (blockReason(again, purpose as LinkPurpose)) throw new Error('ineligible')
             await query(
@@ -810,13 +841,14 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
             }
             won = true
         })
-    } catch {
+    } catch (error) {
         won = false
+        remoteOnly = error instanceof Error && error.message === 'remote-only'
     }
     if (!won) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
-        await rejectAudit(sql, found, 'reused', input.now)
-        return json(400, { message: LINK_INVALID })
+        await rejectAudit(sql, found, remoteOnly ? 'remote-only' : 'reused', input.now)
+        return json(400, { message: remoteOnly ? INVITE_NEEDS_AUTHKIT : LINK_INVALID })
     }
     metrics.accepted += 1
     await safeRecordAudit(sql, {
@@ -876,7 +908,7 @@ async function inviteTargetRefusal(query: QueryFn, sql: Sql, found: StoredLink, 
 }
 
 /**
- * AuthKit sign-in with an invite link. The token is used, the user activated, and the AuthKit id bound in one
+ * Remote sign-in with an invite link. The token is used, the user activated, and the provider identity bound in one
  * transaction, so a second sign-in with the same link finds the token used.
  */
 export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promise<'accepted' | 'invalid'> {
@@ -905,11 +937,39 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
             if (!marked.length) throw new Error('lost')
             if (await inviteTargetRefusal(query, sql, found, input)) throw new Error('ineligible')
             await activatePending(query, sql, input.userId, input.now)
-            await query(
-                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'updatedDate')} = ?
-                 WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'externalId')} IS NULL`,
-                [input.externalId, dbTime(sql, input.now), input.userId]
-            )
+            if (input.providerKey && input.subject && input.assuranceBasis) {
+                const existing = await query(
+                    `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'identity_provider_link')} WHERE ${q(
+                        sql,
+                        'providerKey'
+                    )} = ? AND ${q(sql, 'subject')} = ?`,
+                    [input.providerKey, input.subject]
+                )
+                if (existing.length && !existing.some((row) => text(cell(row, 'userId')) === input.userId)) throw new Error('ineligible')
+                if (!existing.length) {
+                    await query(
+                        `INSERT INTO ${q(sql, 'identity_provider_link')} (${q(sql, 'providerKey')}, ${q(sql, 'subject')}, ${q(
+                            sql,
+                            'userId'
+                        )}, ${q(sql, 'emailAtLink')}, ${q(sql, 'assuranceBasis')}, ${q(sql, 'createdAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
+                        [
+                            input.providerKey,
+                            input.subject,
+                            input.userId,
+                            input.email.trim().toLowerCase(),
+                            input.assuranceBasis,
+                            dbTime(sql, input.now)
+                        ]
+                    )
+                }
+            }
+            if (!input.providerKey || input.retainExternalId) {
+                await query(
+                    `UPDATE ${q(sql, 'user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'updatedDate')} = ?
+                     WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'externalId')} IS NULL`,
+                    [input.externalId, dbTime(sql, input.now), input.userId]
+                )
+            }
             const after = await query(
                 `SELECT ${q(sql, 'status')} AS status, ${q(sql, 'externalId')} AS externalId FROM ${q(sql, 'user')} WHERE ${q(
                     sql,
@@ -918,7 +978,19 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
                 [input.userId]
             )
             const row = after[0] || {}
-            if (text(cell(row, 'status')).toLowerCase() !== 'active' || text(cell(row, 'externalId')) !== input.externalId) {
+            const providerLinked = input.providerKey
+                ? (
+                      await query(
+                          `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'identity_provider_link')} WHERE ${q(
+                              sql,
+                              'providerKey'
+                          )} = ? AND ${q(sql, 'subject')} = ?`,
+                          [input.providerKey, input.subject]
+                      )
+                  ).some((linked) => text(cell(linked, 'userId')) === input.userId)
+                : text(cell(row, 'externalId')) === input.externalId
+            const compatibilityLinked = !input.retainExternalId || text(cell(row, 'externalId')) === input.externalId
+            if (text(cell(row, 'status')).toLowerCase() !== 'active' || !providerLinked || !compatibilityLinked) {
                 throw new Error('lost')
             }
             await writeAudit(
@@ -932,7 +1004,7 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
                     userId: input.userId,
                     actorId: input.userId,
                     result: 'success',
-                    reason: 'authkit'
+                    reason: input.authenticationMethod
                 },
                 input.now
             )
@@ -953,7 +1025,7 @@ export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promis
         userId: input.userId,
         actorId: input.userId,
         summary: 'Invite accepted',
-        detail: { action: 'completed', method: 'authkit' }
+        detail: { action: 'completed', method: input.authenticationMethod }
     })
     return 'accepted'
 }

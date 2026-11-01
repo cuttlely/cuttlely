@@ -77,11 +77,15 @@ export interface AuthContext {
     /** Captured at request start so a concurrent method switch can stop completion. */
     authenticationEpoch?: number
     /** Durable ordinary sign-in method captured at request start. */
-    activeAuthenticationMethod?: 'local' | 'workos' | null
+    activeAuthenticationMethod?: 'local' | 'workos' | 'oidc' | null
     workosConfigured: boolean
     localAdmin: boolean
     /** CUTTLELY_LOCAL_USERS is on and AuthKit is not configured. */
     localUsers: boolean
+    /** Generic OIDC is the selected ordinary method. */
+    oidcActive?: boolean
+    /** Secure-cookie decision from the configured OIDC callback origin. */
+    oidcSessionSecure?: boolean
     cookiePasswordOk: boolean
     cookiePassword?: string
     epochBindingSecret?: string
@@ -95,6 +99,7 @@ export interface AuthContext {
     socketAddress: string
     internal: boolean
     code?: string
+    state?: string
     body: Record<string, unknown>
     cookies: Record<string, string | undefined>
     bootstrapEmail?: string
@@ -103,6 +108,9 @@ export interface AuthContext {
     rateLimit: LoginLimiter
     recoveryRateLimit?: LoginLimiter
     automaticWorkosLinkingAllowed?: () => Promise<boolean>
+    workosProviderKey?: string
+    findWorkosProviderLinkedUser?: (subject: string) => Promise<import('./types').UserRow | null>
+    recordWorkosProviderLink?: (user: import('./types').UserRow, subject: string, basis: string) => Promise<boolean>
     noteRecoveryAttempt?: (outcome: 'success' | 'wrong_credential' | 'throttled', userId: string | null) => Promise<void>
     raiseRecoveryAlert?: (userId: string) => Promise<void>
     /** Optional. Production writes a redacted audit row. Tests leave it unset. */
@@ -114,7 +122,9 @@ export interface AuthContext {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
-async function authenticationEpochCurrent(ctx: AuthContext): Promise<boolean> {
+type ApplicationSessionContext = Pick<AuthContext, 'dataSource' | 'authenticationEpoch' | 'now' | 'store'>
+
+async function authenticationEpochCurrent(ctx: Pick<AuthContext, 'dataSource' | 'authenticationEpoch'>): Promise<boolean> {
     if (ctx.authenticationEpoch === undefined) return true
     if (!ctx.dataSource) return true
     const { refreshAuthenticationState, selectedAuthenticationEpoch } =
@@ -207,12 +217,13 @@ function json(
  * A trusted proxy's scheme counts only when TRUST_PROXY says so.
  */
 function localSessionSecure(ctx: AuthContext): boolean {
+    if (ctx.oidcActive && ctx.oidcSessionSecure !== undefined) return ctx.oidcSessionSecure
     return ctx.secure
 }
 
-/** Break-glass cookies are set and cleared with ctx.secure. localSessionSecure is only for a local-users cookie. */
+/** A database-session cookie is cleared with the same transport decision used when it is written. */
 function clearSecure(ctx: AuthContext, names: string[]): boolean {
-    if (ctx.localUsers && names.includes(LOCAL_SESSION_COOKIE)) return localSessionSecure(ctx)
+    if (names.includes(LOCAL_SESSION_COOKIE)) return localSessionSecure(ctx)
     return ctx.secure
 }
 
@@ -250,9 +261,11 @@ function staleAuthenticationEpoch(row: LocalSession, current: number | undefined
     return typeof row.authenticationEpoch === 'number' && typeof current === 'number' && row.authenticationEpoch !== current
 }
 
-function requestAuthenticationMethod(ctx: AuthContext): 'local' | 'workos' | null {
+function requestAuthenticationMethod(ctx: AuthContext): 'local' | 'workos' | 'oidc' | null {
     return ctx.activeAuthenticationMethod !== undefined
         ? ctx.activeAuthenticationMethod
+        : ctx.oidcActive
+        ? 'oidc'
         : ctx.localUsers
         ? 'local'
         : ctx.workosConfigured
@@ -260,10 +273,11 @@ function requestAuthenticationMethod(ctx: AuthContext): 'local' | 'workos' | nul
         : null
 }
 
-function authenticationMethodMismatch(row: LocalSession, activeMethod: 'local' | 'workos' | null): boolean {
+function authenticationMethodMismatch(row: LocalSession, activeMethod: 'local' | 'workos' | 'oidc' | null): boolean {
     return (
         (row.authenticationMethod === 'local' && activeMethod !== 'local') ||
-        (row.authenticationMethod === 'workos' && activeMethod !== 'workos')
+        (row.authenticationMethod === 'workos' && activeMethod !== 'workos') ||
+        (row.authenticationMethod === 'oidc' && activeMethod !== 'oidc')
     )
 }
 
@@ -274,7 +288,7 @@ function authenticationMethodMismatch(row: LocalSession, activeMethod: 'local' |
 async function currentAuthenticationForSession(
     ctx: AuthContext,
     row: LocalSession
-): Promise<{ epoch: number | undefined; method: 'local' | 'workos' | null }> {
+): Promise<{ epoch: number | undefined; method: 'local' | 'workos' | 'oidc' | null }> {
     let epoch = ctx.authenticationEpoch
     let method = requestAuthenticationMethod(ctx)
     const epochMayBeAhead = typeof row.authenticationEpoch === 'number' && (typeof epoch !== 'number' || row.authenticationEpoch > epoch)
@@ -292,7 +306,7 @@ async function currentAuthenticationForSession(
 async function localCookieGate(
     ctx: AuthContext,
     row: LocalSession,
-    activeMethod: 'local' | 'workos' | null
+    activeMethod: 'local' | 'workos' | 'oidc' | null
 ): Promise<'ok' | 'end' | 'reject'> {
     const open = await ctx.store.localAccountOpen(row.userId)
     if (!open) return 'end'
@@ -306,46 +320,67 @@ async function localCookieGate(
 }
 
 /** A method switch can commit between the epoch check and the insert. Recheck after the insert and remove a session that missed the switch. */
-async function sessionSurvivedSwitch(ctx: AuthContext, token: string): Promise<boolean> {
+async function sessionSurvivedSwitch(ctx: ApplicationSessionContext, tokenHash: string): Promise<boolean> {
     if (await authenticationEpochCurrent(ctx)) return true
-    await ctx.store.deleteLocalSession(hashSessionToken(token))
+    await ctx.store.deleteLocalSession(tokenHash)
     return false
 }
 
 export async function issueApplicationSession(
-    ctx: AuthContext,
+    ctx: ApplicationSessionContext,
     userId: string,
     authenticationMethod: LocalSession['authenticationMethod'],
-    options: { recoveryUse?: boolean; workosSessionId?: string } = {}
-): Promise<{ token: string; session: SessionUser } | null> {
+    options: { recoveryUse?: boolean; workosSessionId?: string; recentAuthenticationAt?: number } = {}
+): Promise<{ token: string; tokenHash: string; session: SessionUser } | null> {
     if (!(await authenticationEpochCurrent(ctx))) return null
     const token = randomToken()
+    const tokenHash = hashSessionToken(token)
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)
     await ctx.store.insertLocalSession({
         id: randomUUID(),
         userId,
-        token: hashSessionToken(token),
+        token: tokenHash,
         idleExpires: new Date(ctx.now + limits.idleMs),
         absoluteExpires: new Date(ctx.now + limits.absoluteMs),
         issuedAt: at,
         lastSeenAt: at,
         authenticationMethod,
+        recentAuthenticationAt: options.recentAuthenticationAt === undefined ? undefined : new Date(options.recentAuthenticationAt),
         authenticationEpoch: ctx.authenticationEpoch,
         recoveryUse: options.recoveryUse === true,
         workosSessionId: authenticationMethod === 'workos' ? options.workosSessionId : undefined
     })
-    if (!(await sessionSurvivedSwitch(ctx, token))) return null
+    if (!(await sessionSurvivedSwitch(ctx, tokenHash))) return null
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
     if (!session) {
-        await ctx.store.deleteLocalSession(hashSessionToken(token))
+        await ctx.store.deleteLocalSession(tokenHash)
         return null
     }
-    return { token, session }
+    return { token, tokenHash, session }
 }
 
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
-    return issueApplicationSession(ctx, userId, 'local')
+    return issueApplicationSession(
+        { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+        userId,
+        'local'
+    )
+}
+
+/** Provider completions use the same database session and opaque cookie as local login. */
+export async function issueDatabaseSession(ctx: AuthContext, userId: string, recentAuthenticationAt?: number): Promise<HandlerResult> {
+    const issued = await issueApplicationSession(
+        { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+        userId,
+        'oidc',
+        { recentAuthenticationAt }
+    )
+    if (!issued) return json(401, { message: 'Sign-in could not be completed.' })
+    return json(200, issued.session, {
+        cookies: [localCookie(issued.token, localSessionSecure(ctx), sessionLimitsMs().idleMs)],
+        ...cleared(ctx, [WOS_SESSION_COOKIE])
+    })
 }
 
 function loginFields(body: Record<string, unknown>): { ok: true; email: string; password: string } | { ok: false; message: string } {
@@ -426,7 +461,12 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             bootstrapEmail: ctx.bootstrapEmail,
             inviteToken: inviteTokenFrom(ctx),
             now: ctx.now,
-            automaticEmailLinking: ctx.automaticWorkosLinkingAllowed ? await ctx.automaticWorkosLinkingAllowed() : true
+            automaticEmailLinking: ctx.automaticWorkosLinkingAllowed ? await ctx.automaticWorkosLinkingAllowed() : true,
+            providerKey: ctx.workosProviderKey,
+            providerLinkedUser: ctx.findWorkosProviderLinkedUser ? await ctx.findWorkosProviderLinkedUser(authenticated.user.id) : null,
+            recordProviderLink: ctx.recordWorkosProviderLink
+                ? (user, basis) => ctx.recordWorkosProviderLink!(user, authenticated.user.id, basis)
+                : undefined
         })
         if (!linked.ok && (linked.reason === 'bootstrap-unset' || linked.reason === 'bootstrap-denied')) {
             return bootstrapPage(linked.reason)
@@ -440,7 +480,12 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
         } catch {
             // Optional. Sign-in still succeeds when WorkOS rejects the external id write.
         }
-        const issued = await issueApplicationSession(ctx, linked.user.id, 'workos', { workosSessionId: authenticated.sessionId })
+        const issued = await issueApplicationSession(
+            { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+            linked.user.id,
+            'workos',
+            { workosSessionId: authenticated.sessionId }
+        )
         if (!issued) {
             await noteSignIn(ctx, 'sign_in_failure', linked.user.id, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
@@ -460,13 +505,13 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     }
 }
 
-type OwnerPasswordMode = 'ordinary' | 'recovery'
+type OwnerSignInMode = 'ordinary' | 'recovery'
 
-function ownerPasswordMode(ctx: AuthContext): OwnerPasswordMode {
+function ownerSignInMode(ctx: AuthContext): OwnerSignInMode {
     return requestAuthenticationMethod(ctx) === 'local' ? 'ordinary' : 'recovery'
 }
 
-async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode): Promise<HandlerResult> {
+async function handleOwnerSignInPost(ctx: AuthContext, mode: OwnerSignInMode): Promise<HandlerResult> {
     if (!ctx.internal) return json(401, { message: INVALID_LOGIN })
     const email = typeof ctx.body.email === 'string' ? ctx.body.email.trim().toLowerCase().slice(0, EMAIL_MAX_LENGTH) : ''
     const password = typeof ctx.body.password === 'string' ? ctx.body.password : ''
@@ -502,7 +547,12 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
-    const issued = await issueApplicationSession(ctx, owner.id, recovery ? 'recovery' : 'local', { recoveryUse: recovery })
+    const issued = await issueApplicationSession(
+        { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
+        owner.id,
+        recovery ? 'recovery' : 'local',
+        { recoveryUse: recovery }
+    )
     if (!issued) {
         if (!(await authenticationEpochCurrent(ctx))) return json(409, { message: 'Sign-in method changed. Try again.' })
         return json(401, { message: INVALID_LOGIN })
@@ -512,7 +562,7 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
             if (ctx.noteRecoveryAttempt) await ctx.noteRecoveryAttempt('success', owner.id)
             if (ctx.raiseRecoveryAlert) await ctx.raiseRecoveryAlert(owner.id)
         } catch (error) {
-            await ctx.store.deleteLocalSession(hashSessionToken(issued.token))
+            await ctx.store.deleteLocalSession(issued.tokenHash)
             throw error
         }
     }
@@ -525,12 +575,12 @@ async function handleOwnerPasswordPost(ctx: AuthContext, mode: OwnerPasswordMode
 
 /** Compatibility owner route: ordinary under Local, recovery under any other active method. */
 export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> {
-    return handleOwnerPasswordPost(ctx, ownerPasswordMode(ctx))
+    return handleOwnerSignInPost(ctx, ownerSignInMode(ctx))
 }
 
 /** The dedicated owner recovery route always uses recovery treatment. */
 export async function handleRecoveryLoginPost(ctx: AuthContext): Promise<HandlerResult> {
-    return handleOwnerPasswordPost(ctx, 'recovery')
+    return handleOwnerSignInPost(ctx, 'recovery')
 }
 
 export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
@@ -602,7 +652,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
         await ctx.store.slideLocalSession(digest, idleExpires, new Date(ctx.now))
         const session = await ctx.store.sessionFor(row.userId)
         if (!session) return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
-        const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
+        const secure = localSessionSecure(ctx)
         return json(200, session, {
             cookies: [localCookie(token, secure, idleExpires.getTime() - ctx.now)],
             ...(sealed && !sealedAccepted ? cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE]) : {})
@@ -908,7 +958,7 @@ export async function establishSession(
         if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         const maxAge = await noteSessionUse(ctx, row, digest)
         const user = await ctx.store.sessionFor(row.userId)
-        const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
+        const secure = localSessionSecure(ctx)
         return {
             user,
             secure,

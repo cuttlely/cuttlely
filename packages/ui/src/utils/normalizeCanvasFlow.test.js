@@ -32,6 +32,11 @@ describe('raw canvas nodes', () => {
         expect(data.cuttlelyRawNode).toBeUndefined()
     })
 
+    it('leaves a missing version for the healing step', () => {
+        const data = normalizeNodeData({ id: 'postgreSQLMCP_0', name: 'postgreSQLMCP', inputs: {} }, { ...postgresSpec, version: 4 })
+        expect(data.version).toBeUndefined()
+    })
+
     it('hydrates a raw node once the catalog arrives', () => {
         const flow = normalizeCanvasFlow({
             nodes: [{ id: 'postgreSQLMCP_0', data: { id: 'postgreSQLMCP_0', name: 'postgreSQLMCP', inputs: {} } }]

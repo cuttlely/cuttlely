@@ -18,7 +18,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
 -   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
--   [Pinned queries](./how-to/pinned-queries.md). Saved SQL with typed parameters on the PostgreSQL MCP node, off unless `CUTTLELY_PINNED_QUERIES` is `1` or `true`. Tested is not an approval.
+-   [Pinned queries](./how-to/pinned-queries.md). Saved SQL with typed parameters on the Postgres (MCP) node, off unless `CUTTLELY_PINNED_QUERIES` is `1` or `true`. Tested is not an approval.
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
 -   [A/B test a change with Compare](./how-to/ab-testing.md). Ask the same questions on Live and on your draft, see each Changed answer before you publish, and make Publish wait for a passing test set.
 -   [Evaluations](./how-to/evaluations.md). Create a dataset, add text, JSON, numeric, and model checks, run them, and refuse Publish until that test set passes. [Turn real answers into tests](./how-to/tests-from-answers.md) starts from a rated answer in the message viewer.
@@ -54,7 +54,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.
 -   [LangSmith tracing](./reference/langsmith-tracing.md). A flow credential with no API key turns that flow's LangSmith tracing off; it never falls back to the server's LangSmith key or profile.
 -   [Trusted pinned-query outputs](./reference/trusted-outputs.md). Bind a tested query to exact source Markdown, a monthly utilization PNG or a complete table CSV, with native attachment delivery and explicit source limits.
--   [Analyst tools](./reference/analyst-tools.md). The PostgreSQL MCP node fields, the `query` and `describe` tools, the one-line relation summary, and the refusals a table selection returns.
+-   [Analyst tools](./reference/analyst-tools.md). The Postgres (MCP) node fields, the `query` and `describe` tools, the one-line relation summary, and the refusals a table selection returns.
 -   [Current date and time](./reference/current-date-time.md). The CurrentDateTime tool's IANA timezone: the node field, `CUTTLELY_DEFAULT_TIMEZONE`, and the per-call `timezone` that wins.
 -   [FAQ](./faq.md). Common questions, including enabling local (stdio) MCP servers safely.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.

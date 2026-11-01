@@ -100,7 +100,7 @@ The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime st
 
 The row cap is the page size. A lower cap puts fewer rows into the specialist's prompt and into the handoff Harness Prime reads, so the turn uses less context. Say `show more` for the next page. The rows stay in the database.
 
-The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A PostgreSQL MCP node can set a lower **Row cap** or a shorter **Query timeout (seconds)** under **Additional Parameters**. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
+The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A Postgres (MCP) node can set a lower **Most rows per query** or a shorter **Query time limit (seconds)** under **Limits** in its settings panel. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
 
 ## Testing and Limits
 
@@ -167,7 +167,7 @@ A lifetime outside the range is refused on this page. An environment value below
 | **Mail user**            | `SMTP_USER`                           | Not set            | The SMTP account name                            |
 | **Sender address**       | `SENDER_EMAIL`                        | Not set            | One email address                                |
 
-**Invite delivery** applies when `POST /api/v1/account/invite` omits `link`. Follow the request keeps the previous response, an id only, while AuthKit is off. With AuthKit on it returns the one-time URL, because a pending invite can join only through that link. Copy link returns the one-time URL. Email sends it and does not return it. A request that sets `link` still wins. Reset links are unchanged: omitting `link` returns the URL.
+**Invite delivery** applies when `POST /api/v1/account/invite` omits `link`. Follow the request returns an id only with Local active. With WorkOS or generic OIDC active it returns the one-time URL, because a pending invite can join only through that link. Copy link returns the URL for every method. Email sends it and returns only the id and mail status. A request that sets `link` still wins. Reset links are unchanged: omitting `link` returns the URL.
 
 **Mail password** (`SMTP_PASSWORD`) stays in the environment. The invite field shows **Set** or **Not set** and does not accept a value. The same key is on the read-only status list as `env` when it is set and `unset` when it is not. That row does not include the password. `SMTP_STARTTLS` stays in the environment too. Mail is configured when the mail server and the sender address are both set. The sign-in page still has no Forgot password form.
 

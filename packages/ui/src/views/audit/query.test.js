@@ -16,6 +16,7 @@ describe('audit list query', () => {
         expect(values).toEqual(
             expect.arrayContaining([
                 'auth_method_change',
+                'auth_config_change',
                 'auth_config_warning_ack',
                 'owner_recovery',
                 'scim_token',
@@ -25,5 +26,6 @@ describe('audit list query', () => {
                 'scim_auth_failure'
             ])
         )
+        expect(AUDIT_TYPES).toContainEqual({ value: 'auth_config_change', label: 'OIDC configuration changed' })
     })
 })

@@ -85,6 +85,8 @@ import {
     identityWorkspaceUserRouter,
     identityAuditRouter,
     identityAuthenticationRouter,
+    oidcAdminRouter,
+    oidcAuthRouter,
     identityScimRouter
 } from '../identity'
 import { closedRouter, denyClosedFeature } from '../identity/ossPlatform'
@@ -181,6 +183,7 @@ router.use('/mcp', mcpEndpointRouter)
 
 // Teams, users, and roles are the identity directory. Auth and account do not
 // fall through to a commercial router. Export and import answer 404.
+router.use('/auth/oidc', uiPageRateLimiter(), oidcAuthRouter)
 router.use('/auth', uiPageRateLimiter(), identityAuthRouter)
 router.use('/account', uiPageRateLimiter(), identityAccountRouter)
 router.use('/user', identityUserRouter)
@@ -191,6 +194,7 @@ router.use('/organizationuser', identityOrgUserRouter)
 router.use('/workspace', identityWorkspaceRouter)
 router.use('/workspaceuser', identityWorkspaceUserRouter)
 router.use('/audit', identityAuditRouter)
+router.use('/authentication-settings/oidc', oidcAdminRouter)
 router.use('/authentication-settings', identityAuthenticationRouter)
 router.use('/scim/v2', identityScimRouter)
 router.use('/organization', closedRouter())

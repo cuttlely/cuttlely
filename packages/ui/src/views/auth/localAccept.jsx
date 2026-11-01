@@ -14,7 +14,8 @@ function tokenFromFragment() {
 
 const LocalAcceptPage = () => {
     const [token] = useState(tokenFromFragment)
-    const [authKit, setAuthKit] = useState(null)
+    const [remote, setRemote] = useState(null)
+    const [remoteLabel, setRemoteLabel] = useState('WorkOS')
     const [password, setPassword] = useState('')
     const [confirm, setConfirm] = useState('')
     const [message, setMessage] = useState('')
@@ -30,10 +31,13 @@ const LocalAcceptPage = () => {
         client
             .get('/auth/signin-options')
             .then((response) => {
-                if (!cancelled) setAuthKit(response.data?.authKit === true)
+                if (!cancelled) {
+                    setRemote(response.data?.authKit === true || response.data?.oidc === true)
+                    setRemoteLabel(response.data?.oidc === true ? 'OIDC' : 'WorkOS')
+                }
             })
             .catch(() => {
-                if (!cancelled) setAuthKit(false)
+                if (!cancelled) setRemote(false)
             })
         return () => {
             cancelled = true
@@ -72,20 +76,20 @@ const LocalAcceptPage = () => {
         }
     }
 
-    if (authKit === null) return <MainCard />
+    if (remote === null) return <MainCard />
 
-    if (authKit) {
+    if (remote) {
         return (
             <MainCard>
                 <Stack spacing={2}>
                     <Typography variant='h3'>Accept your invite</Typography>
                     <Typography>
-                        Sign in with WorkOS using the email address this invite was sent to. The link works once and then stops. Do not
-                        share it. If it has expired, ask for a new invite.
+                        Sign in with {remoteLabel} using the email address this invite was sent to. The link works once and then stops. Do
+                        not share it. If it has expired, ask for a new invite.
                     </Typography>
                     {message ? <Alert severity='info'>{message}</Alert> : null}
                     <StyledButton variant='contained' onClick={join} disabled={busy || !token}>
-                        Accept invite with WorkOS
+                        Accept invite with {remoteLabel}
                     </StyledButton>
                 </Stack>
             </MainCard>

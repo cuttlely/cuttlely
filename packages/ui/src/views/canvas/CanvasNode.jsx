@@ -26,7 +26,10 @@ import MissingNodeCard from './MissingNodeCard'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams } from '@/utils/canvasLook'
 import { cardAccentColor, cardAccentSx, cardSecondaryText } from '@/utils/cardAccent'
+import { needsSync } from '@/utils/edgeRefs'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import NodeLinkNotes from './NodeLinkNotes'
+import { displayLabel, displaySubtitle } from '@/utils/nodeDisplayNames'
 import CardAccentIcon from './CardAccentIcon'
 
 // ===========================|| CANVAS NODE ||=========================== //
@@ -66,9 +69,10 @@ const CanvasNode = ({ data }) => {
     useEffect(() => {
         const componentNode = canvas.componentNodes.find((nd) => nd.name === data.name)
         if (componentNode) {
-            if (!data.version) {
+            const syncNeeded = needsSync({ data: { version: data.version, cuttlelyRawNode: data.cuttlelyRawNode } }, componentNode)
+            if (syncNeeded && data.version == null) {
                 setWarningMessage(nodeVersionEmptyMessage(componentNode.version))
-            } else if (data.version && componentNode.version > data.version) {
+            } else if (syncNeeded) {
                 setWarningMessage(nodeOutdatedMessage(data.version, componentNode.version))
             } else if (componentNode.badge === 'DEPRECATING') {
                 setWarningMessage(
@@ -81,7 +85,7 @@ const CanvasNode = ({ data }) => {
                 setWarningMessage('')
             }
         }
-    }, [canvas.componentNodes, data.name, data.version])
+    }, [canvas.componentNodes, data.cuttlelyRawNode, data.name, data.version])
 
     const missing = missingNodeInfo(data, canvas.componentNodes, canvas.nodePackIndex)
     if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />
@@ -124,8 +128,9 @@ const CanvasNode = ({ data }) => {
                                         fontWeight: 500,
                                         mr: 2
                                     }}
+                                    title={displaySubtitle(data.name) || undefined}
                                 >
-                                    {data.label}
+                                    {displayLabel(data)}
                                 </Typography>
                             </Box>
                             <div style={{ flexGrow: 1 }}></div>
@@ -139,6 +144,7 @@ const CanvasNode = ({ data }) => {
                                 </>
                             )}
                         </div>
+                        <NodeLinkNotes data={data} dense />
                         {compact && <CompactCardBody data={data} />}
                         {!compact && (
                             <div className='nodrag nopan'>

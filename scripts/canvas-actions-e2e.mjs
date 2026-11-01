@@ -182,12 +182,13 @@ async function exercise(
     const before = await page.locator('.react-flow__node').count()
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} has no box`)
-    await page.mouse.move(box.x + Math.min(24, box.width / 2), box.y + Math.min(20, box.height / 2))
+    const hoverPoint = visibleCardHeader(box)
+    await page.mouse.move(box.x + hoverPoint.x, box.y + hoverPoint.y)
     await page.waitForTimeout(300)
     const hoverBar = card.locator('[data-testid="card-actions"]')
     if ((await hoverBar.count()) !== 1) throw new Error(`${nodeId} toolbar is missing on hover`)
 
-    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await card.click({ position: visibleCardHeader(box) })
     const panel = page.getByTestId('node-side-panel')
     await panel.waitFor({ timeout: 10000 })
     if ((await card.locator('[data-testid="card-actions"]').count()) !== 1) {
@@ -215,13 +216,13 @@ async function exercise(
     }
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel stayed open after delete`)
 
-    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await card.click({ position: visibleCardHeader(box) })
     await panel.waitFor({ timeout: 10000 })
     await panel.getByTestId('close-settings').click()
     await page.waitForTimeout(300)
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} close button left the panel open`)
 
-    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await card.click({ position: visibleCardHeader(box) })
     await panel.waitFor({ timeout: 10000 })
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
@@ -269,8 +270,7 @@ async function moveFromCardToButton(page, card, testId) {
 async function dragCardTo(page, card, { top, left }) {
     const cardBox = await card.boundingBox()
     if (!cardBox) throw new Error('card has no box to drag')
-    const offsetX = Math.min(28, cardBox.width / 2)
-    const offsetY = Math.min(18, cardBox.height / 2)
+    const { x: offsetX, y: offsetY } = visibleCardHeader(cardBox)
     await page.mouse.move(cardBox.x + offsetX, cardBox.y + offsetY)
     await page.mouse.down()
     await page.mouse.move((left ?? cardBox.x) + offsetX, top + offsetY, { steps: 16 })
@@ -349,7 +349,7 @@ async function checkConnectedBackspace(page, nodeId, flowName) {
     await card.waitFor({ timeout: 10000 })
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} connected card has no box`)
-    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await card.click({ position: visibleCardHeader(box) })
     const panel = page.getByTestId('node-side-panel')
     await panel.waitFor({ timeout: 10000 })
     await panel.getByTestId('close-settings').click()
@@ -381,11 +381,21 @@ async function deleteWorkflowEdge(page, sourceId) {
     }
 }
 
+// Opening and closing the wider settings panel can pan part of a card past the
+// left viewport edge. Select a visible point on its header rather than clicking
+// a fixed offset that may now be outside the browser.
+function visibleCardHeader(box) {
+    return {
+        x: Math.min(Math.max(30, 8 - box.x), box.width - 8),
+        y: Math.min(Math.max(16, 8 - box.y), box.height - 8)
+    }
+}
+
 async function deleteFromToolbar(page, nodeId) {
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} has no box for the Delete button`)
-    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await card.click({ position: visibleCardHeader(box) })
     await page.getByTestId('node-side-panel').waitFor({ timeout: 10000 })
     const before = await page.locator('.react-flow__node').count()
     await card.locator('[data-testid="card-delete"]').click()
@@ -398,7 +408,7 @@ async function deleteFromToolbar(page, nodeId) {
 async function deleteSelectedCards(page, ids) {
     const first = page.locator(`.react-flow__node[data-id="${ids[0]}"]`)
     const firstBox = await first.boundingBox()
-    await first.click({ position: { x: Math.min(30, firstBox.width / 2), y: Math.min(16, firstBox.height / 2) } })
+    await first.click({ position: visibleCardHeader(firstBox) })
     const panel = page.getByTestId('node-side-panel')
     await panel.waitFor({ timeout: 10000 })
     await panel.getByTestId('close-settings').click()
@@ -408,7 +418,7 @@ async function deleteSelectedCards(page, ids) {
         const box = await card.boundingBox()
         await card.click({
             modifiers: ['Control'],
-            position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) }
+            position: visibleCardHeader(box)
         })
         if ((await panel.count()) !== 0) await panel.getByTestId('close-settings').click()
     }
@@ -548,7 +558,7 @@ async function checkCanvasBackspace(page, card, nodeId) {
     const panel = page.getByTestId('node-side-panel')
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel was open for canvas Backspace`)
     if (!(await card.evaluate((el) => el.classList.contains('selected')))) {
-        await card.click({ position: { x: Math.min(30, (await card.boundingBox()).width / 2), y: 16 } })
+        await card.click({ position: visibleCardHeader(await card.boundingBox()) })
         await panel.waitFor({ timeout: 10000 })
         await panel.getByTestId('close-settings').click()
         await page.waitForTimeout(200)
@@ -1026,6 +1036,7 @@ async function main() {
     const started = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     try {
         await waitForPing(base, started.child, started.logs)
+        for (let wait = 0; wait < 50 && !started.setupCode; wait++) await new Promise((resolve) => setTimeout(resolve, 100))
         if (!started.setupCode) throw new Error('the server log had no setup code')
         await runCanvasActions(base, dataDir, started.setupCode)
     } finally {

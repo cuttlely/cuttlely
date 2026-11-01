@@ -16,7 +16,8 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { resetFirstRunSetupCode, simulateSetupRestart } from './setupCode'
+import * as authenticationState from './authenticationState'
+import { noSignInMethod, resetFirstRunSetupCode, simulateSetupRestart } from './setupCode'
 
 describe('setup issuer lock', () => {
     let dir = ''
@@ -66,6 +67,15 @@ describe('setup issuer lock', () => {
         expect(Date.now() - started).toBeLessThan(1000)
         expect(fs.existsSync(lock)).toBe(false)
         expect(startCount()).toBe(before + 1)
+    })
+
+    it('counts durable OIDC as an available sign-in method', () => {
+        const selected = jest.spyOn(authenticationState, 'selectedAuthenticationMethod').mockReturnValue('oidc')
+        try {
+            expect(noSignInMethod({})).toBe(false)
+        } finally {
+            selected.mockRestore()
+        }
     })
 
     it('removes a lock left for more than five seconds and writes the marks', async () => {

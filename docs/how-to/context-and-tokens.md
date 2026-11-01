@@ -30,9 +30,9 @@ Ask `baker` what is in the chocolate cake. The menu document comes back with a n
 
 ## One page of rows
 
-The analyst is a specialist. It is not a separate canvas node. Its database tool is the **QUERY** action on **PostgreSQL MCP**.
+The analyst is a specialist. It is not a separate canvas node. Its database tool is the **QUERY** action on **Postgres (MCP)**.
 
-A query returns one page of rows. The page is 100 rows unless you change **Row cap** under **Admin** > **Server Settings** > **Analyst** (`CUTTLELY_ANALYST_ROW_CAP`, from 1 to 1000). A lower cap puts fewer rows into the specialist's prompt and into the handoff, so that turn carries less context. A statement that already asks for fewer rows returns that many. A PostgreSQL MCP node can set a still lower cap; it cannot raise the page above the server cap. The rows stay in the database. The specialist receives that page, formatted as rows, and a page line when more rows exist. The raw tool payload is not pasted into the prompt.
+A query returns one page of rows. The page is 100 rows unless you change **Row cap** under **Admin** > **Server Settings** > **Analyst** (`CUTTLELY_ANALYST_ROW_CAP`, from 1 to 1000). A lower cap puts fewer rows into the specialist's prompt and into the handoff, so that turn carries less context. A statement that already asks for fewer rows returns that many. A Postgres (MCP) node can set a still lower cap; it cannot raise the page above the server cap. The rows stay in the database. The specialist receives that page, formatted as rows, and a page line when more rows exist. The raw tool payload is not pasted into the prompt.
 
 With 150 Saturday cake orders, the first answer ends like this:
 
@@ -42,7 +42,7 @@ rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)
 
 Say `show more`, `next page` or `page 2` in that same chat. The analyst fetches the next page of the same select. It does not run the question as a new query, and it does not send the earlier rows to the model again. The next turn's history keeps the page line from the previous answer. The last page reads `rows 101-150 of 150 (page 2 of 2, last page)`.
 
-The analyst does not need the database written into its instructions. Tick the tables and views it may use under **Tables and views** on the PostgreSQL MCP node. The analyst then gets one line per ticked relation, with its column names, and a **describe** tool that returns one relation's column types, keys and definition when a question needs them. On the bakery demo database that is 663 tokens instead of 2,562. [Pick the tables and views the analyst sees](./analyst.md#pick-the-tables-and-views-the-analyst-sees).
+The analyst does not need the database written into its instructions. Tick the tables and views it may use under **Tables and views** on the Postgres (MCP) node. The analyst then gets one line per ticked relation, with its column names, and a **describe** tool that returns one relation's column types, keys and definition when a question needs them. On the bakery demo database that is 663 tokens instead of 2,562. [Pick the tables and views the analyst sees](./analyst.md#pick-the-tables-and-views-the-analyst-sees).
 
 The page cursor lasts 15 minutes and only works in the chat that ran the query. The full paging rules, including a count that has nothing to page, are in [Paging through large results](./analyst.md#paging-through-large-results). The run card shows the row count and a short preview when you open the query chip, never more than the configured row cap (at most 1000). The preview is stored with the run trace. A finished result with no page line can name fewer rows than the query returned. When the result has a page line and the question asks for the rows, the answer in this chat keeps the rows from that page. A count or a total keeps the specialist's sentence instead.
 

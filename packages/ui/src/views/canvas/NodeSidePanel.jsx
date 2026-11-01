@@ -8,10 +8,15 @@ import { Box, Divider, Typography } from '@mui/material'
 // project imports
 import NodeInputHandler from './NodeInputHandler'
 import NodePanelHeader from './NodePanelHeader'
+import { PanelResizeHandle, useNodePanelWidth, useReturnFocus } from './NodePanelResize'
 import { baseURL } from '@/store/constant'
 import { panelSections } from '@/utils/canvasLook'
+import NodeLinkNotes from './NodeLinkNotes'
+import PostgresPanelSections from './PostgresPanelSections'
+import { displayLabel, displaySubtitle } from '@/utils/nodeDisplayNames'
+import { isPostgresPanel } from '@/utils/postgresPanel'
 
-export const NODE_SIDE_PANEL_WIDTH = 400
+export { PANEL_DEFAULT_WIDTH as NODE_SIDE_PANEL_WIDTH } from '@/utils/nodePanelWidth'
 
 // ===========================|| NODE SIDE PANEL ||=========================== //
 
@@ -19,9 +24,15 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
     const theme = useTheme()
     const panelRef = useRef(null)
     const data = node.data
-    const { main, more } = panelSections(data)
+    const grouped = isPostgresPanel(data)
+    // The Postgres (MCP) card draws its fields in plain-language groups. Every other card is laid out as before.
+    const { main, more } = grouped ? { main: [], more: [] } : panelSections(data)
+    const label = displayLabel(data)
+    const about = displaySubtitle(data.name)
     const locked = readOnly || !onDelete
+    const size = useNodePanelWidth()
 
+    useReturnFocus(true, panelRef)
     // Move focus into the panel when it opens on a card, so Escape and Tab work from the keyboard.
     useEffect(() => {
         panelRef.current?.focus({ preventScroll: true })
@@ -51,77 +62,91 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
             ref={panelRef}
             tabIndex={-1}
             role='complementary'
-            aria-label={`${data.label} settings`}
+            aria-label={`${label} settings`}
             data-testid='node-side-panel'
+            data-expanded={size.expanded ? 'true' : 'false'}
             onKeyDown={onKeyDown}
             sx={{
-                width: NODE_SIDE_PANEL_WIDTH,
+                ...size.widthSx,
+                position: 'relative',
+                display: 'flex',
                 flexShrink: 0,
                 height: '100%',
-                overflowY: 'auto',
-                overflowX: 'hidden',
+                overflow: 'hidden',
                 borderLeft: `1px solid ${theme.palette.divider}`,
                 backgroundColor: theme.palette.background.paper,
                 outline: 'none'
             }}
         >
-            <NodePanelHeader
-                label={data.label}
-                subtitle={locked ? `${data.id}, read only` : data.id}
-                nodeName={data.name}
-                readOnly={locked}
-                onDuplicate={onDuplicate}
-                onDelete={() => {
-                    onDelete()
-                    onClose()
-                }}
-                onClose={onClose}
-                icon={
-                    <Box
-                        sx={{
-                            width: 36,
-                            height: 36,
-                            flexShrink: 0,
-                            borderRadius: '50%',
-                            backgroundColor: 'white',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                    >
-                        <img
-                            style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
-                            src={`${baseURL}/api/v1/node-icon/${data.name}`}
-                            alt=''
-                        />
-                    </Box>
-                }
-            />
-            {main.length === 0 && more.length === 0 && (
-                <Typography sx={{ p: 2 }} color='text.secondary'>
-                    This card has no settings. Connect it on the canvas.
-                </Typography>
-            )}
-            {main.length > 0 && section('Settings')}
-            {main.map((inputParam) => (
-                <NodeInputHandler
-                    key={`${node.id}:${inputParam.name}`}
-                    inputParam={inputParam}
-                    data={data}
-                    isAdditionalParams={true}
-                    disabled={readOnly}
+            <PanelResizeHandle width={size.width} onPreview={size.setWidth} onCommit={size.commit} hidden={size.expanded} />
+            <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
+                <NodePanelHeader
+                    label={label}
+                    subtitle={locked ? `${data.id}, read only` : data.id}
+                    nodeName={data.name}
+                    readOnly={locked}
+                    onDuplicate={onDuplicate}
+                    onDelete={() => {
+                        onDelete()
+                        onClose()
+                    }}
+                    onClose={onClose}
+                    expanded={size.expanded}
+                    onToggleExpand={size.toggleExpanded}
+                    icon={
+                        <Box
+                            sx={{
+                                width: 36,
+                                height: 36,
+                                flexShrink: 0,
+                                borderRadius: '50%',
+                                backgroundColor: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            <img
+                                style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
+                                src={`${baseURL}/api/v1/node-icon/${data.name}`}
+                                alt=''
+                            />
+                        </Box>
+                    }
                 />
-            ))}
-            {more.length > 0 && section('More settings')}
-            {more.map((inputParam) => (
-                <NodeInputHandler
-                    key={`${node.id}:${inputParam.name}`}
-                    inputParam={inputParam}
-                    data={data}
-                    isAdditionalParams={true}
-                    disabled={readOnly}
-                />
-            ))}
+                {about && (
+                    <Typography variant='caption' color='text.secondary' component='p' sx={{ px: 2, pt: 1.5, m: 0 }}>
+                        {about}
+                    </Typography>
+                )}
+                <NodeLinkNotes data={data} />
+                {grouped && <PostgresPanelSections node={node} readOnly={readOnly} />}
+                {!grouped && main.length === 0 && more.length === 0 && (
+                    <Typography sx={{ p: 2 }} color='text.secondary'>
+                        This card has no settings. Connect it on the canvas.
+                    </Typography>
+                )}
+                {main.length > 0 && section('Settings')}
+                {main.map((inputParam) => (
+                    <NodeInputHandler
+                        key={`${node.id}:${inputParam.name}`}
+                        inputParam={inputParam}
+                        data={data}
+                        isAdditionalParams={true}
+                        disabled={readOnly}
+                    />
+                ))}
+                {more.length > 0 && section('More settings')}
+                {more.map((inputParam) => (
+                    <NodeInputHandler
+                        key={`${node.id}:${inputParam.name}`}
+                        inputParam={inputParam}
+                        data={data}
+                        isAdditionalParams={true}
+                        disabled={readOnly}
+                    />
+                ))}
+            </Box>
         </Box>
     )
 }

@@ -243,6 +243,9 @@ test('Markdown source bytes, reference definitions and each scoped section survi
 
 let serial = 0
 async function runFixture({
+    interpretationPaths,
+    repairProse,
+    answerMode,
     enabled = true,
     result = body,
     prose = 'MODEL TAMPERED DATA AND SCOPE',
@@ -256,6 +259,7 @@ async function runFixture({
     budgetMs,
     afterCaptureMs = 0,
     mixedUnprotected = false,
+    mixedDocs = false,
     policy,
     unmapped = false,
     createModelFile = true,
@@ -315,11 +319,15 @@ async function runFixture({
             specialists: people.map((person) => ({
                 name: person.name,
                 instructions: 'Use the source.',
-                codeExecution: true,
-                fileAccess: true,
+                ...(mixedDocs && person.name === 'report'
+                    ? { playbooks: [{ name: 'docs', content: 'Use retrieved documentation.' }] }
+                    : {}),
+                codeExecution: !(mixedDocs && person.name === 'report'),
+                fileAccess: !(mixedDocs && person.name === 'report'),
                 ...(capacityBusyOnce ? { capacityWaitSeconds: 5 } : {}),
                 ...(policy ? { trustedOutputPolicy: policy } : {}),
                 ...(interpretation ? { trustedInterpretation: true } : {}),
+                ...(interpretationPaths ? { trustedInterpretationPaths: interpretationPaths } : {}),
                 ...(pinFast
                     ? {
                           pinFirst: true,
@@ -334,7 +342,7 @@ async function runFixture({
                           ]
                       }
                     : {}),
-                ...(enabled && !(mixedUnprotected && person.name === 'report')
+                ...(enabled && !((mixedUnprotected || mixedDocs) && person.name === 'report')
                     ? {
                           trustedOutputs: [
                               {
@@ -348,23 +356,45 @@ async function runFixture({
                           ]
                       }
                     : {}),
-                mcpServers: [
-                    {
-                        nodeName: 'postgreSQLMCP',
-                        nodeId: person.name,
-                        category: 'Tools (MCP)',
-                        inputs: {
-                            pinnedQueries: JSON.stringify([person.entry]),
-                            analystRowCap: queryRowCap,
-                            ...(freeQuery ? { allowPinDefinitions: true, mcpActions: ['query'], analystTimeoutSeconds: 15 } : {})
-                        }
-                    }
-                ]
+                ...(mixedDocs && person.name === 'report'
+                    ? {
+                          modules: [
+                              { nodeName: 'retrieverTool', nodeId: 'docs', inputs: { name: 'Retrieve_docs', returnSourceDocuments: true } }
+                          ]
+                      }
+                    : {}),
+                mcpServers:
+                    mixedDocs && person.name === 'report'
+                        ? []
+                        : [
+                              {
+                                  nodeName: 'postgreSQLMCP',
+                                  nodeId: person.name,
+                                  category: 'Tools (MCP)',
+                                  inputs: {
+                                      pinnedQueries: JSON.stringify([person.entry]),
+                                      analystRowCap: queryRowCap,
+                                      ...(freeQuery ? { allowPinDefinitions: true, mcpActions: ['query'], analystTimeoutSeconds: 15 } : {})
+                                  }
+                              }
+                          ]
             }))
         })
     const loadNode = async (nodeName) =>
         class {
             async init(nodeData) {
+                if (nodeName === 'retrieverTool')
+                    return {
+                        name: 'Retrieve_docs',
+                        invoke: async () =>
+                            'Source text.\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n' +
+                            JSON.stringify([
+                                {
+                                    pageContent: 'Use the documented authentication method.',
+                                    metadata: { source: 'https://example.org/docs/auth' }
+                                }
+                            ])
+                    }
                 if (nodeName === 'postgreSQLMCP') {
                     const pin = JSON.parse(nodeData.inputs.pinnedQueries)[0],
                         person = people.find((p) => p.entry.name === pin.name)
@@ -411,12 +441,15 @@ async function runFixture({
                 return {
                     invoke: async (messages) => {
                         prompts.push(messages)
+                        if (String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+                            return { content: repairProse ?? prose }
                         return {
                             content: String(messages[0]?.content).includes('You route work')
                                 ? JSON.stringify({
                                       steps: people.map((p) => ({
                                           specialist: p.name,
-                                          task: 'Query the database and produce the requested output.'
+                                          task: 'Query the database and produce the requested output.',
+                                          ...(answerMode ? { answerMode } : {})
                                       }))
                                   })
                                 : 'CHIEF REWROTE AND DROPPED THE REFERENCES'
@@ -428,7 +461,12 @@ async function runFixture({
     const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } })
     const fetchImpl = async (url, init = {}) => {
         const pathname = new URL(url).pathname
-        const person = people.find((p) => pathname.includes(`--${p.name}/`)) || people[0]
+        const person =
+            people.find(
+                (p) =>
+                    pathname.includes(`--${p.name}/`) ||
+                    (mixedDocs && (pathname.endsWith(`/run-${p.name}`) || pathname.includes(`/run-${p.name}/`)))
+            ) || people[0]
         if (init.method === 'POST' && pathname.endsWith('/v1/runs')) {
             const request = JSON.parse(init.body)
             requests.push(request)
@@ -438,8 +476,8 @@ async function runFixture({
                     429
                 )
             const imageDir = /folder: ([^\n]+)/.exec(request.input)?.[1]
-            assert.ok(imageDir)
-            if (createModelFile) {
+            assert.ok(imageDir || (mixedDocs && person.name === 'report'))
+            if (createModelFile && imageDir) {
                 fs.writeFileSync(path.join(imageDir, 'model-wrong.csv'), 'wrong,source\nsku-b,sku-a\n')
                 const written = new Date(Date.now() + 1000)
                 fs.utimesSync(path.join(imageDir, 'model-wrong.csv'), written, written)
@@ -448,7 +486,7 @@ async function runFixture({
                 const record = getHarness(name),
                     profileName = `${name}--${person.name}`,
                     moduleOptions = { loadNode, flowOptions: { appDataSource: {} } }
-                if (freeQuery) {
+                if (freeQuery || (mixedDocs && person.name === 'report')) {
                     const prior = setGatewayContext(async () => moduleOptions)
                     const token = crypto.randomBytes(32).toString('base64url')
                     registerProfileToken({
@@ -464,8 +502,11 @@ async function runFixture({
                             method: 'POST',
                             headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
                             body: JSON.stringify({
-                                name: 'query',
-                                arguments: { sql: 'SELECT total_realized_churn, loss_events FROM example.losses LIMIT 100' },
+                                name: mixedDocs && person.name === 'report' ? 'Retrieve_docs' : 'query',
+                                arguments:
+                                    mixedDocs && person.name === 'report'
+                                        ? { input: 'authentication' }
+                                        : { sql: 'SELECT total_realized_churn, loss_events FROM example.losses LIMIT 100' },
                                 scope: request.session_id,
                                 callId: `actual-query-${invocation}`
                             })
@@ -518,7 +559,14 @@ async function runFixture({
                     .join('') + ': closed\n\n',
                 { headers: { 'content-type': 'text/event-stream' } }
             )
-        return json({ status: failWorker ? 'failed' : 'completed', output: prose, ...(failWorker ? { error: 'worker failed' } : {}) })
+        return json({
+            status: failWorker ? 'failed' : 'completed',
+            output:
+                mixedDocs && person.name === 'report'
+                    ? 'Use the documented authentication method. [Documentation][doc]\n\n[doc]: https://example.org/docs/auth'
+                    : prose,
+            ...(failWorker ? { error: 'worker failed' } : {})
+        })
     }
     let payload
     try {
@@ -565,6 +613,22 @@ test('multi-step composition preserves exact source Markdown and independent sco
     assert.equal(out.calls.length, 2)
     assert.equal(out.payload.artifacts.length, 1)
     assert.ok(out.payload.text.endsWith('## Outlook\n\nPipeline scope: [2026-10-30, 2027-01-01) UTC.\n\n\n' + markdown))
+    assert.ok(!out.prompts.some((messages) => String(messages[0]?.content).includes('You are Harness Prime')))
+})
+
+test('protected output retains separately requested, turn-scoped retrieved guidance without a chief rewrite', async () => {
+    const out = await runFixture({ multi: true, mixedDocs: true })
+    assert.equal(out.payload.trace.handoff.reason, 'trustedOutput')
+    assert.ok(out.payload.text.includes('13 source observations across 4 product/unit series'))
+    assert.ok(
+        out.payload.text.endsWith(
+            'Additional requested guidance from retrieved documentation:\n\nUse the documented authentication method. [Documentation][doc]\n\n[doc]: https://example.org/docs/auth'
+        )
+    )
+    assert.equal(out.payload.sources.length, 1)
+    assert.equal(out.payload.sources[0].metadata.source, 'https://example.org/docs/auth')
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.ok(!out.payload.text.includes('could not be completed'))
     assert.ok(!out.prompts.some((messages) => String(messages[0]?.content).includes('You are Harness Prime')))
 })
 
@@ -862,6 +926,33 @@ test('CSV rejects incomplete, over-cap, malformed or imprecise table sources and
     assert.throws(() => tablePayloadCsv(csvBody(), {}, { signal: AbortSignal.abort() }), { code: 'aborted' })
 })
 
+test('CSV authors can opt into larger complete exports and a captured source report without changing default bounds', () => {
+    const authored = trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', maxRows: 10000, reportPath: 'rows.0.report' }])[0]
+    const source = csvBody(577)
+    source.rows[0].report = '| Name |\n| --- |\n| Exact source label |\n\nSource: sample ledger.'
+    const rendered = tablePayloadCsv(source, authored)
+    assert.match(rendered.text, /577 source rows/)
+    assert.ok(rendered.text.endsWith(source.rows[0].report))
+    assert.equal(Buffer.from(rendered.artifact.base64, 'base64').toString('utf8').split('\r\n').length > 577, true)
+    assert.throws(() => tablePayloadCsv(source), /at most 100 rows/)
+    for (const maxRows of [0, 1.5, '1000', 10001]) {
+        assert.throws(() => trustedOutputContracts([{ ...authored, maxRows }]), { code: 'trusted_output' })
+        assert.throws(() => tablePayloadCsv(source, { maxRows }), { code: 'trusted_output' })
+    }
+    assert.throws(() => tablePayloadCsv(csvBody(10001), { maxRows: 10000 }), { code: 'trusted_output' })
+    for (const reportPath of ['rows.__proto__.report', 'rows.0.*', ''])
+        assert.throws(() => trustedOutputContracts([{ ...authored, reportPath }]), { code: 'trusted_output' })
+    assert.throws(() => tablePayloadCsv(csvBody(1), authored), /field is missing/)
+    source.rows[0].table_payload.complete = false
+    assert.throws(() => tablePayloadCsv(source, authored), { code: 'trusted_output' })
+})
+
+test('a specialist can protect more than sixteen source intents while preserving the contract budget', () => {
+    const entries = Array.from({ length: 32 }, (_, i) => ({ ...contract, pin: `pq_report_${i}` }))
+    assert.equal(trustedOutputContracts(entries).length, 32)
+    assert.throws(() => trustedOutputContracts([...entries, { ...contract, pin: 'pq_over_budget' }]), /At most 32/)
+})
+
 test('actual captured CSV and mixed PNG/CSV replace model artifacts, preserve native types, and recover final model failure', async () => {
     const out = await runFixture({ csv: true, failWorker: true })
     assert.equal(out.calls.length, 1)
@@ -966,6 +1057,174 @@ test('opted-in unsupported currency cannot enter a protected final answer', asyn
     assert.equal(out.payload.artifacts.length, 1)
 })
 
+test('a rejected interpretation is repaired once without tools, requerying or changing protected facts', async () => {
+    const repaired =
+        'Procurement approval is pending in the returned notes. Confirm the approval path with the owner before treating the commitment as final.'
+    const result = {
+        rows: [
+            { scope: 'Verified source scope.', report: 'EXACT SOURCE REPORT', amount: '8.20', notes: 'Procurement approval is pending.' }
+        ]
+    }
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result,
+        prose: 'There is an unsupported loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse: repaired
+    })
+    assert(out.payload.text.includes(repaired))
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert(!out.payload.text.includes('99999999'))
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.requests.length, 1)
+    const repairs = out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert.equal(repairs.length, 1)
+    const evidence = JSON.parse(repairs[0][1].content)
+    assert(evidence.evidence[0].sourceEvidence.some((item) => item.value === '8.20'))
+    assert(evidence.rejectedClaims.some((claim) => claim.issue === 'unsupported_number' && claim.literal === '99999999'))
+})
+
+test('a still-invalid repair is rejected after one attempt and retains source output', async () => {
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: { rows: [{ scope: 'Verified source scope.', report: 'EXACT SOURCE REPORT', amount: '8.20' }] },
+        prose: 'There is a loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse: 'There is a loss of $88888888 and the owner should investigate this commercial issue.'
+    })
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert(!/99999999|88888888/.test(out.payload.text))
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 1)
+    assert.equal(out.calls.length, 1)
+})
+
+test('single-source repair retains substantive evidence after the first hundred scalar fields', async () => {
+    const result = {
+        rows: [
+            {
+                scope: 'Verified scope.',
+                report: 'EXACT SOURCE REPORT',
+                measurements: Array.from({ length: 140 }, (_, index) => ({ observed: index })),
+                notes: 'Procurement approval remains pending; confirm the decision owner.'
+            }
+        ]
+    }
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result,
+        prose: 'There is an unsupported loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse:
+            'Procurement approval remains pending in the returned notes. Confirm the decision owner before treating approval as final.'
+    })
+    const repair = out.prompts.find((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(repair)
+    const packet = JSON.parse(repair[1].content)
+    assert(packet.evidence[0].sourceEvidence.some((item) => item.value === result.rows[0].notes))
+    assert(out.payload.text.includes('Procurement approval remains pending'))
+    assert.equal(out.calls.length, 1)
+})
+
+test('an interpreted report receipt includes the complete bounded factual set alongside sampled evidence', async () => {
+    const report = '| Ticket | Score |\n|---|---|\n' + Array.from({ length: 25 }, (_, i) => `| example-${i} | ${i} |`).join('\n')
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: {
+            rows: [
+                {
+                    scope: 'Selected records.',
+                    report,
+                    details: Array.from({ length: 12 }, (_, i) => ({ record_id: 'note-' + i, notes: 'Recorded concern. '.repeat(1000) }))
+                }
+            ]
+        },
+        prose: 'The returned records show a recorded concern. Confirm its current impact with the owner before changing the account plan.'
+    })
+    const receipt = JSON.parse(out.receipts[0])
+    assert.equal(receipt.sourceOverview.text, '## Outlook\n\nSelected records.\n\n' + report)
+    assert.equal(receipt.sourceOverview.complete, true)
+    assert(Buffer.byteLength(out.receipts[0]) <= 65536)
+    assert(Buffer.byteLength(out.receipts[0]) > 50000)
+    assert.equal(out.calls.length, 1)
+    const oversized = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: { rows: [{ scope: 'Complete source report.', report: 'x'.repeat(40000) }] },
+        prose: 'The source report is available. Confirm the operational meaning with the owner before drawing conclusions or changing the account plan.'
+    })
+    assert.equal(JSON.parse(oversized.receipts[0]).sourceOverview, undefined)
+    assert(oversized.payload.text.includes('x'.repeat(40000)))
+})
+
+test('a later specialist turn receives every source-backed selected key beyond the transcript clip', async () => {
+    const records = Array.from({ length: 30 }, (_, i) => ({ ticket_id: `ticket-${i}`, name: `Example ticket ${i}` }))
+    const report =
+        '| Ticket ID | Name |\n|---|---|\n' +
+        records.map((row) => `| ${row.ticket_id} | ${row.name} ${'long description '.repeat(10)} |`).join('\n')
+    const result = { rows: [{ scope: 'Verified source scope.', report, records }] }
+    const first = await runFixture({ markdownOnly: true, result })
+    const next = await runFixture({
+        markdownOnly: true,
+        result,
+        harnessName: first.name,
+        input: 'Assess these records using current evidence.'
+    })
+    const request = next.requests[0].input
+    assert(request.includes('Previous displayed record selections'))
+    const block = request.slice(request.indexOf('Previous displayed record selections'))
+    for (const record of records) assert(block.includes(JSON.stringify(record.ticket_id)))
+    const unrelated = await runFixture({
+        markdownOnly: true,
+        result,
+        harnessName: first.name,
+        chatId: 'different-chat',
+        input: 'Assess these records.'
+    })
+    assert(!unrelated.requests[0].input.includes('Previous displayed record selections'))
+})
+
+test('router-selected facts retain mapped source output without optional interpretation or repair', async () => {
+    const out = await runFixture({
+        multi: true,
+        interpretation: true,
+        answerMode: 'facts',
+        prose: 'There is a loss of $99999999 and the owner should investigate this commercial issue.'
+    })
+    assert(!out.payload.text.includes('99999999'))
+    assert(!out.payload.text.includes('could not be verified'))
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
+    assert.equal(out.calls.length, 2)
+})
+
+test('factual mode retains validated narrative from an unmapped nested source instead of an identity-only table', async () => {
+    const prose = 'The recorded technical concern is a connection timeout during replication; the team requested a technical workshop.'
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        copies: 2,
+        answerMode: 'facts',
+        createModelFile: false,
+        result: {
+            rows: [
+                {
+                    account_id: 'example-entity',
+                    account_name: 'Example Industries',
+                    report: { notes: 'Connection timeout during replication; technical workshop requested.' }
+                }
+            ]
+        },
+        prose
+    })
+    const handoff = out.prompts.find((messages) => String(messages[0]?.content).startsWith('You are Harness Prime'))
+    assert(handoff)
+    assert(JSON.stringify(handoff).includes(prose))
+    assert(!JSON.stringify(handoff).includes('| account id |'))
+    assert.equal(out.calls.length, 2)
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
+})
+
 test('rejected-number diagnostics stay private and leave the answer, events and public history unchanged', async () => {
     const { listRuns, getRun, getRunResult, getRunDiagnostics } = await import('./history.mjs')
     const options = {
@@ -1031,6 +1290,30 @@ test('opted-in unmapped answers cannot deliver an invented figure or currency an
     assert.match(out.payload.text, /source-backed values/)
     assert.equal(out.payload.artifacts.length, 0)
     assert.equal(out.payload.trace.specialists[0].recovery.reason, 'interpretationOmitted')
+})
+
+test('an accepted unmapped repair replaces the rejected draft before any chief handoff', async () => {
+    const repaired =
+        'The recorded amount is 8.20. Procurement approval remains pending in the source notes; confirm the approval path with the owner.'
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        interpretationPaths: ['rows.0.mapped_report_only'],
+        result: { rows: [{ amount: '8.20', notes: 'Procurement approval is pending.' }] },
+        prose: 'There is an invented loss of 99999999 and the owner must investigate.',
+        repairProse: repaired
+    })
+    const handoffs = out.prompts.filter((messages) => !String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(handoffs.length > 0)
+    assert(handoffs.some((messages) => JSON.stringify(messages).includes(repaired)))
+    assert(handoffs.every((messages) => !JSON.stringify(messages).includes('99999999')))
+    assert.equal(out.calls.length, 1)
+    assert(!out.payload.text.includes('99999999'))
+    const repair = out.prompts.find((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    const packet = JSON.parse(repair[1].content)
+    assert(packet.evidence[0].sourceEvidence.some((item) => item.value === 'Procurement approval is pending.'))
+    assert(packet.rejectedClaims.some((claim) => claim.literal === '99999999'))
 })
 
 test('interpretation opt-in takes precedence over a matching pin-first shortcut without a duplicate query', async () => {
@@ -1104,7 +1387,7 @@ test('unmapped query uses a consistent author convention without permitting inve
             result,
             prose
         })
-        assert.match(refused.payload.text, /source-backed values are shown/)
+        assert.match(refused.payload.text, /source-backed values follow/)
         assert.match(refused.payload.text, /Monetary amounts use the reporting symbol/)
         assert(!refused.payload.text.includes('$999M'))
         assert(!refused.payload.text.includes('USD 1,250,000'))
@@ -1227,4 +1510,68 @@ test('capped readout exception requires every real capture, author opt-in and th
     ])
         assert.equal(verifiedMonetaryQueryReadout(specialist, items, prose), false)
     assert.equal(verifiedMonetaryQueryReadout(specialist, captured, 'The loss is $999M.'), false)
+})
+
+test('CSV escapeFormulas is opt-in: off keeps exact values, on prefixes formula-like text and leaves plain signed numbers', () => {
+    const values = [
+        '=SUM(A1:A2)',
+        '+1+2',
+        '-2+3',
+        '@cmd',
+        '\tTabbed',
+        '\rReturn',
+        '-5',
+        '-1.25',
+        '-.5',
+        '+5',
+        '-1e3',
+        '+1.2E-4',
+        '-e3',
+        'plain text',
+        'a=b',
+        '',
+        null
+    ]
+    const body = {
+        rows: [
+            {
+                table_payload: {
+                    headers: ['=header', 'note'],
+                    complete_rows: values.map((v, i) => [String(i), v]),
+                    total_rows: values.length,
+                    complete: true,
+                    truncated: false
+                }
+            }
+        ]
+    }
+    const csv = (rendered) => Buffer.from(rendered.artifact.base64, 'base64').toString('utf8')
+    const cell = (v) => (v === null ? '' : '"' + v.replaceAll('"', '""') + '"')
+
+    const off = tablePayloadCsv(body, trustedOutputContracts([{ ...contract, mode: 'table-payload-csv' }])[0])
+    assert.equal(csv(off), [[cell('=header'), '"note"'].join(','), ...values.map((v, i) => `"${i}",${cell(v)}`)].join('\r\n') + '\r\n')
+    assert.equal(csv(tablePayloadCsv(body, { escapeFormulas: false })), csv(off))
+    assert.doesNotMatch(off.text, /leading '/)
+
+    const authored = trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: true }])[0]
+    assert.equal(authored.escapeFormulas, true)
+    const on = tablePayloadCsv(body, authored)
+    const escaped = { '=SUM(A1:A2)': 1, '+1+2': 1, '-2+3': 1, '@cmd': 1, '\tTabbed': 1, '\rReturn': 1, '-e3': 1, '=header': 1 }
+    assert.equal(
+        csv(on),
+        [
+            [cell("'=header"), '"note"'].join(','),
+            ...values.map((v, i) => `"${i}",${v === null ? '' : cell(escaped[v] ? "'" + v : v)}`)
+        ].join('\r\n') + '\r\n'
+    )
+    for (const kept of ['"-5"', '"-1.25"', '"-.5"', '"+5"', '"-1e3"', '"+1.2E-4"', '"plain text"', '"a=b"'])
+        assert.ok(csv(on).includes(',' + kept + '\r\n'))
+    assert.match(on.text, /leading ' so spreadsheet apps keep it as text/)
+    assert.notEqual(on.artifact.name, off.artifact.name)
+
+    for (const escapeFormulas of ['true', 1, {}])
+        assert.throws(() => trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas }]), {
+            code: 'trusted_output'
+        })
+    assert.equal(trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', escapeFormulas: false }])[0].escapeFormulas, undefined)
 })

@@ -3,6 +3,7 @@ import { ChatCohere, ChatCohereInput } from '@langchain/cohere'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { MODEL_TYPE, getModels } from '../../../src/modelLoader'
+import { parseOptionalNumber } from '../../../src/numberInput'
 
 class ChatCohere_ChatModels implements INode {
     label: string
@@ -78,11 +79,12 @@ class ChatCohere_ChatModels implements INode {
         const streaming = nodeData.inputs?.streaming as boolean
         const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const cohereApiKey = getCredentialParam('cohereApiKey', credentialData, nodeData)
+        const parsedTemperature = parseOptionalNumber(temperature)
 
         const obj: ChatCohereInput = {
             model: modelName,
             apiKey: cohereApiKey,
-            temperature: temperature ? parseFloat(temperature) : undefined,
+            ...(parsedTemperature !== undefined ? { temperature: parsedTemperature } : {}),
             streaming: streaming ?? true
         }
         if (cache) obj.cache = cache

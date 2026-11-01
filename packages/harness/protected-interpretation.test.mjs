@@ -39,6 +39,82 @@ const calendarSource = {
 }
 const calendarIssues = (claim, evidence = calendarSource) => protectedInterpretationIssues(useful + ' ' + claim, [evidence], [], '$')
 
+test('literal provenance uses original captured values, not clipped model-context numerals', () => {
+    const evidence = [{ rows: [{ notes: 'x '.repeat(5999) + '12345' }] }]
+    assert(protectedInterpretationIssues(useful + ' There are 12 records.', evidence).includes('unsupported_number'))
+    assert.deepEqual(protectedInterpretationIssues(useful + ' The recorded value is 12345.', evidence), [])
+    const large = [{ rows: [{ notes: 'x '.repeat(32767) + '12345', count: 10 }] }]
+    assert(protectedLiteralIssues('The recorded value is 12.', large).includes('unsupported_number'))
+})
+
+test('percentage intervals preserve both source bounds across typography without becoming point measurements', () => {
+    const evidence = [{ rows: [{ consumption_band: '75-99%', negative_band: '-5 to 5%' }] }]
+    for (const band of ['75–99%', '75% to 99%', 'between 75% and 99%', '75%—99%', '-5% to 5%'])
+        assert.deepEqual(protectedLiteralIssues('The recorded band is ' + band + '.', evidence), [], band)
+    for (const band of ['75%', '99%', '-99%', '74–99%', '75–100%', '99–75%'])
+        assert(protectedLiteralIssues('The recorded observation is ' + band + '.', evidence).includes('unsupported_percentage'), band)
+    assert(protectedLiteralIssues('The band is 75–99%.', [{ rows: [{ low: 75, high: 99 }] }]).includes('unsupported_percentage'))
+    assert.deepEqual(protectedLiteralIssues('The reported change is -5%.', [{ rows: [{ change: '-5%' }] }]), [])
+})
+
+test('bounded typed diagnostics identify rejected percentage bounds and dates without surrounding prose', () => {
+    const claims = []
+    protectedLiteralIssues(
+        'The band is 75–100%, the point is 50%, and the date is 2032-05-04.',
+        [{ rows: [{ band: '75-99%', observed: '2032-05-03' }] }],
+        [],
+        undefined,
+        { diagnostics: true, onDiagnostic: (claim) => claims.push(claim) }
+    )
+    assert(claims.some((claim) => claim.issue === 'unsupported_percentage' && claim.literal === '75:100'))
+    assert(claims.some((claim) => claim.issue === 'unsupported_percentage' && claim.literal === '50'))
+    assert(claims.some((claim) => claim.issue === 'unsupported_date' && claim.literal === '2032-05-04'))
+    assert(claims.every((claim) => !JSON.stringify(claim).includes('The band')))
+})
+
+test('timestamp displays retain the source instant and cannot invent precision or business quantities', () => {
+    const evidence = [{ rows: [{ source_as_of: '2032-05-03T19:52:24.315Z' }] }]
+    for (const timestamp of [
+        '2032-05-03 19:52:24 UTC',
+        'May 3, 2032 at 19:52 UTC',
+        '2032-05-03T19:52:24.315+00:00',
+        '2032-05-03 21:52:24+02:00'
+    ])
+        assert.deepEqual(protectedLiteralIssues('Source as of ' + timestamp + '.', evidence), [], timestamp)
+    for (const timestamp of [
+        '2032-05-03 19:52:25 UTC',
+        '2032-05-04 19:52:24 UTC',
+        '2032-05-03 19:52:24+02:00',
+        '2032-05-03 19:52:24 PST',
+        '2032-05-03 19:52:24 America/Los_Angeles',
+        '2032-05-03T19:52:24.3151Z',
+        '2032-05-03T99:52:24Z',
+        '2032-05-03T19:52:24+00:99'
+    ])
+        assert(protectedLiteralIssues('Source as of ' + timestamp + '.', evidence).length, timestamp)
+    assert(protectedLiteralIssues('There are 19 accounts.', evidence).includes('unsupported_number'))
+    assert(
+        protectedLiteralIssues('There are 19 accounts.', [{ rows: [{ observed: '2032-05-03 19:52:24 UTC' }] }]).includes(
+            'unsupported_number'
+        )
+    )
+    assert(
+        protectedLiteralIssues('Source as of 2032-05-03 19:52 UTC.', [{ rows: [{ day: '2032-05-03', count: 19, other: 52 }] }]).includes(
+            'unsupported_timestamp'
+        )
+    )
+    assert(
+        protectedLiteralIssues('Source as of 2032-05-03 19:52:00 UTC.', [{ rows: [{ observed: '2032-05-03 19:52 UTC' }] }]).includes(
+            'unsupported_timestamp'
+        )
+    )
+    assert(
+        protectedLiteralIssues('Source as of 2032-05-03 19:52 UTC.', [{ rows: [{ observed: '2032-05-03 19:52' }] }]).includes(
+            'unsupported_timestamp'
+        )
+    )
+})
+
 test('explicit-year day-first and month-first dates preserve the same actual source date', () => {
     for (const date of ['3 May 2032', '3May2032', 'May 3, 2032', '3rd May, 2032']) {
         assert.deepEqual(calendarIssues('The recorded date is ' + date + '.'), [], date)
@@ -167,13 +243,47 @@ test('compact and word-scale diagnostics report only rejected numeric notation a
     assert.deepEqual(compact.diagnostics, [{ issue: 'unsupported_number', literal: '2.5M', unit: 'M', contextType: 'compact_monetary' }])
     const words = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $2.5 million.' })
     assert(
-        words.diagnostics.some(
-            (record) => record.literal === '2.5' && record.unit === 'million' && record.contextType === 'word_scale_monetary'
-        )
+        words.diagnostics.some((record) => record.literal === '2.5M' && record.unit === 'M' && record.contextType === 'compact_monetary')
     )
     const valid = composeProtectedInterpretation({ ...args, interpretation: useful + ' The reported ACV is $1.25M.' })
     assert.equal(valid.included, true)
     assert.deepEqual(valid.diagnostics, [])
+})
+
+test('duration abbreviations and typed duration fields preserve quantity and dimension', () => {
+    const evidence = { rows: [{ notes: 'No feedback in the last 180d.', timeout_hours: 24, record_id: 'case180d' }] }
+    for (const claim of ['The gap spans 180 days.', 'The gap spans 180-day coverage.', 'The timeout is 24 hours.'])
+        assert.deepEqual(protectedLiteralIssues(claim, [evidence]), [], claim)
+    for (const claim of ['The gap spans 180 hours.', 'The gap spans 181 days.', 'There are 180 records.'])
+        assert(protectedLiteralIssues(claim, [evidence]).length, claim)
+    assert(
+        protectedLiteralIssues('The gap spans 180 days.', [{ rows: [{ record_id: 'case180d', count: 180 }] }]).includes(
+            'unsupported_duration'
+        )
+    )
+    const diagnostics = []
+    protectedInterpretationIssues(useful + ' The gap spans 181 days.', [evidence], [], undefined, {
+        diagnostics: true,
+        onDiagnostic: (claim) => diagnostics.push(claim)
+    })
+    assert(diagnostics.some((claim) => claim.issue === 'unsupported_duration' && claim.literal === '181' && claim.unit === 'day'))
+})
+
+test('word-scale money uses the existing typed denomination, sign and rounding protections', () => {
+    for (const [value, claim] of [
+        ['1250000', '$1.25 million'],
+        ['-1250000', '-$1.25 million'],
+        ['1250', '$1.25 thousand']
+    ])
+        assert.deepEqual(protectedLiteralIssues('Reported revenue is ' + claim + '.', [{ rows: [{ revenue: value }] }], [], '$'), [])
+    for (const row of [{ revenue: '1250000', currency: 'EUR' }, { count: 1250000 }, { notes: 'revenue 1250000' }, { revenue: '-1250000' }])
+        assert(protectedLiteralIssues('Revenue is $1.25 million.', [{ rows: [row] }], [], '$').length)
+    assert(protectedLiteralIssues('There are 9.99 million users.', [{ rows: [{ count: 1250000 }] }]).includes('unsupported_number'))
+    assert(
+        protectedLiteralIssues('There are 9.99 million users.', [{ rows: [{ revenue: '9990000' }] }], [], '$').includes(
+            'unsupported_number'
+        )
+    )
 })
 
 test('numeric diagnostics are bounded and contain no draft or source-body snippets', () => {

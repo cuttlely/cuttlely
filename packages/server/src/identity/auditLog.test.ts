@@ -21,7 +21,7 @@ import { randomBytes } from 'crypto'
 import express, { Request } from 'express'
 import request from 'supertest'
 import { appendHistory } from '../settings/history'
-import { AUDIT_TYPES, redactAudit, recordAudit, pageAudit, organizationsForUser, AuditQueryError } from './auditLog'
+import { AUDIT_TYPES, redactAudit, recordAudit, pageAudit, organizationsForUser, AuditQueryError, oidcLinkAuditDetail } from './auditLog'
 import { identityAuditRouter, setAuditReaderForTests } from './auditRoutes'
 import { Sql } from './directory'
 import { setTeamPermissionLookup } from './rbac'
@@ -138,6 +138,23 @@ describe('audit redaction', () => {
         const encoded = JSON.stringify(redacted)
         for (const value of Object.values(addresses)) expect(encoded).not.toContain(value)
         expect(redacted.detail).toEqual({ method: 'local', description: 'bakery route' })
+    })
+
+    it('omits an unmatched OIDC subject while retaining a matched one', () => {
+        const input = {
+            issuer: 'https://id.example',
+            subject: 'provider-subject',
+            basis: null,
+            outcome: 'unknown'
+        }
+        expect(oidcLinkAuditDetail({ ...input, matchedUser: null })).toEqual({
+            issuer: 'https://id.example',
+            subject: null,
+            matchedUser: null,
+            basis: null,
+            outcome: 'unknown'
+        })
+        expect(oidcLinkAuditDetail({ ...input, matchedUser: 'user-1' }).subject).toBe('provider-subject')
     })
 
     it('removes a SCIM bearer value while retaining its display prefix', () => {

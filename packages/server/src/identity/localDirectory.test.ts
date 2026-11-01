@@ -102,6 +102,10 @@ function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof Datab
             id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
             userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
         );
+        CREATE TABLE identity_provider_link (
+            providerKey text, subject text, userId text, emailAtLink text, assuranceBasis text, createdAt text,
+            primary key (providerKey, subject)
+        );
         CREATE TABLE audit_event (
             id text, type text, organizationId text, workspaceId text, userId text,
             actorId text, summary text, detail text, createdAt integer

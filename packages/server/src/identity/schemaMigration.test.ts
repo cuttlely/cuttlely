@@ -19,6 +19,7 @@ import {
     addAuthenticationState,
     addAuthenticationSwitchStage,
     addLocalDirectory,
+    addOidcProvider,
     addScimGroups,
     addScimProvisioning,
     addWorkosSessionId,
@@ -48,6 +49,18 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
             if (sql.includes('FROM "role"') && sql.includes('SELECT')) {
                 return existingRoles.has(String(params?.[0] || '').toLowerCase()) ? [{ id: 'existing' }] : []
             }
+            return []
+        }
+    }
+    return { runner: runner as unknown as QueryRunner, calls }
+}
+
+function mysqlFamilyRunner(type: 'mysql' | 'mariadb'): { runner: QueryRunner; calls: Call[] } {
+    const calls: Call[] = []
+    const runner = {
+        connection: { options: { type } },
+        async query(sql: string, params?: unknown[]) {
+            calls.push({ sql, params })
             return []
         }
     }
@@ -110,6 +123,34 @@ describe('local directory schema on postgres', () => {
         expect(creates[0].sql).toContain('"version" integer NOT NULL')
     })
 
+    it('adds provider links, OIDC configuration, and cross-process transactions', async () => {
+        const present = new Set(['identity_authentication_switch_stage', 'identity_local_session'])
+        const { runner, calls } = postgresRunner(present)
+        await addOidcProvider(runner)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link"'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('UNIQUE ("providerKey", "subject")'))).toBe(true)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_configuration"'))).toBe(true)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_oidc_transaction"'))).toBe(true)
+        expect(calls.some((call) => call.sql.startsWith('CREATE TABLE "identity_provider_link_migration"'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('identity_recent_authentication'))).toBe(false)
+        expect(calls.some((call) => call.sql.includes('ADD COLUMN "recentAuthenticationAt" TIMESTAMP NULL'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('"inertCount" integer NOT NULL DEFAULT 0'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('ADD COLUMN "configurationFingerprint"'))).toBe(true)
+    })
+
+    it('adds the inert legacy-link count to an existing OIDC schema', async () => {
+        const present = new Set([
+            'identity_authentication_switch_stage',
+            'identity_provider_link',
+            'identity_oidc_configuration',
+            'identity_oidc_transaction',
+            'identity_provider_link_migration'
+        ])
+        const { runner, calls } = postgresRunner(present)
+        await addOidcProvider(runner)
+        expect(calls.some((call) => call.sql.includes('ADD COLUMN "inertCount" integer NOT NULL DEFAULT 0'))).toBe(true)
+    })
+
     it('adds the nullable WorkOS session id to application sessions', async () => {
         const present = new Set(['identity_local_session'])
         const { runner, calls } = postgresRunner(present)
@@ -117,6 +158,40 @@ describe('local directory schema on postgres', () => {
         expect(
             calls.some((call) => call.sql === 'ALTER TABLE "identity_local_session" ADD COLUMN "workosSessionId" varchar(255) NULL')
         ).toBe(true)
+    })
+})
+
+describe.each([
+    ['mysql', 'COLLATE=utf8mb4_0900_ai_ci'],
+    ['mariadb', 'COLLATE=utf8mb4_unicode_520_ci']
+] as const)('OIDC schema on %s', (dialect, collation) => {
+    it('generates the provider, configuration, transaction, and migration tables', async () => {
+        const { runner, calls } = mysqlFamilyRunner(dialect)
+        await addOidcProvider(runner)
+
+        const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE \`${table}\``))?.sql || ''
+        const provider = create('identity_provider_link')
+        expect(provider).toContain('`userId` varchar(36) NOT NULL')
+        expect(provider).toContain('`providerKey` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL')
+        expect(provider).toContain('`subject` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL')
+        expect(provider).toContain('UNIQUE (`providerKey`, `subject`)')
+        expect(provider).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+
+        const configuration = create('identity_oidc_configuration')
+        expect(configuration).toContain('`trustMissingEmailVerification` tinyint(1) NOT NULL')
+        expect(configuration).toContain('`privateIssuerHosts` text NOT NULL')
+        expect(configuration).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+
+        const transaction = create('identity_oidc_transaction')
+        expect(transaction).toContain('`stateHash` varchar(64) PRIMARY KEY')
+        expect(transaction).toContain('`consumedAt` datetime NULL')
+        expect(transaction).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+
+        const migration = create('identity_provider_link_migration')
+        expect(migration).toContain('`inertCount` integer NOT NULL DEFAULT 0')
+        expect(migration).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
+        expect(calls.some((call) => call.sql.includes('information_schema.TABLES') && call.sql.includes('TABLE_NAME = ?'))).toBe(true)
+        expect(calls.some((call) => call.sql.includes('$1'))).toBe(false)
     })
 })
 

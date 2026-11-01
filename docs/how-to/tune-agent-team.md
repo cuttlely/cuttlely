@@ -12,7 +12,7 @@ If a teammate needs a different role, use **Admin** > **Users** > **Change role*
 
 ## Start with tested database access
 
-On a PostgreSQL MCP node, choose a dedicated read-only credential, tick the tables and views the specialist needs, then add a [pinned query](./pinned-queries.md). Turn the server flag `CUTTLELY_PINNED_QUERIES` on and restart before using that editor. Each pin has saved SQL, typed parameters and a tested stamp. Test with representative values, including no matches and ambiguous scope. A passing test shows the statement can run; it does not approve its business logic.
+On a Postgres (MCP) node, choose a dedicated read-only credential, tick the tables and views the specialist needs, then add a [pinned query](./pinned-queries.md). Turn the server flag `CUTTLELY_PINNED_QUERIES` on and restart before using that editor. Each pin has saved SQL, typed parameters and a tested stamp. Test with representative values, including no matches and ambiguous scope. A passing test shows the statement can run; it does not approve its business logic.
 
 Untick **Allow free SQL (query + describe)** if that specialist must use only the saved pins. Adding a pin alone leaves free SQL available. Include the business metric, grain, date basis and status coverage in each pin's purpose so the model can choose correctly. The selection still matters: a saved statement with the wrong join or a model that chooses the wrong period can return an incorrect answer.
 
@@ -73,6 +73,18 @@ Use a dedicated export pin when a query should always produce a CSV, and keep th
 A mapped Markdown contract replaces that worker's model prose and files. Do not bind a text-only renderer indiscriminately to a general file/chart specialist. Give protected files a dedicated query and the matching PNG or CSV contract, or route the text report to a separate text specialist. A broad assets specialist can use explicit verified passthrough for other successful approved queries; it does not turn a mapped text report into a verified file or recover a missing attachment.
 
 Protected files use the chat's native attachment transport. The runtime validates bytes and the turn deadline, and the chat wrapper waits for file storage before acknowledging a download. A sentence saying a file was created is not a passing file test: download it and inspect its content. When a mapped source is valid but only the model's final completion fails, the runtime can deliver the source output without rerunning the query or model; the trace keeps the original failure and recovery diagnostic.
+
+## Carry intent and record scope between turns
+
+The shared router resolves the request from the conversation and chooses factual presentation or analysis for each step. A factual step preserves a mapped source report without adding optional interpretation. An analytical step retains the specialist's evidence checks and exact source report. Older routing replies that omit this choice keep their existing behavior; a lone specialist still skips routing.
+
+When several specialists share the same wired database-tool node, the planner sees that shared scope and can assign the complete deliverable to one capable owner. A role that can query the data and create the requested artifact does not need an extra query-only predecessor. Distinct sources or materially different work can still require multiple specialists. Shared credentials or similar table names alone do not establish equivalent permissions.
+
+When a displayed table can be matched unambiguously to executed source rows, the runtime saves its record keys and order separately from the shortened transcript. The next router and specialist receive those keys even after intervening turns or a specialist change. Selections are scoped to the existing harness/chat session, hold at most three tables and 100 records per table within 16 KB, and contain identifiers and labels rather than business measures or SQL. A new claim still requires new source evidence. Ambiguous names, competing entity grains, unsupported rows and oversized selections are not certified; ask for clarification when the reference cannot be resolved.
+
+For opted-in protected interpretation, a rejected quantitative claim can trigger one tool-free repair against the same captured evidence. The repaired text must pass the original validator. Missing or failed evidence is not repaired, queries are not rerun, and cancellation and the turn budget still apply. If repair fails, the verified source report remains available. An unmapped query falls back to a bounded business table rather than dumping nested resolver fields. Equivalent duration abbreviations and written monetary scales use the same quantity, unit and denomination checks.
+
+Keep specialist instructions focused on capabilities, business definitions, source choice and evidence standards. Exercise different follow-ups and entity grains in QA rather than adding a routing rule for each wording.
 
 ## Give a longer task the right limits
 

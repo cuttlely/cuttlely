@@ -44,6 +44,141 @@
     ],
     "r3Edges": [
         {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatAnthropic/ChatAnthropic.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatCometAPI/ChatCometAPI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatLitellm/ChatLitellm.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatNvdiaNIM/ChatNvdiaNIM.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatOllama/ChatOllama.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatOpenAICustom/ChatOpenAICustom.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatOpenRouter/ChatOpenRouter.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/Deepseek/Deepseek.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
+            "to": "packages/components/nodes/chatmodels/Groq/Groq.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
             "from": "packages/components/nodes/embeddings/LocalHashEmbedding/LocalHashEmbedding.ts",
             "to": "packages/components/src/Interface.ts"
         },
@@ -134,6 +269,11 @@
             "to": "packages/components/src/utils.ts"
         },
         {
+            "from": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts",
+            "to": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
             "from": "packages/components/src/anthropicUtils.test.ts",
             "to": "packages/components/src/anthropicUtils.ts"
         },
@@ -174,6 +314,11 @@
             "from": "packages/components/src/httpSecurity.localhost.test.ts",
             "to": "packages/components/src/httpSecurity.ts",
             "reason": "The test drives the inherited HTTP guard with the localhost switch on and off"
+        },
+        {
+            "from": "packages/components/src/httpSecurity.privateIssuer.test.ts",
+            "to": "packages/components/src/httpSecurity.ts",
+            "reason": "The test drives the inherited HTTP guard with a private issuer host allowlist"
         },
         {
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
@@ -527,6 +672,11 @@
         {
             "from": "packages/server/src/identity/http.ts",
             "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/identity/oidcProvider.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "OIDC discovery, token, and signing-key retrieval must use the existing guarded request implementation."
         },
         {
             "from": "packages/server/src/identity/ossPlatform.ts",
@@ -1778,6 +1928,11 @@
             "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
         },
         {
+            "from": "packages/ui/src/ui-component/dropdown/MultiDropdown.test.js",
+            "to": "packages/ui/src/ui-component/dropdown/MultiDropdown.jsx",
+            "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
+        },
+        {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/store/actions.js"
         },
@@ -1834,9 +1989,24 @@
             "reason": "test of the inherited SensitiveInput component: the reveal prop stays removed"
         },
         {
+            "from": "packages/ui/src/ui-component/json/JsonEditor.test.js",
+            "to": "packages/ui/src/ui-component/json/JsonEditor.jsx",
+            "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
+        },
+        {
+            "from": "packages/ui/src/utils/analystStatus.js",
+            "to": "packages/ui/src/store/constant.js",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
             "from": "packages/ui/src/utils/credentialSaveValues.js",
             "to": "packages/ui/src/store/constant.js",
             "reason": "credential dialog save values helper reads the blank placeholder value"
+        },
+        {
+            "from": "packages/ui/src/utils/edgeRefs.test.js",
+            "to": "packages/ui/src/utils/genericHelper.js",
+            "reason": "The import heal test runs the real node updater so it proves a chosen output survives a node update"
         },
         {
             "from": "packages/ui/src/utils/flowDraftsMerge.js",
@@ -1916,12 +2086,47 @@
             "to": "packages/ui/src/views/canvas/NodeOutputHandler.jsx"
         },
         {
+            "from": "packages/ui/src/views/canvas/NodeLinkNotes.jsx",
+            "to": "packages/ui/src/store/context/ReactFlowContext.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
+            "to": "packages/ui/src/store/context/ReactFlowContext.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
             "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
             "to": "packages/ui/src/store/constant.js"
         },
         {
             "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
             "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/api/pinnedQueries.js",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/views/canvas/pinnedQueries/model.js",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesView.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PostgresPanelSections.jsx",
+            "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
         },
         {
             "from": "packages/ui/src/views/canvas/PublishCheck.darkAlert.test.js",
@@ -2196,9 +2401,149 @@
     ],
     "r4Edges": [
         {
+            "from": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatAnthropic/ChatAnthropic.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatCometAPI/ChatCometAPI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatLitellm/ChatLitellm.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatNvdiaNIM/ChatNvdiaNIM.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatOllama/ChatOllama.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatOpenAICustom/ChatOpenAICustom.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatOpenRouter/ChatOpenRouter.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/Deepseek/Deepseek.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/components/nodes/chatmodels/Groq/Groq.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
             "from": "packages/components/src/handler.ts",
             "to": "packages/components/src/langsmithCredentialDiagnostics.ts",
             "reason": "LangSmith tracer setup in handler.ts logs the credential shape for the 1.4.2 tracing diagnosis"
+        },
+        {
+            "from": "packages/components/src/index.ts",
+            "to": "packages/components/src/numberInput.ts",
+            "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
             "from": "packages/server/src/controllers/chat-messages/index.ts",
@@ -3517,6 +3862,10 @@
         {
             "path": "packages/ui/src/utils/__fixtures__/import/text-to-sql.json",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/savedFlows.golden.json",
+            "reason": "Made-up test data: hashes of the saved sample flows, so a display change cannot change what a save writes"
         },
         {
             "path": "packages/ui/src/utils/chatArtifacts.js",

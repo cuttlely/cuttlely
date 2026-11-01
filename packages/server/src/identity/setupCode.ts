@@ -23,6 +23,7 @@ import os from 'os'
 import path from 'path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { authSecret, ensureInstanceSecret } from './authSecrets'
+import type { AuthenticationMethod } from './authenticationState'
 import { cookiePasswordOk, localAdminEnabled, workosConfigured } from './constants'
 import { recordSetupFailure, resetSetupFailures, setupFailureLimited } from './setupLimit'
 
@@ -857,9 +858,13 @@ export function noteSetupFailure(address: string, now: number): { limited: boole
     return { limited: false }
 }
 
-/** True when nobody could sign in: the password sign-in is off and AuthKit is not set up. */
-export function noSignInMethod(env: NodeJS.ProcessEnv = process.env): boolean {
-    return !localAdminEnabled(env) && !(workosConfigured(env) && cookiePasswordOk(env.WORKOS_COOKIE_PASSWORD))
+/** True when nobody could sign in: OIDC is not active, password sign-in is off, and AuthKit is not set up. */
+export function noSignInMethod(env: NodeJS.ProcessEnv = process.env, activeMethod?: AuthenticationMethod | null): boolean {
+    const durableMethod =
+        activeMethod === undefined
+            ? (require('./authenticationState') as typeof import('./authenticationState')).selectedAuthenticationMethod()
+            : activeMethod
+    return durableMethod !== 'oidc' && !localAdminEnabled(env) && !(workosConfigured(env) && cookiePasswordOk(env.WORKOS_COOKIE_PASSWORD))
 }
 
 /** The address people use to reach this server: Render's public address, APP_URL, or this machine. */

@@ -39,7 +39,7 @@ Keep the API key on your server. Never put it in a web page, a mobile app or a p
 2. Give the key a name, such as `Bakery website`, and choose at least one permission. Permissions decide what the key can do on Cuttlely's management API (for example `chatflows:view`). Asking a flow does not need a permission; see the next step.
 3. Copy the key when it is shown. Cuttlely stores only a hash, so it cannot show the key again.
 
-A new key records the signed-in user as its owner. If an API key creates another key, the new key inherits the creating key's recorded owner. Disabling that user refuses both keys on their next request. Keys from before 1.5.0 that have no recorded owner remain usable and are not tied to a user; the API Keys page marks them so you can review or rotate them.
+A new API credential records the signed-in user as its owner. One created by another API credential inherits that credential's recorded owner. Disabling that user refuses both on their next request. Those created before 1.4.9 have no recorded owner; they remain usable and are not tied to a user, and the page marks them so you can review or rotate them.
 
 ![The API Keys page with one key, Bakery website. The API Key column says Hidden, Permissions is chatflows:view, Usage is 3, and Updated shows the day the key was last changed, with edit and delete buttons at the end of the row.](./images/api/api-keys-page.png)
 

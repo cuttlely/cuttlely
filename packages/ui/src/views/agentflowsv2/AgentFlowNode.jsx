@@ -11,9 +11,11 @@ import { Avatar, Box, Typography, Tooltip } from '@mui/material'
 import MainCard from '@/ui-component/cards/MainCard'
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 import { missingNodeInfo } from '@/utils/missingNode'
+import { needsSync } from '@/utils/edgeRefs'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 import NodeActionBar from '@/views/canvas/NodeActionBar'
 import { cardAccentChrome, cardAccentColor } from '@/utils/cardAccent'
+import { safeJsonParse } from '@/utils/safeJsonParse'
 
 // icons
 import {
@@ -37,6 +39,13 @@ import CancelIcon from '@mui/icons-material/Cancel'
 
 // const
 import { baseURL, AGENTFLOW_ICONS } from '@/store/constant'
+
+// Built-in tools are saved as a JSON array string. An unreadable value shows no tools instead of crashing the canvas.
+const builtInToolList = (saved) => {
+    if (!saved) return []
+    const list = typeof saved === 'string' ? safeJsonParse(saved, []) : saved
+    return Array.isArray(list) ? list.map((tool) => ({ builtInTool: tool })) : []
+}
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
     background: theme.palette.card.main,
@@ -170,9 +179,10 @@ const AgentFlowNode = ({ data }) => {
 
         const componentNode = canvas.componentNodes.find((nd) => nd.name === data.name)
         if (componentNode) {
-            if (!data.version) {
+            const syncNeeded = needsSync({ data: { version: data.version, cuttlelyRawNode: data.cuttlelyRawNode } }, componentNode)
+            if (syncNeeded && data.version == null) {
                 setWarningMessage(nodeVersionEmptyMessage(componentNode.version))
-            } else if (data.version && componentNode.version > data.version) {
+            } else if (syncNeeded) {
                 setWarningMessage(nodeOutdatedMessage(data.version, componentNode.version))
             } else if (componentNode.badge === 'DEPRECATING') {
                 setWarningMessage(
@@ -185,7 +195,7 @@ const AgentFlowNode = ({ data }) => {
                 setWarningMessage('')
             }
         }
-    }, [canvas.componentNodes, data.name, data.version])
+    }, [canvas.componentNodes, data.cuttlelyRawNode, data.name, data.version])
 
     const missing = missingNodeInfo(data, canvas.componentNodes)
     if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />
@@ -436,32 +446,17 @@ const AgentFlowNode = ({ data }) => {
                                     },
                                     { tools: data.inputs?.agentKnowledgeVSEmbeddings, toolProperty: ['vectorStore', 'embeddingModel'] },
                                     {
-                                        tools: data.inputs?.agentToolsBuiltInOpenAI
-                                            ? (typeof data.inputs.agentToolsBuiltInOpenAI === 'string'
-                                                  ? JSON.parse(data.inputs.agentToolsBuiltInOpenAI)
-                                                  : data.inputs.agentToolsBuiltInOpenAI
-                                              ).map((tool) => ({ builtInTool: tool }))
-                                            : [],
+                                        tools: builtInToolList(data.inputs?.agentToolsBuiltInOpenAI),
                                         toolProperty: 'builtInTool',
                                         isBuiltInOpenAI: true
                                     },
                                     {
-                                        tools: data.inputs?.agentToolsBuiltInGemini
-                                            ? (typeof data.inputs.agentToolsBuiltInGemini === 'string'
-                                                  ? JSON.parse(data.inputs.agentToolsBuiltInGemini)
-                                                  : data.inputs.agentToolsBuiltInGemini
-                                              ).map((tool) => ({ builtInTool: tool }))
-                                            : [],
+                                        tools: builtInToolList(data.inputs?.agentToolsBuiltInGemini),
                                         toolProperty: 'builtInTool',
                                         isBuiltInGemini: true
                                     },
                                     {
-                                        tools: data.inputs?.agentToolsBuiltInAnthropic
-                                            ? (typeof data.inputs.agentToolsBuiltInAnthropic === 'string'
-                                                  ? JSON.parse(data.inputs.agentToolsBuiltInAnthropic)
-                                                  : data.inputs.agentToolsBuiltInAnthropic
-                                              ).map((tool) => ({ builtInTool: tool }))
-                                            : [],
+                                        tools: builtInToolList(data.inputs?.agentToolsBuiltInAnthropic),
                                         toolProperty: 'builtInTool',
                                         isBuiltInAnthropic: true
                                     }

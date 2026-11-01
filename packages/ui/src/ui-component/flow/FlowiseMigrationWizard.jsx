@@ -18,6 +18,7 @@ import {
 
 import { flowiseNodeCatalog } from '@/utils/flowiseCatalog'
 import { scanFlowiseMigration } from '@/utils/flowiseMigration.mjs'
+import { wizardHeal } from '@/utils/edgeRefs'
 
 const STEPS = ['Upload', 'Scan', 'Credentials', 'Nodes', 'Result']
 
@@ -57,7 +58,18 @@ ListBlock.propTypes = {
     renderItem: PropTypes.func
 }
 
-const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
+const FlowiseMigrationWizard = ({
+    open,
+    onClose,
+    onOpen,
+    specs,
+    updateNodeData,
+    showHide,
+    catalogPending = false,
+    catalogFailed = false,
+    onRetryCatalog
+}) => {
+    const fileBlocked = catalogPending || catalogFailed
     const [step, setStep] = useState(0)
     const [fileName, setFileName] = useState('')
     const [report, setReport] = useState(null)
@@ -76,6 +88,7 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
     }
 
     const onFile = (event) => {
+        if (fileBlocked) return
         const file = event.target.files?.[0]
         event.target.value = ''
         if (!file) return
@@ -92,7 +105,10 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                 setStep(0)
                 return
             }
-            const next = scanFlowiseMigration(parsed, { catalog: flowiseNodeCatalog })
+            const next = scanFlowiseMigration(parsed, {
+                catalog: flowiseNodeCatalog,
+                heal: wizardHeal(specs, { updateNodeData, showHide })
+            })
             if (next.code === 'langflow' || next.code === 'not-flowise' || next.code === 'tool') {
                 setReport(null)
                 setParseError(next.reason)
@@ -128,13 +144,35 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                 </Stepper>
                 {step === 0 && (
                     <Stack sx={{ gap: 1.5 }}>
+                        {catalogPending && (
+                            <Alert severity='info'>The node catalog is loading. File selection will be available shortly.</Alert>
+                        )}
+                        {catalogFailed && (
+                            <Alert
+                                severity='error'
+                                action={
+                                    onRetryCatalog ? (
+                                        <Button color='inherit' size='small' onClick={onRetryCatalog}>
+                                            Retry
+                                        </Button>
+                                    ) : null
+                                }
+                            >
+                                The node catalog did not load, so the file cannot be checked yet.
+                            </Alert>
+                        )}
                         <Typography variant='body2'>
                             Choose a Flowise chatflow JSON file. The scan lists what will import, which credentials to reconnect, and which
                             nodes Cuttlely will not place. API keys are not copied.
                         </Typography>
-                        <Button variant='outlined' component='label' sx={{ textTransform: 'none', alignSelf: 'flex-start' }}>
+                        <Button
+                            variant='outlined'
+                            component='label'
+                            disabled={fileBlocked}
+                            sx={{ textTransform: 'none', alignSelf: 'flex-start' }}
+                        >
                             Choose Flowise JSON
-                            <input type='file' hidden accept='.json,application/json' onChange={onFile} />
+                            <input type='file' hidden disabled={fileBlocked} accept='.json,application/json' onChange={onFile} />
                         </Button>
                         {fileName && (
                             <Typography variant='caption' color='text.secondary'>
@@ -251,7 +289,13 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
 FlowiseMigrationWizard.propTypes = {
     open: PropTypes.bool,
     onClose: PropTypes.func,
-    onOpen: PropTypes.func
+    onOpen: PropTypes.func,
+    specs: PropTypes.array,
+    updateNodeData: PropTypes.func,
+    showHide: PropTypes.shape({ params: PropTypes.func, anchors: PropTypes.func }),
+    catalogPending: PropTypes.bool,
+    catalogFailed: PropTypes.bool,
+    onRetryCatalog: PropTypes.func
 }
 
 export default FlowiseMigrationWizard

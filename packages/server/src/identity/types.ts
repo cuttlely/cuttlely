@@ -88,7 +88,9 @@ export interface LocalSession {
     /** Version on the user row when the session was read. */
     currentPermissionVersion?: number
     /** Method that completed authentication for this database session. */
-    authenticationMethod?: 'local' | 'workos' | 'recovery'
+    authenticationMethod?: 'local' | 'workos' | 'oidc' | 'recovery'
+    /** A qualifying provider authentication time for a sensitive settings change. */
+    recentAuthenticationAt?: Date
     /** Global authentication epoch copied when the session was issued. */
     authenticationEpoch?: number
     /** True for the always-available owner recovery path. */
@@ -111,6 +113,12 @@ export interface CreateOwnerInput {
 export interface CreateOwnerOptions {
     consumeSetupHmac?: string
     now?: number
+    providerLink?: {
+        providerKey: string
+        subject: string
+        emailAtLink: string
+        assuranceBasis: string
+    }
     /** Select Local login in the same transaction as first-owner setup. */
     activateLocalAuthentication?: boolean
 }
@@ -134,13 +142,18 @@ export type LinkFailure =
     | 'invite-invalid'
     | 'review-required'
 
-/** An AuthKit sign-in that carries the raw token from an invite link. */
+/** A remote sign-in that carries the raw token from an invite link. */
 export interface InviteSignIn {
     token: string
     userId: string
     email: string
     externalId: string
     now: number
+    providerKey?: string
+    subject?: string
+    assuranceBasis?: string
+    retainExternalId?: boolean
+    authenticationMethod: 'workos' | 'oidc'
 }
 
 export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { ok: false; reason: LinkFailure }

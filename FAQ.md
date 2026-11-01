@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.8)
+# Cuttlely FAQ (1.4.10)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,29 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.10?
+
+-   If you're on 1.4.9, upgrade. A JSON setting on a node, credential or document store whose saved value is blank or cut off partway no longer crashes the page. The JSON editor opens it as `{}` and writes nothing back until you edit it; valid values open as before.
+-   If a page still fails to load or render, Cuttlely shows a short error page with **Reload**, **Go home** and collapsible error details instead of the default router error screen.
+-   Trusted-output CSV reports are delivered with their source tables: complete rows, up to the contract limit.
+-   The **Postgres (MCP)** node's settings panel is redesigned, with clearer labels and a panel you can resize or expand. When the server's analyst settings turn it on (off by default), its pinned query list can be searched.
+-   This release has no upgrade notes of its own. Coming from 1.4.8, read the [1.4.9 upgrade notes](./CHANGELOG.md#149---2026-10-31) first.
+-   The [changelog](./CHANGELOG.md#1410---2026-11-01) lists every change.
+-   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.10`, or run `npm i cuttlely@1.4.10`.
+
+Full notes: [v1.4.10 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.10).
+
+### What's new in 1.4.9?
+
+-   If you're on 1.4.8, upgrade. **Admin** > **Auth / SSO** shows the sign-in method and adds **Generic OIDC** sign-in, which you configure, test and activate there. **Owner recovery** on the sign-in page lets an active owner with a local password sign in whatever method is selected. All sign-in methods share one Cuttlely session, and disabling a user refuses their next request.
+-   Chatflow import, including the migration wizard, keeps edge references in node inputs, fills missing defaults and refreshes older nodes. If you imported flows with the migration wizard in 1.4.8, open each one. If **Sync Nodes** is shown, click it. If it is not, select **Export Chatflow** in the canvas settings menu, then choose the import item in the same menu and select the exported file, or the original file you imported in 1.4.8; the migration wizard rebuilds each connection's reference from its edge on the same canvas, and you select credentials and fill password, file and folder fields again. Then select **Save** and **Publish**. See the [1.4.9 upgrade notes](./CHANGELOG.md#149---2026-10-31).
+-   On a WorkOS install, give the earliest active owner a local password: from source, run `pnpm user --email <owner email>` in the repository root; with Docker Compose, run `docker compose exec -u node -it cuttlely pnpm user --email <owner email>`. For another existing owner, add `CUTTLELY_LOCAL_ADMIN=true` (with Docker Compose, `-e CUTTLELY_LOCAL_ADMIN=true` after `exec`). See [In a terminal](./docs/how-to/sign-in.md#in-a-terminal). Until then, administrators see a banner that owner recovery is not ready. WorkOS users sign in again once after the upgrade.
+-   Chat model nodes no longer pass `NaN` as the temperature when the field is empty; the model library's default applies.
+-   The [changelog](./CHANGELOG.md#149---2026-10-31) lists every change and the upgrade notes.
+-   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.9`, or run `npm i cuttlely@1.4.9`.
+
+Full notes: [v1.4.9 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.9).
 
 ### What's new in 1.4.8?
 

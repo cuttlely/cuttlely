@@ -31,9 +31,19 @@ test('unsafe generated prose falls back to escaped business fields without priva
 test('source field fallback is capped and distinguishes an executed empty query from missing display fields', () => {
     const rows = Array.from({ length: 120 }, (_, index) => ({ amount: String(index) }))
     const text = sourceAnswerFallback([{ result: { rows } }])
-    assert.equal(text.split('\n').filter((line) => line.startsWith('| Record')).length, 100)
+    assert.equal(text.split('\n').filter((line) => line.startsWith('| ')).length, 101)
     assert.match(text, /bounded display/)
     assert.match(sourceAnswerFallback([{ result: { rows: [] } }]), /query returned no rows/)
+})
+
+test('nested source packets render business rows without dumping resolver metadata', () => {
+    const text = sourceAnswerFallback([
+        { result: { rows: [{ identity_status: 'unique', report: { records: [{ ticket_id: 'T-1', severity: 'High' }] } }] } }
+    ])
+    assert.match(text, /ticket id/)
+    assert.match(text, /T-1/)
+    assert(!text.includes('identity status'))
+    assert(!text.includes('Source field'))
 })
 
 test('fallback frames typed money with the author reporting convention without changing source cells', () => {

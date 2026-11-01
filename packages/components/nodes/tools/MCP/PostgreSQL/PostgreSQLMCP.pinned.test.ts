@@ -665,6 +665,18 @@ describe('PostgreSQL MCP pinned queries', () => {
         }
     })
 
+    it('a tool list that fails says Could not list tools', async () => {
+        const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const instance = node()
+            jest.spyOn(instance as any, 'getTools').mockRejectedValue(new Error('ZZ-TEST made-up list failure'))
+            const listed = await instance.loadMethods.listActions(data({}), options())
+            expect(listed).toEqual([{ label: 'Could not list tools', name: 'error', description: 'ZZ-TEST made-up list failure' }])
+        } finally {
+            quiet.mockRestore()
+        }
+    })
+
     it('duplicate names on one node are not offered', async () => {
         const sink = await listenSink()
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
