@@ -119,6 +119,13 @@ function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof Datab
         CREATE TABLE identity_scim_mapping (
             id text primary key, organizationId text, groupId text, workspaceId text, roleId text
         );
+        CREATE TABLE identity_scim_group_member (
+            groupId text, scimUserId text, createdAt text, primary key (groupId, scimUserId)
+        );
+        CREATE TABLE identity_scim_assignment (
+            mappingId text, userId text, workspaceId text, roleId text, createdAt text,
+            primary key (mappingId, userId)
+        );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Cuttlely');
         INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
             ('${OWNER}', 'Owner', 'owner@example.com', 'active', 0),
@@ -702,7 +709,7 @@ describe('local directory rules', () => {
         ).toMatchObject({ count: 1 })
     })
 
-    it('refuses direct organization removal for a current SCIM link and allows it after SCIM deletion', async () => {
+    it('refuses direct organization removal for a current SCIM link and clears its tombstone references after SCIM deletion', async () => {
         const { sql, db } = memorySql()
         db.prepare('INSERT INTO identity_scim_user (id, organizationId, userId, deletedAt) VALUES (?, ?, ?, NULL)').run(
             'scim-member',
@@ -724,8 +731,20 @@ describe('local directory rules', () => {
                 .get()
         ).toMatchObject({ count: 1 })
         db.prepare('UPDATE identity_scim_user SET deletedAt = ? WHERE id = ?').run('2026-10-31T12:00:00.000Z', 'scim-member')
+        db.exec(`
+            INSERT INTO identity_scim_group (id, organizationId, deletedAt) VALUES ('group-member', '${ORG}', NULL);
+            INSERT INTO identity_scim_group_member (groupId, scimUserId, createdAt)
+                VALUES ('group-member', 'scim-member', '2026-10-31T12:00:00.000Z');
+            INSERT INTO identity_scim_mapping (id, organizationId, groupId, workspaceId, roleId)
+                VALUES ('mapping-member', '${ORG}', 'group-member', '${TEAM}', 'role-member');
+            INSERT INTO identity_scim_assignment (mappingId, userId, workspaceId, roleId, createdAt)
+                VALUES ('mapping-member', 'member-1', '${TEAM}', 'role-member', '2026-10-31T12:00:00.000Z');
+        `)
         await expect(deleteOrganizationUser(sql, owner, ORG, 'member-1')).resolves.toEqual({ id: 'member-1' })
         expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get('member-1')).toBeUndefined()
+        expect(db.prepare('SELECT id FROM identity_scim_user WHERE id = ?').get('scim-member')).toBeUndefined()
+        expect(db.prepare('SELECT groupId FROM identity_scim_group_member WHERE scimUserId = ?').get('scim-member')).toBeUndefined()
+        expect(db.prepare('SELECT mappingId FROM identity_scim_assignment WHERE userId = ?').get('member-1')).toBeUndefined()
     })
 
     it('matches percent and underscore in search as those characters', async () => {

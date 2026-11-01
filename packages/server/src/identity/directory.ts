@@ -740,18 +740,53 @@ async function scimMappingCount(
     }
 }
 
-async function hasCurrentScimLink(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<boolean> {
+async function scimLinksForOrganizationRemoval(
+    query: QueryFn,
+    sql: Sql,
+    organizationId: string,
+    userId: string
+): Promise<Array<{ id: string; deleted: boolean }>> {
     try {
         const rows = await query(
-            `SELECT COUNT(*) AS count FROM ${q(sql, 'identity_scim_user')} WHERE ${q(sql, 'organizationId')} = ?
-             AND ${q(sql, 'userId')} = ? AND ${q(sql, 'deletedAt')} IS NULL`,
+            `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'deletedAt')} AS deletedAt FROM ${q(sql, 'identity_scim_user')}
+             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?${sql.type === 'sqlite' ? '' : ' FOR UPDATE'}`,
             [organizationId, userId]
         )
-        return num(cell(rows[0] || {}, 'count')) > 0
+        return rows.map((row) => ({ id: text(cell(row, 'id')), deleted: Boolean(cell(row, 'deletedAt')) }))
     } catch (error) {
-        if (missingOptionalIdentityTable(error)) return false
+        if (missingOptionalIdentityTable(error)) return []
         throw error
     }
+}
+
+async function removeDeletedScimLinks(
+    query: QueryFn,
+    sql: Sql,
+    organizationId: string,
+    userId: string,
+    resourceIds: string[]
+): Promise<void> {
+    if (!resourceIds.length) return
+    const marks = resourceIds.map(() => '?').join(', ')
+    try {
+        await query(`DELETE FROM ${q(sql, 'identity_scim_group_member')} WHERE ${q(sql, 'scimUserId')} IN (${marks})`, resourceIds)
+    } catch (error) {
+        if (!missingOptionalIdentityTable(error)) throw error
+    }
+    try {
+        await query(
+            `DELETE FROM ${q(sql, 'identity_scim_assignment')} WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'mappingId')} IN
+             (SELECT ${q(sql, 'id')} FROM ${q(sql, 'identity_scim_mapping')} WHERE ${q(sql, 'organizationId')} = ?)`,
+            [userId, organizationId]
+        )
+    } catch (error) {
+        if (!missingOptionalIdentityTable(error)) throw error
+    }
+    await query(
+        `DELETE FROM ${q(sql, 'identity_scim_user')} WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
+         AND ${q(sql, 'deletedAt')} IS NOT NULL AND ${q(sql, 'id')} IN (${marks})`,
+        [organizationId, userId, ...resourceIds]
+    )
 }
 
 export async function deleteOrganizationUser(
@@ -778,13 +813,21 @@ export async function deleteOrganizationUser(
             if (!membership.length) throw new DirectoryError(404, 'User not found')
             const owners = await enabledOwnerIds(query, sql, organizationId)
             if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
-            if (await hasCurrentScimLink(query, sql, organizationId, userId)) {
+            const scimLinks = await scimLinksForOrganizationRemoval(query, sql, organizationId, userId)
+            if (scimLinks.some((link) => !link.deleted)) {
                 scimLinkRefused = true
                 throw new DirectoryError(
                     409,
                     'Delete this person in the identity provider, or remove the SCIM link, before removing them from the organization'
                 )
             }
+            await removeDeletedScimLinks(
+                query,
+                sql,
+                organizationId,
+                userId,
+                scimLinks.filter((link) => link.deleted).map((link) => link.id)
+            )
             await query(
                 `DELETE FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,

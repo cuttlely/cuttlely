@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto'
 import express from 'express'
 import request from 'supertest'
 import { resetAuthSecretsForTests } from './authSecrets'
-import { Sql } from './directory'
+import { deleteOrganizationUser, Sql } from './directory'
 
 let activeSql: Sql
 jest.mock('./production', () => ({ applicationSql: () => activeSql }))
@@ -73,7 +73,7 @@ function memoryStore(): { sql: Sql; db: MemoryDatabase } {
         );
         CREATE TABLE user (
             id text primary key, name text, email text unique, credential text, status text,
-            createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP,
+            externalId text, createdBy text, updatedBy text, createdDate text default CURRENT_TIMESTAMP,
             updatedDate text default CURRENT_TIMESTAMP, permissionVersion integer not null default 0
         );
         CREATE TABLE role (
@@ -90,6 +90,7 @@ function memoryStore(): { sql: Sql; db: MemoryDatabase } {
             primary key (workspaceId, userId)
         );
         CREATE TABLE identity_action_link (userId text, purpose text, usedAt text, consumeId text, organizationId text);
+        CREATE TABLE identity_provider_link (providerKey text, subject text, userId text);
         CREATE TABLE identity_local_session (id text, userId text);
         CREATE TABLE apikey (id text, ownerUserId text, disabledAt text);
         CREATE TABLE identity_personal_token (id text, ownerUserId text, tokenHash text, disabledAt text);
@@ -360,6 +361,70 @@ describe('RFC 7644 route conformance', () => {
             .type('text/plain')
             .send('{}')
         expect(media.status).toBe(415)
+    })
+
+    it('creates a new resource after SCIM deletion and direct organization removal', async () => {
+        const userName = 'reprovisioned@example.test'
+        const externalId = 'directory-user-17'
+        const created = await authorized()
+            .post('/api/v1/scim/v2/Users')
+            .set('Authorization', `Bearer ${bearer}`)
+            .type('application/scim+json')
+            .send({ userName, externalId })
+        expect(created.status).toBe(201)
+        const oldResourceId = String(created.body.id)
+        const oldUserId = String(db.prepare('SELECT userId FROM identity_scim_user WHERE id = ?').get(oldResourceId)?.userId)
+
+        const deleted = await authorized().delete(`/api/v1/scim/v2/Users/${oldResourceId}`).set('Authorization', `Bearer ${bearer}`)
+        expect(deleted.status).toBe(204)
+
+        const at = '2026-11-01T12:00:00.000Z'
+        db.prepare('INSERT INTO identity_scim_group VALUES (?, ?, ?, ?, ?, NULL, ?, ?)').run(
+            'leftover-group',
+            'org-1',
+            'leftover-group-external',
+            'Leftover Group',
+            'leftover group',
+            at,
+            at
+        )
+        db.prepare('INSERT INTO identity_scim_group_member VALUES (?, ?, ?)').run('leftover-group', oldResourceId, at)
+        db.prepare('INSERT INTO workspace VALUES (?, ?, ?)').run('leftover-team', 'org-1', 'Leftover Team')
+        db.prepare('INSERT INTO identity_scim_mapping VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            'leftover-mapping',
+            'org-1',
+            'leftover-group',
+            'leftover-team',
+            'role-member',
+            at,
+            'owner-1'
+        )
+        db.prepare('INSERT INTO identity_scim_assignment VALUES (?, ?, ?, ?, ?)').run(
+            'leftover-mapping',
+            oldUserId,
+            'leftover-team',
+            'role-member',
+            at
+        )
+
+        await deleteOrganizationUser(
+            activeSql,
+            { id: 'owner-1', organizationId: 'org-1', workspaceId: null, owner: true },
+            'org-1',
+            oldUserId
+        )
+        expect(db.prepare('SELECT id FROM identity_scim_user WHERE id = ?').get(oldResourceId)).toBeUndefined()
+        expect(db.prepare('SELECT groupId FROM identity_scim_group_member WHERE scimUserId = ?').get(oldResourceId)).toBeUndefined()
+        expect(db.prepare('SELECT mappingId FROM identity_scim_assignment WHERE userId = ?').get(oldUserId)).toBeUndefined()
+
+        const recreated = await authorized()
+            .post('/api/v1/scim/v2/Users')
+            .set('Authorization', `Bearer ${bearer}`)
+            .type('application/scim+json')
+            .send({ userName, externalId })
+        expect(recreated.status).toBe(201)
+        expect(recreated.body.id).not.toBe(oldResourceId)
+        expect(db.prepare('SELECT userId FROM identity_scim_user WHERE id = ?').get(recreated.body.id)?.userId).not.toBe(oldUserId)
     })
 
     it('covers filtering, pagination, patch paths, idempotency, conflicts, membership, and deactivation', async () => {
