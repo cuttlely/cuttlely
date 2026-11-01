@@ -27,7 +27,7 @@ export function trustedOutputContracts(value) {
             fail('Invalid trusted output contracts.')
         }
     }
-    if (!Array.isArray(contracts) || contracts.length > 16) fail('At most 16 trusted output contracts are allowed.')
+    if (!Array.isArray(contracts) || contracts.length > 32) fail('At most 32 trusted output contracts are allowed.')
     const pins = new Set()
     return contracts.map((entry) => {
         if (
@@ -75,6 +75,18 @@ export function trustedOutputContracts(value) {
             })
         } else {
             if (entry.mode === 'table-payload-csv') {
+                if (entry.maxRows != null && (!Number.isInteger(entry.maxRows) || entry.maxRows < 1 || entry.maxRows > 10000))
+                    fail('Verified CSV row limit must be an integer from 1 to 10000.')
+                if (entry.maxRows != null) contract.maxRows = entry.maxRows
+                if (entry.reportPath != null) {
+                    if (
+                        typeof entry.reportPath !== 'string' ||
+                        entry.reportPath.length > 300 ||
+                        !entry.reportPath.split('.').every((part) => /^(?:[a-zA-Z_][a-zA-Z0-9_]*|[0-9]+)$/.test(part) && !badPath.has(part))
+                    )
+                        fail('Invalid trusted CSV report path.')
+                    contract.reportPath = entry.reportPath
+                }
                 const payloadPath = entry.payloadPath || 'rows.0.table_payload'
                 if (
                     typeof payloadPath !== 'string' ||
@@ -448,6 +460,8 @@ export async function utilizationPng(body, contract, { specialist = '', signal, 
 export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, preview = false } = {}) {
     check(signal)
     completeResult(body)
+    const maxRows = contract.maxRows ?? 100
+    if (!Number.isInteger(maxRows) || maxRows < 1 || maxRows > 10000) fail('Invalid verified CSV row limit.')
     let payload = body
     for (const key of (contract.payloadPath || 'rows.0.table_payload').split('.')) {
         if (typeof payload === 'string') {
@@ -474,7 +488,7 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
         payload?.truncated !== false ||
         !Number.isInteger(payload?.total_rows) ||
         payload.total_rows < 0 ||
-        payload.total_rows > 100 ||
+        payload.total_rows > maxRows ||
         !Array.isArray(rows) ||
         rows.length !== payload.total_rows ||
         !Array.isArray(headers) ||
@@ -483,7 +497,7 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
         headers.some((header) => typeof header !== 'string' || !header.length || header.length > 500) ||
         new Set(headers).size !== headers.length
     )
-        fail('Verified CSV requires a complete table with exact headers and at most 100 rows.')
+        fail(`Verified CSV requires a complete table with exact headers and at most ${maxRows} rows.`)
     let bytesUsed = 0
     const encode = (value) => {
         if (value === null) {
@@ -529,10 +543,13 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
     }
     if (!own(payload, 'source_as_of') && !own(payload, 'source_freshness')) captions.push('Source freshness: unavailable')
     if (contract.sourceLabel) captions.push('Source label: ' + contract.sourceLabel)
+    const report = contract.reportPath ? sourceMarkdown(body, { fields: [{ path: contract.reportPath }] }) : ''
     return {
         text: `${preview ? `Preview file: ${name} (not saved to chat)` : `Attached file: ${name}`}\n\n${
             rows.length
-        } source rows exported in source order with exact string values. NULL values are empty CSV fields.\n\n${captions.join('\n')}`,
+        } source rows exported in source order with exact string values. NULL values are empty CSV fields.\n\n${captions.join('\n')}${
+            report ? '\n\n' + report : ''
+        }`,
         artifact: { name, type: 'csv', mime: 'text/csv', base64: bytes.toString('base64'), specialist, mtime: Date.now() }
     }
 }
