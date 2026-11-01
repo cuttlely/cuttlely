@@ -161,11 +161,12 @@ export function tidyHarnessLayout(nodes, edges, sizeOf = measuredSize) {
     return positions
 }
 
-// Each top-level card's position by id, copied.
+// Every card's position by id, copied. Cards inside another card are included: Tidy does not move them, but moving,
+// adding or removing one still ends the undo.
 export function positionSnapshot(nodes) {
     const snapshot = new Map()
     for (const node of asArray(nodes)) {
-        if (isTopLevel(node)) snapshot.set(String(node.id), { ...pointOf(node) })
+        if (node && node.id != null) snapshot.set(String(node.id), { ...pointOf(node) })
     }
     return snapshot
 }
@@ -184,7 +185,7 @@ export function withPositions(nodes, positions) {
     })
 }
 
-// True when every card in `positions` is there, and the canvas has no other top-level card.
+// True when every card in `positions` is there, where it was, and the canvas has no other card.
 export function samePositions(nodes, positions) {
     const now = positionSnapshot(nodes)
     if (now.size !== positions.size) return false

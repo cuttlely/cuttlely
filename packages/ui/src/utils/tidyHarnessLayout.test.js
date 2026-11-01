@@ -160,6 +160,18 @@ describe('tidy undo', () => {
         expect(canUndoTidy(null, step.nodes)).toBe(false)
     })
 
+    it('also ends when a card inside another card moves, is added or is removed', () => {
+        const flow = messy()
+        const step = tidyStep(flow.nodes, flow.edges)
+        const movedChild = step.nodes.map((node) => (node.id === 'iter_child' ? { ...node, position: { x: 50, y: 60 } } : node))
+        expect(canUndoTidy(step.undo, movedChild)).toBe(false)
+        expect(undoTidy(step.undo, movedChild)).toBe(movedChild)
+        const addedChild = [...step.nodes, card('child_2', 'calculator', 'Tools', 1, 2, { parentNode: 'iter_parent' })]
+        expect(canUndoTidy(step.undo, addedChild)).toBe(false)
+        const removedChild = step.nodes.filter((node) => node.id !== 'iter_child')
+        expect(canUndoTidy(step.undo, removedChild)).toBe(false)
+    })
+
     it('keeps data edits made after Tidy when it undoes', () => {
         const flow = messy()
         const step = tidyStep(flow.nodes, flow.edges)
