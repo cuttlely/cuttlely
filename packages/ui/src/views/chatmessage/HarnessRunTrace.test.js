@@ -263,3 +263,48 @@ describe('HarnessRunTrace', () => {
         expect(html).not.toContain('/harnesses/')
     })
 })
+
+describe('query preview export buttons', () => {
+    const render = (props) => renderToStaticMarkup(createElement(ThemeProvider, { theme }, createElement(QueryRows, props)))
+    const full = {
+        rowCount: 2,
+        columns: ['region', 'total'],
+        rows: [
+            ['North', '12'],
+            ['South', '-120.5']
+        ],
+        summary: '',
+        moreRows: false,
+        nextPage: false,
+        moreColumns: false,
+        columnCount: 2,
+        legacy: false
+    }
+
+    test('a preview that holds every row and column says Copy and CSV', () => {
+        const html = render({ view: full, question: 'Totals by region' })
+        expect(html).toContain('>Copy<')
+        expect(html).toContain('>CSV<')
+        expect(html).not.toContain('preview')
+    })
+
+    test('a preview with rows, columns or values cut says Copy preview and Preview CSV', () => {
+        for (const view of [
+            previewView({ rowCount: 40, nextPage: false }),
+            { ...full, moreColumns: true, columnCount: 6 },
+            { ...full, rows: [['North', 'A long made-up note that was cut short…']], rowCount: 1 }
+        ]) {
+            const html = render({ view, question: 'Totals by region' })
+            expect(html).toContain('>Copy preview<')
+            expect(html).toContain('>Preview CSV<')
+        }
+    })
+
+    test('SQL cut by the run record says so', () => {
+        const long = `SELECT ${'region_total, '.repeat(400)}1 FROM demo_sales`
+        const kept = new TextDecoder().decode(new TextEncoder().encode(long).subarray(0, 4096))
+        expect(render({ view: full, sql: kept, sqlTruncated: true })).not.toContain('SQL cut')
+        expect(render({ view: full, sql: '', sqlTruncated: true })).toContain('The SQL was too long to keep in this run record.')
+        expect(render({ view: full, sql: 'SELECT 1', sqlTruncated: false })).not.toContain('cut')
+    })
+})

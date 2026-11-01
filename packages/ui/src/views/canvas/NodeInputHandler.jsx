@@ -105,6 +105,8 @@ import { baseURL, FLOWISE_CREDENTIAL_ID } from '@/store/constant'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW, SET_DIRTY } from '@/store/actions'
 import { sameCanvasValue } from '@/utils/canvasDirty'
 import { canvasFieldKey } from '@/utils/canvasFieldKey'
+import { notifyConnectionPicked } from '@/utils/analystStatus'
+import { POSTGRES_NODE } from '@/utils/nodeDisplayNames'
 import { markdownToHtml } from '@/utils/markdownToHtml'
 
 const EDITABLE_OPTIONS = ['selectedTool', 'selectedAssistant']
@@ -140,7 +142,8 @@ const NodeInputHandler = ({
     parentParamForArray = null,
     arrayIndex = null,
     onHideNodeInfoDialog,
-    onCustomDataChange
+    onCustomDataChange,
+    onCredentialSelect
 }) => {
     const { id: chatflowIdFromParams } = useParams()
     const canvasChatflow = useSelector((state) => state.canvas.chatflow)
@@ -1082,6 +1085,9 @@ const NodeInputHandler = ({
                                     data.inputs[FLOWISE_CREDENTIAL_ID] = newValue // in case data.credential is not updated
                                     // A key picked for the person (the only one that fits) is a change to save.
                                     if (how?.picked) dispatch({ type: SET_DIRTY })
+                                    onCredentialSelect?.(newValue)
+                                    // Display only: the "Used by" and turned-off notes on the canvas read the pick again.
+                                    if (data.name === POSTGRES_NODE) notifyConnectionPicked()
                                 }}
                             />
                         )}
@@ -1732,6 +1738,7 @@ const NodeInputHandler = ({
 NodeInputHandler.propTypes = {
     inputAnchor: PropTypes.object,
     inputParam: PropTypes.object,
+    onCredentialSelect: PropTypes.func,
     data: PropTypes.object,
     disabled: PropTypes.bool,
     isAdditionalParams: PropTypes.bool,

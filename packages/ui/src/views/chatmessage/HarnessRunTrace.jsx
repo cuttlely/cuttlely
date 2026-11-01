@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { analystServers, exportText, friendlyChipLabel, friendlyToolName, sqlCutNote, tableCsv, tableText } from '@/utils/traceChips'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 import { alpha, useTheme } from '@mui/material/styles'
@@ -10,7 +11,6 @@ import {
     formatDuration,
     formatTokens,
     routeSummary,
-    toolChipLabel,
     traceQuestionForCaption
 } from '../../../../../packages/harness/trace.mjs'
 
@@ -54,6 +54,7 @@ function StatusMark({ status }) {
         return (
             <Box
                 component='span'
+                role='img'
                 aria-label='running'
                 sx={{
                     width: 8,
@@ -66,9 +67,9 @@ function StatusMark({ status }) {
         )
     }
     if (status === 'failed') {
-        return <IconX size={16} color={theme.palette.error.main} aria-label='failed' />
+        return <IconX size={16} color={theme.palette.error.main} role='img' aria-label='failed' />
     }
-    return <IconCheck size={16} color={theme.palette.success.main} aria-label='done' />
+    return <IconCheck size={16} color={theme.palette.success.main} role='img' aria-label='done' />
 }
 
 StatusMark.propTypes = {
@@ -90,12 +91,109 @@ Meta.propTypes = {
 
 // The preview starts closed. The chip shows the row count; opening it shows the short table.
 // The caption stays in this chat. It does not link away to the harness page.
-export function QueryRows({ view, question }) {
+const smallButton = {
+    border: '1px solid',
+    borderColor: 'divider',
+    borderRadius: 1,
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    fontSize: 12,
+    px: 1,
+    py: 0.25,
+    whiteSpace: 'nowrap'
+}
+
+function downloadCsv(view, file) {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    const url = URL.createObjectURL(new Blob([tableCsv(view)], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+// Pages served over plain http have no clipboard API, so copy through a hidden text box there.
+function copyWithSelection(text) {
+    if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+    // Put focus and any text the user had selected back where they were.
+    const focused = document.activeElement
+    const selection = typeof document.getSelection === 'function' ? document.getSelection() : null
+    const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, at) => selection.getRangeAt(at)) : []
+    const box = document.createElement('textarea')
+    box.value = text
+    box.setAttribute('readonly', '')
+    box.style.position = 'fixed'
+    box.style.opacity = '0'
+    document.body.appendChild(box)
+    box.select()
+    let done = false
+    try {
+        done = document.execCommand('copy')
+    } catch {
+        done = false
+    }
+    document.body.removeChild(box)
+    if (selection) {
+        selection.removeAllRanges()
+        for (const range of ranges) selection.addRange(range)
+    }
+    if (focused && typeof focused.focus === 'function') focused.focus()
+    return done
+}
+
+// Copy and CSV export the table as shown. When the preview was cut, the buttons and the file name say so.
+export function QueryRows({ view, question, sql, sqlTruncated }) {
+    const [showSql, setShowSql] = useState(false)
+    const [copied, setCopied] = useState('')
+    const words = exportText(view)
+    const sqlNote = sqlCutNote(sql, sqlTruncated)
+    const copy = async () => {
+        const text = tableText(view)
+        try {
+            if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+            else if (!copyWithSelection(text)) throw new Error('copy unavailable')
+            setCopied(words.copied)
+        } catch {
+            setCopied(copyWithSelection(text) ? words.copied : 'Could not copy. Select the table and copy it instead.')
+        }
+    }
     return (
         <Box sx={{ pt: 0.5 }}>
             <Typography variant='caption' color='text.secondary' component='p' sx={{ mb: 0.5 }}>
                 {analystPreviewCaption(view, question || '')}
             </Typography>
+            <Stack direction='row' spacing={0.5} sx={{ mb: 0.5, alignItems: 'center' }}>
+                {sql ? (
+                    <Box component='button' type='button' sx={smallButton} aria-expanded={showSql} onClick={() => setShowSql(!showSql)}>
+                        {showSql ? 'Hide SQL' : 'Show SQL'}
+                    </Box>
+                ) : null}
+                <Box component='button' type='button' sx={smallButton} data-testid='rows-copy' onClick={copy}>
+                    {words.copy}
+                </Box>
+                <Box component='button' type='button' sx={smallButton} data-testid='rows-csv' onClick={() => downloadCsv(view, words.file)}>
+                    {words.csv}
+                </Box>
+                <Typography variant='caption' color='text.secondary' role='status' aria-live='polite'>
+                    {copied}
+                </Typography>
+            </Stack>
+            {sql && showSql ? (
+                <Box
+                    component='pre'
+                    data-testid='trace-sql'
+                    sx={{ m: 0, mb: 0.5, p: 1, fontSize: 12, whiteSpace: 'pre-wrap', bgcolor: 'action.hover', borderRadius: 1 }}
+                >
+                    {sql}
+                </Box>
+            ) : null}
+            {sqlNote && (showSql || !sql) ? (
+                <Typography variant='caption' color='text.secondary' component='p' data-testid='trace-sql-cut' sx={{ mb: 0.5 }}>
+                    {sqlNote}
+                </Typography>
+            ) : null}
             <Box sx={{ maxHeight: 320, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                 <Box component='table' sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
                     <thead>
@@ -103,6 +201,7 @@ export function QueryRows({ view, question }) {
                             {view.columns.map((column) => (
                                 <Box
                                     component='th'
+                                    scope='col'
                                     key={column}
                                     sx={{
                                         position: 'sticky',
@@ -156,7 +255,9 @@ export function QueryRows({ view, question }) {
 
 QueryRows.propTypes = {
     view: PropTypes.object,
-    question: PropTypes.string
+    question: PropTypes.string,
+    sql: PropTypes.string,
+    sqlTruncated: PropTypes.bool
 }
 
 export function previousUserQuestion(messages, index) {
@@ -231,7 +332,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                 <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ alignItems: 'center' }}>
                     <Chip size='small' label='Run' color='primary' variant='outlined' sx={{ height: 22 }} />
                     <Typography variant='subtitle2'>{trace.harness || 'Harness'}</Typography>
-                    <Typography variant='caption' color='text.secondary'>
+                    <Typography variant='caption' color='text.secondary' role='status' aria-live='polite'>
                         {statusWord(trace.status)}
                     </Typography>
                     {wall ? (
@@ -243,11 +344,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                         <Typography variant='caption' color='text.secondary'>
                             {tokens}
                         </Typography>
-                    ) : (
-                        <Typography variant='caption' color='text.secondary'>
-                            Tokens not reported
-                        </Typography>
-                    )}
+                    ) : null}
                 </Stack>
                 <Typography variant='body2'>{routeLine(trace)}</Typography>
                 {phases.length ? (
@@ -262,6 +359,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                     const toolCount = specialist.tools?.length || 0
                     const rowViews = (specialist.tools || []).map((tool) => analystStepView(tool))
                     const openRows = rowViews.findIndex((view, index) => view && rowsKey === `${specialist.name}:${index}`)
+                    const servers = analystServers(specialist.tools, specialist.name)
                     return (
                         <Box key={specialist.name}>
                             <Box
@@ -316,39 +414,28 @@ const HarnessRunTrace = ({ trace, question }) => {
                                                 const view = rowViews[index]
                                                 const key = `${specialist.name}:${index}`
                                                 const expandable = Boolean(view?.rows?.length)
-                                                const countLabel =
-                                                    view && view.rowCount != null
-                                                        ? `${toolChipLabel(tool)} · ${view.rowCount} row${view.rowCount === 1 ? '' : 's'}`
-                                                        : toolChipLabel(tool)
+                                                const countLabel = friendlyChipLabel(tool, view, servers)
+                                                const fullName =
+                                                    tool.status === 'retried' && tool.detail ? `${tool.name}: ${tool.detail}` : tool.name
+                                                const chipProps = {
+                                                    size: 'small',
+                                                    color: tool.status === 'failed' ? 'error' : 'default',
+                                                    label: countLabel,
+                                                    // The tool's own name stays one hover or one Tab key away.
+                                                    'aria-label': `${countLabel}. ${fullName}`
+                                                }
                                                 const chip = expandable ? (
                                                     <Chip
-                                                        size='small'
+                                                        {...chipProps}
                                                         variant={openRows === index ? 'filled' : 'outlined'}
-                                                        color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={countLabel}
                                                         aria-expanded={openRows === index}
                                                         onClick={() => setRowsKey(rowsKey === key ? '' : key)}
                                                     />
-                                                ) : view ? (
-                                                    <Chip
-                                                        size='small'
-                                                        variant='outlined'
-                                                        color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={countLabel}
-                                                    />
                                                 ) : (
-                                                    <Chip
-                                                        size='small'
-                                                        variant='outlined'
-                                                        color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={toolChipLabel(tool)}
-                                                    />
+                                                    <Chip {...chipProps} variant='outlined' tabIndex={0} />
                                                 )
-                                                if (tool.status !== 'retried' || !tool.detail) {
-                                                    return <span key={`${tool.name}-${index}`}>{chip}</span>
-                                                }
                                                 return (
-                                                    <Tooltip key={`${tool.name}-${index}`} title={tool.detail} placement='top'>
+                                                    <Tooltip key={`${tool.name}-${index}`} title={fullName} placement='top'>
                                                         <span>{chip}</span>
                                                     </Tooltip>
                                                 )
@@ -359,7 +446,21 @@ const HarnessRunTrace = ({ trace, question }) => {
                                             No tool calls recorded
                                         </Typography>
                                     )}
-                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} question={asked} /> : null}
+                                    {openRows >= 0 ? (
+                                        <QueryRows
+                                            view={rowViews[openRows]}
+                                            question={asked}
+                                            sql={typeof specialist.tools[openRows]?.sql === 'string' ? specialist.tools[openRows].sql : ''}
+                                            sqlTruncated={specialist.tools[openRows]?.sqlTruncated === true}
+                                        />
+                                    ) : null}
+                                    {(specialist.tools || [])
+                                        .filter((tool) => tool.status === 'retried' && tool.detail)
+                                        .map((tool, index) => (
+                                            <Typography key={`retried-${index}`} variant='caption' color='text.secondary'>
+                                                {`${friendlyToolName(tool.name, servers)} was retried: ${tool.detail}`}
+                                            </Typography>
+                                        ))}
                                     {specialist.sources?.length ? (
                                         <Typography variant='caption' color='text.secondary'>
                                             {`Sources: ${specialist.sources.map((source) => source.name).join(', ')}`}

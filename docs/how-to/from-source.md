@@ -316,7 +316,7 @@ DATABASE_PASSWORD=your-password
 -   On Postgres, Cuttlely creates a schema and a login for each workspace (`analyst_<tag>` and `analyst_reader_<tag>`). The login can use that schema and can't read the app's tables. The app's login must be allowed to create roles. If it isn't, analyst mode stops and tells you to set a separate database. It doesn't fall back to the app's login.
 -   A store made before each workspace had its own (`analyst.db`, or schema `analyst`) stays with the first workspace whose analyst runs. See [Workspaces](./analyst.md#workspaces).
 
-`CUTTLELY_POSTGRES_URL` is a different setting, only for the PostgreSQL MCP tool. Leave it unset unless that tool should query a database other than the one in `DATABASE_*`. The tool refuses a URL that points at the app database. A Postgres URL credential selected on the node wins over both the variable and `CUTTLELY_ANALYST`. The canvas steps and the errors are in [Analyst mode](./analyst.md).
+`CUTTLELY_POSTGRES_URL` is a different setting, only for the Postgres (MCP) tool. Leave it unset unless that tool should query a database other than the one in `DATABASE_*`. The tool refuses a URL that points at the app database. A Postgres URL credential selected on the node wins over both the variable and `CUTTLELY_ANALYST`. The canvas steps and the errors are in [Analyst mode](./analyst.md).
 
 ## Update to a newer version
 

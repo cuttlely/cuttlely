@@ -12,7 +12,7 @@ If a teammate needs a different role, use **Admin** > **Users** > **Change role*
 
 ## Start with tested database access
 
-On a PostgreSQL MCP node, choose a dedicated read-only credential, tick the tables and views the specialist needs, then add a [pinned query](./pinned-queries.md). Turn the server flag `CUTTLELY_PINNED_QUERIES` on and restart before using that editor. Each pin has saved SQL, typed parameters and a tested stamp. Test with representative values, including no matches and ambiguous scope. A passing test shows the statement can run; it does not approve its business logic.
+On a Postgres (MCP) node, choose a dedicated read-only credential, tick the tables and views the specialist needs, then add a [pinned query](./pinned-queries.md). Turn the server flag `CUTTLELY_PINNED_QUERIES` on and restart before using that editor. Each pin has saved SQL, typed parameters and a tested stamp. Test with representative values, including no matches and ambiguous scope. A passing test shows the statement can run; it does not approve its business logic.
 
 Untick **Allow free SQL (query + describe)** if that specialist must use only the saved pins. Adding a pin alone leaves free SQL available. Include the business metric, grain, date basis and status coverage in each pin's purpose so the model can choose correctly. The selection still matters: a saved statement with the wrong join or a model that chooses the wrong period can return an incorrect answer.
 

@@ -72,7 +72,7 @@ export default function PinnedQueriesBlock({
             return
         }
         if (!String(editor.purpose || '').trim()) {
-            setError('Write a one-line purpose.')
+            setError('Write a one-line title.')
             return
         }
         if (!editor.slug) {

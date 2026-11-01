@@ -1389,7 +1389,7 @@ async function stepPostgres(page) {
     await page.waitForURL(/harnesscanvas/)
     await page.locator('.react-flow__node').first().waitFor({ timeout: 30000 })
     await page
-        .getByText(/No Available Actions|QUERY|isolated analyst store|create roles/)
+        .getByText(/Could not list tools|No Available Actions|QUERY|isolated analyst store|create roles/)
         .first()
         .waitFor({ timeout: 60000 })
     // Roles are cluster-wide. Drop readers left by an earlier database so this shot shows this workspace only.
@@ -1571,7 +1571,7 @@ async function frameCreateRoles(page) {
         await sleep(200)
     }
     await mcp.locator('#mcpActions').click()
-    await page.getByRole('option', { name: /No Available Actions/ }).click()
+    await page.getByRole('option', { name: /Could not list tools|No Available Actions/ }).click()
     const refusal = page.getByText(/This database refused that/)
     await refusal.waitFor({ timeout: 20000 })
     const nodeBox = await mcp.boundingBox()

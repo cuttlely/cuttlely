@@ -269,6 +269,11 @@
             "to": "packages/components/src/utils.ts"
         },
         {
+            "from": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts",
+            "to": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
             "from": "packages/components/src/anthropicUtils.test.ts",
             "to": "packages/components/src/anthropicUtils.ts"
         },
@@ -1989,6 +1994,11 @@
             "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
         },
         {
+            "from": "packages/ui/src/utils/analystStatus.js",
+            "to": "packages/ui/src/store/constant.js",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
             "from": "packages/ui/src/utils/credentialSaveValues.js",
             "to": "packages/ui/src/store/constant.js",
             "reason": "credential dialog save values helper reads the blank placeholder value"
@@ -2076,12 +2086,47 @@
             "to": "packages/ui/src/views/canvas/NodeOutputHandler.jsx"
         },
         {
+            "from": "packages/ui/src/views/canvas/NodeLinkNotes.jsx",
+            "to": "packages/ui/src/store/context/ReactFlowContext.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
+            "to": "packages/ui/src/store/context/ReactFlowContext.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
             "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
             "to": "packages/ui/src/store/constant.js"
         },
         {
             "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
             "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/api/pinnedQueries.js",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/views/canvas/pinnedQueries/model.js",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "to": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesView.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PostgresPanelSections.jsx",
+            "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx",
+            "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
         },
         {
             "from": "packages/ui/src/views/canvas/PublishCheck.darkAlert.test.js",
@@ -3817,6 +3862,10 @@
         {
             "path": "packages/ui/src/utils/__fixtures__/import/text-to-sql.json",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/savedFlows.golden.json",
+            "reason": "Made-up test data: hashes of the saved sample flows, so a display change cannot change what a save writes"
         },
         {
             "path": "packages/ui/src/utils/chatArtifacts.js",

@@ -32,6 +32,7 @@ import VectorStorePopUp from '@/views/vectorstore/VectorStorePopUp'
 import EtlPanel from '@/views/etl/EtlPanel'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import { withNewNodeDefaults } from '@/utils/newNodeDefaults'
 
 // API
 import nodesApi from '@/api/nodes'
@@ -548,7 +549,7 @@ const Canvas = () => {
                 id: newNodeId,
                 position: placed,
                 type: nodeData.type !== 'StickyNote' ? 'customNode' : 'stickyNote',
-                data: initNode(nodeData, newNodeId)
+                data: withNewNodeDefaults(initNode(nodeData, newNodeId))
             }
 
             setSelectedNode(newNode)

@@ -128,6 +128,16 @@ describe('settings panel header', () => {
         expect(source).toMatch(/color: 'text\.primary'/)
     })
 
+    test('offers an Expand toggle only when the panel can expand, and says when it is expanded', () => {
+        expect(header({ onClose: () => {} })).not.toContain('data-testid="panel-expand"')
+        const collapsed = header({ onClose: () => {}, onToggleExpand: () => {} })
+        expect(collapsed).toContain('aria-label="Expand panel"')
+        expect(collapsed).toContain('aria-pressed="false"')
+        const expanded = header({ onClose: () => {}, onToggleExpand: () => {}, expanded: true })
+        expect(expanded).toContain('aria-label="Restore panel width"')
+        expect(expanded).toContain('aria-pressed="true"')
+    })
+
     test('a read-only header has the close button and no Duplicate or Delete', () => {
         const html = header({ readOnly: true, nodeName: 'promptTemplate', onClose: () => {} })
         expect(html).not.toContain('aria-label="Duplicate"')

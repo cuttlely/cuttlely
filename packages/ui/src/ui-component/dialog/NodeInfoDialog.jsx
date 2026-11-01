@@ -16,6 +16,7 @@ import { baseURL, AGENTFLOW_ICONS } from '@/store/constant'
 // API
 import configApi from '@/api/config'
 import useApi from '@/hooks/useApi'
+import { displayLabel, docsLink } from '@/utils/nodeDisplayNames'
 
 const NodeInfoDialog = ({ show, dialogProps, onCancel }) => {
     const portalElement = document.getElementById('portal')
@@ -102,7 +103,7 @@ const NodeInfoDialog = ({ show, dialogProps, onCancel }) => {
                             </div>
                         )}
                         <div style={{ display: 'flex', flexDirection: 'column', marginLeft: 10 }}>
-                            {dialogProps.data.label}
+                            {displayLabel(dialogProps.data)}
                             <div style={{ display: 'flex', flexDirection: 'row' }}>
                                 <div
                                     style={{
@@ -197,13 +198,13 @@ const NodeInfoDialog = ({ show, dialogProps, onCancel }) => {
                             </div>
                         </div>
                         <div style={{ flex: 1 }}></div>
-                        {dialogProps.data.documentation && (
+                        {docsLink(dialogProps.data) && (
                             <Button
                                 variant='outlined'
                                 color='primary'
                                 title='Open Documentation'
                                 onClick={() => {
-                                    window.open(dialogProps.data.documentation, '_blank', 'noopener,noreferrer')
+                                    window.open(docsLink(dialogProps.data), '_blank', 'noopener,noreferrer')
                                 }}
                                 startIcon={<IconBook2 />}
                             >

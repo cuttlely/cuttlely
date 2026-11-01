@@ -1,6 +1,6 @@
 # Pinned queries
 
-A pinned query is SQL you write and test on a **PostgreSQL MCP** node. The specialist does not write that statement. It calls a tool that accepts only the parameters you named, and the server runs the saved statement with those values bound.
+A pinned query is SQL you write and test on a **Postgres (MCP)** node. The specialist does not write that statement. It calls a tool that accepts only the parameters you named, and the server runs the saved statement with those values bound.
 
 This guarantees **execution** of the saved statement. It does not guarantee that the statement is the right one for the business. A pin with a wrong join returns that wrong result every time. **Tested is not approved.** A passing test is not a compliance sign-off, and this version has no second-person approval. The audit records who tested the pin and who saved a change. The read-only guard still runs on every call. The tested stamp is a label, not a permission.
 
@@ -20,10 +20,10 @@ While the flag is off, a node that has no pins keeps today's free SQL. Turning t
 
 ## Add a pin
 
-On the **PostgreSQL MCP** node, open **Pinned queries** and choose **Add**.
+On the **Postgres (MCP)** node, open **Pinned queries** and choose **Add**.
 
 1. Paste one `SELECT` or `WITH` statement. Use `:name` for each parameter, for example `:month`.
-2. Write a one-line purpose. The tool name starts as `pq_` plus a slug taken from that purpose. The `pq_` prefix is fixed and is not editable. The rest is letters, digits, and underscores. The whole name is at most 64 characters.
+2. Write a one-line **Title**. The **Tool name** starts as `pq_` plus a slug taken from that title. The `pq_` prefix is fixed and is not editable. The rest is letters, digits, and underscores. The whole name is at most 64 characters.
 3. Each `:name` becomes a row in the parameter table. A type Postgres can infer is suggested. If it cannot infer one, you pick it. The suggestion never quietly becomes `text`.
 4. Parameters are required unless you say otherwise. Description, default, allowed values, and min/max sit under **Advanced**.
 5. **Test & save** runs the statement with the sample values you typed, through the same guard and the same connection the specialist will use. When it passes, the server stores a tested stamp.
@@ -52,13 +52,19 @@ Every `:name` in the SQL needs a parameter row, and every parameter row has to a
 
 ### Where it runs
 
-A pin runs only on the PostgreSQL MCP node. The connection is the Postgres URL credential on that node, or `CUTTLELY_POSTGRES_URL` when the node has no credential. The tool takes that connection from the saved node. The test route takes the credential id from the node as it is on the canvas, so a test checks what Save will store. The credential still loads inside your workspace, and a request cannot supply a database URL.
+A pin runs only on the Postgres (MCP) node. The connection is the Postgres URL credential on that node, or `CUTTLELY_POSTGRES_URL` when the node has no credential. The tool takes that connection from the saved node. The test route takes the credential id from the node as it is on the canvas, so a test checks what Save will store. The credential still loads inside your workspace, and a request cannot supply a database URL.
 
 Pins do not run in Auto mode (`CUTTLELY_ANALYST=auto`, isolated tools). With pins configured in that mode the server returns a clear error and registers no `pq_` tools. They are not run on the isolated store, including when that store has no credential and no `CUTTLELY_POSTGRES_URL`, and they are not ignored.
 
 The same read-only guard used by **QUERY** runs at test time and again on every call, including a later page. Validation opens a short read-write transaction only to create a temporary view, which is always rolled back; queries run in a read-only transaction. It checks: one `SELECT` or `WITH`, a literal top-level `LIMIT`, no semicolon, the table and view selection, the function rules, the timeout, and the row cap. The node's row cap and timeout still apply. A pin saved with its own `rowCap` can only lower the node's row cap, at test time and on every call. The test and the agent run read the node's settings the same way: a comma-separated table list is split into names, and a decimal row cap is rounded down to a whole number of rows, at least one. Results carry `pinned: { id, version, statementHash, tool }`. A result that comes back with as many rows as the statement's own `LIMIT` carries `possiblyTruncated`; this does not prove that more rows exist.
 
 The credential, the ticked tables and views, and the allowed functions are the node's. A specialist is offered the pins on the nodes wired to it. If two of those nodes offer the same tool name, harness sync fails with a clear error.
+
+## Find a pin in a long list
+
+Each pin shows its title and its tool name, such as `pq_sales_by_region`, under it. The count next to **Pinned queries** is a badge, and **Crowded** appears beside it when the pins on all the Postgres (MCP) cards wired to the same specialist add up to enough to crowd its tool list. Select **Crowded** to read the reason.
+
+A list of more than 8 pins starts folded. Type in the search box to find pins by title or tool name, or select **Pinned queries** to open the whole list. **To re-test** shows only the pins marked **Needs re-test**. **Edit** opens the pin in a dialog. The pins are saved in the same `pinnedQueries` field as before.
 
 ## Tested stamp
 
