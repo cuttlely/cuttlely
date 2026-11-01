@@ -459,6 +459,31 @@ class PostgreSQL_MCP implements INode {
                 ]
             }
         },
+        // Read-only, for the canvas only: which database this node would read, as one word. It never connects to
+        // a database and never returns a URL. Same order as connection(): a credential's Postgres URL, then
+        // CUTTLELY_POSTGRES_URL, then CUTTLELY_ANALYST=auto (analystModeEnabled in analyst-postgres.mjs).
+        analystMode: async (nodeData: INodeData, options: ICommonObject): Promise<INodeOptionsValue[]> => {
+            try {
+                const credentialId = typeof nodeData.credential === 'string' ? nodeData.credential.trim() : ''
+                let configured: unknown = ''
+                if (credentialId) {
+                    const credentialData = await getCredentialData(credentialId, options)
+                    configured = getCredentialParam('postgresUrl', credentialData, nodeData)
+                }
+                const hasUrl =
+                    (typeof configured === 'string' && configured.trim() !== '') ||
+                    String(process.env.CUTTLELY_POSTGRES_URL || '').trim() !== ''
+                if (hasUrl) return [{ label: 'Read-only database', name: 'readonly' }]
+                const auto =
+                    String(process.env.CUTTLELY_ANALYST || '')
+                        .trim()
+                        .toLowerCase() === 'auto'
+                if (auto) return [{ label: 'Sandbox', name: 'sandbox' }]
+                return [{ label: 'Not set up', name: 'unavailable' }]
+            } catch {
+                return [{ label: 'Unknown', name: 'unknown' }]
+            }
+        },
         listRelations: async (nodeData: INodeData, options: ICommonObject): Promise<INodeOptionsValue[]> => {
             try {
                 const connection = await this.connection(nodeData, options)

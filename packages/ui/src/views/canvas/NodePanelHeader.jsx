@@ -52,7 +52,7 @@ const NodePanelHeader = ({
                     </Typography>
                 )}
                 {subtitle && (
-                    <Typography variant='caption' color='text.secondary' noWrap>
+                    <Typography variant='caption' component='div' color='text.secondary' noWrap title={subtitle}>
                         {subtitle}
                     </Typography>
                 )}

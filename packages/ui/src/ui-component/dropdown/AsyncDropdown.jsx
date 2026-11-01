@@ -16,6 +16,8 @@ import { baseURL } from '@/store/constant'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { getAvailableNodesForVariable } from '@/utils/genericHelper'
 import { selectedOptionDescriptions } from '@/utils/postgresCredentialHint'
+import { splitOptions } from '@/utils/checkboxList'
+import { LoadMessages, LOAD_FAILED } from '@/ui-component/alert/LoadMessages'
 
 const StyledPopper = styled(Popper)({
     boxShadow: '0px 8px 10px -5px rgb(0 0 0 / 20%), 0px 16px 24px 2px rgb(0 0 0 / 14%), 0px 6px 30px 5px rgb(0 0 0 / 12%)',
@@ -130,6 +132,9 @@ export const AsyncDropdown = ({
         }
     }
 
+    const [attempt, setAttempt] = useState(0)
+    const [messages, setMessages] = useState([])
+
     useEffect(() => {
         setLoading(true)
         ;(async () => {
@@ -166,7 +171,13 @@ export const AsyncDropdown = ({
                     }
 
                     response = await fetchList(body)
+                    // A failed request answers nothing; show it as a message with Retry instead of an empty list.
+                    if (!Array.isArray(response)) response = [LOAD_FAILED]
                 }
+                if (!Array.isArray(response)) response = []
+                const split = splitOptions(response)
+                setMessages(split.messages)
+                response = split.choices
                 for (let j = 0; j < response.length; j += 1) {
                     if (response[j].imageSrc) {
                         const imageSrc = `${baseURL}/api/v1/node-icon/${response[j].name}`
@@ -181,7 +192,7 @@ export const AsyncDropdown = ({
         })()
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [attempt])
 
     return (
         <>
@@ -280,6 +291,11 @@ export const AsyncDropdown = ({
                     const field = (
                         <>
                             {textField}
+                            {!loading && messages.length > 0 && (
+                                <Box onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                                    <LoadMessages messages={messages} onRetry={() => setAttempt((value) => value + 1)} />
+                                </Box>
+                            )}
                             {descriptions.map((description) => (
                                 <Typography key={description} variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
                                     {description}

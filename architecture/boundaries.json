@@ -387,7 +387,25 @@
             "packages/ui/src/views/canvas/NodePanelResize.jsx",
             "packages/ui/src/utils/nodePanelWidth.js",
             "packages/ui/src/utils/nodePanelWidth.test.js",
-            "packages/ui/src/views/canvas/cardActions.js"
+            "packages/ui/src/views/canvas/cardActions.js",
+            "packages/ui/src/utils/nodeDisplayNames.js",
+            "packages/ui/src/utils/nodeSearch.js",
+            "packages/ui/src/utils/newNodeDefaults.js",
+            "packages/ui/src/utils/postgresPanel.js",
+            "packages/ui/src/utils/traceChips.js",
+            "packages/ui/src/ui-component/alert/LoadMessages.jsx",
+            "packages/ui/src/utils/nodeDisplayNames.test.js",
+            "packages/ui/src/utils/newNodeDefaults.test.js",
+            "packages/ui/src/utils/postgresPanel.test.js",
+            "packages/ui/src/utils/traceChips.test.js",
+            "packages/ui/src/utils/savedFlowsUnchanged.test.js",
+            "packages/ui/src/utils/analystStatus.js",
+            "packages/ui/src/views/canvas/NodeLinkNotes.jsx",
+            "packages/ui/src/views/canvas/PostgresPanelSections.jsx",
+            "packages/ui/src/utils/analystStatus.test.js",
+            "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
+            "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+            "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts"
         ],
         "inherited": [
             "packages/server/**",
@@ -1166,7 +1184,25 @@
                 "packages/ui/src/views/canvas/NodePanelResize.jsx",
                 "packages/ui/src/utils/nodePanelWidth.js",
                 "packages/ui/src/utils/nodePanelWidth.test.js",
-                "packages/ui/src/views/canvas/cardActions.js"
+                "packages/ui/src/views/canvas/cardActions.js",
+                "packages/ui/src/utils/nodeDisplayNames.js",
+                "packages/ui/src/utils/nodeSearch.js",
+                "packages/ui/src/utils/newNodeDefaults.js",
+                "packages/ui/src/utils/postgresPanel.js",
+                "packages/ui/src/utils/traceChips.js",
+                "packages/ui/src/ui-component/alert/LoadMessages.jsx",
+                "packages/ui/src/utils/nodeDisplayNames.test.js",
+                "packages/ui/src/utils/newNodeDefaults.test.js",
+                "packages/ui/src/utils/postgresPanel.test.js",
+                "packages/ui/src/utils/traceChips.test.js",
+                "packages/ui/src/utils/savedFlowsUnchanged.test.js",
+                "packages/ui/src/utils/analystStatus.js",
+                "packages/ui/src/views/canvas/NodeLinkNotes.jsx",
+                "packages/ui/src/views/canvas/PostgresPanelSections.jsx",
+                "packages/ui/src/utils/analystStatus.test.js",
+                "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
+                "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
+                "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts"
             ],
             "entryPoints": [
                 "packages/components/nodes/module-catalog.json",
@@ -1238,7 +1274,16 @@
                 "packages/ui/src/views/canvas/NodePanelResize.jsx",
                 "packages/ui/src/utils/nodePanelWidth.js",
                 "packages/ui/src/views/canvas/cardActions.js",
-                "packages/ui/src/views/notfound/index.jsx"
+                "packages/ui/src/views/notfound/index.jsx",
+                "packages/ui/src/utils/nodeDisplayNames.js",
+                "packages/ui/src/utils/nodeSearch.js",
+                "packages/ui/src/utils/newNodeDefaults.js",
+                "packages/ui/src/utils/postgresPanel.js",
+                "packages/ui/src/utils/traceChips.js",
+                "packages/ui/src/ui-component/alert/LoadMessages.jsx",
+                "packages/ui/src/utils/analystStatus.js",
+                "packages/ui/src/views/canvas/NodeLinkNotes.jsx",
+                "packages/ui/src/views/canvas/PostgresPanelSections.jsx"
             ]
         }
     ]

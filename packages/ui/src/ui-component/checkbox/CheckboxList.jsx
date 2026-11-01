@@ -3,6 +3,7 @@ import PropTypes from 'prop-types'
 import { Box, Button, Checkbox, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
+import { LoadMessages, LOAD_FAILED } from '@/ui-component/alert/LoadMessages'
 import { filterChoices, missingNames, savedValue, selectedNames, selectionSummary, splitOptions, toggleName } from '@/utils/checkboxList'
 
 const FILTER_FROM = 8
@@ -15,19 +16,27 @@ export const CheckboxList = ({ loadOptions, value, onSelect, disabled = false })
     const [names, setNames] = useState(() => selectedNames(value))
     const [filter, setFilter] = useState('')
 
+    const [attempt, setAttempt] = useState(0)
+
     useEffect(() => {
         let cancelled = false
+        setLoading(true)
         ;(async () => {
-            const response = await loadOptions()
+            let response
+            try {
+                response = await loadOptions()
+            } catch {
+                response = undefined
+            }
             if (cancelled) return
-            setOptions(Array.isArray(response) ? response : [])
+            setOptions(Array.isArray(response) ? response : [LOAD_FAILED])
             setLoading(false)
         })()
         return () => {
             cancelled = true
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [attempt])
 
     const { choices, messages } = useMemo(() => splitOptions(options), [options])
     const shown = useMemo(() => filterChoices(choices, filter), [choices, filter])
@@ -81,11 +90,7 @@ export const CheckboxList = ({ loadOptions, value, onSelect, disabled = false })
 
     return (
         <Box sx={{ mt: 1, width: '100%' }}>
-            {messages.map((message) => (
-                <Typography key={message.label} variant='caption' color='text.secondary' sx={{ display: 'block', mb: 0.5 }}>
-                    <strong>{message.label}.</strong> {message.description}
-                </Typography>
-            ))}
+            <LoadMessages messages={messages} onRetry={() => setAttempt((value) => value + 1)} />
             {choices.length > 0 && (
                 <>
                     <Stack direction='row' alignItems='center' gap={1} sx={{ mb: 0.5 }}>

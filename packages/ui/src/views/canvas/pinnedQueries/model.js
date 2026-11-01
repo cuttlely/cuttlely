@@ -408,3 +408,31 @@ export function toolName(slug) {
 export function slugIsValid(slug) {
     return IDENT.test(String(slug || '')) && String(slug).length <= 61
 }
+
+// The list folds away by default once it holds more pins than this.
+export const PIN_COLLAPSE_AT = 8
+
+// The friendly name a person gave the pin; the tool name is shown under it.
+export function pinTitle(pin) {
+    const purpose = typeof pin?.purpose === 'string' ? pin.purpose.trim() : ''
+    if (purpose) return purpose
+    const name = typeof pin?.name === 'string' ? pin.name : ''
+    return name.replace(/^pq_/, '').replace(/_/g, ' ') || 'Untitled query'
+}
+
+// Search over the title, the tool name and the description. Matching only, the list itself is never changed.
+export function filterPins(pins, query = '', onlyRetest = false) {
+    const words = String(query || '')
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
+    return (Array.isArray(pins) ? pins : []).filter((pin) => {
+        if (onlyRetest && !needsRetestMark(pin)) return false
+        if (!words.length) return true
+        const text = [pinTitle(pin), pin?.name, pin?.description]
+            .filter((part) => typeof part === 'string')
+            .join(' ')
+            .toLowerCase()
+        return words.every((word) => text.includes(word))
+    })
+}

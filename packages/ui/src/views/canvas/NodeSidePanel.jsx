@@ -11,6 +11,10 @@ import NodePanelHeader from './NodePanelHeader'
 import { PanelResizeHandle, useNodePanelWidth } from './NodePanelResize'
 import { baseURL } from '@/store/constant'
 import { panelSections } from '@/utils/canvasLook'
+import NodeLinkNotes from './NodeLinkNotes'
+import PostgresPanelSections from './PostgresPanelSections'
+import { displayLabel, displaySubtitle } from '@/utils/nodeDisplayNames'
+import { isPostgresPanel } from '@/utils/postgresPanel'
 
 export { PANEL_DEFAULT_WIDTH as NODE_SIDE_PANEL_WIDTH } from '@/utils/nodePanelWidth'
 
@@ -20,7 +24,11 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
     const theme = useTheme()
     const panelRef = useRef(null)
     const data = node.data
-    const { main, more } = panelSections(data)
+    const grouped = isPostgresPanel(data)
+    // The Postgres (MCP) card draws its fields in plain-language groups. Every other card is laid out as before.
+    const { main, more } = grouped ? { main: [], more: [] } : panelSections(data)
+    const label = displayLabel(data)
+    const about = displaySubtitle(data.name)
     const locked = readOnly || !onDelete
     const size = useNodePanelWidth()
 
@@ -53,7 +61,7 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
             ref={panelRef}
             tabIndex={-1}
             role='complementary'
-            aria-label={`${data.label} settings`}
+            aria-label={`${label} settings`}
             data-testid='node-side-panel'
             data-expanded={size.expanded ? 'true' : 'false'}
             onKeyDown={onKeyDown}
@@ -72,7 +80,7 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
             <PanelResizeHandle width={size.width} onPreview={size.setWidth} onCommit={size.commit} hidden={size.expanded} />
             <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <NodePanelHeader
-                    label={data.label}
+                    label={label}
                     subtitle={locked ? `${data.id}, read only` : data.id}
                     nodeName={data.name}
                     readOnly={locked}
@@ -105,7 +113,14 @@ const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false 
                         </Box>
                     }
                 />
-                {main.length === 0 && more.length === 0 && (
+                {about && (
+                    <Typography variant='caption' color='text.secondary' component='p' sx={{ px: 2, pt: 1.5, m: 0 }}>
+                        {about}
+                    </Typography>
+                )}
+                <NodeLinkNotes data={data} />
+                {grouped && <PostgresPanelSections node={node} readOnly={readOnly} />}
+                {!grouped && main.length === 0 && more.length === 0 && (
                     <Typography sx={{ p: 2 }} color='text.secondary'>
                         This card has no settings. Connect it on the canvas.
                     </Typography>

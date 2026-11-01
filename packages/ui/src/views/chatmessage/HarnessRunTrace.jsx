@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { friendlyChipLabel, friendlyToolName, tableCsv, tableText } from '@/utils/traceChips'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 import { alpha, useTheme } from '@mui/material/styles'
@@ -10,7 +11,6 @@ import {
     formatDuration,
     formatTokens,
     routeSummary,
-    toolChipLabel,
     traceQuestionForCaption
 } from '../../../../../packages/harness/trace.mjs'
 
@@ -54,6 +54,7 @@ function StatusMark({ status }) {
         return (
             <Box
                 component='span'
+                role='img'
                 aria-label='running'
                 sx={{
                     width: 8,
@@ -66,9 +67,9 @@ function StatusMark({ status }) {
         )
     }
     if (status === 'failed') {
-        return <IconX size={16} color={theme.palette.error.main} aria-label='failed' />
+        return <IconX size={16} color={theme.palette.error.main} role='img' aria-label='failed' />
     }
-    return <IconCheck size={16} color={theme.palette.success.main} aria-label='done' />
+    return <IconCheck size={16} color={theme.palette.success.main} role='img' aria-label='done' />
 }
 
 StatusMark.propTypes = {
@@ -90,12 +91,70 @@ Meta.propTypes = {
 
 // The preview starts closed. The chip shows the row count; opening it shows the short table.
 // The caption stays in this chat. It does not link away to the harness page.
-export function QueryRows({ view, question }) {
+const smallButton = {
+    border: '1px solid',
+    borderColor: 'divider',
+    borderRadius: 1,
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    fontSize: 12,
+    px: 1,
+    py: 0.25,
+    whiteSpace: 'nowrap'
+}
+
+function downloadCsv(view) {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    const url = URL.createObjectURL(new Blob([tableCsv(view)], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'query-rows.csv'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export function QueryRows({ view, question, sql }) {
+    const [showSql, setShowSql] = useState(false)
+    const [copied, setCopied] = useState('')
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(tableText(view))
+            setCopied('Rows copied.')
+        } catch {
+            setCopied('Could not copy. Select the table and copy it instead.')
+        }
+    }
     return (
         <Box sx={{ pt: 0.5 }}>
             <Typography variant='caption' color='text.secondary' component='p' sx={{ mb: 0.5 }}>
                 {analystPreviewCaption(view, question || '')}
             </Typography>
+            <Stack direction='row' spacing={0.5} sx={{ mb: 0.5, alignItems: 'center' }}>
+                {sql ? (
+                    <Box component='button' type='button' sx={smallButton} aria-expanded={showSql} onClick={() => setShowSql(!showSql)}>
+                        {showSql ? 'Hide SQL' : 'Show SQL'}
+                    </Box>
+                ) : null}
+                <Box component='button' type='button' sx={smallButton} onClick={copy}>
+                    Copy
+                </Box>
+                <Box component='button' type='button' sx={smallButton} onClick={() => downloadCsv(view)}>
+                    CSV
+                </Box>
+                <Typography variant='caption' color='text.secondary' role='status' aria-live='polite'>
+                    {copied}
+                </Typography>
+            </Stack>
+            {sql && showSql ? (
+                <Box
+                    component='pre'
+                    data-testid='trace-sql'
+                    sx={{ m: 0, mb: 0.5, p: 1, fontSize: 12, whiteSpace: 'pre-wrap', bgcolor: 'action.hover', borderRadius: 1 }}
+                >
+                    {sql}
+                </Box>
+            ) : null}
             <Box sx={{ maxHeight: 320, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                 <Box component='table' sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
                     <thead>
@@ -103,6 +162,7 @@ export function QueryRows({ view, question }) {
                             {view.columns.map((column) => (
                                 <Box
                                     component='th'
+                                    scope='col'
                                     key={column}
                                     sx={{
                                         position: 'sticky',
@@ -156,7 +216,8 @@ export function QueryRows({ view, question }) {
 
 QueryRows.propTypes = {
     view: PropTypes.object,
-    question: PropTypes.string
+    question: PropTypes.string,
+    sql: PropTypes.string
 }
 
 export function previousUserQuestion(messages, index) {
@@ -231,7 +292,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                 <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ alignItems: 'center' }}>
                     <Chip size='small' label='Run' color='primary' variant='outlined' sx={{ height: 22 }} />
                     <Typography variant='subtitle2'>{trace.harness || 'Harness'}</Typography>
-                    <Typography variant='caption' color='text.secondary'>
+                    <Typography variant='caption' color='text.secondary' role='status' aria-live='polite'>
                         {statusWord(trace.status)}
                     </Typography>
                     {wall ? (
@@ -243,11 +304,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                         <Typography variant='caption' color='text.secondary'>
                             {tokens}
                         </Typography>
-                    ) : (
-                        <Typography variant='caption' color='text.secondary'>
-                            Tokens not reported
-                        </Typography>
-                    )}
+                    ) : null}
                 </Stack>
                 <Typography variant='body2'>{routeLine(trace)}</Typography>
                 {phases.length ? (
@@ -316,10 +373,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                                                 const view = rowViews[index]
                                                 const key = `${specialist.name}:${index}`
                                                 const expandable = Boolean(view?.rows?.length)
-                                                const countLabel =
-                                                    view && view.rowCount != null
-                                                        ? `${toolChipLabel(tool)} · ${view.rowCount} row${view.rowCount === 1 ? '' : 's'}`
-                                                        : toolChipLabel(tool)
+                                                const countLabel = friendlyChipLabel(tool, view)
                                                 const chip = expandable ? (
                                                     <Chip
                                                         size='small'
@@ -341,11 +395,15 @@ const HarnessRunTrace = ({ trace, question }) => {
                                                         size='small'
                                                         variant='outlined'
                                                         color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={toolChipLabel(tool)}
+                                                        label={countLabel}
                                                     />
                                                 )
                                                 if (tool.status !== 'retried' || !tool.detail) {
-                                                    return <span key={`${tool.name}-${index}`}>{chip}</span>
+                                                    return (
+                                                        <span key={`${tool.name}-${index}`} title={tool.name}>
+                                                            {chip}
+                                                        </span>
+                                                    )
                                                 }
                                                 return (
                                                     <Tooltip key={`${tool.name}-${index}`} title={tool.detail} placement='top'>
@@ -359,7 +417,20 @@ const HarnessRunTrace = ({ trace, question }) => {
                                             No tool calls recorded
                                         </Typography>
                                     )}
-                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} question={asked} /> : null}
+                                    {openRows >= 0 ? (
+                                        <QueryRows
+                                            view={rowViews[openRows]}
+                                            question={asked}
+                                            sql={typeof specialist.tools[openRows]?.sql === 'string' ? specialist.tools[openRows].sql : ''}
+                                        />
+                                    ) : null}
+                                    {(specialist.tools || [])
+                                        .filter((tool) => tool.status === 'retried' && tool.detail)
+                                        .map((tool, index) => (
+                                            <Typography key={`retried-${index}`} variant='caption' color='text.secondary'>
+                                                {`${friendlyToolName(tool.name)} was retried: ${tool.detail}`}
+                                            </Typography>
+                                        ))}
                                     {specialist.sources?.length ? (
                                         <Typography variant='caption' color='text.secondary'>
                                             {`Sources: ${specialist.sources.map((source) => source.name).join(', ')}`}

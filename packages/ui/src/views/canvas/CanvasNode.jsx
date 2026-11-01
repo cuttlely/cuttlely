@@ -28,6 +28,8 @@ import { cardPlugParams } from '@/utils/canvasLook'
 import { cardAccentColor, cardAccentSx, cardSecondaryText } from '@/utils/cardAccent'
 import { needsSync } from '@/utils/edgeRefs'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import NodeLinkNotes from './NodeLinkNotes'
+import { displayLabel, displaySubtitle } from '@/utils/nodeDisplayNames'
 import CardAccentIcon from './CardAccentIcon'
 
 // ===========================|| CANVAS NODE ||=========================== //
@@ -126,8 +128,9 @@ const CanvasNode = ({ data }) => {
                                         fontWeight: 500,
                                         mr: 2
                                     }}
+                                    title={displaySubtitle(data.name) || undefined}
                                 >
-                                    {data.label}
+                                    {displayLabel(data)}
                                 </Typography>
                             </Box>
                             <div style={{ flexGrow: 1 }}></div>
@@ -141,6 +144,7 @@ const CanvasNode = ({ data }) => {
                                 </>
                             )}
                         </div>
+                        <NodeLinkNotes data={data} dense />
                         {compact && <CompactCardBody data={data} />}
                         {!compact && (
                             <div className='nodrag nopan'>
