@@ -140,7 +140,8 @@ const NodeInputHandler = ({
     parentParamForArray = null,
     arrayIndex = null,
     onHideNodeInfoDialog,
-    onCustomDataChange
+    onCustomDataChange,
+    onCredentialSelect
 }) => {
     const { id: chatflowIdFromParams } = useParams()
     const canvasChatflow = useSelector((state) => state.canvas.chatflow)
@@ -1082,6 +1083,7 @@ const NodeInputHandler = ({
                                     data.inputs[FLOWISE_CREDENTIAL_ID] = newValue // in case data.credential is not updated
                                     // A key picked for the person (the only one that fits) is a change to save.
                                     if (how?.picked) dispatch({ type: SET_DIRTY })
+                                    onCredentialSelect?.(newValue)
                                 }}
                             />
                         )}
@@ -1732,6 +1734,7 @@ const NodeInputHandler = ({
 NodeInputHandler.propTypes = {
     inputAnchor: PropTypes.object,
     inputParam: PropTypes.object,
+    onCredentialSelect: PropTypes.func,
     data: PropTypes.object,
     disabled: PropTypes.bool,
     isAdditionalParams: PropTypes.bool,

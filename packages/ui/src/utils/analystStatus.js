@@ -69,7 +69,12 @@ export function useAnalystMode(nodeData, enabled = true) {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [credential, enabled, nodeData?.name, attempt])
-    return { ...state, retry: () => setAttempt((value) => value + 1) }
+    // Check again asks the server afresh rather than reusing the shared answer.
+    const retry = () => {
+        resetAnalystModeCache()
+        setAttempt((value) => value + 1)
+    }
+    return { ...state, retry }
 }
 
 // True when a specialist reads only Postgres tools with no credential and the server has neither a Postgres

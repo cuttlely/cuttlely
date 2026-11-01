@@ -18,7 +18,7 @@ function tail(name) {
 export function friendlyToolName(name) {
     const short = tail(name)
     if (KNOWN[short]) return KNOWN[short]
-    if (/^pq_[a-z0-9_]+$/.test(short)) {
+    if (/^pq_[a-z0-9_]+$/i.test(short)) {
         const words = short.slice(3).replace(/_+/g, ' ').trim()
         return words ? `Saved query: ${words}` : 'Saved query'
     }

@@ -53,16 +53,24 @@ const GroupHeader = ({ title, open, onToggle, count, id }) => {
         <Box sx={{ px: 2, pt: 2, pb: 0.5 }}>
             <Divider sx={{ mb: 1 }} />
             {folding ? (
-                <button
+                <Box
+                    component='button'
                     type='button'
                     onClick={onToggle}
                     aria-expanded={open}
                     aria-controls={id}
                     data-testid={`group-${id}`}
-                    style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%' }}
+                    sx={{
+                        all: 'unset',
+                        cursor: 'pointer',
+                        display: 'block',
+                        width: '100%',
+                        borderRadius: 1,
+                        '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 }
+                    }}
                 >
                     {text}
-                </button>
+                </Box>
             ) : (
                 text
             )}
@@ -81,6 +89,8 @@ GroupHeader.propTypes = {
 // The Postgres (MCP) card's settings in plain-language groups. The fields are the node's own, saved as before.
 const PostgresPanelSections = ({ node, readOnly = false }) => {
     const data = node.data
+    // A picked connection is written onto the node data in place, so redraw to re-read it for the badge.
+    const [, redraw] = useState(0)
     const { mode, loading, retry } = useAnalystMode(data, true)
     // In sandbox mode the server keeps its own tables, so there is nothing to tick.
     const groups = postgresGroups(data, { hide: mode === 'sandbox' ? ['analystRelations'] : [] })
@@ -110,7 +120,13 @@ const PostgresPanelSections = ({ node, readOnly = false }) => {
                         const inputParam = mode === 'sandbox' && field.type === 'credential' ? { ...field, optional: true } : field
                         return (
                             <Box key={`${node.id}:${inputParam.name}`}>
-                                <NodeInputHandler inputParam={inputParam} data={data} isAdditionalParams={true} disabled={readOnly} />
+                                <NodeInputHandler
+                                    inputParam={inputParam}
+                                    data={data}
+                                    isAdditionalParams={true}
+                                    disabled={readOnly}
+                                    onCredentialSelect={() => redraw((value) => value + 1)}
+                                />
                                 {fieldHint(inputParam.name) && (
                                     <Typography variant='caption' color='text.secondary' sx={{ display: 'block', px: 2, mt: -1, pb: 1 }}>
                                         {fieldHint(inputParam.name)}

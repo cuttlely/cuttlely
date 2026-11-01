@@ -5,6 +5,7 @@ describe('run card chips', () => {
         expect(friendlyToolName('mcp__analyst__query')).toBe('Query')
         expect(friendlyToolName('describe')).toBe('Describe table')
         expect(friendlyToolName('mcp__analyst__pq_weekly_signups')).toBe('Saved query: weekly signups')
+        expect(friendlyToolName('mcp__analyst__pq_Weekly_Signups')).toBe('Saved query: Weekly Signups')
         expect(friendlyChipLabel({ name: 'mcp__analyst__query', status: 'done' }, { rowCount: 4 })).toBe('Query · 4 rows')
         expect(friendlyChipLabel({ name: 'query', status: 'failed' }, null)).toBe('Query · failed')
         expect(friendlyChipLabel({ name: 'calculator', status: 'done' }, null)).toBe('calculator')

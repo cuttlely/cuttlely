@@ -114,15 +114,37 @@ function downloadCsv(view) {
     setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
+// Pages served over plain http have no clipboard API, so copy through a hidden text box there.
+function copyWithSelection(text) {
+    if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+    const box = document.createElement('textarea')
+    box.value = text
+    box.setAttribute('readonly', '')
+    box.style.position = 'fixed'
+    box.style.opacity = '0'
+    document.body.appendChild(box)
+    box.select()
+    let done = false
+    try {
+        done = document.execCommand('copy')
+    } catch {
+        done = false
+    }
+    document.body.removeChild(box)
+    return done
+}
+
 export function QueryRows({ view, question, sql }) {
     const [showSql, setShowSql] = useState(false)
     const [copied, setCopied] = useState('')
     const copy = async () => {
+        const text = tableText(view)
         try {
-            await navigator.clipboard.writeText(tableText(view))
+            if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+            else if (!copyWithSelection(text)) throw new Error('copy unavailable')
             setCopied('Rows copied.')
         } catch {
-            setCopied('Could not copy. Select the table and copy it instead.')
+            setCopied(copyWithSelection(text) ? 'Rows copied.' : 'Could not copy. Select the table and copy it instead.')
         }
     }
     return (
