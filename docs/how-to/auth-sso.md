@@ -9,7 +9,7 @@ you may not use this file except in compliance with the License.
 
 Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The page is available to an owner or a role with **Authentication: Manage**.
 
-The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The durable active method controls ordinary sign-in; the WorkOS and local settings remain available when their method is selected. SCIM is not available yet.
+The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The durable active method controls ordinary sign-in; the WorkOS and local settings remain available when their method is selected. SCIM provisioning is not available in 1.4.9; it is planned.
 
 ## Set up generic OIDC
 
@@ -45,7 +45,7 @@ OIDC request limits are kept separately by each server process. In a 15-minute w
 
 Cuttlely first looks up the issuer-specific subject link. After that link exists, email is profile data and may be absent. On a first sign-in, exactly one active local user must match the normalized email, the email must meet the assurance rule above, and no provider link may conflict. A valid one-time invitation is a separate basis: its normalized email must match, and an explicit `email_verified=false` is refused. The invitation is consumed in the same transaction that creates the provider link. A plain email match never activates a pending invitation. Removing a person's final organization membership tombstones that user and removes the subject link, so a later invitation can bind the same subject to the new account.
 
-Disabling a person only at the identity provider does not immediately end an existing Cuttlely session in this phase. It takes effect when SCIM provisioning arrives in a later phase or when the existing idle or absolute session lifetime ends.
+Disabling a person only at the identity provider does not end an existing Cuttlely session. SCIM provisioning is planned and is not part of 1.4.9. Until then, disable the person in **Admin** > **Users**, or the session ends when its idle or absolute lifetime runs out.
 
 The Local login choice says **owner only** when `CUTTLELY_LOCAL_ADMIN=true` provides ordinary sign-in for the owner, and **local users** when `CUTTLELY_LOCAL_USERS=true` provides sign-in for active local users with passwords. Owner-only Local remains visible, but changing from another method to Local requires `CUTTLELY_LOCAL_USERS=true`. The local directory routes also require that setting and Local as the durable selected method.
 
@@ -70,7 +70,7 @@ WorkOS activation returns `409 Conflict` until at least one active owner has a u
 
 Every recovery attempt creates a high-severity audit entry for success, wrong credentials, or throttling. A success also writes a structured warning and creates an administrator alert shown on **Auth / SSO** and in the application banner. When SMTP is configured, the server makes a best-effort attempt to email every active owner; an email delivery problem does not undo the recovery sign-in or alert. A user with **Authentication: Manage** must acknowledge the alert; that acknowledgment is audited.
 
-To offboard an owner manually, open **Admin** > **Users** while signed in as another owner and either disable the account or change its role. Disabling it ends its interactive sessions and refuses its owned API credentials on the next request. Keys created before 1.5.0 without a recorded owner are not tied to a user; the API Keys page marks them for review or rotation. Confirm that another active owner has a tested local password before removing the last recovery-ready owner. SCIM cannot perform this owner offboarding in this release.
+To offboard an owner manually, open **Admin** > **Users** while signed in as another owner and either disable the account or change its role. Disabling it ends its interactive sessions and refuses its owned API credentials on the next request. API credentials created before 1.4.9 have no recorded owner and are not tied to a user; the API credentials list marks them for review or rotation. Confirm that another active owner has a tested local password before removing the last recovery-ready owner. SCIM provisioning is not part of 1.4.9.
 
 ## Sessions and account status
 
@@ -78,7 +78,7 @@ Local login, generic OIDC, WorkOS, and owner recovery all create a Cuttlely data
 
 The switch transaction increments the authentication epoch and ends every interactive database session while leaving API keys enabled. Each process refreshes the durable method and epoch at most two seconds after its cached read, and session issuance checks the database epoch again before completion. A request that began under an older epoch cannot finish by creating a new session on another process.
 
-Every database-session request and every owned API credential request reads the current user status. A disabled user is refused on the next call. WorkOS deactivation by itself does not immediately change the Cuttlely user row: automatic IdP deactivation requires SCIM, planned for Phase C. Until then, disable the user in Cuttlely or wait for the session to expire.
+Every database-session request and every owned API credential request reads the current user status. A disabled user is refused on the next call. WorkOS deactivation by itself does not immediately change the Cuttlely user row: automatic IdP deactivation needs SCIM provisioning, which is planned and is not part of 1.4.9. Until then, disable the user in Cuttlely or wait for the session to expire.
 
 The staged confirmation is stored in the database with a version, ten-minute expiry, and single-use marker. It can be applied by another application process; an expired, consumed, or stale-version stage is refused. Staging and applying each allow 10 requests per client address in 15 minutes; more return 429 with `{ "type": "authentication_rate_limit" }`. These request limits are counted in each server process: with several replicas behind a load balancer, each replica keeps its own count, and a restart resets it. The durable stage record, not the request limit, is what keeps a switch single-use.
 
