@@ -52,6 +52,7 @@ function mount(pins, onChange = jest.fn()) {
     return {
         root: () => renderer.root,
         view: () => renderer.root.findByType(PinnedQueriesView).props,
+        update: (list) => act(() => renderer.update(element(list))),
         unmount: () => act(() => renderer.unmount())
     }
 }
@@ -119,6 +120,28 @@ describe('pinned query list', () => {
         const rows = ui.root().findAll((node) => node.type === 'li')
         expect(rows.length).toBe(pins.filter((pin) => pin.needsRetest).length)
         expect(rows.length).toBeGreaterThan(0)
+        ui.unmount()
+    })
+
+    test('the re-test filter ends when no pin needs a new test, so the other pins come back', () => {
+        const pins = fakePins()
+        const ui = mount(pins)
+        act(() => byTestId(ui.root(), 'pinned-retest-filter')[0].props.onClick())
+        expect(ui.root().findAll((node) => node.type === 'li').length).toBe(pins.filter((pin) => pin.needsRetest).length)
+        const retested = pins.map((pin) => {
+            const copy = { ...pin }
+            delete copy.needsRetest
+            return copy
+        })
+        ui.update(retested)
+        expect(byTestId(ui.root(), 'pinned-retest-filter')).toHaveLength(0)
+        expect(byTestId(ui.root(), 'pinned-no-match')).toHaveLength(0)
+        expect(byTestId(ui.root(), 'pinned-toggle')[0].props['aria-expanded']).toBe(false)
+        act(() => byTestId(ui.root(), 'pinned-toggle')[0].props.onClick())
+        expect(ui.root().findAll((node) => node.type === 'li')).toHaveLength(pins.length)
+        ui.update(pins)
+        expect(byTestId(ui.root(), 'pinned-retest-filter')[0].props['aria-pressed']).toBe(false)
+        expect(ui.root().findAll((node) => node.type === 'li')).toHaveLength(pins.length)
         ui.unmount()
     })
 

@@ -471,8 +471,11 @@ export function PinnedQueriesView({
     const warnText = useWarnText()
     if (!enabled) return null
     const retestCount = pins.filter(needsRetestMark).length
-    const shown = filterPins(pins, query, onlyRetest)
-    const searching = Boolean(query.trim()) || onlyRetest
+    // The filter ends when the last pin to re-test is removed or passes, so the other pins come back.
+    if (onlyRetest && !retestCount) setOnlyRetest(false)
+    const retestOn = onlyRetest && retestCount > 0
+    const shown = filterPins(pins, query, retestOn)
+    const searching = Boolean(query.trim()) || retestOn
     const listVisible = open || searching
     return (
         <section data-testid='pinned-queries'>
@@ -526,9 +529,9 @@ export function PinnedQueriesView({
                         <button
                             type='button'
                             data-testid='pinned-retest-filter'
-                            aria-pressed={onlyRetest}
-                            onClick={() => setOnlyRetest(!onlyRetest)}
-                            style={{ ...rowButton, fontWeight: onlyRetest ? 700 : 400 }}
+                            aria-pressed={retestOn}
+                            onClick={() => setOnlyRetest(!retestOn)}
+                            style={{ ...rowButton, fontWeight: retestOn ? 700 : 400 }}
                         >
                             To re-test ({retestCount})
                         </button>
