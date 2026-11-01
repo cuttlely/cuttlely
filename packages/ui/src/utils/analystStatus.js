@@ -114,6 +114,6 @@ export const MODE_TEXT = {
     unavailable: {
         severity: 'warning',
         badge: 'Not connected.',
-        detail: 'Choose a database connection above. This server has no default database for it.'
+        detail: 'Choose a database connection below. This server has no default database for it.'
     }
 }

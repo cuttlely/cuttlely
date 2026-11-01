@@ -12,7 +12,7 @@ export function FreeSqlNote() {
 }
 
 function ParamTable({ editor, onParam = () => {}, onSample = () => {} }) {
-    if (!editor.params.length) return <p>No parameters yet. Names look like :region.</p>
+    if (!editor.params.length) return <p>No parameters yet. Write :name in the SQL to add one, for example :region.</p>
     return (
         <table data-testid='param-table'>
             <thead>
@@ -473,6 +473,9 @@ export function PinnedQueriesView({
                     Add
                 </button>
             </Box>
+            <Typography variant='caption' color='text.secondary' data-testid='pinned-about' sx={{ display: 'block', mb: 0.5 }}>
+                Saved SQL the analyst can run by name, with a friendly title.
+            </Typography>
             {pins.length ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                     <input
@@ -508,6 +511,11 @@ export function PinnedQueriesView({
                         <PinRow key={pin.id} pin={pin} busy={busy} disabled={disabled} onEdit={onEdit} onRemove={onRemove} />
                     ))}
                 </ul>
+            ) : null}
+            {listVisible && shown.length > 7 ? (
+                <Typography variant='caption' color='text.secondary' data-testid='pinned-scroll' sx={{ display: 'block' }}>
+                    {searching ? `${shown.length} of ${pins.length} match.` : `${pins.length} queries.`} Scroll the list to see them all.
+                </Typography>
             ) : null}
             {listVisible && searching && !shown.length ? (
                 <Typography variant='caption' data-testid='pinned-no-match' sx={{ display: 'block' }}>

@@ -44,11 +44,11 @@ What the template contains:
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **Harness Prime**                   | Routes each message. Its instructions send document questions to the researcher and database questions to the analyst. |
 | **Harness Specialist** `researcher` | Answers from the note. Its tool is the In-Memory Vector Store.                                                         |
-| **Harness Specialist** `analyst`    | Answers database questions. Its tool is PostgreSQL MCP.                                                                |
+| **Harness Specialist** `analyst`    | Answers database questions. Its tool is Postgres (MCP).                                                                |
 | **xAI Grok**                        | The sample chat model for Harness Prime. It has no credential. You replace it below.                                   |
 | **In-Memory Vector Store**          | Holds the note. **Local Hash Embeddings** builds the vectors on the server, with no provider key.                      |
 | **Plain Text**                      | The demo note the researcher reads.                                                                                    |
-| **PostgreSQL MCP**                  | The analyst's database tool.                                                                                           |
+| **Postgres (MCP)**                  | The analyst's database tool.                                                                                           |
 
 A specialist with nothing connected to its own **Chat Model** uses Harness Prime's model and credential.
 
@@ -93,12 +93,12 @@ With no key saved yet, the template's xAI Grok node has no credential, so a save
 
 ## Turn on the analyst's database tool
 
-The template stores no action on PostgreSQL MCP. Until you pick one, the analyst has no database tool.
+The template stores no action on Postgres (MCP). Until you pick one, the analyst has no database tool.
 
-1. On **PostgreSQL MCP**, open **Available Actions**.
+1. On **Postgres (MCP)**, open **Tools it can use**.
 2. Select **QUERY**.
 
-With `CUTTLELY_ANALYST=auto` the description under the field starts with `Run one SQL statement in the isolated analyst store`, and **Connect Credential** reads `Auto mode: isolated analyst store, no credential needed`. Other cases are in [Analyst mode](./analyst.md).
+With `CUTTLELY_ANALYST=auto` the description under the field starts with `Run one SQL statement in the isolated analyst store`, and **Database connection** reads `Auto mode: isolated analyst store, no credential needed`. Other cases are in [Analyst mode](./analyst.md).
 
 ![The PostgreSQL MCP node in the dark theme, with QUERY selected under Available Actions. Connect Credential reads Auto mode: isolated analyst store, no credential needed, and the QUERY description is below the field. Tables and views says isolated analyst storage has nothing to pick.](../images/harnesses/postgres-mcp-query.png)
 
@@ -390,17 +390,17 @@ At startup Cuttlely looks for profiles whose harness no longer exists, for examp
 
 ## Troubleshooting
 
-| You see                                                                                                      | What to do                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.` | Select a credential on that node, or delete it and connect another chat model. See [Connect a chat model](#connect-a-chat-model-to-harness-prime).                                    |
-| `Harness name "..." is not valid. Use a letter followed by letters, numbers, "_" or "-".`                    | Save under an id such as `chief-of-staff`. Spaces are not allowed.                                                                                                                    |
-| `Save this harness before chatting.`                                                                         | The canvas chat runs the saved harness. Save first. The rest of the message says what else is missing.                                                                                |
-| `Connect a chat model to the Harness Prime. A chat model is required. ...`                                   | Nothing is connected to **Chat Model** on Harness Prime. Connect one and save.                                                                                                        |
-| `The chat model on the Harness Prime needs a credential. ...`                                                | Select a credential on the chat model node and save. A key in the server environment does not fill in a missing credential.                                                           |
-| Orange triangle on a card, **Sync Nodes** button                                                             | The node was saved with an older node version. Select **Sync Nodes**, then save.                                                                                                      |
-| The analyst says its tool is unavailable, or **Available Actions** shows `Analyst tool unavailable`          | The agent runtime has not registered the query tool yet. Wait a few seconds and refresh **Available Actions**, or restart Cuttlely. See [Analyst mode](./analyst.md#troubleshooting). |
-| The analyst answers without querying                                                                         | **QUERY** is not selected on PostgreSQL MCP. Select it and save.                                                                                                                      |
-| The wrong specialist answers                                                                                 | Make the Harness Prime **Instructions** say which kind of question goes to which specialist, by name. Give each specialist a **Routing summary** that says what it handles. Save.     |
+| You see                                                                                                      | What to do                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.` | Select a credential on that node, or delete it and connect another chat model. See [Connect a chat model](#connect-a-chat-model-to-harness-prime).                                   |
+| `Harness name "..." is not valid. Use a letter followed by letters, numbers, "_" or "-".`                    | Save under an id such as `chief-of-staff`. Spaces are not allowed.                                                                                                                   |
+| `Save this harness before chatting.`                                                                         | The canvas chat runs the saved harness. Save first. The rest of the message says what else is missing.                                                                               |
+| `Connect a chat model to the Harness Prime. A chat model is required. ...`                                   | Nothing is connected to **Chat Model** on Harness Prime. Connect one and save.                                                                                                       |
+| `The chat model on the Harness Prime needs a credential. ...`                                                | Select a credential on the chat model node and save. A key in the server environment does not fill in a missing credential.                                                          |
+| Orange triangle on a card, **Sync Nodes** button                                                             | The node was saved with an older node version. Select **Sync Nodes**, then save.                                                                                                     |
+| The analyst says its tool is unavailable, or **Tools it can use** shows `Analyst tool unavailable`           | The agent runtime has not registered the query tool yet. Wait a few seconds and refresh **Tools it can use**, or restart Cuttlely. See [Analyst mode](./analyst.md#troubleshooting). |
+| The analyst answers without querying                                                                         | **QUERY** is not selected on Postgres (MCP). Select it and save.                                                                                                                     |
+| The wrong specialist answers                                                                                 | Make the Harness Prime **Instructions** say which kind of question goes to which specialist, by name. Give each specialist a **Routing summary** that says what it handles. Save.    |
 
 ## Prediction API
 

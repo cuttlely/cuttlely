@@ -1,17 +1,17 @@
 # Analyst tools
 
-The tools the **PostgreSQL MCP** node gives an analyst specialist, the node fields that shape them, and the refusals they return. The guide is [Analyst mode](../how-to/analyst.md).
+The tools the **Postgres (MCP)** node gives an analyst specialist, the node fields that shape them, and the refusals they return. The guide is [Analyst mode](../how-to/analyst.md).
 
 ## Node fields
 
-| Field                       | Input name              | Stored as                                      | Notes                                                                                                                                                                                          |
-| --------------------------- | ----------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Connect Credential**      | `credential`            | Credential id                                  | A `PostgresUrl` credential. It wins over `CUTTLELY_POSTGRES_URL`. Without either, `CUTTLELY_ANALYST=auto` uses isolated storage. [Which setting wins](../how-to/analyst.md#which-setting-wins) |
-| **Available Actions**       | `mcpActions`            | JSON array, such as `["query"]`                | Without `query` the node offers no tool. `describe` comes with `query` when a selection is set                                                                                                 |
-| **Tables and views**        | `analystRelations`      | JSON array of schema-qualified names, or empty | Checkbox list from the `listRelations` load method. Empty keeps every readable table. Only for a database connected by URL                                                                     |
-| **Rules**                   | `analystRules`          | Text, up to 2,000 characters                   | Your own instructions. Added to the analyst specialist's instructions inside `<analyst_rules>` tags. Cannot widen the selection. A harness save refuses a longer text                          |
-| **Row cap**                 | `analystRowCap`         | Number                                         | Lower than the server row cap only                                                                                                                                                             |
-| **Query timeout (seconds)** | `analystTimeoutSeconds` | Number                                         | Shorter than the server query timeout only                                                                                                                                                     |
+| Field                          | Input name              | Stored as                                      | Notes                                                                                                                                                                                          |
+| ------------------------------ | ----------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Database connection**        | `credential`            | Credential id                                  | A `PostgresUrl` credential. It wins over `CUTTLELY_POSTGRES_URL`. Without either, `CUTTLELY_ANALYST=auto` uses isolated storage. [Which setting wins](../how-to/analyst.md#which-setting-wins) |
+| **Tools it can use**           | `mcpActions`            | JSON array, such as `["query"]`                | Without `query` the node offers no tool. `describe` comes with `query` when a selection is set                                                                                                 |
+| **Tables and views**           | `analystRelations`      | JSON array of schema-qualified names, or empty | Checkbox list from the `listRelations` load method. Empty keeps every readable table. Only for a database connected by URL                                                                     |
+| **Notes for the analyst**      | `analystRules`          | Text, up to 2,000 characters                   | Your own instructions. Added to the analyst specialist's instructions inside `<analyst_rules>` tags. Cannot widen the selection. A harness save refuses a longer text                          |
+| **Most rows per query**        | `analystRowCap`         | Number                                         | Lower than the server row cap only                                                                                                                                                             |
+| **Query time limit (seconds)** | `analystTimeoutSeconds` | Number                                         | Shorter than the server query timeout only                                                                                                                                                     |
 
 `listRelations` returns one option per table, partitioned table, foreign table, view and materialized view that the login can `SELECT`, outside `pg_catalog`, `information_schema` and other `pg_` schemas, partitions left out, at most 2,000. Materialized views come first, then views, then tables, each sorted by schema and name. An option's `name` and `label` are the schema-qualified name with identifiers quoted where Postgres needs it (`public.stores`, `"Sales 2026".daily`). Its `description` is the kind, the column count and the comment, joined with `·`. A message, such as **Isolated analyst storage** or **Could not list tables and views**, is an option named `error`.
 
@@ -58,7 +58,7 @@ Offered only when **Tables and views** has at least one name.
 
 ## Several analysts on one harness
 
-These apply when a harness roster has more than one specialist with a **PostgreSQL MCP** binding. With one, the router and Harness Prime text is unchanged.
+These apply when a harness roster has more than one specialist with a **Postgres (MCP)** binding. With one, the router and Harness Prime text is unchanged.
 
 | What                                    | With several analysts                                                                                                                                                                                        |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

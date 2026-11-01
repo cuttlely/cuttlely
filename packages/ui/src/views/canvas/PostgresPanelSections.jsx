@@ -105,16 +105,20 @@ const PostgresPanelSections = ({ node, readOnly = false }) => {
                             {MODEL_NOTE}
                         </Typography>
                     )}
-                    {group.fields.map((inputParam) => (
-                        <Box key={`${node.id}:${inputParam.name}`}>
-                            <NodeInputHandler inputParam={inputParam} data={data} isAdditionalParams={true} disabled={readOnly} />
-                            {fieldHint(inputParam.name) && (
-                                <Typography variant='caption' color='text.secondary' sx={{ display: 'block', px: 2, mt: -1, pb: 1 }}>
-                                    {fieldHint(inputParam.name)}
-                                </Typography>
-                            )}
-                        </Box>
-                    ))}
+                    {group.fields.map((field) => {
+                        // Sandbox runs without a connection, so the connection is not marked as needed there. Display only.
+                        const inputParam = mode === 'sandbox' && field.type === 'credential' ? { ...field, optional: true } : field
+                        return (
+                            <Box key={`${node.id}:${inputParam.name}`}>
+                                <NodeInputHandler inputParam={inputParam} data={data} isAdditionalParams={true} disabled={readOnly} />
+                                {fieldHint(inputParam.name) && (
+                                    <Typography variant='caption' color='text.secondary' sx={{ display: 'block', px: 2, mt: -1, pb: 1 }}>
+                                        {fieldHint(inputParam.name)}
+                                    </Typography>
+                                )}
+                            </Box>
+                        )
+                    })}
                 </Box>
             </Box>
         )

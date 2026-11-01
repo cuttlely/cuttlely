@@ -53,7 +53,7 @@ On the canvas (`/harnesscanvas/:id`):
 
 1. The sample Harness Prime model is **xAI Grok**, model `grok-4.7`, with no credential. If you saved an OpenAI key first, the template already shows **ChatOpenAI** with your key instead (see [Connect a chat model](./harnesses.md#connect-a-chat-model-to-harness-prime)); go to step 3. Otherwise delete that node, or the save above is rejected.
 2. Add **OpenAI** from Chat Models. Under **Model Name**, choose a model. Under **Connect Credential**, select the OpenAI credential. Connect the node to **Harness Prime**.
-3. Open **PostgreSQL MCP**. Under **Available Actions**, select **QUERY**. The sample stores no action. Until QUERY is selected, the node runs nothing. With QUERY selected, the line under the field is the action description. In auto mode that line starts with `Run one SQL statement in the isolated analyst store`. That sentence is the sign auto mode is on. Opening the list shows the same description under **QUERY**. `Run a read-only SQL query` means a Postgres URL or a Postgres URL credential is set. In auto mode, with no credential saved, **Connect Credential** reads `Auto mode: isolated analyst store, no credential needed`.
+3. Open **Postgres (MCP)**. Under **Tools it can use**, select **QUERY**. The sample stores no action. Until QUERY is selected, the node runs nothing. With QUERY selected, the line under the field is the action description. In auto mode that line starts with `Run one SQL statement in the isolated analyst store`. That sentence is the sign auto mode is on. Opening the list shows the same description under **QUERY**. `Run a read-only SQL query` means a Postgres URL or a Postgres URL credential is set. In auto mode, with no credential saved, **Database connection** reads `Auto mode: isolated analyst store, no credential needed`.
 4. Save.
 
 A harness saved before the handle-id repair still has the old edge ids in stored JSON. The canvas repairs those ids when it loads, and **Try it** and the runs API already accept them. You do not have to re-save before a run. Saving the canvas writes the new ids.
@@ -62,13 +62,39 @@ Each specialist **Chat Model** input can stay empty. The specialist uses Harness
 
 ![The chief-of-staff harness canvas in the dark theme, with the PostgreSQL MCP card in view. Available Actions has QUERY selected with its description below, Connect Credential reads Auto mode: isolated analyst store, no credential needed, and Tables and views says isolated analyst storage has nothing to pick.](../images/analyst/postgres-mcp-query.png)
 
-**Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. When a specialist on the agent runtime queries Postgres through a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node or auto storage on Postgres, that query step in the run trace also carries `timings`, in milliseconds unless noted: `connectMs`, `guardMs` (the read-only transactions and the table, view and function checks; for auto storage, the session settings), `planMs`, `countMs`, `pageMs`, `probeMs` (the column type probe and the row length pass), `serializeMs` (PostgreSQL MCP node only), `totalMs`, and the counts `statementRuns` and `roundTrips`. Those steps are wall time. The same total is also split three ways: `dbMs` is the summed round trip of every query sent to Postgres (the statement, its count and probes, the transaction and `SET LOCAL` lines, the table and function checks, savepoints, the rollback, and the PostgreSQL MCP node's table selection lookup when it is not cached), `connectMs` is the connection or connections, and `cuttlelyMs` is the rest: the check logic, parsing, page shaping, serialization and the gateway bridge (`bridgeMs`, the tool call's time outside its query and lookup). `connectMs`, `dbMs` and `cuttlelyMs` add up to `totalMs`. The guard's catalog checks run with JIT off and fold their transaction ends into the next batch, which saves round trips; your own statement keeps the login's JIT setting. The run card does not draw them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
+**Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. When a specialist on the agent runtime queries Postgres through a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the Postgres (MCP) node or auto storage on Postgres, that query step in the run trace also carries `timings`, in milliseconds unless noted: `connectMs`, `guardMs` (the read-only transactions and the table, view and function checks; for auto storage, the session settings), `planMs`, `countMs`, `pageMs`, `probeMs` (the column type probe and the row length pass), `serializeMs` (Postgres (MCP) node only), `totalMs`, and the counts `statementRuns` and `roundTrips`. Those steps are wall time. The same total is also split three ways: `dbMs` is the summed round trip of every query sent to Postgres (the statement, its count and probes, the transaction and `SET LOCAL` lines, the table and function checks, savepoints, the rollback, and the Postgres (MCP) node's table selection lookup when it is not cached), `connectMs` is the connection or connections, and `cuttlelyMs` is the rest: the check logic, parsing, page shaping, serialization and the gateway bridge (`bridgeMs`, the tool call's time outside its query and lookup). `connectMs`, `dbMs` and `cuttlelyMs` add up to `totalMs`. The guard's catalog checks run with JIT off and fold their transaction ends into the next batch, which saves round trips; your own statement keeps the login's JIT setting. The run card does not draw them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
 This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run card names the analyst, its model, and the tool count. The answer shown here opens with the totals by region before the update.
 
 ![Harness canvas for chief-of-staff in the dark theme, with the chat panel open. The sales prompt was sent, the Run card says Harness Prime sent work to analyst, the analyst row is done with 6 tools, and the visible answer is Total units by region before the update: west 15, east 20.](../images/analyst/canvas-chat-sales.png)
 
 Docker is the same switch in `.env`, then `docker compose up -d`. The workspace file lands at `/var/cuttlely/data/analyst-<tag>.db`, beside `database.sqlite`. `<tag>` is 10 hex characters from the workspace id. See [Docker](./docker.md) and [Workspaces](#workspaces).
+
+## The Postgres (MCP) card
+
+In **Add Nodes**, the tool is **Postgres (MCP)** in the **Database** group. Searching `postgres`, `mcp`, `database` or `sql` finds it. It is a plain database tool: any agent or flow can use it, with or without an analyst. A new card starts with **Query** ticked under **Tools it can use**. A card you already saved keeps the tools it was saved with.
+
+The settings panel puts the fields in groups:
+
+| Group                 | Fields                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| **Data source**       | **Database connection**, with a badge that says where queries go                          |
+| **What it can see**   | **Tables and views**, **Pinned queries**, **Tools it can use**, **Notes for the analyst** |
+| **Model**             | A note: the tool has no model of its own                                                  |
+| **Limits** (folded)   | **Most rows per query**, **Query time limit (seconds)**                                   |
+| **Advanced** (folded) | **Allowed functions**, **Let the analyst read saved query SQL**                           |
+
+The badge asks the server and shows one of these:
+
+-   **Read-only database.** A connection is chosen on the card, or the server has `CUTTLELY_POSTGRES_URL`.
+-   **Sandbox.** No connection, and the server runs `CUTTLELY_ANALYST=auto`, so the analyst uses its own storage. **Tables and views** is not shown, because there is nothing to pick.
+-   **Not connected.** No connection, and the server has neither. Choose a connection, then select **Check again**.
+
+When the server cannot answer, the badge is not shown. When a list on the card cannot load, a yellow note under the field says why, with **Retry**.
+
+When the tool is wired to a Harness Specialist, the tool card says **Used by:** and the specialist's name, and the specialist card says **Data: Postgres (MCP)**. If that specialist has no connection and the server says **Not connected**, the specialist card also says `Analyst is turned off on this server`. These notes come from the wires on the canvas and are never saved. The tool card itself never shows that note.
+
+The labels are display only. The saved node keeps its name (`postgreSQLMCP`), its field names (`credential`, `mcpActions`, `analystRelations`, `analystRules`, `analystRowCap`, `analystTimeoutSeconds`, `analystAllowedFunctions`, `allowPinDefinitions`, `pinnedQueries`) and its saved values. A harness saved before this change opens, runs and saves the same. A field's help text ends with the earlier label, for example `Saved as "Available Actions".` Some screenshots on this page show the earlier labels: **PostgreSQL MCP**, **Connect Credential**, **Available Actions**, **Rules**, **Row cap**, **Query timeout (seconds)** and **Expose pinned SQL definitions**.
 
 ## SQLite
 
@@ -187,6 +213,8 @@ To leave row values out of new traces, turn off **Query previews in the run trac
 
 A chip for a create, an insert, or a failed statement has no preview.
 
+Chips use plain names: **Query · 4 rows**, **Describe table**, **List tables**, **Read saved query SQL**, or **Saved query:** and the pin name. Hover a chip to see the tool name the trace stores, such as `mcp__analyst__query`. Above the preview table, **Show SQL** shows the statement when the trace has it, **Copy** copies the rows as tab-separated text, and **CSV** downloads them as a file. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` in the CSV so a spreadsheet reads it as text.
+
 The row cap itself is the **Row cap** rule under [Safety](#safety). The default is 100 rows and the server never uses more than 1000. The trace and the page line are also covered in [Harnesses](./harnesses.md).
 
 ## Pick the tables and views the analyst sees
@@ -197,14 +225,14 @@ This works on a database the node connects to by URL: a Postgres URL credential 
 
 ### Tick tables and views
 
-Open the **PostgreSQL MCP** card. **Tables and views** lists every table, view and materialized view the credential's login can read. Materialized views come first, then views, then tables, because a view usually answers a question in one step. Each row has the name, the kind, the column count, and the comment from `COMMENT ON`, when there is one. With eight or more rows there is a filter box. **Tick All** ticks the rows the filter shows, and **Clear** unticks everything. The refresh button lists the database again.
+Open the **Postgres (MCP)** card. **Tables and views** lists every table, view and materialized view the credential's login can read. Materialized views come first, then views, then tables, because a view usually answers a question in one step. Each row has the name, the kind, the column count, and the comment from `COMMENT ON`, when there is one. With eight or more rows there is a filter box. **Tick All** ticks the rows the filter shows, and **Clear** unticks everything. The refresh button lists the database again.
 
 ![The Tables and views field on the PostgreSQL MCP card in the dark theme. A filter box, Clear, Tick All and a refresh button sit above the list. public.monthly_sales and public.top_products are materialized views with 6 and 3 columns, public.account_balances is a view with 6 columns, and all three are ticked with their comments under the names. public.open_orders is a view and is not ticked. The line under the list reads 6 of 20 ticked. Queries that read anything else are refused.](../images/analyst/postgres-mcp-table-picker.png)
 
-Save the harness. The selection is stored on the node as the list of names. A PostgreSQL MCP card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add the field.
+Save the harness. The selection is stored on the node as the list of names. A Postgres (MCP) card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add the field.
 
 -   **Nothing ticked** keeps the behavior from before the picker: the analyst can query every table the login can read, and there is no describe tool.
--   **A ticked name the database no longer has** stays in the list, marked **Not in this database any more**, until you untick it. If none of the ticked names exist, every query is refused with `None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.` The analyst does not fall back to every table.
+-   **A ticked name the database no longer has** stays in the list, marked **Not in this database any more**, until you untick it. If none of the ticked names exist, every query is refused with `None of the selected tables or views exist any more. Update the selection on the Postgres (MCP) node.` The analyst does not fall back to every table.
 
 ### What the model sees
 
@@ -226,7 +254,7 @@ A comment longer than 120 characters is cut. Write the comment that tells the an
 
 ### The describe tool
 
-With at least one relation ticked, the node also offers **describe**. It is not in **Available Actions** separately: it comes with **QUERY**. It takes one name from the list, with or without the schema, and returns:
+With at least one relation ticked, the node also offers **describe**. It is not in **Tools it can use** separately: it comes with **QUERY**. It takes one name from the list, with or without the schema, and returns:
 
 | Field           | What it holds                                                                                              |
 | --------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -274,7 +302,7 @@ The run card shows each call as its own chip. In the picture below, a scripted s
 
 The selection is checked by Postgres, on the server, for every query and every `show more`, before the statement runs. The model's text is not trusted to stay inside the list.
 
-1. Only `SELECT`, `WITH`, `VALUES` and `TABLE` statements run. Anything else is refused with `This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.` The PostgreSQL MCP node's **QUERY** is narrower: its text check (see [Checks before connecting](#checks-before-connecting)) refuses `VALUES` and `TABLE` before this step, so only `SELECT` and `WITH` reach it.
+1. Only `SELECT`, `WITH`, `VALUES` and `TABLE` statements run. Anything else is refused with `This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.` The Postgres (MCP) node's **QUERY** is narrower: its text check (see [Checks before connecting](#checks-before-connecting)) refuses `VALUES` and `TABLE` before this step, so only `SELECT` and `WITH` reach it.
 2. Cuttlely looks for risky domains in the database, from the catalog alone and before the statement is parsed. If there are any, every query is refused (see below). The result is kept for one minute per database.
 3. In its own short transaction, Cuttlely creates a temporary view over the statement. Postgres parses it and resolves every name exactly as it would run it. That transaction starts with `BEGIN TRANSACTION READ WRITE`, so a login whose role sets `default_transaction_read_only = on` can still create the view. What runs in it is the parse, the temporary view and the catalog reads below; the statement itself does not run there. It always ends with a rollback, and nothing in it is committed.
 4. Cuttlely reads that view's stored query tree. It names every relation, function and operator the statement uses, including those inside a `WITH`, a subquery, a system catalog such as `pg_class`, and `information_schema`.
@@ -288,7 +316,7 @@ The selection is checked by Postgres, on the server, for every query and every `
 
 ### Checks before connecting
 
-The PostgreSQL MCP node's **QUERY** checks the SQL text before it opens a connection, with or without a table selection:
+The Postgres (MCP) node's **QUERY** checks the SQL text before it opens a connection, with or without a table selection:
 
 -   It must be one `SELECT` or `WITH` query with a top-level `LIMIT`, such as `LIMIT 100`.
 -   A `;` is refused, so a second statement cannot follow.
@@ -300,7 +328,7 @@ Without a table selection, the node then checks the routines the query calls, us
 
 Before parsing, the node also looks for any type in the database whose input, output, receive, send or typmod function, or whose range canonical, subtype-difference or subtype comparison function, is outside `pg_catalog`. Postgres runs that function while it parses a typed literal, before any check can see the statement, so if one exists every query on that node is refused, with or without a selection:
 
-> Cuttlely refused this query: this database has types whose input runs code that is not built in, or objects that call code that is not built in or cannot be checked, and it could run while a query is checked: citext. The PostgreSQL MCP node refuses every query on this database until those types are removed or the credential points at another database.
+> Cuttlely refused this query: this database has types whose input runs code that is not built in, or objects that call code that is not built in or cannot be checked, and it could run while a query is checked: citext. The Postgres (MCP) node refuses every query on this database until those types are removed or the credential points at another database.
 
 The node runs this scan fresh, with no cache. The temporary view is made in the same short read-write transaction as above, which always rolls back. If the login has no `TEMP` privilege, the query is refused with `Cuttlely could not check which functions this query calls: this database login has no TEMP privilege on the database`; on a read-only standby it is refused with `Cuttlely could not check this query: the database is a read-only standby`. Only then does the query run, in a new `BEGIN READ ONLY` transaction.
 
@@ -324,25 +352,25 @@ A ticked view is the gate. Its own definition is not expanded, so `account_balan
 
 Why not a separate login or `search_path`: a `search_path` does not stop a schema-qualified name, and a login with grants on only the ticked relations would need Cuttlely to create roles in your database, which a read-only credential usually cannot do. The check above needs only what the credential already has, plus the right to create a temporary view.
 
-**Risky domains.** A literal of a composite, array or range type (`'{5}'::quiet_ref[]`) runs its element's input while Postgres parses the statement, and a domain element runs its `CHECK` then, in step 3, before Cuttlely can see the query tree. So a database with a risky domain refuses every query while a selection is set, and every PostgreSQL MCP node **QUERY** with or without one, whatever the statement, with the same text and without parsing it:
+**Risky domains.** A literal of a composite, array or range type (`'{5}'::quiet_ref[]`) runs its element's input while Postgres parses the statement, and a domain element runs its `CHECK` then, in step 3, before Cuttlely can see the query tree. So a database with a risky domain refuses every query while a selection is set, and every Postgres (MCP) node **QUERY** with or without one, whatever the statement, with the same text and without parsing it:
 
-> Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: public.quiet_ref. Queries are refused while a table selection is set, and every PostgreSQL MCP node query is refused. Change those CHECK constraints to built-in functions that are not volatile.
+> Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: public.quiet_ref. Queries are refused while a table selection is set, and every Postgres (MCP) node query is refused. Change those CHECK constraints to built-in functions that are not volatile.
 
-A domain is risky when its `CHECK` calls a volatile function (such as `nextval` or `random`), a function or operator outside `pg_catalog`, a built-in from the deny list above, or uses an object-identifier type or a type whose input or output is outside `pg_catalog`. Domains are checked in every schema the database has, not only the ticked relations, because any of them can be named in a literal. A domain whose `CHECK` uses only built-in, non-volatile functions and operators, such as `CHECK (VALUE >= 0)`, is fine. To fix a risky domain, rewrite its `CHECK` with built-in functions that are not volatile (`ALTER DOMAIN ... DROP CONSTRAINT`, then `ADD CONSTRAINT`), or move the rule into the application or a trigger on the tables that use it. Clearing the selection does not help on the PostgreSQL MCP node, which runs the same check without one. With a table selection on other analyst callers, the scan is cached for a minute: a fix shows up within a minute, and a risky domain created within a minute after a scan can still run its check while a statement is parsed, until the next scan finds it. The PostgreSQL MCP node does not use that cache: it scans before every parse, again in the query transaction, and before **describe** samples a column. **describe** on the node samples only through the same checks as **QUERY** (inside ticked views, with the node denylist) and is refused on a database the node refuses.
+A domain is risky when its `CHECK` calls a volatile function (such as `nextval` or `random`), a function or operator outside `pg_catalog`, a built-in from the deny list above, or uses an object-identifier type or a type whose input or output is outside `pg_catalog`. Domains are checked in every schema the database has, not only the ticked relations, because any of them can be named in a literal. A domain whose `CHECK` uses only built-in, non-volatile functions and operators, such as `CHECK (VALUE >= 0)`, is fine. To fix a risky domain, rewrite its `CHECK` with built-in functions that are not volatile (`ALTER DOMAIN ... DROP CONSTRAINT`, then `ADD CONSTRAINT`), or move the rule into the application or a trigger on the tables that use it. Clearing the selection does not help on the Postgres (MCP) node, which runs the same check without one. With a table selection on other analyst callers, the scan is cached for a minute: a fix shows up within a minute, and a risky domain created within a minute after a scan can still run its check while a statement is parsed, until the next scan finds it. The Postgres (MCP) node does not use that cache: it scans before every parse, again in the query transaction, and before **describe** samples a column. **describe** on the node samples only through the same checks as **QUERY** (inside ticked views, with the node denylist) and is refused on a database the node refuses.
 
 The check is tested against Postgres 14, 15, 16, 17 and 18.
 
 Limits of the check:
 
--   The login needs `TEMP` on the database, which Postgres grants to every login by default. A `SELECT`-only role you create for the analyst still needs it: if `TEMP` was revoked from `PUBLIC`, run `GRANT TEMPORARY ON DATABASE <database> TO <role>`. The role needs no other write privilege. Without it, a query is refused with `Cuttlely could not check this query against the table selection: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses.` A role that sets `default_transaction_read_only = on` works: the check transaction asks for read-write explicitly, only to create the temporary view, and always rolls back. A read replica (hot standby) cannot create a temporary view at all, so every PostgreSQL MCP node query there is refused, and with a selection set every query is refused, with `Cuttlely could not check this query: the database is a read-only standby (in recovery)`. Point the credential at the primary. Clearing the selection does not help on the PostgreSQL MCP node, whose routine check needs the temporary view too.
--   Functions, operators and types from extensions installed outside `pg_catalog`, such as `similarity()` from `pg_trgm` or a `citext` or PostGIS column, are refused while a selection is set, including when a query only reads a column of that type. On a database where such a type exists at all, the PostgreSQL MCP node refuses every query, so a view that casts the column does not help there; point the node at a database without it.
--   One risky domain anywhere in the database stops every scoped query there, and every PostgreSQL MCP node query, including queries that never touch it.
--   One type anywhere in the database whose input, output, receive, send, typmod or range support function is outside `pg_catalog`, such as `citext` or a PostGIS type, stops every PostgreSQL MCP node query there (see [Checks before connecting](#checks-before-connecting)).
+-   The login needs `TEMP` on the database, which Postgres grants to every login by default. A `SELECT`-only role you create for the analyst still needs it: if `TEMP` was revoked from `PUBLIC`, run `GRANT TEMPORARY ON DATABASE <database> TO <role>`. The role needs no other write privilege. Without it, a query is refused with `Cuttlely could not check this query against the table selection: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses.` A role that sets `default_transaction_read_only = on` works: the check transaction asks for read-write explicitly, only to create the temporary view, and always rolls back. A read replica (hot standby) cannot create a temporary view at all, so every Postgres (MCP) node query there is refused, and with a selection set every query is refused, with `Cuttlely could not check this query: the database is a read-only standby (in recovery)`. Point the credential at the primary. Clearing the selection does not help on the Postgres (MCP) node, whose routine check needs the temporary view too.
+-   Functions, operators and types from extensions installed outside `pg_catalog`, such as `similarity()` from `pg_trgm` or a `citext` or PostGIS column, are refused while a selection is set, including when a query only reads a column of that type. On a database where such a type exists at all, the Postgres (MCP) node refuses every query, so a view that casts the column does not help there; point the node at a database without it.
+-   One risky domain anywhere in the database stops every scoped query there, and every Postgres (MCP) node query, including queries that never touch it.
+-   One type anywhere in the database whose input, output, receive, send, typmod or range support function is outside `pg_catalog`, such as `citext` or a PostGIS type, stops every Postgres (MCP) node query there (see [Checks before connecting](#checks-before-connecting)).
 -   A view you tick runs with its owner's rights, as Postgres always runs views. Whatever its definition reads, the analyst can read through it.
 
 ### User functions
 
-Views often call small helper functions, such as `analytics._etl_safe_date(text)`. With or without a table selection, the PostgreSQL MCP node lets a function outside `pg_catalog` run without an Allowed functions entry only when all of these hold in `pg_proc`:
+Views often call small helper functions, such as `analytics._etl_safe_date(text)`. With or without a table selection, the Postgres (MCP) node lets a function outside `pg_catalog` run without an Allowed functions entry only when all of these hold in `pg_proc`:
 
 -   it is `STABLE` or `IMMUTABLE` (not `VOLATILE`);
 -   it is not `SECURITY DEFINER`;
@@ -354,15 +382,15 @@ Views often call small helper functions, such as `analytics._etl_safe_date(text)
 
 A SQL-standard body (`BEGIN ATOMIC ... END` or `RETURN ...`) is walked as its stored node tree. A string body (`AS $$ ... $$` in SQL or PL/pgSQL) is read as text, outside comments and string literals. It is refused when it uses `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `TRUNCATE` or `COPY` anywhere (including inside a `WITH` query), runs SQL given as text (`EXECUTE`), starts a statement that changes state or the session (DDL, `SET`, `CALL`, `DO`, `LOCK`, `NOTIFY`, transaction commands, cursor commands and similar), or reads a relation (a name in a `FROM` list, `JOIN`, `TABLE`). A `FROM` item that is a function call, such as `unnest(v)` or `generate_series(1, 3)`, or a parenthesized subquery is allowed, and that call or subquery is checked the same way. A parameter or variable named like one of those statement words, such as `comment`, is read as a name. With a table selection, a string body that names an object-identifier type such as `regclass` is refused too. `FROM` inside `extract`, `substring`, `trim` and similar calls, and `IS DISTINCT FROM`, do not count. Every name the body calls is looked up in every schema (or in the schema it is qualified with), and each overload whose argument count can fit the call must pass this rule; a built-in it calls must not be on the deny list and must not be volatile, apart from the volatile built-ins the node allows (such as `random`). So a helper such as `BEGIN RETURN v::date; EXCEPTION WHEN others THEN RETURN NULL; END` runs with no entry, and a helper that inserts into a table, calls `nextval`, runs `EXECUTE` or selects from a table is refused. Other languages are refused unless allow-listed.
 
-Every other user function is refused unless it is on the node’s saved Allowed functions list. Each call in the query or a view is matched by the function Postgres resolves it to (its oid), under the pinned search path. A refused function is reported with its exact signature and the hint to add it to Allowed functions, for example `function analytics.touchy(text) is not built in. ... found: VOLATILE. To allow it, the flow author can add analytics.touchy(text) to Allowed functions on the PostgreSQL MCP node.`
+Every other user function is refused unless it is on the node’s saved Allowed functions list. Each call in the query or a view is matched by the function Postgres resolves it to (its oid), under the pinned search path. A refused function is reported with its exact signature and the hint to add it to Allowed functions, for example `function analytics.touchy(text) is not built in. ... found: VOLATILE. To allow it, the flow author can add analytics.touchy(text) to Allowed functions on the Postgres (MCP) node.`
 
-**Allowed functions** (under the node's additional parameters) lets a refused function run anyway. Only the flow author sets it; it is saved with the flow, and the model and tool input cannot add to it. Write one entry per line, schema-qualified with the argument types exactly as the refusal prints them, such as `analytics.touchy(text)`. `schema.name(*)` covers every overload of that name. A bare name such as `analytics.touchy` matches nothing. Lines starting with `#` are ignored.
+**Allowed functions** (under **Advanced** on the card) lets a refused function run anyway. Only the flow author sets it; it is saved with the flow, and the model and tool input cannot add to it. Write one entry per line, schema-qualified with the argument types exactly as the refusal prints them, such as `analytics.touchy(text)`. `schema.name(*)` covers every overload of that name. A bare name such as `analytics.touchy` matches nothing. Lines starting with `#` are ignored.
 
 Allow-listed function bodies are trusted by design. Listing a function admits that function even when its body reads a relation or fails the rule above. Its argument defaults are still checked. The functions called inside a listed SQL-standard body are still checked too; a listed string-body SQL or PL/pgSQL function is not read at all, so whatever it calls runs unchecked. Keep those functions owned by the same dedicated read-only role the node connects as, or by an admin role, and do not let untrusted roles create or replace functions in their schemas ([Use a dedicated read-only login](#use-a-dedicated-read-only-login)). Give the node's login no `dblink`, `postgres_fdw` or file privileges (`pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`), so a body running with the login's rights cannot reach them. A `SECURITY DEFINER` function you list runs with its owner's rights instead, so check what that owner can reach before you list it. The function rules are checked against the catalog before the query runs and the catalog digest is compared again afterwards, so a function changed while a query or a `describe` sample runs makes Cuttlely withhold the result; it cannot stop a body that was changed mid-query from running once. That is one more reason to keep function changes to trusted roles. The rest of the check still applies: the deny list for the query and for every view it reads, the refusal of functions and operators named like a built-in, `READ ONLY`, and the statement timeout.
 
 ### Write your own rules
 
-The lines and `describe` tell the analyst what exists. Which relation to use for which question, and how your data is written, is yours to say. Write it in **Rules**, the box under **Tables and views** on the same **PostgreSQL MCP** card. Cuttlely adds no rules of its own for any database: the box holds only what you write. The bakery analyst in the pictures above has these rules:
+The lines and `describe` tell the analyst what exists. Which relation to use for which question, and how your data is written, is yours to say. Write it in **Notes for the analyst**, the box under **Tables and views** on the same **Postgres (MCP)** card. Cuttlely adds no rules of its own for any database: the box holds only what you write. The bakery analyst in the pictures above has these rules:
 
 ```text
 Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week.
@@ -374,7 +402,7 @@ Before your first query on any view, call describe on it. Never query a view you
 
 ![The bottom of the Tables and views list on the PostgreSQL MCP card in the dark theme, ending with the line 6 of 20 ticked. Queries that read anything else are refused. Under it is the Rules field with an info icon and an Expand button. The box shows the first bakery rule, Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week, and the counter under it reads 536 / 2,000.](../images/analyst/postgres-mcp-rules.png)
 
-Rules can hold up to 2,000 characters. The counter under the box shows how many are used, and the box stops taking text at the limit. The **Expand** button opens a larger editor with the same counter, and its **Save** stays off while the text is over the limit. Saving a harness canvas refuses rules over the limit, whether you select **Save**, import a file with **Import JSON**, or send the canvas to `PUT /api/v1/flow-drafts/:id`, and nothing is saved: `Rules on PostgreSQL MCP for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Shorten them and save again.` When one analyst has several **PostgreSQL MCP** cards, it gets their rules as one section, so the limit is for all of them together. Rules that are over it together are refused, not cut: `Rules on Bakery DB, Shops DB for specialist "bakery" on harness "bakery-accounts" are 2402 characters together. The analyst gets them as one section, and the limit is 2000. Shorten them and save again.` When two of those cards have the same label, the message numbers them in the order they are wired to the specialist, for example `PostgreSQL MCP (1), PostgreSQL MCP (2)`. Only a **PostgreSQL MCP** card wired straight to the specialist counts. When a card is wired into another node, its Rules are ignored: they are not checked when you save or publish, and the analyst does not get them. The rules are part of the node, so they are saved, loaded, exported, imported and kept in version history with the flow. Restoring a version whose rules are over the limit is refused, and neither the draft nor Live changes: `This version cannot be restored. Rules on Bakery DB for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Restore another version, or shorten those rules on the canvas and save.` **Roll back Live to this version** and **Promote** refuse such a version the same way, starting with `Live cannot be rolled back to this version.` or `This version cannot be promoted.` and ending with what to do instead. This holds even when the version already matches Live, so there would be nothing to change: if Live's own rules are over the limit, Restore, **Roll back Live to this version** and **Promote** answer 400 instead of reporting the version as unchanged. The message says first that nothing changes, for example `This version matches Live, so Live is unchanged. It cannot be restored.`, and then names the rules. A Restore while the canvas saves to a draft starts `This version matches Live, so the draft is unchanged.` instead, because that Restore changes the draft, not Live. A PostgreSQL MCP card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add it.
+Notes for the analyst can hold up to 2,000 characters. The counter under the box shows how many are used, and the box stops taking text at the limit. The **Expand** button opens a larger editor with the same counter, and its **Save** stays off while the text is over the limit. Saving a harness canvas refuses rules over the limit, whether you select **Save**, import a file with **Import JSON**, or send the canvas to `PUT /api/v1/flow-drafts/:id`, and nothing is saved: `Rules on Postgres (MCP) for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Shorten them and save again.` When one analyst has several **Postgres (MCP)** cards, it gets their rules as one section, so the limit is for all of them together. Rules that are over it together are refused, not cut: `Rules on Bakery DB, Shops DB for specialist "bakery" on harness "bakery-accounts" are 2402 characters together. The analyst gets them as one section, and the limit is 2000. Shorten them and save again.` When two of those cards have the same label, the message numbers them in the order they are wired to the specialist, for example `Postgres (MCP) (1), Postgres (MCP) (2)`. Only a **Postgres (MCP)** card wired straight to the specialist counts. When a card is wired into another node, its Rules are ignored: they are not checked when you save or publish, and the analyst does not get them. The rules are part of the node, so they are saved, loaded, exported, imported and kept in version history with the flow. Restoring a version whose rules are over the limit is refused, and neither the draft nor Live changes: `This version cannot be restored. Rules on Bakery DB for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Restore another version, or shorten those rules on the canvas and save.` **Roll back Live to this version** and **Promote** refuse such a version the same way, starting with `Live cannot be rolled back to this version.` or `This version cannot be promoted.` and ending with what to do instead. This holds even when the version already matches Live, so there would be nothing to change: if Live's own rules are over the limit, Restore, **Roll back Live to this version** and **Promote** answer 400 instead of reporting the version as unchanged. The message says first that nothing changes, for example `This version matches Live, so Live is unchanged. It cannot be restored.`, and then names the rules. A Restore while the canvas saves to a draft starts `This version matches Live, so the draft is unchanged.` instead, because that Restore changes the draft, not Live. A Postgres (MCP) card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add it.
 
 The analyst gets the rules at the end of its built-in instructions, in a marked section, word for word:
 
@@ -439,7 +467,7 @@ CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery CUTTLELY_BUDGET_URL=postg
     node scripts/analyst-real-model-check.mjs two-analyst
 ```
 
-`rules` checks [your own rules](#write-your-own-rules). It puts the five bakery rules above in the bakery analyst's **Rules** box and asks three questions: the top shop in the latest week, June sales, and what `WA-1004` owes. Each answer passes only with the right figure, every dollar amount to two decimals, and a `describe` of each view before the first query against it. `CUTTLELY_CHECK_RULES=off` asks the same questions with the box empty, so you can compare. Reasoning models refuse temperature 0, so they get the lowest `reasoning_effort` their family accepts: `none` for `gpt-5.1` and later, `minimal` for `gpt-5`, `gpt-5-mini` and `gpt-5-nano`, and `low` for an o-series model. `gpt-5-chat-latest` gets neither a reasoning effort nor a temperature. `CUTTLELY_CHECK_REASONING_EFFORT` sets another effort, and sends it instead of the temperature for any model:
+`rules` checks [your own rules](#write-your-own-rules). It puts the five bakery rules above in the bakery analyst's **Notes for the analyst** box and asks three questions: the top shop in the latest week, June sales, and what `WA-1004` owes. Each answer passes only with the right figure, every dollar amount to two decimals, and a `describe` of each view before the first query against it. `CUTTLELY_CHECK_RULES=off` asks the same questions with the box empty, so you can compare. Reasoning models refuse temperature 0, so they get the lowest `reasoning_effort` their family accepts: `none` for `gpt-5.1` and later, `minimal` for `gpt-5`, `gpt-5-mini` and `gpt-5-nano`, and `low` for an o-series model. `gpt-5-chat-latest` gets neither a reasoning effort nor a temperature. `CUTTLELY_CHECK_REASONING_EFFORT` sets another effort, and sends it instead of the temperature for any model:
 
 ```bash
 CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-real-model-check.mjs rules
@@ -460,7 +488,7 @@ With the box empty, every figure was correct, but none of the 9 questions passed
 
 ## Several analysts in one harness
 
-A harness can have more than one analyst specialist, each with its own **PostgreSQL MCP** node and database. For example, one analyst on the made-up bakery database and one on a made-up household budget database. Give each a **Routing summary** that says what its database holds, and tick its tables and views, because those are what Harness Prime reads when it picks one.
+A harness can have more than one analyst specialist, each with its own **Postgres (MCP)** node and database. For example, one analyst on the made-up bakery database and one on a made-up household budget database. Give each a **Routing summary** that says what its database holds, and tick its tables and views, because those are what Harness Prime reads when it picks one.
 
 With one analyst, nothing below changes. With two or more:
 
@@ -485,7 +513,7 @@ The analysts do not share a database or a cursor. To combine numbers from both, 
 | Auto                     | `CUTTLELY_ANALYST=auto`, with neither of those set, runs `Run one SQL statement in the isolated analyst store`. That path can create and change tables in the isolated store. The description also names SQLite or PostgreSQL.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | SQLite file writes       | The analyst store refuses `ATTACH`, `DETACH`, `VACUUM`, `load_extension`, and file-writing PRAGMAs. The query tool returns that refusal, and the chat quotes it. The text starts with `Analyst mode refused`. A refusal, and an ordinary SQL error such as `no such table` or a syntax error, is an expected result. It does not pause the analyst tool. Normal `CREATE`, `INSERT`, `UPDATE`, `SELECT`, and `DROP` in `analyst.db` still run.                                                                                                                                                                                                                        |
 | Postgres file reads      | Login `analyst_reader` is not a superuser and is not a member of `pg_read_server_files`, `pg_write_server_files`, or `pg_execute_server_program`. `COPY ... TO PROGRAM`, `pg_read_file`, and `lo_export` are denied.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Other SQL servers        | A harness specialist is offered SQL only through PostgreSQL MCP. A tool from any other MCP server that runs SQL is not offered, and a call to it returns `Cuttlely refused this SQL tool. Its MCP server cannot list or limit the tables it reaches. Use the PostgreSQL MCP node for SQL.` [Other SQL tools](#other-sql-tools).                                                                                                                                                                                                                                                                                                                                      |
+| Other SQL servers        | A harness specialist is offered SQL only through Postgres (MCP). A tool from any other MCP server that runs SQL is not offered, and a call to it returns `Cuttlely refused this SQL tool. Its MCP server cannot list or limit the tables it reaches. Use the Postgres (MCP) node for SQL.` [Other SQL tools](#other-sql-tools).                                                                                                                                                                                                                                                                                                                                      |
 
 In **Try it**, `VACUUM INTO` a file path comes back as the refusal, word for word. The run finishes and the analyst chip is done:
 
@@ -495,7 +523,7 @@ Unqualified `"user"` looks only in schema `analyst` and returns that the relatio
 
 ### Use a dedicated read-only login
 
-Connect the PostgreSQL MCP node, `CUTTLELY_POSTGRES_URL` and Postgres URL credentials with a login made only for Cuttlely:
+Connect the Postgres (MCP) node, `CUTTLELY_POSTGRES_URL` and Postgres URL credentials with a login made only for Cuttlely:
 
 -   Grant it `CONNECT` on the database, `USAGE` on the schemas it reads, `SELECT` on the tables and views it needs, and `TEMP` (the node's checks need it). Grant nothing else, and do not make it a superuser or a member of a role that can write. Setting `default_transaction_read_only = on` on the role is fine. Validation opens a short read-write transaction only to create a temporary view, which is always rolled back; queries run in a read-only transaction.
 -   Use a database where no untrusted role can `CREATE` in any schema on that login's `search_path`. Check with `SHOW search_path` as the login, then run `REVOKE CREATE ON SCHEMA <schema> FROM PUBLIC` (and from any other untrusted role) for each schema listed. On PostgreSQL 14 and earlier, `public` grants `CREATE` to `PUBLIC` by default.
@@ -513,7 +541,7 @@ The node's checks refuse functions, operators and types that are not built in, b
 
 A lower row cap means less context. The specialist's prompt and the handoff Harness Prime reads contain that one page, not the rest of the table. The rows stay in the database. Say `show more` for the next page. A higher cap, up to 1000, puts more of the table into the prompt and costs more tokens. The server treats a value above 1000 as 1000, and a timeout above 120 seconds as 120 seconds. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number is ignored for either setting, the default is used, and the server logs that once. A page that does not fit the handoff budget shows only the rows that fit, and the next page starts at the following row.
 
-On the **PostgreSQL MCP** node, **Additional Parameters** has **Row cap** and **Query timeout (seconds)**. Leave them empty to use the server settings. A number there can be lower. It cannot be higher than the server setting. The same two limits apply to auto storage and to a Postgres URL.
+On the **Postgres (MCP)** node, **Limits** has **Most rows per query** and **Query time limit (seconds)**. Leave them empty to use the server settings. A number there can be lower. It cannot be higher than the server setting. The same two limits apply to auto storage and to a Postgres URL.
 
 The query timeout is set on each call:
 
@@ -551,7 +579,7 @@ The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no su
 
 ## Pinned queries
 
-A pinned query is SQL a builder saves on the **PostgreSQL MCP** node. The specialist calls a tool that takes only the named parameters, and the server runs that saved statement with the values bound. The walkthrough, the made-up `demo_sales` seed, and the two example pins are in [Pinned queries](./pinned-queries.md).
+A pinned query is SQL a builder saves on the **Postgres (MCP)** node. The specialist calls a tool that takes only the named parameters, and the server runs that saved statement with the values bound. The walkthrough, the made-up `demo_sales` seed, and the two example pins are in [Pinned queries](./pinned-queries.md).
 
 This guarantees that the saved statement is what runs. It does not guarantee that the statement is right for the business. **Tested is not approved**, and a passing test is not a compliance sign-off. There is no second-person approval. The read-only guard still runs on every call, including a later page. The tested stamp only labels a statement that passed a test.
 
@@ -575,12 +603,12 @@ A save that stores a new, changed, or removed pin on Live attempts to write a `p
 
 ## Other SQL tools
 
-Cuttlely can list and limit the tables the analyst reaches only through its own PostgreSQL MCP node. Another MCP server that runs SQL reaches every table its own login can. So a harness specialist does not get those tools:
+Cuttlely can list and limit the tables the analyst reaches only through its own Postgres (MCP) node. Another MCP server that runs SQL reaches every table its own login can. So a harness specialist does not get those tools:
 
 -   **Custom MCP node, or any node in Tools (MCP).** Cuttlely lists the server's tools. A tool that takes a `sql` or `statement` field, or says SQL in its name, description or fields, is left off the specialist's tools. So is a tool that names a database engine, such as Postgres, MySQL, SQLite or Snowflake, and takes a `query` field. Its other tools still work. A call to a refused tool returns the refusal sentence, and the server log reads `refused SQL tool <name>`.
 -   **A server typed into the specialist's MCP servers.** That server goes straight to the agent loop, so Cuttlely never sees its tools. A server whose name, command or arguments name SQL or a database engine is not started. The server log reads `refused MCP server <name>`.
 
-The rule goes by names and fields. A server that runs SQL under a name that says neither is not caught, so connect databases through PostgreSQL MCP.
+The rule goes by names and fields. A server that runs SQL under a name that says neither is not caught, so connect databases through Postgres (MCP).
 
 ![Try it on bakery-other-sql. The prompt asks how many sourdough orders the bakery had and to use the execute_sql tool. The analyst row is done with no tool chip, and the answer is The analyst was unable to access the execute_sql tool, so the number of sourdough orders is unavailable.](../images/analyst/sql-refused.png)
 
@@ -594,7 +622,7 @@ Auto storage is used only when the credential and `CUTTLELY_POSTGRES_URL` are bo
 
 Pointing either URL at the application database stops the node:
 
-> PostgreSQL MCP cannot use the application database. Point CUTTLELY_POSTGRES_URL or the Postgres URL credential at a separate database.
+> Postgres (MCP) cannot use the application database. Point CUTTLELY_POSTGRES_URL or the Postgres URL credential at a separate database.
 
 The rest of the app still starts.
 
@@ -602,7 +630,7 @@ The rest of the app still starts.
 
 If the application user cannot create roles, analyst mode stops. It does not connect as that user. `GET /api/v1/ping` still returns `pong`.
 
-Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Available Actions**. The description is:
+Refresh **Tools it can use** on the Postgres (MCP) node. The list says **No Available Actions**. The description is:
 
 > Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.
 
@@ -622,7 +650,7 @@ The second one is `analyst-role.enc` unreadable, or the credential key no longer
 
 Percent-encode reserved characters in a URL password (`!`, `@`, `#`, `%`, `+`, and the others). A password left raw is refused, because Cuttlely cannot check that URL against the application database:
 
-> PostgreSQL MCP refused a database URL it could not check against the application database.
+> Postgres (MCP) refused a database URL it could not check against the application database.
 
 Encode the password, restart, and select **QUERY** again.
 
@@ -630,11 +658,11 @@ Encode the password, restart, and select **QUERY** again.
 
 **Harness name is not valid.** Save `chief-of-staff`, not the template title. The id is a letter, then letters, numbers, `_`, or `-`.
 
-**The node runs nothing.** Select **QUERY** under **Available Actions** and save. An empty action list means the `query` tool is filtered out.
+**The node runs nothing.** Select **QUERY** under **Tools it can use** and save. An empty action list means the `query` tool is filtered out.
 
 **Cuttlely refused this query: it reads ..., which this node's table selection does not include.** The statement reads a relation that is not ticked on the node. Tick it, or point the analyst at a ticked view that covers it. [Pick the tables and views the analyst sees](#pick-the-tables-and-views-the-analyst-sees).
 
-**Every query is refused with this database login has no TEMP privilege on the database.** `TEMP` was revoked from the login. Run `GRANT TEMPORARY ON DATABASE <database> TO <role>`. Clearing the selection helps only outside the PostgreSQL MCP node, whose routine check needs the temporary view too. [How the selection is enforced](#how-the-selection-is-enforced).
+**Every query is refused with this database login has no TEMP privilege on the database.** `TEMP` was revoked from the login. Run `GRANT TEMPORARY ON DATABASE <database> TO <role>`. Clearing the selection helps only outside the Postgres (MCP) node, whose routine check needs the temporary view too. [How the selection is enforced](#how-the-selection-is-enforced).
 
 **Every query is refused with the database is a read-only standby.** The credential points at a read replica (hot standby), where the check cannot create its temporary view. Point it at the primary. A role that only defaults to read-only transactions does not cause this.
 
@@ -644,9 +672,9 @@ Encode the password, restart, and select **QUERY** again.
 
 **No Available Actions, and the description is the create-roles sentence.** The application user cannot create roles. Use a separate database. [Fail closed](#fail-closed).
 
-**PostgreSQL MCP cannot use the application database.** The credential or `CUTTLELY_POSTGRES_URL` names the same database as `DATABASE_*`. Point it somewhere else.
+**Postgres (MCP) cannot use the application database.** The credential or `CUTTLELY_POSTGRES_URL` names the same database as `DATABASE_*`. Point it somewhere else.
 
-**PostgreSQL MCP refused a database URL it could not check.** Percent-encode the password. [Passwords in URLs](#passwords-in-urls).
+**Postgres (MCP) refused a database URL it could not check.** Percent-encode the password. [Passwords in URLs](#passwords-in-urls).
 
 **canceling statement due to statement timeout.** The statement ran longer than the query timeout (15 seconds unless you changed it). Shorten it, or raise **Query timeout** under **Admin** > **Server Settings** > **Analyst**. Postgres and SQLite both apply this timeout. [Row cap and query timeout](#row-cap-and-query-timeout).
 
@@ -666,11 +694,11 @@ Encode the password, restart, and select **QUERY** again.
 
 **The canvas chat says `init is not a function`.** The harness canvas chat and **Try it** must use the internal prediction route, not build the canvas as a chatflow. Reload the canvas. One Enter sends one message. The field stays disabled until that reply finishes.
 
-**The chat says the analyst tool is unavailable.** The agent runtime registered no analyst query tool. That happens when it lists tools before the harness gateway is up. `X-Cuttlely-Analyst` on `GET /api/v1/ping` is `missing` when the bridge recorded 0 tools, `ready` when it recorded at least one, and `unknown` when that status file has not been written. **Available Actions** says **Analyst tool unavailable** when the header is `missing`. Wait a few seconds and send the prompt again. The agent runtime retries the tool list. If the header stays `missing`, restart Cuttlely. The start script waits for the gateway before it starts the agent runtime.
+**The chat says the analyst tool is unavailable.** The agent runtime registered no analyst query tool. That happens when it lists tools before the harness gateway is up. `X-Cuttlely-Analyst` on `GET /api/v1/ping` is `missing` when the bridge recorded 0 tools, `ready` when it recorded at least one, and `unknown` when that status file has not been written. **Tools it can use** says **Analyst tool unavailable** when the header is `missing`. Wait a few seconds and send the prompt again. The agent runtime retries the tool list. If the header stays `missing`, restart Cuttlely. The start script waits for the gateway before it starts the agent runtime.
 
 **The chat says the analyst did not run the query.** The query tool was registered, and the specialist still answered a database question without calling it, including after one retry. That text is not a database result. The Runs chip is completed with errors. Send the prompt again. Specialist text from that skipped attempt is not streamed.
 
-**The chat says the analyst did not run a pinned query.** The specialist's PostgreSQL MCP nodes offer only pinned queries (**query** is unticked), and it answered a database question without calling a pin, including after one retry that named the pins. The failed step is named `pinned query`. That text is not a database result. Name the pin in the specialist instructions, or tick **query** if free SQL is acceptable.
+**The chat says the analyst did not run a pinned query.** The specialist's Postgres (MCP) nodes offer only pinned queries (**query** is unticked), and it answered a database question without calling a pin, including after one retry that named the pins. The failed step is named `pinned query`. That text is not a database result. Name the pin in the specialist instructions, or tick **query** if free SQL is acceptable.
 
 **MCP server 'analyst' rejected the last 3 calls.** That pause is for a transport or server failure, and it applies to the chat that hit the failures. A refusal (`Analyst mode refused`) and an ordinary SQL error (`no such table`, a syntax error) do not pause the tool. Send the query again in that chat after the pause, or use another chat.
 
@@ -688,7 +716,7 @@ Encode the password, restart, and select **QUERY** again.
 
 A tested pinned query is the first choice when it covers the business question. For a broader specialist that also uses trusted output contracts, a deliberate opt-in can handle a missing filter, grain or period without inventing a result:
 
-1. On PostgreSQL MCP, keep the selected relations and read-only limits, select **query**, and enable **Expose pinned SQL definitions**.
+1. On Postgres (MCP), keep the selected relations and read-only limits, select **query**, and enable **Let the analyst read saved query SQL**.
 2. On its specialist, choose **Allow verified read-only SQL fallback** for the unmapped output policy.
 3. Give the specialist rules to inspect `pin_definition` for the relevant tested SQL and preserve its metric, joins, dates, status, NULL and freshness semantics when adapting the query. Use `describe` only for unknown fields.
 4. Test the derived question and rewordings against independent SQL. Keep a matching pin on the direct path and keep explicit source restrictions binding.
