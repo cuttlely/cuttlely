@@ -53,12 +53,17 @@ export const estimateNodeSize = (data) => {
     return { width: ESTIMATE_WIDTH, height }
 }
 
-// React Flow's measured size, or the estimate.
-export const measuredSize = (node) => {
+// The room a card gets: the larger of React Flow's measured size and the template estimate, per side. Compact
+// cards measure much shorter than classic cards, and a saved layout can be opened in either mode, so the estimate
+// (sized for a classic card) leaves room for classic cards when the layout was tidied with compact ones.
+export const layoutSize = (node) => {
+    const estimate = estimateNodeSize(node?.data)
     const width = Number(node?.width)
     const height = Number(node?.height)
-    if (width > 0 && height > 0) return { width, height }
-    return estimateNodeSize(node?.data)
+    return {
+        width: width > 0 ? Math.max(width, estimate.width) : estimate.width,
+        height: height > 0 ? Math.max(height, estimate.height) : estimate.height
+    }
 }
 
 const isChief = (node) => node?.data?.name === 'harnessChief'
@@ -77,7 +82,7 @@ const byPosition = (a, b) => {
 }
 
 // tidyHarnessLayout(nodes, edges, sizeOf) -> Map<id, { x, y }> with a position for every top-level card.
-export function tidyHarnessLayout(nodes, edges, sizeOf = measuredSize) {
+export function tidyHarnessLayout(nodes, edges, sizeOf = layoutSize) {
     const cards = asArray(nodes).filter(isTopLevel)
     const byId = new Map(cards.map((node) => [String(node.id), node]))
     const sources = new Map()
@@ -200,7 +205,7 @@ const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
 
 // Tidy as one step with a one-level undo: { nodes, undo }. undo keeps each moved card's own `position` and
 // `positionAbsolute` values from before, and the positions Tidy set. undo is null when nothing moved.
-export function tidyStep(nodes, edges, sizeOf = measuredSize) {
+export function tidyStep(nodes, edges, sizeOf = layoutSize) {
     const list = asArray(nodes)
     const next = withPositions(list, tidyHarnessLayout(list, edges, sizeOf))
     const before = new Map()

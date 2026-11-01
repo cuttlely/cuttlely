@@ -3,7 +3,7 @@ import {
     TIDY_CLEARANCE,
     canUndoTidy,
     estimateNodeSize,
-    measuredSize,
+    layoutSize,
     positionSnapshot,
     tidyHarnessLayout,
     tidyStep,
@@ -58,7 +58,7 @@ const messy = () => ({
 const withoutPositions = (nodes) => nodes.map((node) => omit(node, ['position', 'positionAbsolute']))
 
 const overlaps = (nodes) => {
-    const boxes = nodes.filter((node) => !node.parentNode).map((node) => ({ id: node.id, ...node.position, ...measuredSize(node) }))
+    const boxes = nodes.filter((node) => !node.parentNode).map((node) => ({ id: node.id, ...node.position, ...layoutSize(node) }))
     const hits = []
     for (let i = 0; i < boxes.length; i += 1) {
         for (let j = i + 1; j < boxes.length; j += 1) {
@@ -129,10 +129,20 @@ describe('tidyHarnessLayout', () => {
         expect(positionSnapshot(tidyStep(cloneDeep(once), flow.edges).nodes)).toEqual(positionSnapshot(once))
     })
 
-    it('uses the template size estimate for a card React Flow has not measured', () => {
+    it('gives each card the larger of its measured size and the template estimate', () => {
         const node = { id: 'a', data: { inputParams: [{ type: 'string' }], inputAnchors: [{}], outputAnchors: [{}] } }
-        expect(measuredSize(node)).toEqual(estimateNodeSize(node.data))
-        expect(measuredSize({ ...node, width: 280, height: 130 })).toEqual({ width: 280, height: 130 })
+        const estimate = estimateNodeSize(node.data)
+        expect(layoutSize(node)).toEqual(estimate)
+        expect(layoutSize({ ...node, width: 280, height: 130 })).toEqual(estimate)
+        expect(layoutSize({ ...node, width: 900, height: 1500 })).toEqual({ width: 900, height: 1500 })
+    })
+
+    it('keeps a layout tidied with short compact cards clear of overlaps at the classic size', () => {
+        const flow = messy()
+        const compact = flow.nodes.map((node) => (node.parentNode ? node : { ...node, width: 240, height: 90 }))
+        const tidied = tidyStep(compact, flow.edges).nodes
+        const classic = tidied.map((node) => omit(node, ['width', 'height']))
+        expect(overlaps(classic)).toEqual([])
     })
 })
 
