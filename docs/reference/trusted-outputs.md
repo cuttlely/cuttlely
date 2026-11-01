@@ -88,7 +88,7 @@ For author QA, add `"interpretationDiagnostics": true` to a matching **Markdown*
 }
 ```
 
-Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number` rejection with at most eight deduplicated numeric literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
+Use the report's actual tested hash. Diagnostics are collected only when that configured pin is captured during protected interpretation. They identify an existing `unsupported_number` or `unsupported_duration` rejection with at most eight deduplicated numeric literals, a whitelisted unit or compact suffix when present, and a fixed context type. Each literal and unit is bounded to 80 characters. Records contain no whole draft, surrounding prose, source note body or environment dump. The checks, accepted answers and omission decisions do not change; this option does not make an unsupported claim acceptable. Publish-check replay does not record diagnostics.
 
 After the run, a signed-in harness author can request:
 
@@ -205,3 +205,5 @@ When present, bounded source-owned `metric_label`, `metric_definition`, `date_ba
 A protected PNG or CSV produced through a Harness card during Compare/publish-check replay is returned as an in-memory data-URI preview. It writes no chat files and sends no successful user download event. The renderer labels its own caption **Preview file … (not saved to chat)**; authoritative source sections are never searched or rewritten. Cancellation and the original turn deadline still apply. Ordinary unprotected replay behavior is unchanged.
 
 Compare currently evaluates answer text, not artifact contents or downloads. Use a normal canvas chat or API canary to download the actual file and inspect its rows, labels and source values before relying on a file-producing configuration. A successful preview does not replace that artifact check.
+
+Timestamp interpretation preserves the captured instant and its available precision. Equivalent ISO, UTC and explicit-offset displays may omit fractional seconds or seconds; they cannot invent a clock, zone or greater precision. Clock components do not authorize unrelated business quantities. The single tool-free repair shares its existing total evidence budget across actual captures, so a single full report can retain more of its captured context. Recommendations cannot introduce unsupported numeric targets or durations.

@@ -1095,6 +1095,33 @@ test('a still-invalid repair is rejected after one attempt and retains source ou
     assert.equal(out.calls.length, 1)
 })
 
+test('single-source repair retains substantive evidence after the first hundred scalar fields', async () => {
+    const result = {
+        rows: [
+            {
+                scope: 'Verified scope.',
+                report: 'EXACT SOURCE REPORT',
+                measurements: Array.from({ length: 140 }, (_, index) => ({ observed: index })),
+                notes: 'Procurement approval remains pending; confirm the decision owner.'
+            }
+        ]
+    }
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result,
+        prose: 'There is an unsupported loss of $99999999 and the owner should investigate this commercial issue.',
+        repairProse:
+            'Procurement approval remains pending in the returned notes. Confirm the decision owner before treating approval as final.'
+    })
+    const repair = out.prompts.find((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(repair)
+    const packet = JSON.parse(repair[1].content)
+    assert(packet.evidence[0].sourceEvidence.some((item) => item.value === result.rows[0].notes))
+    assert(out.payload.text.includes('Procurement approval remains pending'))
+    assert.equal(out.calls.length, 1)
+})
+
 test('a later specialist turn receives every source-backed selected key beyond the transcript clip', async () => {
     const records = Array.from({ length: 30 }, (_, i) => ({ ticket_id: `ticket-${i}`, name: `Example ticket ${i}` }))
     const report =

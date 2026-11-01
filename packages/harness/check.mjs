@@ -286,7 +286,8 @@ const adaptiveEvidenceTests = spawnSync(
         path.join(root, 'packages/harness/history.test.mjs'),
         path.join(root, 'packages/harness/source-answer-fallback.test.mjs'),
         path.join(root, 'packages/harness/answer-context.test.mjs'),
-        path.join(root, 'packages/harness/routing-sources.test.mjs')
+        path.join(root, 'packages/harness/routing-sources.test.mjs'),
+        path.join(root, 'packages/harness/clarification.test.mjs')
     ],
     { encoding: 'utf8', timeout: 60000 }
 )

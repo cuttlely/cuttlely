@@ -39,6 +39,47 @@ const calendarSource = {
 }
 const calendarIssues = (claim, evidence = calendarSource) => protectedInterpretationIssues(useful + ' ' + claim, [evidence], [], '$')
 
+test('timestamp displays retain the source instant and cannot invent precision or business quantities', () => {
+    const evidence = [{ rows: [{ source_as_of: '2032-05-03T19:52:24.315Z' }] }]
+    for (const timestamp of [
+        '2032-05-03 19:52:24 UTC',
+        'May 3, 2032 at 19:52 UTC',
+        '2032-05-03T19:52:24.315+00:00',
+        '2032-05-03 21:52:24+02:00'
+    ])
+        assert.deepEqual(protectedLiteralIssues('Source as of ' + timestamp + '.', evidence), [], timestamp)
+    for (const timestamp of [
+        '2032-05-03 19:52:25 UTC',
+        '2032-05-04 19:52:24 UTC',
+        '2032-05-03 19:52:24+02:00',
+        '2032-05-03T19:52:24.3151Z',
+        '2032-05-03T99:52:24Z',
+        '2032-05-03T19:52:24+00:99'
+    ])
+        assert(protectedLiteralIssues('Source as of ' + timestamp + '.', evidence).length, timestamp)
+    assert(protectedLiteralIssues('There are 19 accounts.', evidence).includes('unsupported_number'))
+    assert(
+        protectedLiteralIssues('There are 19 accounts.', [{ rows: [{ observed: '2032-05-03 19:52:24 UTC' }] }]).includes(
+            'unsupported_number'
+        )
+    )
+    assert(
+        protectedLiteralIssues('Source as of 2032-05-03 19:52 UTC.', [{ rows: [{ day: '2032-05-03', count: 19, other: 52 }] }]).includes(
+            'unsupported_timestamp'
+        )
+    )
+    assert(
+        protectedLiteralIssues('Source as of 2032-05-03 19:52:00 UTC.', [{ rows: [{ observed: '2032-05-03 19:52 UTC' }] }]).includes(
+            'unsupported_timestamp'
+        )
+    )
+    assert(
+        protectedLiteralIssues('Source as of 2032-05-03 19:52 UTC.', [{ rows: [{ observed: '2032-05-03 19:52' }] }]).includes(
+            'unsupported_timestamp'
+        )
+    )
+})
+
 test('explicit-year day-first and month-first dates preserve the same actual source date', () => {
     for (const date of ['3 May 2032', '3May2032', 'May 3, 2032', '3rd May, 2032']) {
         assert.deepEqual(calendarIssues('The recorded date is ' + date + '.'), [], date)
@@ -185,6 +226,12 @@ test('duration abbreviations and typed duration fields preserve quantity and dim
             'unsupported_duration'
         )
     )
+    const diagnostics = []
+    protectedInterpretationIssues(useful + ' The gap spans 181 days.', [evidence], [], undefined, {
+        diagnostics: true,
+        onDiagnostic: (claim) => diagnostics.push(claim)
+    })
+    assert(diagnostics.some((claim) => claim.issue === 'unsupported_duration' && claim.literal === '181' && claim.unit === 'day'))
 })
 
 test('word-scale money uses the existing typed denomination, sign and rounding protections', () => {

@@ -121,7 +121,8 @@ test('private storage retains each supported numeric diagnostic context without 
         { ...claim('2.5'), unit: 'million', contextType: 'word_scale_monetary' },
         { ...claim('+2,500'), unit: 'USD' },
         { ...claim('7'), unit: '%' },
-        { ...claim('8'), unit: '€' }
+        { ...claim('8'), unit: '€' },
+        { ...claim('9'), issue: 'unsupported_duration', unit: 'day', contextType: 'duration' }
     ]
     finishHarnessRun(pending, { result, diagnostics: claims })
     assert.deepEqual(getRunDiagnostics(pending.harness, pending.id).claims, claims)

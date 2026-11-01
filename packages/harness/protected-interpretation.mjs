@@ -294,7 +294,7 @@ function dateSpans(value) {
         namedDate(m[5], m[2], m[1]),
         namedDate(m[5], m[4], m[3])
     ])
-    add(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?:T[\d:.+-]+Z?)?(?!\d)/g, (m) => [isoDate(m[1], m[2], m[3])])
+    add(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g, (m) => [isoDate(m[1], m[2], m[3])])
     add(bounded(`${month}\\s*${day}${year}`), (m) => [namedDate(m[3], m[1], m[2])])
     add(bounded(`${day}\\s*${month}${monthYear}`), (m) => [namedDate(m[3], m[2], m[1])])
     return spans.sort((a, b) => a.start - b.start)
@@ -302,6 +302,47 @@ function dateSpans(value) {
 
 function dateLiterals(text) {
     return dateSpans(text).flatMap((span) => span.dates)
+}
+
+// Timestamps are typed witnesses, not a collection of reusable business numbers.
+// A display may omit source precision, but cannot invent precision, a clock or a zone.
+function timestampSpans(text) {
+    const spans = []
+    for (const date of dateSpans(text)) {
+        if (date.dates.length !== 1) continue
+        const clock =
+            /^(?:T|[ \t]+(?:at[ \t]+)?)(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:[ \t]*(Z|UTC|[+-]\d{2}(?::?\d{2})?))?(?!\d|:\d|\.\d)/i.exec(
+                text.slice(date.end)
+            )
+        if (!clock) continue
+        const [, hour, minute, second, fraction = '', zone] = clock
+        const offset = zone && !/^(?:Z|UTC)$/i.test(zone) ? zone.slice(1).replace(':', '') : '0000'
+        const offsetHour = Number(offset.slice(0, 2))
+        const offsetMinute = Number(offset.slice(2) || 0)
+        const valid =
+            date.dates[0] && Number(hour) < 24 && Number(minute) < 60 && Number(second || 0) < 60 && offsetHour < 24 && offsetMinute < 60
+        const wall = valid
+            ? BigInt(Date.parse(`${date.dates[0]}T${hour}:${minute}:${second || '00'}Z`)) * 1000000n + BigInt(fraction.padEnd(9, '0'))
+            : undefined
+        const offsetNs = BigInt((offsetHour * 60 + offsetMinute) * (zone?.startsWith('-') ? -1 : 1)) * 60000000000n
+        spans.push({
+            start: date.start,
+            end: date.end + clock[0].length,
+            wall,
+            instant: wall === undefined ? undefined : wall - offsetNs,
+            zoned: Boolean(zone),
+            precision: second === undefined ? 60000000000n : 10n ** BigInt(9 - fraction.length)
+        })
+    }
+    return spans
+}
+
+function timestampMatches(claim, source) {
+    if (claim.wall === undefined || source.wall === undefined || source.precision > claim.precision || (claim.zoned && !source.zoned))
+        return false
+    const expected = claim.zoned ? claim.instant : claim.wall
+    const actual = claim.zoned ? source.instant : source.wall
+    return actual - (((actual % claim.precision) + claim.precision) % claim.precision) === expected
 }
 
 const currencyCodes = new Set(
@@ -509,7 +550,16 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
             })
         )
         .join('\n')
-    const numbers = new Set(numberLiterals(text))
+    const quantityText = evidence
+        .map((item) => {
+            const value = String(item.value ?? '')
+            return timestampSpans(value).reduceRight(
+                (masked, span) => masked.slice(0, span.start) + ' '.repeat(span.end - span.start) + masked.slice(span.end),
+                value
+            )
+        })
+        .join('\n')
+    const numbers = new Set(numberLiterals(quantityText))
     const durations = new Set(durationLiterals(text).map((item) => item.key))
     for (const item of evidence) {
         const unit = (item.column || item.path.split('.').at(-1)).match(
@@ -518,6 +568,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
         if (unit && /^\d+(?:\.\d+)?$/.test(String(item.value))) durations.add(durationKey(item.value, unit))
     }
     const dates = new Set(dateLiterals(text))
+    const timestamps = evidence.flatMap((item) => timestampSpans(String(item.value ?? '')))
     const currencies = new Set()
     const percentages = new Set()
     const historicalDates = new Set()
@@ -625,6 +676,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
         numbers,
         durations,
         dates,
+        timestamps,
         currencies,
         reportingCurrencySymbol: reporting,
         monetary,
@@ -698,9 +750,9 @@ function durationLiterals(text) {
 function numericDiagnosticSink(options) {
     if (options?.diagnostics !== true || typeof options.onDiagnostic !== 'function') return undefined
     const seen = new Set()
-    return (literal, unit = '', contextType = 'number') => {
+    return (literal, unit = '', contextType = 'number', issue = 'unsupported_number') => {
         if (seen.size >= 8) return
-        const record = { issue: 'unsupported_number', literal: String(literal).slice(0, 80), unit: String(unit).slice(0, 80), contextType }
+        const record = { issue, literal: String(literal).slice(0, 80), unit: String(unit).slice(0, 80), contextType }
         const key = JSON.stringify(record)
         if (seen.has(key)) return
         seen.add(key)
@@ -807,16 +859,24 @@ function literalIssues(text, facts, diagnostic) {
         .replace(/(?<![\p{L}\p{N}_])([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s+(thousand|million|billion)\b/giu, (whole, value, scale) =>
             facts.reportingCurrencySymbol ? value + { thousand: 'K', million: 'M', billion: 'B' }[scale.toLowerCase()] : whole
         )
-    const spans = dateSpans(claims)
+    const timestampMasked = timestampSpans(claims).reduceRight((value, span) => {
+        if (!facts.timestamps.some((source) => timestampMatches(span, source))) issues.push('unsupported_timestamp')
+        return value.slice(0, span.start) + ' '.repeat(span.end - span.start) + value.slice(span.end)
+    }, claims)
+    const spans = dateSpans(timestampMasked)
     const claimDates = spans.flatMap((span) => span.dates)
     if (claimDates.some((date) => !date || !facts.dates.has(date))) issues.push('unsupported_date')
     // Normalize human-form dates before checking remaining numeric literals.
     const dateMasked = spans.reduceRight(
         (value, span) => value.slice(0, span.start) + ' '.repeat(span.end - span.start) + value.slice(span.end),
-        claims
+        timestampMasked
     )
     const durationMasked = durationLiterals(dateMasked).reduceRight((value, item) => {
-        if (!facts.durations.has(item.key)) issues.push('unsupported_duration')
+        if (!facts.durations.has(item.key)) {
+            issues.push('unsupported_duration')
+            const [literal, unit] = item.key.split(':')
+            diagnostic?.(literal, unit, 'duration', 'unsupported_duration')
+        }
         return value.slice(0, item.start) + ' '.repeat(item.length) + value.slice(item.start + item.length)
     }, dateMasked)
     const compactMasked = facts.reportingCurrencySymbol ? compactClaims(durationMasked, facts, issues, diagnostic) : durationMasked
