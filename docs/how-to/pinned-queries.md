@@ -23,7 +23,7 @@ While the flag is off, a node that has no pins keeps today's free SQL. Turning t
 On the **Postgres (MCP)** node, open **Pinned queries** and choose **Add**.
 
 1. Paste one `SELECT` or `WITH` statement. Use `:name` for each parameter, for example `:month`.
-2. Write a one-line purpose. The tool name starts as `pq_` plus a slug taken from that purpose. The `pq_` prefix is fixed and is not editable. The rest is letters, digits, and underscores. The whole name is at most 64 characters.
+2. Write a one-line **Title**. The **Tool name** starts as `pq_` plus a slug taken from that title. The `pq_` prefix is fixed and is not editable. The rest is letters, digits, and underscores. The whole name is at most 64 characters.
 3. Each `:name` becomes a row in the parameter table. A type Postgres can infer is suggested. If it cannot infer one, you pick it. The suggestion never quietly becomes `text`.
 4. Parameters are required unless you say otherwise. Description, default, allowed values, and min/max sit under **Advanced**.
 5. **Test & save** runs the statement with the sample values you typed, through the same guard and the same connection the specialist will use. When it passes, the server stores a tested stamp.
@@ -62,7 +62,7 @@ The credential, the ticked tables and views, and the allowed functions are the n
 
 ## Find a pin in a long list
 
-Each pin shows its purpose as the title and its tool name, such as `pq_sales_by_region`, under it. The count next to **Pinned queries** is a badge, and **Crowded** appears beside it when the pins on all the Postgres (MCP) cards wired to the same specialist add up to enough to crowd its tool list. Select **Crowded** to read the reason.
+Each pin shows its title and its tool name, such as `pq_sales_by_region`, under it. The count next to **Pinned queries** is a badge, and **Crowded** appears beside it when the pins on all the Postgres (MCP) cards wired to the same specialist add up to enough to crowd its tool list. Select **Crowded** to read the reason.
 
 A list of more than 8 pins starts folded. Type in the search box to find pins by title or tool name, or select **Pinned queries** to open the whole list. **To re-test** shows only the pins marked **Needs re-test**. **Edit** opens the pin in a dialog. The pins are saved in the same `pinnedQueries` field as before.
 

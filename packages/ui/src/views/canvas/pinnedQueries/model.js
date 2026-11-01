@@ -3,7 +3,7 @@ export const PARAM_TYPES = ['text', 'int8', 'numeric', 'date', 'timestamp', 'tim
 export const FREE_SQL_LABEL = 'Allow free SQL (query + describe)'
 
 export const FREE_SQL_NUDGE =
-    'With free SQL on, the agent usually picks a pinned query when it fits. To make it use only pinned queries, untick Query and Describe table.'
+    'With free SQL on, the agent usually picks a pinned query when it fits. To make it use only pinned queries, untick QUERY and DESCRIBE.'
 
 export const PIN_WARN_AT = 8
 

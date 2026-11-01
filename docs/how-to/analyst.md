@@ -95,7 +95,7 @@ The badge asks the server and shows one of these:
 
 When the server cannot answer, the badge is not shown. When a list on the card cannot load, a yellow note under the field says why, with **Retry**.
 
-When the tool is wired to a Harness Specialist, the tool card says **Used by:** and the specialist's name, and the specialist card says **Data: Postgres (MCP)**. If that specialist has no connection and the server says **Not connected**, the specialist card also says `Analyst is turned off on this server`. These notes come from the wires on the canvas and are never saved. The tool card itself never shows that note.
+When the tool is wired to a Harness Specialist, the tool card says **Used by:** and the specialist's name, and the specialist card says **Data: Postgres (MCP)**. If that specialist has no connection and the server says **Not connected**, the specialist card also says **Not connected.**, with a line on how to choose a connection. These notes come from the wires on the canvas and are never saved. The tool card itself never shows that note.
 
 The labels are display only. The saved node keeps its name (`postgreSQLMCP`), its field names (`credential`, `mcpActions`, `analystRelations`, `analystRules`, `analystRowCap`, `analystTimeoutSeconds`, `analystAllowedFunctions`, `allowPinDefinitions`, `pinnedQueries`) and its saved values. A harness saved before this change opens, runs and saves the same. A field's help text ends with the earlier label, for example `Saved as "Available Actions".` Some screenshots on this page show the earlier labels: **PostgreSQL MCP**, **Connect Credential**, **Available Actions**, **Rules**, **Row cap**, **Query timeout (seconds)** and **Expose pinned SQL definitions**.
 
@@ -216,7 +216,9 @@ To leave row values out of new traces, turn off **Query previews in the run trac
 
 A chip for a create, an insert, or a failed statement has no preview.
 
-Chips use plain names: **Query · 4 rows**, **Describe table**, **List tables**, **Read saved query SQL**, or **Saved query:** and the pin name. Hover a chip to see the tool name the trace stores, such as `mcp__analyst__query`. Above the preview table, **Show SQL** shows the statement when the trace has it, **Copy** copies the rows as tab-separated text, and **CSV** downloads them as a file. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` in the copied text and in the CSV, so a spreadsheet reads it as text.
+Analyst chips use plain names: **Query · 4 rows**, **Describe table**, **List tables**, **Read saved query SQL**, or **Saved query:** and the pin name. A tool from any other MCP server shows its server and tool name, such as **demo_tracker · search**. Hover a chip to see the tool name the trace stores, such as `mcp__analyst__query`.
+
+Above the preview table, **Show SQL** shows the statement the trace kept. The trace keeps up to 4 KB of it. When it was cut, a line under it says **SQL cut at 4 KB.**, or that it was cut shorter to fit the run record. **Copy** copies the table shown as tab-separated text, and **CSV** downloads it as a file. The run card keeps only a preview of each query: up to 5 rows and 4 columns, with long values cut and ending in `…`. When the preview left anything out, the buttons read **Copy preview** and **Preview CSV**, and the file is `query-preview.csv`. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` in the copied text and in the CSV, so a spreadsheet reads it as text. A plain number such as `-120.5` is left as it is.
 
 The row cap itself is the **Row cap** rule under [Safety](#safety). The default is 100 rows and the server never uses more than 1000. The trace and the page line are also covered in [Harnesses](./harnesses.md).
 
@@ -633,7 +635,7 @@ The rest of the app still starts.
 
 If the application user cannot create roles, analyst mode stops. It does not connect as that user. `GET /api/v1/ping` still returns `pong`.
 
-Refresh **Tools it can use** on the Postgres (MCP) node. The list says **No Available Actions**. The description is:
+Refresh **Tools it can use** on the Postgres (MCP) node. The list says **Could not list tools**. The description is:
 
 > Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.
 
@@ -673,7 +675,7 @@ Encode the password, restart, and select **QUERY** again.
 
 **Create or insert fails, and the action says read-only.** `CUTTLELY_POSTGRES_URL` or a Postgres URL credential is set. That path is `Run a read-only SQL query`. Unset both to use auto storage, or point them at a database you only want to read.
 
-**No Available Actions, and the description is the create-roles sentence.** The application user cannot create roles. Use a separate database. [Fail closed](#fail-closed).
+**Could not list tools, and the description is the create-roles sentence.** The application user cannot create roles. Use a separate database. [Fail closed](#fail-closed).
 
 **PostgreSQL MCP cannot use the application database.** The credential or `CUTTLELY_POSTGRES_URL` names the same database as `DATABASE_*`. Point it somewhere else.
 

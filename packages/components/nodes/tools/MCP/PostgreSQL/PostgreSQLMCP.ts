@@ -451,7 +451,7 @@ class PostgreSQL_MCP implements INode {
                             label: 'Analyst tool unavailable',
                             name: 'error',
                             description:
-                                'Hermes has not registered the analyst query tool. The gateway was not answering when Hermes listed tools. Wait a few seconds and refresh Available Actions, or restart Cuttlely.'
+                                'Hermes has not registered the analyst query tool. The gateway was not answering when Hermes listed tools. Wait a few seconds and refresh Tools it can use, or restart Cuttlely.'
                         }
                     ]
                 }
@@ -468,7 +468,7 @@ class PostgreSQL_MCP implements INode {
                 console.error('Error listing actions:', message)
                 return [
                     {
-                        label: 'No Available Actions',
+                        label: 'Could not list tools',
                         name: 'error',
                         description: message.slice(0, 300)
                     }

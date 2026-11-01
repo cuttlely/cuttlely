@@ -66,6 +66,6 @@ describe('analyst mode lookup', () => {
         expect(MODE_TEXT.sandbox.badge).toBe('Sandbox.')
         expect(MODE_TEXT.readonly.detail).not.toMatch(/analyst/i)
         expect(MODE_TEXT.unavailable.detail).not.toMatch(/analyst/i)
-        expect(ANALYST_OFF_NOTE).toBe('Analyst is turned off on this server.')
+        expect(ANALYST_OFF_NOTE).toBe('Not connected.')
     })
 })

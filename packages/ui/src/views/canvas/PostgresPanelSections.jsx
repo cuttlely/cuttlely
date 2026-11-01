@@ -27,7 +27,12 @@ export const ModeBadge = ({ mode, loading, onRetry }) => {
             sx={{ mx: 2, mt: 1, py: 0 }}
             action={
                 (mode === 'unavailable' || mode === 'invalid') && onRetry ? (
-                    <Button color='inherit' size='small' onClick={onRetry}>
+                    <Button
+                        color='inherit'
+                        size='small'
+                        onClick={onRetry}
+                        sx={{ whiteSpace: 'nowrap', flexShrink: 0, textTransform: 'none' }}
+                    >
                         Check again
                     </Button>
                 ) : null

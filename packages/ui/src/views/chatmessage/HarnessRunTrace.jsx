@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { friendlyChipLabel, friendlyToolName, tableCsv, tableText } from '@/utils/traceChips'
+import { analystServers, exportText, friendlyChipLabel, friendlyToolName, sqlCutNote, tableCsv, tableText } from '@/utils/traceChips'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 import { alpha, useTheme } from '@mui/material/styles'
@@ -104,12 +104,12 @@ const smallButton = {
     whiteSpace: 'nowrap'
 }
 
-function downloadCsv(view) {
+function downloadCsv(view, file) {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
     const url = URL.createObjectURL(new Blob([tableCsv(view)], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = 'query-rows.csv'
+    link.download = file
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 0)
 }
@@ -143,17 +143,20 @@ function copyWithSelection(text) {
     return done
 }
 
-export function QueryRows({ view, question, sql }) {
+// Copy and CSV export the table as shown. When the preview was cut, the buttons and the file name say so.
+export function QueryRows({ view, question, sql, sqlTruncated }) {
     const [showSql, setShowSql] = useState(false)
     const [copied, setCopied] = useState('')
+    const words = exportText(view)
+    const sqlNote = sqlCutNote(sql, sqlTruncated)
     const copy = async () => {
         const text = tableText(view)
         try {
             if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
             else if (!copyWithSelection(text)) throw new Error('copy unavailable')
-            setCopied('Rows copied.')
+            setCopied(words.copied)
         } catch {
-            setCopied(copyWithSelection(text) ? 'Rows copied.' : 'Could not copy. Select the table and copy it instead.')
+            setCopied(copyWithSelection(text) ? words.copied : 'Could not copy. Select the table and copy it instead.')
         }
     }
     return (
@@ -167,11 +170,11 @@ export function QueryRows({ view, question, sql }) {
                         {showSql ? 'Hide SQL' : 'Show SQL'}
                     </Box>
                 ) : null}
-                <Box component='button' type='button' sx={smallButton} onClick={copy}>
-                    Copy
+                <Box component='button' type='button' sx={smallButton} data-testid='rows-copy' onClick={copy}>
+                    {words.copy}
                 </Box>
-                <Box component='button' type='button' sx={smallButton} onClick={() => downloadCsv(view)}>
-                    CSV
+                <Box component='button' type='button' sx={smallButton} data-testid='rows-csv' onClick={() => downloadCsv(view, words.file)}>
+                    {words.csv}
                 </Box>
                 <Typography variant='caption' color='text.secondary' role='status' aria-live='polite'>
                     {copied}
@@ -185,6 +188,11 @@ export function QueryRows({ view, question, sql }) {
                 >
                     {sql}
                 </Box>
+            ) : null}
+            {sqlNote && (showSql || !sql) ? (
+                <Typography variant='caption' color='text.secondary' component='p' data-testid='trace-sql-cut' sx={{ mb: 0.5 }}>
+                    {sqlNote}
+                </Typography>
             ) : null}
             <Box sx={{ maxHeight: 320, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                 <Box component='table' sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
@@ -248,7 +256,8 @@ export function QueryRows({ view, question, sql }) {
 QueryRows.propTypes = {
     view: PropTypes.object,
     question: PropTypes.string,
-    sql: PropTypes.string
+    sql: PropTypes.string,
+    sqlTruncated: PropTypes.bool
 }
 
 export function previousUserQuestion(messages, index) {
@@ -350,6 +359,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                     const toolCount = specialist.tools?.length || 0
                     const rowViews = (specialist.tools || []).map((tool) => analystStepView(tool))
                     const openRows = rowViews.findIndex((view, index) => view && rowsKey === `${specialist.name}:${index}`)
+                    const servers = analystServers(specialist.tools, specialist.name)
                     return (
                         <Box key={specialist.name}>
                             <Box
@@ -404,7 +414,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                                                 const view = rowViews[index]
                                                 const key = `${specialist.name}:${index}`
                                                 const expandable = Boolean(view?.rows?.length)
-                                                const countLabel = friendlyChipLabel(tool, view)
+                                                const countLabel = friendlyChipLabel(tool, view, servers)
                                                 const fullName =
                                                     tool.status === 'retried' && tool.detail ? `${tool.name}: ${tool.detail}` : tool.name
                                                 const chipProps = {
@@ -441,13 +451,14 @@ const HarnessRunTrace = ({ trace, question }) => {
                                             view={rowViews[openRows]}
                                             question={asked}
                                             sql={typeof specialist.tools[openRows]?.sql === 'string' ? specialist.tools[openRows].sql : ''}
+                                            sqlTruncated={specialist.tools[openRows]?.sqlTruncated === true}
                                         />
                                     ) : null}
                                     {(specialist.tools || [])
                                         .filter((tool) => tool.status === 'retried' && tool.detail)
                                         .map((tool, index) => (
                                             <Typography key={`retried-${index}`} variant='caption' color='text.secondary'>
-                                                {`${friendlyToolName(tool.name)} was retried: ${tool.detail}`}
+                                                {`${friendlyToolName(tool.name, servers)} was retried: ${tool.detail}`}
                                             </Typography>
                                         ))}
                                     {specialist.sources?.length ? (

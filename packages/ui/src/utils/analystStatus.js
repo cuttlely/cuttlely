@@ -121,9 +121,9 @@ export function useAnalystOff(nodeId, nodes, edges) {
     return needsServer && off
 }
 
-export const ANALYST_OFF_NOTE = 'Analyst is turned off on this server.'
+export const ANALYST_OFF_NOTE = 'Not connected.'
 export const ANALYST_OFF_HINT =
-    'Its Postgres (MCP) tool has no credential, and the server has no Postgres URL or analyst storage. Choose a Postgres URL credential on the tool, or ask an admin to turn on Analyst storage. The saved harness is unchanged.'
+    'Its Postgres (MCP) tool has no database connection, and this server has no default database for it. Choose a database connection on the tool, or ask an admin to turn on Analyst storage. The saved harness is unchanged.'
 
 // The mode badge text in the panel's Data source group. 'unknown' has none, so nothing shows on a guess.
 export const MODE_TEXT = {

@@ -225,7 +225,7 @@ function PinEditor({
                 <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                     <Stack spacing={1.5}>
                         <label>
-                            Purpose
+                            Title
                             <input
                                 data-testid='purpose'
                                 style={inputStyle}
