@@ -2,8 +2,8 @@
 // JSON, transcript prose, SQL, credentials or derived business values are stored.
 const privateField =
     /(?:password|api_?key|credential|secret|token|authorization|connection_?string|testedStamp|sql|queryEvidence)|^_|^ready_|_markdown$/i
-const identifier = /(?:^|_)(?:id|uuid|key)$|(?:Id|UUID|Key)$/
-const label = /(?:^|_)(?:name|title|label)$|(?:Name|Title|Label)$/
+const identifier = { test: (key) => /(?:^|[\s_-])(?:id|uuid|key)$/i.test(key) || /(?:Id|ID|UUID|Key)$/.test(key) }
+const label = { test: (key) => /(?:^|[\s_-])(?:name|title|label)$/i.test(key) || /(?:Name|Title|Label)$/.test(key) }
 const scalar = (value) => value === null || ['string', 'number', 'boolean'].includes(typeof value)
 const safeField = (key) => !privateField.test(key) && !['__proto__', 'constructor', 'prototype'].includes(key)
 const packet = (value) => {
@@ -40,9 +40,20 @@ export function sourceRecordTables(body, { maxRows = 1000 } = {}) {
             const headers = value.headers
             if (headers.length <= 100 && headers.every((key) => typeof key === 'string') && new Set(headers).size === headers.length) {
                 const rows = value.complete_rows
-                if (rows.length <= maxRows && rows.every((row) => Array.isArray(row) && row.length === headers.length && row.every(scalar)))
+                if (
+                    rows.length <= maxRows &&
+                    rows.every((row) =>
+                        Array.isArray(row)
+                            ? row.length === headers.length && row.every(scalar)
+                            : row && typeof row === 'object' && headers.every((key) => Object.hasOwn(row, key) && scalar(row[key]))
+                    )
+                )
                     tables.push(
-                        rows.map((row) => Object.fromEntries(headers.filter(safeField).map((key) => [key, row[headers.indexOf(key)]])))
+                        rows.map((row) =>
+                            Object.fromEntries(
+                                headers.filter(safeField).map((key) => [key, Array.isArray(row) ? row[headers.indexOf(key)] : row[key]])
+                            )
+                        )
                     )
             }
         }

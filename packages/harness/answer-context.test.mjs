@@ -53,6 +53,25 @@ test('complete table packets and encoded cells use exact source keys without inv
     )
 })
 
+test('table envelopes accept header-keyed objects as well as positional arrays and human-readable ID headers', () => {
+    for (const headers of [
+        ['record_id', 'account_name'],
+        ['Record ID', 'Account Name']
+    ]) {
+        const packet = {
+            headers,
+            complete_rows: [
+                Object.fromEntries([
+                    [headers[0], 'R-2'],
+                    [headers[1], 'Example']
+                ])
+            ]
+        }
+        const selections = answerSelections(table(headers, [['R-2', 'Example']]), [source([{ packet }])])
+        assert.equal(selections[0].records[0][headers[0]], 'R-2')
+    }
+})
+
 test('ambiguous names, grains, fabricated rows and partial source matches never certify a selection', () => {
     const rows = [
         { item_id: 'I-1', name: 'Same' },
