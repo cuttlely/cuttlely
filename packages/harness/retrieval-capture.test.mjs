@@ -73,7 +73,7 @@ test('only cited retrieval-only guidance may accompany the exact protected repor
         { ...specialist, codeExecution: true },
         { ...specialist, shell: true },
         { ...specialist, fileAccess: true },
-        { modules: [{ nodeName: 'webBrowser' }] }
+        { modules: [{ nodeName: 'customTool' }] }
     ])
         assert.equal(citedRetrievedGuidance(role, guidance, [document]), null)
     assert.equal(citedRetrievedGuidance(specialist, guidance, []), null)
@@ -100,4 +100,46 @@ test('only cited retrieval-only guidance may accompany the exact protected repor
             { status: 'completed', text: 'Fabricated business data' }
         ]).includes('Fabricated business data')
     )
+})
+
+test('successful browser summaries supply exact visited URLs; failed calls and unrelated tools cannot create receipts', async () => {
+    const { executeModule } = await import('./bridge.mjs')
+    const run = async (nodeName, input, response) => {
+        let sources = []
+        const result = await executeModule({ nodeName, nodeId: 'browser-source', inputs: {} }, input, {
+            flowOptions: { appDataSource: {} },
+            onRetrievedSources: (docs) => {
+                sources = docs
+            },
+            loadNode: async () =>
+                class {
+                    async init() {
+                        return { name: 'browser', invoke: async () => response }
+                    }
+                }
+        })
+        return { result, sources }
+    }
+    const text = 'The fetched documentation describes authentication and mapped policies.'
+    const result = await run('webBrowser', '"https://example.org/docs/auth/", "summarize"', text)
+    assert.equal(result.result, text)
+    assert.deepEqual(result.sources, [{ pageContent: text, metadata: { source: 'https://example.org/docs/auth' } }])
+    assert(
+        citedRetrievedGuidance({ modules: [{ nodeName: 'webBrowser' }] }, '[Documentation](https://example.org/docs/auth)', result.sources)
+    )
+    assert.equal(
+        citedRetrievedGuidance(
+            { modules: [{ nodeName: 'webBrowser' }], codeExecution: true },
+            '[Documentation](https://example.org/docs/auth)',
+            result.sources
+        ),
+        null
+    )
+    for (const response of ['Error: http response 404', 'TypeError: fetch failed', 'There was a problem connecting to the site', '']) {
+        assert.deepEqual((await run('webBrowser', 'https://example.org/docs/auth', response)).sources, [])
+    }
+    for (const input of ['file:///tmp/private', 'https://user:secret@example.org/docs', 'not a URL']) {
+        assert.deepEqual((await run('webBrowser', input, text)).sources, [])
+    }
+    assert.deepEqual((await run('customTool', 'https://example.org/docs/auth', text)).sources, [])
 })
