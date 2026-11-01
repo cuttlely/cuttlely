@@ -88,7 +88,7 @@ The settings panel puts the fields in groups:
 
 The badge asks the server and shows one of these:
 
--   **Read-only database.** A connection is chosen on the card, or the server has `CUTTLELY_POSTGRES_URL`.
+-   **Read-only database.** A usable connection is chosen on the card, or the server has a usable `CUTTLELY_POSTGRES_URL`.
 -   **Sandbox.** No connection, and the server runs `CUTTLELY_ANALYST=auto`, so the analyst uses its own storage. **Tables and views** is not shown, because there is nothing to pick.
 -   **Connection not usable.** The Postgres URL on the connection or on the server is one a query would refuse, for example not a valid `postgres://` URL or the application database. Choose another connection.
 -   **Not connected.** No connection, and the server has neither. Choose a connection; the badge checks again by itself. **Check again** is there to retry after the server settings change or the check fails.
