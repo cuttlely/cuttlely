@@ -313,6 +313,22 @@ async function findModule<T>(fileName: string, missing: string) {
     throw new Error(missing)
 }
 
+// The analystMode answer from the run's own resolver. Only the one word leaves here, never a URL.
+function analystModeFrom(
+    resolve: AnalystPostgresModule['resolveAnalystConnection'],
+    input: { credentialUrl: string; analystUrl?: string; env: NodeJS.ProcessEnv }
+): INodeOptionsValue[] {
+    try {
+        const decision = resolve(input)
+        if (decision.kind === 'auto') return [{ label: 'Sandbox', name: 'sandbox' }]
+        return [{ label: 'Read-only database', name: 'readonly' }]
+    } catch {
+        const anyUrl = input.credentialUrl.trim() !== '' || String(input.analystUrl || '').trim() !== ''
+        if (anyUrl) return [{ label: 'Connection not usable', name: 'invalid' }]
+        return [{ label: 'Not set up', name: 'unavailable' }]
+    }
+}
+
 class PostgreSQL_MCP implements INode {
     label: string
     name: string
@@ -460,29 +476,27 @@ class PostgreSQL_MCP implements INode {
             }
         },
         // Read-only, for the canvas only: which database this node would read, as one word. It never connects to
-        // a database and never returns a URL. Same order as connection(): a credential's Postgres URL, then
-        // CUTTLELY_POSTGRES_URL, then CUTTLELY_ANALYST=auto (analystModeEnabled in analyst-postgres.mjs).
+        // a database and never returns a URL. It asks the same resolveAnalystConnection() a run uses: a
+        // credential's Postgres URL, then CUTTLELY_POSTGRES_URL, then CUTTLELY_ANALYST=auto. A URL that a run
+        // would refuse answers 'invalid'.
         analystMode: async (nodeData: INodeData, options: ICommonObject): Promise<INodeOptionsValue[]> => {
+            let configured: unknown = ''
+            let resolve: AnalystPostgresModule['resolveAnalystConnection']
             try {
                 const credentialId = typeof nodeData.credential === 'string' ? nodeData.credential.trim() : ''
-                let configured: unknown = ''
                 if (credentialId) {
                     const credentialData = await getCredentialData(credentialId, options)
                     configured = getCredentialParam('postgresUrl', credentialData, nodeData)
                 }
-                const hasUrl =
-                    (typeof configured === 'string' && configured.trim() !== '') ||
-                    String(process.env.CUTTLELY_POSTGRES_URL || '').trim() !== ''
-                if (hasUrl) return [{ label: 'Read-only database', name: 'readonly' }]
-                const auto =
-                    String(process.env.CUTTLELY_ANALYST || '')
-                        .trim()
-                        .toLowerCase() === 'auto'
-                if (auto) return [{ label: 'Sandbox', name: 'sandbox' }]
-                return [{ label: 'Not set up', name: 'unavailable' }]
+                resolve = (await loadAnalystPostgres()).resolveAnalystConnection
             } catch {
                 return [{ label: 'Unknown', name: 'unknown' }]
             }
+            return analystModeFrom(resolve, {
+                credentialUrl: typeof configured === 'string' ? configured : '',
+                analystUrl: process.env.CUTTLELY_POSTGRES_URL,
+                env: process.env
+            })
         },
         listRelations: async (nodeData: INodeData, options: ICommonObject): Promise<INodeOptionsValue[]> => {
             try {
@@ -885,4 +899,4 @@ class PostgreSQL_MCP implements INode {
     }
 }
 
-module.exports = { nodeClass: PostgreSQL_MCP, attestReadOnlyQueryResult }
+module.exports = { nodeClass: PostgreSQL_MCP, attestReadOnlyQueryResult, analystModeFrom }

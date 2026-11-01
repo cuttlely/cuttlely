@@ -15,6 +15,7 @@ describe('display labels', () => {
         expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP' })).toBe('Postgres (MCP)')
         expect(displayLabel({ name: 'postgreSQLMCP', label: 'Sales replica' })).toBe('Sales replica')
         expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP (1)' })).toBe('Postgres (MCP) (1)')
+        expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP (1) (2)' })).toBe('Postgres (MCP) (1) (2)')
         expect(displayLabel({ name: 'postgreSQLMCP', label: 'PostgreSQL MCP (copy)' })).toBe('PostgreSQL MCP (copy)')
         expect(displayLabel({ name: 'chatOpenAI', label: 'ChatOpenAI' })).toBe('ChatOpenAI')
     })

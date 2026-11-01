@@ -1,6 +1,7 @@
 // What the Postgres (MCP) tool will read, asked from the server's read-only analystMode lookup:
 // 'readonly' (a Postgres URL credential or the server's Postgres URL), 'sandbox' (the server's isolated
-// analyst storage), or 'unavailable' (neither is set up). Any failure, including an older server without the
+// analyst storage), 'invalid' (a Postgres URL is set but a run would refuse it), or 'unavailable' (neither is
+// set up). Any failure, including an older server without the
 // lookup, is 'unknown', and 'unknown' shows nothing. Display only: nothing here is saved or changes a run.
 import { useEffect, useState } from 'react'
 import axios from 'axios'
@@ -8,7 +9,7 @@ import { baseURL } from '@/store/constant'
 import { CREDENTIAL_INPUT } from '@/utils/canvasSave'
 import { POSTGRES_NODE, wiredPostgres } from '@/utils/nodeDisplayNames'
 
-export const ANALYST_MODES = ['sandbox', 'readonly', 'unavailable']
+export const ANALYST_MODES = ['sandbox', 'readonly', 'invalid', 'unavailable']
 
 // The canvas keeps a credential picked in this session in inputs[CREDENTIAL_INPUT] until it saves, and a loaded
 // node has it on data.credential.
@@ -135,6 +136,11 @@ export const MODE_TEXT = {
         severity: 'info',
         badge: 'Sandbox.',
         detail: 'No database connection is chosen, so the analyst uses its own storage on this server.'
+    },
+    invalid: {
+        severity: 'warning',
+        badge: 'Connection not usable.',
+        detail: 'The Postgres URL on the chosen connection or on the server is not one queries can use, for example it is not a valid postgres:// URL or it points at the application database. Choose another connection.'
     },
     unavailable: {
         severity: 'warning',

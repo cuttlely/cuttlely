@@ -4,7 +4,7 @@ import { Alert, Box, Button, Divider, Typography } from '@mui/material'
 
 import NodeInputHandler from './NodeInputHandler'
 import { MODEL_NOTE, fieldHint, postgresGroups, setCount } from '@/utils/postgresPanel'
-import { MODE_TEXT, notifyConnectionPicked, useAnalystMode } from '@/utils/analystStatus'
+import { MODE_TEXT, useAnalystMode } from '@/utils/analystStatus'
 
 // The mode the server would use for this card, read from the server, never guessed from text.
 export const ModeBadge = ({ mode, loading, onRetry }) => {
@@ -26,7 +26,7 @@ export const ModeBadge = ({ mode, loading, onRetry }) => {
             data-mode={mode}
             sx={{ mx: 2, mt: 1, py: 0 }}
             action={
-                mode === 'unavailable' && onRetry ? (
+                (mode === 'unavailable' || mode === 'invalid') && onRetry ? (
                     <Button color='inherit' size='small' onClick={onRetry}>
                         Check again
                     </Button>
@@ -125,10 +125,7 @@ const PostgresPanelSections = ({ node, readOnly = false }) => {
                                     data={data}
                                     isAdditionalParams={true}
                                     disabled={readOnly}
-                                    onCredentialSelect={() => {
-                                        redraw((value) => value + 1)
-                                        notifyConnectionPicked()
-                                    }}
+                                    onCredentialSelect={() => redraw((value) => value + 1)}
                                 />
                                 {fieldHint(inputParam.name) && (
                                     <Typography variant='caption' color='text.secondary' sx={{ display: 'block', px: 2, mt: -1, pb: 1 }}>

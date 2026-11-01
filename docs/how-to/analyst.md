@@ -90,6 +90,7 @@ The badge asks the server and shows one of these:
 
 -   **Read-only database.** A connection is chosen on the card, or the server has `CUTTLELY_POSTGRES_URL`.
 -   **Sandbox.** No connection, and the server runs `CUTTLELY_ANALYST=auto`, so the analyst uses its own storage. **Tables and views** is not shown, because there is nothing to pick.
+-   **Connection not usable.** The Postgres URL on the connection or on the server is one a query would refuse, for example not a valid `postgres://` URL or the application database. Choose another connection.
 -   **Not connected.** No connection, and the server has neither. Choose a connection; the badge checks again by itself. **Check again** is there to retry after the server settings change or the check fails.
 
 When the server cannot answer, the badge is not shown. When a list on the card cannot load, a yellow note under the field says why, with **Retry**.
@@ -215,7 +216,7 @@ To leave row values out of new traces, turn off **Query previews in the run trac
 
 A chip for a create, an insert, or a failed statement has no preview.
 
-Chips use plain names: **Query · 4 rows**, **Describe table**, **List tables**, **Read saved query SQL**, or **Saved query:** and the pin name. Hover a chip to see the tool name the trace stores, such as `mcp__analyst__query`. Above the preview table, **Show SQL** shows the statement when the trace has it, **Copy** copies the rows as tab-separated text, and **CSV** downloads them as a file. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` in the CSV so a spreadsheet reads it as text.
+Chips use plain names: **Query · 4 rows**, **Describe table**, **List tables**, **Read saved query SQL**, or **Saved query:** and the pin name. Hover a chip to see the tool name the trace stores, such as `mcp__analyst__query`. Above the preview table, **Show SQL** shows the statement when the trace has it, **Copy** copies the rows as tab-separated text, and **CSV** downloads them as a file. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` in the copied text and in the CSV, so a spreadsheet reads it as text.
 
 The row cap itself is the **Row cap** rule under [Safety](#safety). The default is 100 rows and the server never uses more than 1000. The trace and the page line are also covered in [Harnesses](./harnesses.md).
 

@@ -20,6 +20,7 @@ describe('analyst mode lookup', () => {
         expect(modeFrom([{ name: 'sandbox' }])).toBe('sandbox')
         expect(modeFrom([{ name: 'readonly' }])).toBe('readonly')
         expect(modeFrom([{ name: 'unavailable' }])).toBe('unavailable')
+        expect(modeFrom([{ name: 'invalid' }])).toBe('invalid')
         expect(modeFrom([{ name: 'error' }])).toBe('unknown')
         expect(modeFrom(undefined)).toBe('unknown')
     })
