@@ -78,6 +78,9 @@ export function trustedOutputContracts(value) {
                 if (entry.maxRows != null && (!Number.isInteger(entry.maxRows) || entry.maxRows < 1 || entry.maxRows > 10000))
                     fail('Verified CSV row limit must be an integer from 1 to 10000.')
                 if (entry.maxRows != null) contract.maxRows = entry.maxRows
+                if (entry.escapeFormulas != null && typeof entry.escapeFormulas !== 'boolean')
+                    fail('Trusted CSV escapeFormulas must be true or false.')
+                if (entry.escapeFormulas === true) contract.escapeFormulas = true
                 if (entry.reportPath != null) {
                     if (
                         typeof entry.reportPath !== 'string' ||
@@ -456,12 +459,23 @@ export async function utilizationPng(body, contract, { specialist = '', signal, 
     return { text, artifact, plan }
 }
 
+const FORMULA_START = /^[=+@\t\r-]/
+// Same plain-number shape as the run card's Copy/CSV guard (packages/ui/src/utils/traceChips.js).
+const PLAIN_NUMBER = /^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?$/
+// Opt-in: prefix a single quote so spreadsheet apps keep the cell as text. Plain signed numbers stay as they are.
+export function escapeCsvFormula(value) {
+    return FORMULA_START.test(value) && !PLAIN_NUMBER.test(value) ? "'" + value : value
+}
+
 // CSV consumes an author-owned complete table payload, never model arguments or renderer code.
 export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, preview = false } = {}) {
     check(signal)
     completeResult(body)
     const maxRows = contract.maxRows ?? 100
     if (!Number.isInteger(maxRows) || maxRows < 1 || maxRows > 10000) fail('Invalid verified CSV row limit.')
+    if (contract.escapeFormulas != null && typeof contract.escapeFormulas !== 'boolean')
+        fail('Invalid verified CSV escapeFormulas setting.')
+    const escapeFormulas = contract.escapeFormulas === true
     let payload = body
     for (const key of (contract.payloadPath || 'rows.0.table_payload').split('.')) {
         if (typeof payload === 'string') {
@@ -506,6 +520,7 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
         }
         if (typeof value !== 'string' || value.includes('\0') || Buffer.from(value, 'utf8').toString('utf8') !== value)
             fail('Verified CSV cells must be exact UTF-8 strings or NULL; numeric coercion is refused.')
+        if (escapeFormulas) value = escapeCsvFormula(value)
         bytesUsed += Buffer.byteLength(value) + 2
         if (bytesUsed > TURN_FILE_LIMITS.bytes) fail('Verified CSV exceeds native attachment limits.')
         return '"' + value.replaceAll('"', '""') + '"'
@@ -547,9 +562,11 @@ export function tablePayloadCsv(body, contract = {}, { specialist = '', signal, 
     return {
         text: `${preview ? `Preview file: ${name} (not saved to chat)` : `Attached file: ${name}`}\n\n${
             rows.length
-        } source rows exported in source order with exact string values. NULL values are empty CSV fields.\n\n${captions.join('\n')}${
-            report ? '\n\n' + report : ''
-        }`,
+        } source rows exported in source order with exact string values${
+            escapeFormulas
+                ? ", except that text starting with =, +, -, @, tab or carriage return (other than a plain signed number) has a leading ' so spreadsheet apps keep it as text"
+                : ''
+        }. NULL values are empty CSV fields.\n\n${captions.join('\n')}${report ? '\n\n' + report : ''}`,
         artifact: { name, type: 'csv', mime: 'text/csv', base64: bytes.toString('base64'), specialist, mtime: Date.now() }
     }
 }
