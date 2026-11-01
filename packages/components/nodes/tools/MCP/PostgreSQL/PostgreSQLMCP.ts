@@ -812,7 +812,13 @@ class PostgreSQL_MCP implements INode {
                             try {
                                 pq.validateArgs(entry, raw)
                             } catch (error) {
-                                throw expectedFailure(error instanceof Error ? error.message : 'Invalid pinned query parameters.')
+                                return pinnedCallError(
+                                    expectedFailure(error instanceof Error ? error.message : 'Invalid pinned query parameters.'),
+                                    {
+                                        ...traceExtra,
+                                        sourceExecution: 'not_executed'
+                                    }
+                                )
                             }
                         }
                         const result = await store.queryAnalystUrl(

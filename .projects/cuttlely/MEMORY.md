@@ -1,5 +1,7 @@
 # Memory
 
+A Markdown label and its destination are separate privacy-scanning spans. Keeping them as one token can turn `label](https://...)` into a false local path. Preserve streaming boundaries and balanced parentheses, and test local paths in labels and titles so recognizing a public URL cannot exempt adjacent filesystem text.
+
 A clipped model-context numeral must never become a provenance witness. Keep original-value validation independent of context sampling, and provide a bounded complete factual overview when available so a model can see the captured record set. Preserve the type of a returned percentage: a band carries two bounds, while a scalar is an observation. An ASCII range separator must not turn its upper bound negative. Repair needs both concrete rejected literals and the original validator's source selection; an unmapped packet may have no fields under a mapped report's configured paths.
 
 Validate temporal values as typed evidence. Reformatting a captured timestamp can change its visible numeric tokens without changing its instant; accepting clock components as arbitrary numeric witnesses would weaken provenance. Keep the instant, zone and precision checks together. Repair needs enough of the same captured evidence to retain substantive notes in a large report.
@@ -175,3 +177,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **Execution provenance is not semantic certification.** A guarded SQL result proves which permitted query ran, and a reviewed pin definition supplies a recipe. Neither proves that a new filter, join or inferred cause is correct. Keep the active turn, actual statement hash and limits attached, and verify business cases independently.
 -   **Dates are not a trend witness.** Two dated notes, refresh timestamps or unrelated products cannot establish improving utilization or declining revenue. Require comparable measurements or reviewed, metric-scoped source comparability metadata; never accept an ad-hoc model's self-declared certification.
 -   **A shortened transcript is not a record selection.** Preserve source-matched keys and order separately from prose so follow-ups can change the analysis or specialist without silently reranking the population. Ambiguous names or grains must not create a certified selection. Keep business source definitions in tool contracts; avoid multiplying wording-specific routing instructions.
+
+-   A malformed extra tool call can poison an already completed protected report. Mark argument validation before execution explicitly and require a matching completed stamped capture in the same worker turn before ignoring that refusal. Do not ignore executed source failures or authorize model prose from error bodies.
+
+-   A bounded source receipt can still spill downstream: the Hermes MCP default is 50,000 characters and its handler JSON-escapes the receipt inside a result envelope. A 64 KiB receipt became a 1,500-character preview, concealing records from file-disabled specialists. Budget the actual escaped envelope and verify it with the worker persistence code.
