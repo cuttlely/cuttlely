@@ -311,23 +311,30 @@ function timestampSpans(text) {
     for (const date of dateSpans(text)) {
         if (date.dates.length !== 1) continue
         const clock =
-            /^(?:T|[ \t]+(?:at[ \t]+)?)(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:[ \t]*(Z|UTC|[+-]\d{2}(?::?\d{2})?))?(?!\d|:\d|\.\d)/i.exec(
+            /^(?:T|[ \t]+(?:at[ \t]+)?)(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:[ \t]*(Z\b|UTC\b|[+-]\d{2}(?::?\d{2})?))?(?!\d|:\d|\.\d)/i.exec(
                 text.slice(date.end)
             )
         if (!clock) continue
         const [, hour, minute, second, fraction = '', zone] = clock
+        const unknownZone = !zone && /^[ \t]+(?:[A-Z]{2,5}|[A-Za-z_]+\/[A-Za-z_]+)\b/.exec(text.slice(date.end + clock[0].length))
         const offset = zone && !/^(?:Z|UTC)$/i.test(zone) ? zone.slice(1).replace(':', '') : '0000'
         const offsetHour = Number(offset.slice(0, 2))
         const offsetMinute = Number(offset.slice(2) || 0)
         const valid =
-            date.dates[0] && Number(hour) < 24 && Number(minute) < 60 && Number(second || 0) < 60 && offsetHour < 24 && offsetMinute < 60
+            date.dates[0] &&
+            !unknownZone &&
+            Number(hour) < 24 &&
+            Number(minute) < 60 &&
+            Number(second || 0) < 60 &&
+            offsetHour < 24 &&
+            offsetMinute < 60
         const wall = valid
             ? BigInt(Date.parse(`${date.dates[0]}T${hour}:${minute}:${second || '00'}Z`)) * 1000000n + BigInt(fraction.padEnd(9, '0'))
             : undefined
         const offsetNs = BigInt((offsetHour * 60 + offsetMinute) * (zone?.startsWith('-') ? -1 : 1)) * 60000000000n
         spans.push({
             start: date.start,
-            end: date.end + clock[0].length,
+            end: date.end + clock[0].length + (unknownZone ? unknownZone[0].length : 0),
             wall,
             instant: wall === undefined ? undefined : wall - offsetNs,
             zoned: Boolean(zone),

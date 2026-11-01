@@ -52,6 +52,8 @@ test('timestamp displays retain the source instant and cannot invent precision o
         '2032-05-03 19:52:25 UTC',
         '2032-05-04 19:52:24 UTC',
         '2032-05-03 19:52:24+02:00',
+        '2032-05-03 19:52:24 PST',
+        '2032-05-03 19:52:24 America/Los_Angeles',
         '2032-05-03T19:52:24.3151Z',
         '2032-05-03T99:52:24Z',
         '2032-05-03T19:52:24+00:99'
