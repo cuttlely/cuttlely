@@ -251,6 +251,32 @@ function numberLiterals(text) {
     )
 }
 
+// A categorical percentage interval is one typed observation. Its endpoints
+// must not become standalone percentage measurements (or a negative upper bound).
+function percentageIntervals(text) {
+    const number = '([-+]?\\d+(?:,\\d{3})*(?:\\.\\d+)?)'
+    const patterns = [
+        new RegExp(`(?<![\\p{L}\\p{N}_])${number}\\s*%?\\s*(?:[-–—]|\\bto\\b|\\bthrough\\b)\\s*${number}\\s*%`, 'giu'),
+        new RegExp(`\\bbetween\\s+${number}\\s*%?\\s+and\\s+${number}\\s*%`, 'giu')
+    ]
+    return patterns
+        .flatMap((pattern) =>
+            [...String(text).matchAll(pattern)].map((match) => ({
+                start: match.index,
+                end: match.index + match[0].length,
+                key: normalizeNumber(match[1]) + ':' + normalizeNumber(match[2])
+            }))
+        )
+        .sort((a, b) => a.start - b.start)
+}
+
+function maskIntervals(text, intervals) {
+    return intervals.reduceRight(
+        (value, span) => value.slice(0, span.start) + ' '.repeat(span.end - span.start) + value.slice(span.end),
+        text
+    )
+}
+
 function isoDate(year, month, day) {
     const value = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
     if (value.getUTCFullYear() !== Number(year) || value.getUTCMonth() !== Number(month) - 1 || value.getUTCDate() !== Number(day))
@@ -573,6 +599,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
     const timestamps = evidence.flatMap((item) => timestampSpans(String(item.value ?? '')))
     const currencies = new Set()
     const percentages = new Set()
+    const percentageBands = new Set()
     const historicalDates = new Set()
     const entityCodes = new Set()
     const recordCurrencies = new Map()
@@ -610,8 +637,12 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
                 recordCurrencies.get(key).add(currencyCodes.has(code) || /^\p{Sc}$/u.test(raw) ? code : `unknown:${code}`)
             }
         }
-        if (/pct|percent|percentage/i.test(typedPath)) for (const number of numberLiterals(value)) percentages.add(number)
-        for (const match of value.matchAll(/([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*%/g)) percentages.add(normalizeNumber(match[1]))
+        if (/pct|percent|percentage/i.test(typedPath) && /^[-+]?\d+(?:,\d{3})*(?:\.\d+)?$/.test(value.trim()))
+            percentages.add(normalizeNumber(value.trim()))
+        const intervals = percentageIntervals(value)
+        for (const interval of intervals) percentageBands.add(interval.key)
+        for (const match of maskIntervals(value, intervals).matchAll(/([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*%/g))
+            percentages.add(normalizeNumber(match[1]))
         if (/history|historical|ledger|notes|observations|trend/i.test(item.path))
             for (const date of dateLiterals(value)) historicalDates.add(date)
         if (/calibrated.*probability|probability.*calibrated/i.test(item.path) && item.value === true) calibratedProbability = true
@@ -683,6 +714,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
         reportingCurrencySymbol: reporting,
         monetary,
         percentages,
+        percentageBands,
         historicalDates,
         entityCodes,
         calibratedProbability,
@@ -868,6 +900,7 @@ function literalIssues(text, facts, diagnostic) {
     const spans = dateSpans(timestampMasked)
     const claimDates = spans.flatMap((span) => span.dates)
     if (claimDates.some((date) => !date || !facts.dates.has(date))) issues.push('unsupported_date')
+    for (const date of claimDates) if (date && !facts.dates.has(date)) diagnostic?.(date, 'calendar_date', 'date', 'unsupported_date')
     // Normalize human-form dates before checking remaining numeric literals.
     const dateMasked = spans.reduceRight(
         (value, span) => value.slice(0, span.start) + ' '.repeat(span.end - span.start) + value.slice(span.end),
@@ -888,8 +921,19 @@ function literalIssues(text, facts, diagnostic) {
             if (!facts.numbers.has(normalizeNumber(match[0]))) diagnostic(match[0], numericDiagnosticUnit(compactMasked, match), 'number')
         }
     }
-    for (const match of claims.matchAll(/([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*%/g)) {
-        if (!facts.percentages.has(normalizeNumber(match[1]))) issues.push('unsupported_percentage')
+    const intervals = percentageIntervals(claims)
+    for (const interval of intervals) {
+        const endpoints = interval.key.split(':')
+        if (!facts.percentageBands.has(interval.key) && !endpoints.every((value) => facts.percentages.has(value))) {
+            issues.push('unsupported_percentage')
+            diagnostic?.(interval.key, '%', 'percentage_interval', 'unsupported_percentage')
+        }
+    }
+    for (const match of maskIntervals(claims, intervals).matchAll(/([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*%/g)) {
+        if (!facts.percentages.has(normalizeNumber(match[1]))) {
+            issues.push('unsupported_percentage')
+            diagnostic?.(normalizeNumber(match[1]), '%', 'percentage', 'unsupported_percentage')
+        }
     }
     for (const match of claims.matchAll(/\p{Sc}/gu)) {
         const symbol = match[0]
@@ -960,7 +1004,7 @@ function literalIssues(text, facts, diagnostic) {
 }
 
 /** Literal validation for an answer to an executed source query; no narrative template is required. */
-export function protectedLiteralIssues(value, sources, paths = [], reportingSymbol) {
+export function protectedLiteralIssues(value, sources, paths = [], reportingSymbol, diagnosticOptions) {
     if (typeof value !== 'string' || !value.trim() || encoder.encode(value).length > 20000) return ['invalid_answer_text']
     const sourceList = (Array.isArray(sources) ? sources : [sources]).map(parsed)
     const successful = sourceList.filter(
@@ -972,7 +1016,7 @@ export function protectedLiteralIssues(value, sources, paths = [], reportingSymb
     if (!facts.evidence.length && !empty) return ['missing_source_evidence']
     // An empty selected result does not imply a business count unless the store explicitly returned it.
     if (empty && successful.every((body) => body.rowCount === 0)) facts.numbers.add('0')
-    return literalIssues(value.trim(), facts)
+    return literalIssues(value.trim(), facts, numericDiagnosticSink(diagnosticOptions))
 }
 
 /** Interpretation additionally needs substantive prose and resolved account identity. */

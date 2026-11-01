@@ -243,6 +243,7 @@ test('Markdown source bytes, reference definitions and each scoped section survi
 
 let serial = 0
 async function runFixture({
+    interpretationPaths,
     repairProse,
     answerMode,
     enabled = true,
@@ -326,6 +327,7 @@ async function runFixture({
                 ...(capacityBusyOnce ? { capacityWaitSeconds: 5 } : {}),
                 ...(policy ? { trustedOutputPolicy: policy } : {}),
                 ...(interpretation ? { trustedInterpretation: true } : {}),
+                ...(interpretationPaths ? { trustedInterpretationPaths: interpretationPaths } : {}),
                 ...(pinFast
                     ? {
                           pinFirst: true,
@@ -1079,6 +1081,7 @@ test('a rejected interpretation is repaired once without tools, requerying or ch
     assert.equal(repairs.length, 1)
     const evidence = JSON.parse(repairs[0][1].content)
     assert(evidence.evidence[0].sourceEvidence.some((item) => item.value === '8.20'))
+    assert(evidence.rejectedClaims.some((claim) => claim.issue === 'unsupported_number' && claim.literal === '99999999'))
 })
 
 test('a still-invalid repair is rejected after one attempt and retains source output', async () => {
@@ -1264,6 +1267,7 @@ test('an accepted unmapped repair replaces the rejected draft before any chief h
         interpretation: true,
         unmapped: true,
         policy: 'verified-passthrough',
+        interpretationPaths: ['rows.0.mapped_report_only'],
         result: { rows: [{ amount: '8.20', notes: 'Procurement approval is pending.' }] },
         prose: 'There is an invented loss of 99999999 and the owner must investigate.',
         repairProse: repaired
@@ -1274,6 +1278,10 @@ test('an accepted unmapped repair replaces the rejected draft before any chief h
     assert(handoffs.every((messages) => !JSON.stringify(messages).includes('99999999')))
     assert.equal(out.calls.length, 1)
     assert(!out.payload.text.includes('99999999'))
+    const repair = out.prompts.find((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    const packet = JSON.parse(repair[1].content)
+    assert(packet.evidence[0].sourceEvidence.some((item) => item.value === 'Procurement approval is pending.'))
+    assert(packet.rejectedClaims.some((claim) => claim.literal === '99999999'))
 })
 
 test('interpretation opt-in takes precedence over a matching pin-first shortcut without a duplicate query', async () => {

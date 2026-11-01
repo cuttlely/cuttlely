@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Protected analysis recognizes source percentage bands across equivalent dash and word displays without treating their endpoints as point measurements. Tool-free repair receives bounded rejected literals and uses the same source selection as the original validator.
+
 -   Unmapped factual answers retain validated narrative evidence instead of being reduced to a table of identifiers. Harness planning can ask a fixed question for essential missing scope before running a specialist. Protected interpretation recognizes equivalent source timestamp displays without accepting invented times or business quantities, and tool-free repair retains more evidence for a single captured report.
 
 -   Agent-team follow-ups can retain the exact source-backed record selection and order across shortened history and specialist changes. The shared router distinguishes factual presentation from analysis and recognizes shared query scopes when choosing an owner for a complete deliverable. Protected analysis gets one tool-free, revalidated repair for unsupported claims, and an unmapped source fallback presents bounded business records instead of nested field paths. Equivalent duration abbreviations and written monetary scales retain unit and denomination checks. See [team tuning](./docs/how-to/tune-agent-team.md#carry-intent-and-record-scope-between-turns).

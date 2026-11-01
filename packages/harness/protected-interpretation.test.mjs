@@ -39,6 +39,31 @@ const calendarSource = {
 }
 const calendarIssues = (claim, evidence = calendarSource) => protectedInterpretationIssues(useful + ' ' + claim, [evidence], [], '$')
 
+test('percentage intervals preserve both source bounds across typography without becoming point measurements', () => {
+    const evidence = [{ rows: [{ consumption_band: '75-99%', negative_band: '-5 to 5%' }] }]
+    for (const band of ['75–99%', '75% to 99%', 'between 75% and 99%', '75%—99%', '-5% to 5%'])
+        assert.deepEqual(protectedLiteralIssues('The recorded band is ' + band + '.', evidence), [], band)
+    for (const band of ['75%', '99%', '-99%', '74–99%', '75–100%', '99–75%'])
+        assert(protectedLiteralIssues('The recorded observation is ' + band + '.', evidence).includes('unsupported_percentage'), band)
+    assert(protectedLiteralIssues('The band is 75–99%.', [{ rows: [{ low: 75, high: 99 }] }]).includes('unsupported_percentage'))
+    assert.deepEqual(protectedLiteralIssues('The reported change is -5%.', [{ rows: [{ change: '-5%' }] }]), [])
+})
+
+test('bounded typed diagnostics identify rejected percentage bounds and dates without surrounding prose', () => {
+    const claims = []
+    protectedLiteralIssues(
+        'The band is 75–100%, the point is 50%, and the date is 2032-05-04.',
+        [{ rows: [{ band: '75-99%', observed: '2032-05-03' }] }],
+        [],
+        undefined,
+        { diagnostics: true, onDiagnostic: (claim) => claims.push(claim) }
+    )
+    assert(claims.some((claim) => claim.issue === 'unsupported_percentage' && claim.literal === '75:100'))
+    assert(claims.some((claim) => claim.issue === 'unsupported_percentage' && claim.literal === '50'))
+    assert(claims.some((claim) => claim.issue === 'unsupported_date' && claim.literal === '2032-05-04'))
+    assert(claims.every((claim) => !JSON.stringify(claim).includes('The band')))
+})
+
 test('timestamp displays retain the source instant and cannot invent precision or business quantities', () => {
     const evidence = [{ rows: [{ source_as_of: '2032-05-03T19:52:24.315Z' }] }]
     for (const timestamp of [
