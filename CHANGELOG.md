@@ -12,6 +12,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Markdown citations keep their HTTP(S) destinations during path masking, including streamed links, nested parentheses and adjacent links. Local paths in link labels, destinations and quoted titles remain hidden.
+
 -   Interpreted captures can expose a bounded complete factual overview alongside sampled notes, and literal provenance checks original values independently of context clipping. Protected analysis recognizes source percentage bands across equivalent dash and word displays without treating their endpoints as point measurements. Tool-free repair receives bounded rejected literals and uses the same source selection as the original validator.
 
 -   Unmapped factual answers retain validated narrative evidence instead of being reduced to a table of identifiers. Harness planning can ask a fixed question for essential missing scope before running a specialist. Protected interpretation recognizes equivalent source timestamp displays without accepting invented times or business quantities, and tool-free repair retains more evidence for a single captured report.

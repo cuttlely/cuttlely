@@ -142,9 +142,9 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
 }
 
 // Rules 1–8 share this state machine, including the bounded-token fallback.
-const EDGE = /[\]\)}|<>"`,;:!?]/
+const EDGE = /[\[\(\]\)}|<>"`,;:!?]/
 const QUOTES = '"\'`'
-const LEAD = /^[\]\)}|<>,;:!?]*$/
+const LEAD = /^[\[\(\]\)}|<>,;:!?]*$/
 // Rule 3a: \name\name..., UNC \\host\share, or a drive letter. JSON-escaped data is left alone.
 const BACKSLASH_START = /^(?:\\[A-Za-z0-9._$~-]+\\[A-Za-z0-9._$~-]+|\\\\[^\\\s]+\\|[a-z]:[\\/])/i
 const jsonSpan = (value) => {
@@ -197,7 +197,12 @@ function tokenMask(raw, root, continued) {
     // date such as 3/4 or 10/24/2026 through.
     if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
     const slash = /[\/\\]/.test(token)
-    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || dotDot || /\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
+    const candidate =
+        /^(?:[\/~]|file:\/\/)/i.test(token) ||
+        dotDot ||
+        /\/\/|%2f|%2e%2e/i.test(token) ||
+        backslashPath(token, raw) ||
+        /\s(?:\/[A-Za-z0-9._~$%@+-]|~[/\\]|[A-Za-z]:[/\\]|\\\\[A-Za-z0-9])/.test(token)
     const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
     // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
     if (numeric) return { text: raw, masked: 'soft' }
@@ -245,18 +250,19 @@ export function workspaceMaskState() {
         normalText: '',
         emitted: 0,
         word: '',
-        bs: 0
+        bs: 0,
+        linkDepth: 0
     }
 }
 
 export function scanWorkspaceText(state, text, root, flush = false) {
     const out = []
-    const finish = () => {
+    const finish = (plain = false) => {
         if (state.overflow) state.continued = true
         else if (state.token) {
             // Rule 5: continuation also covers a quoted next token (fail closed).
             const held = state.token
-            const validJson = state.allowJson && (jsonSpan(held) || escapedJsonSpan(held))
+            const validJson = !plain && state.allowJson && (jsonSpan(held) || escapedJsonSpan(held))
             const retry = state.allowJson && /^[\[{]/.test(held) && !validJson
             // JSON-like syntax only defers quote handling. Invalid spans must go through
             // the ordinary scanner before any of their text can leave the buffer.
@@ -292,6 +298,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         state.emitted = 0
         state.word = ''
         state.bs = 0
+        state.linkDepth = 0
     }
     // A {/[ token stays whole only while it could still be valid JSON (rule 3a exemption).
     const trackJson = (char) => {
@@ -312,6 +319,18 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         else state.json = false
     }
     for (const char of text) {
+        // A Markdown destination is a new token. Otherwise "guide](https://...)"
+        // looks like a relative path containing //, corrupting ordinary citations.
+        // Complete destinations also end their token so an adjacent local path
+        // cannot inherit the HTTP URL exemption. This state survives stream chunks.
+        let linkClosing = false
+        if (!state.quote && !state.slash && char === '(' && state.token.endsWith(']') && !(state.json && state.jdepth > 0)) {
+            finish(true)
+            state.linkDepth = 1
+        } else if (state.linkDepth && !state.quote && !state.slash) {
+            if (char === '(') state.linkDepth++
+            if (char === ')') linkClosing = --state.linkDepth === 0
+        }
         if (!state.quote && !(state.json && state.jdepth > 0) && /\s/u.test(char)) {
             finish()
             out.push(char)
@@ -381,7 +400,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                 state.emitted = state.token.length
             }
         }
-        if (closing) finish()
+        if (closing || linkClosing) finish()
     }
     if (flush) finish()
     return out.join('')
