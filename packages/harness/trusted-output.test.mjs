@@ -1202,6 +1202,25 @@ test('opted-in unmapped answers cannot deliver an invented figure or currency an
     assert.equal(out.payload.trace.specialists[0].recovery.reason, 'interpretationOmitted')
 })
 
+test('an accepted unmapped repair replaces the rejected draft before any chief handoff', async () => {
+    const repaired =
+        'The recorded amount is 8.20. Procurement approval remains pending in the source notes; confirm the approval path with the owner.'
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        result: { rows: [{ amount: '8.20', notes: 'Procurement approval is pending.' }] },
+        prose: 'There is an invented loss of 99999999 and the owner must investigate.',
+        repairProse: repaired
+    })
+    const handoffs = out.prompts.filter((messages) => !String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert(handoffs.length > 0)
+    assert(handoffs.some((messages) => JSON.stringify(messages).includes(repaired)))
+    assert(handoffs.every((messages) => !JSON.stringify(messages).includes('99999999')))
+    assert.equal(out.calls.length, 1)
+    assert(!out.payload.text.includes('99999999'))
+})
+
 test('interpretation opt-in takes precedence over a matching pin-first shortcut without a duplicate query', async () => {
     const result = clone(body)
     result.rows[0].notes = 'Procurement approval is pending; the renewal owner needs to confirm the approval path.'

@@ -2258,7 +2258,7 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
             }
             if (!context.passthroughArtifactObjects) context.passthroughArtifactObjects = new Set()
             for (const artifact of ownArtifacts) context.passthroughArtifactObjects.add(artifact)
-            return { passthrough: true }
+            return { passthrough: true, text }
         }
     }
     replaceTrustedArtifacts(context, specialist.name)
@@ -2484,7 +2484,7 @@ async function runStep(context, step) {
             answerMode: step.answerMode,
             task
         })
-        if (protectedOutput?.passthrough) out = { ...out, trustedPassthrough: true }
+        if (protectedOutput?.passthrough) out = { ...out, text: protectedOutput.text ?? out.text, trustedPassthrough: true }
         else if (protectedOutput)
             out = {
                 ...out,
