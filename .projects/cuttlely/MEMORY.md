@@ -1,5 +1,7 @@
 # Memory
 
+Label internal retrieval context separately from an answer's citations. A generic source-list heading after specialist prose can look like part of that prose and cause the chief to copy clipped or unrelated retrieval hits into the answer. Retain the grounding passages and exact URLs while making the input/output boundary explicit; preserve actual specialist citation lines.
+
 A Markdown label and its destination are separate privacy-scanning spans. Keeping them as one token can turn `label](https://...)` into a false local path. Preserve streaming boundaries and balanced parentheses, and test local paths in labels and titles so recognizing a public URL cannot exempt adjacent filesystem text.
 
 A clipped model-context numeral must never become a provenance witness. Keep original-value validation independent of context sampling, and provide a bounded complete factual overview when available so a model can see the captured record set. Preserve the type of a returned percentage: a band carries two bounds, while a scalar is an observation. An ASCII range separator must not turn its upper bound negative. Repair needs both concrete rejected literals and the original validator's source selection; an unmapped packet may have no fields under a mapped report's configured paths.
