@@ -2252,14 +2252,6 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
                 clarification: typeof text === 'string' && text.length <= 2000 && /\?\s*$/.test(text)
             })
         ) {
-            if (answerMode === 'facts' && specialist.trustedInterpretation === true && captured.length && !ownArtifacts.length) {
-                return {
-                    text: sourceAnswerFallback(captured, reportingCurrencySymbol(specialist.trustedOutputs), {
-                        interpretationFailed: false
-                    }),
-                    artifacts: []
-                }
-            }
             if (specialist.trustedInterpretation === true && captured.length) {
                 let issues = protectedLiteralIssues(
                     text,

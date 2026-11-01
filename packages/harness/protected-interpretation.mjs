@@ -550,15 +550,10 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
             })
         )
         .join('\n')
-    const quantityText = evidence
-        .map((item) => {
-            const value = String(item.value ?? '')
-            return timestampSpans(value).reduceRight(
-                (masked, span) => masked.slice(0, span.start) + ' '.repeat(span.end - span.start) + masked.slice(span.end),
-                value
-            )
-        })
-        .join('\n')
+    const quantityText = timestampSpans(text).reduceRight(
+        (masked, span) => masked.slice(0, span.start) + ' '.repeat(span.end - span.start) + masked.slice(span.end),
+        text
+    )
     const numbers = new Set(numberLiterals(quantityText))
     const durations = new Set(durationLiterals(text).map((item) => item.key))
     for (const item of evidence) {

@@ -1162,6 +1162,34 @@ test('router-selected facts retain mapped source output without optional interpr
     assert.equal(out.calls.length, 2)
 })
 
+test('factual mode retains validated narrative from an unmapped nested source instead of an identity-only table', async () => {
+    const prose = 'The recorded technical concern is a connection timeout during replication; the team requested a technical workshop.'
+    const out = await runFixture({
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        copies: 2,
+        answerMode: 'facts',
+        createModelFile: false,
+        result: {
+            rows: [
+                {
+                    account_id: 'example-entity',
+                    account_name: 'Example Industries',
+                    report: { notes: 'Connection timeout during replication; technical workshop requested.' }
+                }
+            ]
+        },
+        prose
+    })
+    const handoff = out.prompts.find((messages) => String(messages[0]?.content).startsWith('You are Harness Prime'))
+    assert(handoff)
+    assert(JSON.stringify(handoff).includes(prose))
+    assert(!JSON.stringify(handoff).includes('| account id |'))
+    assert.equal(out.calls.length, 2)
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
+})
+
 test('rejected-number diagnostics stay private and leave the answer, events and public history unchanged', async () => {
     const { listRuns, getRun, getRunResult, getRunDiagnostics } = await import('./history.mjs')
     const options = {
