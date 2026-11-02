@@ -2,4 +2,4 @@
 upstream: https://github.com/NousResearch/hermes-agent.git
 ref: f42f579cf8bac4918ac9599bece71618afadd846
 commit: f42f579cf8bac4918ac9599bece71618afadd846
-fingerprint: 546e59aa488cae9c7e988a9ed0787789dd8f60971887a0c25c69c3eadd244aa2
+fingerprint: 7963f1b9ec7f55b0a9027dc980acd769bd70b9aad297c1e58df8352761df4e6c
