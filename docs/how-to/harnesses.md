@@ -119,6 +119,25 @@ A specialist with playbooks runs in the agent runtime. It can list and read its 
 
 A playbook can ask for a closing line, such as `Source: sales warehouse`. When the specialist's answer ends with a line that starts with `Source:`, `Sources:`, `Citation:` or `References:`, Harness Prime keeps that line at the end of its own answer. If its rewrite drops the line, Cuttlely puts it back.
 
+## Read web pages as source text
+
+A Web Browser card wired to a Harness Specialist uses a chat model and embeddings to summarize a page by default. Turn on **Return source text** when the calling agent should interpret bounded excerpts of the page's actual text instead. The card fetches the page itself and does not ask a second model to summarize it.
+
+1. Open the harness canvas and select **+**. Add **Web Browser** from **Tools**.
+2. Wire a chat model to **Language Model** and an embeddings card to **Embeddings**, then wire the Web Browser card to the specialist's **Attached** input.
+3. Select the Web Browser card. Under **More settings** in the side panel, turn on **Return source text**.
+4. Save the harness.
+
+![A harness canvas named demo-help-desk. ChatXAI is wired to Harness Prime and to the Language Model input of a selected Web Browser card, and Local Hash Embeddings is wired to its Embeddings input. The Web Browser card is wired to the Attached input of a Harness Specialist named docs, whose instructions start with Read the help pages. The side panel for the Web Browser card shows More settings with Return source text turned on.](../images/harnesses/web-browser-source-text.png)
+
+Source-text mode accepts an HTTP or HTTPS URL up to 4,096 characters, with no user name or password in it. The fetch has a 20-second timeout and a 2 MB page limit. Supported content types are `text/html`, `application/xhtml+xml`, `text/plain`, `application/json`, and `application/xml`. For HTML, the page title is kept as source metadata; `script`, `style`, `svg`, `nav`, `header`, and `footer` elements are removed, and the first `main` element is preferred when one exists.
+
+The tool returns up to 24,000 characters. The first line is `Fetched source page: <url>`, using the final destination after redirects. When later page text was left out, the next line is `Excerpt only; later page content is not shown.` An HTTP error status returns `Source page returned HTTP <status>.`, another content type returns `Source page is not a supported text document.`, and an empty result returns `Source page contains no readable text.` The returned text is untrusted page content, not instructions.
+
+In a harness, each successful source-text call records that exact final destination as a citation source for a [documentation specialist alongside a protected report](../reference/trusted-outputs.md#documentation-alongside-a-protected-report). Failed calls do not record a source.
+
+A Web Browser card saved before **Return source text** existed may show the orange outdated-node triangle. Select **Sync Nodes**, then save, to add the field while keeping the card's existing settings.
+
 ## Tidy the layout
 
 **Tidy layout**, in the control bar at the bottom of a harness canvas, rearranges the cards so the team reads left to right. The button turns on once the cards are drawn. Harness Prime and its chat model go in the first columns. Each Harness Specialist gets its own row, with the cards wired into it to its right. A card starts level with the card it is wired into, lower only when that would overlap another card. Sticky notes and cards that are not wired to the team go in a last column, so nothing is removed. Cards inside another card, such as an iteration, stay where they are. Each card gets the room it takes on screen. If you switch to classic cards after a tidy, select **Tidy layout** again. The view does not move: select the fit view button beside it to see every card.
