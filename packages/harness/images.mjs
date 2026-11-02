@@ -187,6 +187,10 @@ function tokenMask(raw, root, continued) {
     }
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
+    // An authority-only application URI is an identifier, not a filesystem path.
+    // Keep credentials, path components, encoded separators and drive/file forms out.
+    if (!/^file:/i.test(token) && /^[a-z][a-z0-9+.-]+:\/\/[a-z0-9](?:[a-z0-9._~-]*[a-z0-9])?(?::[0-9]+)?$/i.test(token))
+        return { text: raw, masked: false }
     // ".." marks a path when the token also has a separator (docs/../secret, More..."/tmp/x).
     // A label without one, such as Q3..Q4 or 2026-07-01..2026-09-30, is not a path.
     const dotDot = /\.\./.test(token) && (/[\/\\]/.test(token) || token === '..')

@@ -34,6 +34,30 @@ const paths = ['rows.0.report']
 const useful =
     'The workshop addressed the technical question, but procurement remains unresolved in the dated notes. Confirm the decision owner and ask whether the procurement review still blocks the renewal. This is a suggested follow-up, not evidence that approval has been obtained.'
 
+test('validated synthesis omits the factual report only on successful provenance and identity checks', () => {
+    const options = { interpretation: useful, facts: 'EXACT FACTUAL REPORT', sources: [source], paths }
+    const synthesis = composeProtectedInterpretation({ ...options, includeFacts: false })
+    assert.equal(synthesis.included, true)
+    assert.equal(synthesis.text, useful)
+    assert(composeProtectedInterpretation(options).text.endsWith('EXACT FACTUAL REPORT'))
+    assert(composeProtectedInterpretation({ ...options, includeFacts: 'false' }).text.endsWith('EXACT FACTUAL REPORT'))
+    const unsupported = composeProtectedInterpretation({
+        ...options,
+        interpretation: useful + ' The loss is 987654321.',
+        includeFacts: false
+    })
+    assert.equal(unsupported.included, false)
+    assert(unsupported.text.endsWith('EXACT FACTUAL REPORT'))
+    assert(!unsupported.text.includes('987654321'))
+    const ambiguous = composeProtectedInterpretation({
+        ...options,
+        sources: [{ rows: [{ candidate_count: 2, identity_status: 'ambiguous' }] }],
+        includeFacts: false
+    })
+    assert.equal(ambiguous.included, false)
+    assert.equal(ambiguous.reason, 'unresolved_source_identity')
+})
+
 test('per-source evidence paths preserve mapped restrictions and independent monetary provenance', () => {
     const mapped = { rows: [{ allowed: { notes: 'Procurement remains pending.' }, excluded: { amount: '98765', currency: 'EUR' } }] }
     const extra = { rows: [{ current_acv: '1234.56', currency: 'USD' }] }

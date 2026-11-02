@@ -1055,6 +1055,7 @@ export function composeProtectedInterpretation({
     sources,
     paths = [],
     sourcePaths,
+    includeFacts = true,
     reportingCurrencySymbol,
     diagnostics = false
 }) {
@@ -1075,5 +1076,10 @@ export function composeProtectedInterpretation({
             : ''
         return { text: notice + framedSource, included: false, reason: issues.join(','), ...diagnosticFields }
     }
-    return { text: `${interpretationLabel}\n\n${text}\n\n---\n\n${framedSource}`, included: true, reason: '', ...diagnosticFields }
+    return {
+        text: includeFacts === false ? text : `${interpretationLabel}\n\n${text}\n\n---\n\n${framedSource}`,
+        included: true,
+        reason: '',
+        ...diagnosticFields
+    }
 }

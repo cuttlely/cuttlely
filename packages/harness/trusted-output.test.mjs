@@ -301,6 +301,8 @@ let serial = 0
 async function runFixture({
     interpretationPaths,
     additionalResult,
+    additionalReport = false,
+    selectedReports,
     repairProse,
     documentationProse,
     documentationRepair,
@@ -412,6 +414,9 @@ async function runFixture({
                               },
                               ...(unmatchedDiagnostics
                                   ? [{ ...mdContract, pin: 'pq_unrequested_report', hash: mdHash, interpretationDiagnostics: true }]
+                                  : []),
+                              ...(additionalReport
+                                  ? [{ ...mdContract, pin: additionalEntry.name, hash: compilePinned(additionalEntry).statementHash }]
                                   : [])
                           ]
                       }
@@ -502,7 +507,9 @@ async function runFixture({
                         if (String(messages[0]?.content).startsWith('Repair a documentation answer'))
                             return { content: documentationRepair || 'Still unsupported. https://unretrieved.example/' }
                         if (String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
-                            return { content: repairProse ?? prose }
+                            return { content: Array.isArray(repairProse) ? repairProse.shift() ?? prose : repairProse ?? prose }
+                        if (String(messages[0]?.content).startsWith('Select which already verified source reports'))
+                            return { content: JSON.stringify({ indices: selectedReports ?? [0, 1] }) }
                         return {
                             content: String(messages[0]?.content).includes('You route work')
                                 ? JSON.stringify({
@@ -1147,7 +1154,7 @@ test('a rejected interpretation is repaired once without tools, requerying or ch
     assert(evidence.rejectedClaims.some((claim) => claim.issue === 'unsupported_number' && claim.literal === '99999999'))
 })
 
-test('a still-invalid repair is rejected after one attempt and retains source output', async () => {
+test('a still-invalid repair is rejected after two bounded attempts and retains source output', async () => {
     const out = await runFixture({
         markdownOnly: true,
         interpretation: true,
@@ -1157,8 +1164,30 @@ test('a still-invalid repair is rejected after one attempt and retains source ou
     })
     assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
     assert(!/99999999|88888888/.test(out.payload.text))
-    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 1)
+    assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 2)
     assert.equal(out.calls.length, 1)
+})
+
+test('the final bounded repair can retain semantic analysis without repeating a source query', async () => {
+    const prose =
+        'The recorded amount is 8.20. Procurement approval remains pending in the source notes; confirm the decision owner before assuming completion.'
+    const out = await runFixture({
+        markdownOnly: true,
+        interpretation: true,
+        result: {
+            rows: [
+                { scope: 'Verified scope.', report: 'EXACT SOURCE REPORT', amount: '8.20', notes: 'Procurement approval remains pending.' }
+            ]
+        },
+        prose: prose.replace('8.20', '99999999'),
+        repairProse: [prose.replace('8.20', '88888888'), prose]
+    })
+    assert(out.payload.text.includes(prose))
+    assert(out.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert.equal(out.calls.length, 1)
+    const repairs = out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer'))
+    assert.equal(repairs.length, 2)
+    assert(repairs[1][0].content.includes('final bounded repair'))
 })
 
 test('single-source repair retains substantive evidence after the first hundred scalar fields', async () => {
@@ -1245,6 +1274,103 @@ test('a later specialist turn receives every source-backed selected key beyond t
         input: 'Assess these records.'
     })
     assert(!unrelated.requests[0].input.includes('Previous displayed record selections'))
+})
+
+test('native delivery can select verified reports without rewriting facts or hiding executed failures', async () => {
+    const options = {
+        copies: 2,
+        markdownOnly: true,
+        interpretation: true,
+        answerMode: 'facts',
+        createModelFile: false,
+        result: { rows: [{ scope: 'Verified scope.', report: 'GENERIC EXPLORATORY REPORT' }] },
+        additionalReport: true,
+        additionalResult: { rows: [{ scope: 'Requested grouping.', report: 'EXACT GROUPED SOURCE REPORT' }] }
+    }
+    const selected = await runFixture({ ...options, selectedReports: [1] })
+    assert(selected.payload.text.includes('EXACT GROUPED SOURCE REPORT'))
+    assert(!selected.payload.text.includes('GENERIC EXPLORATORY REPORT'))
+    assert.equal(selected.calls.length, 4)
+    const invalid = await runFixture({ ...options, selectedReports: [99] })
+    assert(invalid.payload.text.includes('GENERIC EXPLORATORY REPORT'))
+    assert(invalid.payload.text.includes('EXACT GROUPED SOURCE REPORT'))
+    const failed = await runFixture({ ...options, selectedReports: [1], result: { error: 'Executed query failed' } })
+    assert(failed.payload.agents.every((agent) => agent.status === 'failed'))
+    assert(!failed.prompts.some((messages) => String(messages[0]?.content).startsWith('Select which already verified source reports')))
+})
+
+test('router-selected synthesis delivers validated self-contained prose while default report delivery retains the source', async () => {
+    const prose =
+        'The recorded amount is $8.20. Procurement approval remains pending in the source notes; confirm the decision owner before assuming completion.'
+    const options = {
+        copies: 2,
+        markdownOnly: true,
+        interpretation: true,
+        reportingSymbol: '$',
+        createModelFile: false,
+        result: {
+            rows: [
+                { scope: 'Verified scope.', report: 'EXACT SOURCE REPORT', amount: '8.20', notes: 'Procurement approval remains pending.' }
+            ]
+        },
+        prose
+    }
+    const out = await runFixture({ ...options, answerMode: 'synthesis' })
+    assert(out.payload.trustedOutput)
+    assert(out.payload.text.includes(prose))
+    assert(!out.payload.text.includes('EXACT SOURCE REPORT'))
+    assert(out.requests.every((request) => request.input.includes('Delivery contract: return a concise, self-contained synthesis')))
+    assert.equal(out.calls.length, 2)
+    assert(!out.prompts.some((messages) => String(messages[0]?.content).startsWith('You are Harness Prime')))
+    const report = await runFixture({ ...options, answerMode: 'analysis' })
+    assert(report.payload.text.includes(prose))
+    assert(report.payload.text.endsWith('EXACT SOURCE REPORT'))
+    const notOpted = await runFixture({ ...options, interpretation: false, answerMode: 'synthesis' })
+    assert(notOpted.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert(notOpted.requests.every((request) => !request.input.includes('Delivery contract:')))
+})
+
+test('synthesis keeps failed validation closed and cannot suppress native export delivery', async () => {
+    const failed = await runFixture({
+        copies: 2,
+        markdownOnly: true,
+        interpretation: true,
+        answerMode: 'synthesis',
+        createModelFile: false,
+        result: { rows: [{ scope: 'Verified scope.', report: 'EXACT SOURCE REPORT', amount: '8.20' }] },
+        prose: 'The recorded amount is 987654321 and the owner should investigate this unsupported commercial figure.'
+    })
+    assert(failed.payload.text.endsWith('EXACT SOURCE REPORT'))
+    assert(!failed.payload.text.includes('987654321'))
+    const csv = await runFixture({
+        copies: 2,
+        csv: true,
+        interpretation: true,
+        answerMode: 'synthesis',
+        createModelFile: false,
+        prose: 'The returned source rows are available for review. Preserve their scope and coverage when planning any further analysis.'
+    })
+    assert(csv.payload.artifacts.some((artifact) => artifact.type === 'csv'))
+    assert(csv.payload.text.includes(csv.payload.artifacts.find((artifact) => artifact.type === 'csv').name))
+})
+
+test('unmapped synthesis is validated and composed directly without an unvalidated chief rewrite', async () => {
+    const prose =
+        'The recorded amount is 8.20. Procurement approval remains pending in the source notes; confirm the decision owner before assuming completion.'
+    const out = await runFixture({
+        copies: 2,
+        interpretation: true,
+        unmapped: true,
+        policy: 'verified-passthrough',
+        answerMode: 'synthesis',
+        createModelFile: false,
+        result: { rows: [{ amount: '8.20', notes: 'Procurement approval remains pending.' }] },
+        prose
+    })
+    assert(out.payload.trustedOutput)
+    assert(out.payload.text.includes(prose))
+    assert(!out.prompts.some((messages) => String(messages[0]?.content).startsWith('You are Harness Prime')))
+    assert.equal(out.calls.length, 2)
 })
 
 test('router-selected facts retain mapped source output without optional interpretation or repair', async () => {
@@ -1650,6 +1776,21 @@ test('pre-execution argument refusals preserve an existing stamped report but ca
     }
     assert.equal((await renderTrustedOutputs(specialist, [good, bad])).text, 'Exact source report: 13 observations.')
     assert.equal((await renderTrustedOutputs(specialist, [bad, good])).text, 'Exact source report: 13 observations.')
+    const otherContract = { ...report, pin: 'pq_other_report', hash: 'e'.repeat(64) }
+    const other = {
+        ...good,
+        callId: 'completed-other-call',
+        toolName: otherContract.pin,
+        pinned: { name: otherContract.pin, hash: otherContract.hash, version: 1 }
+    }
+    assert.equal(
+        (await renderTrustedOutputs({ ...specialist, trustedOutputs: [report, otherContract] }, [bad, other])).text,
+        'Exact source report: 13 observations.'
+    )
+    await assert.rejects(
+        renderTrustedOutputs({ ...specialist, trustedOutputs: [report, otherContract] }, [bad, { ...other, sourceTurn: 'different-turn' }]),
+        /complete successful/
+    )
     await assert.rejects(renderTrustedOutputs(specialist, [bad]), /complete successful/)
     await assert.rejects(renderTrustedOutputs(specialist, [good, { ...bad, sourceTurn: 'another-turn' }]), /complete successful/)
     const executed = { ...bad, result: { error: 'Query refused', cuttlelyOutcome: 'expected' } }
