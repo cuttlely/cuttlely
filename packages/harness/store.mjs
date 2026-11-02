@@ -1,3 +1,4 @@
+import { normalizeEvidenceBytes } from './evidence-budget.mjs'
 import fs from 'node:fs'
 import { trustedOutputContracts, normalizeTrustedPolicy } from './trusted-output.mjs'
 import { normalizeInterpretationPaths } from './protected-interpretation.mjs'
@@ -150,6 +151,7 @@ export function assertRosterLimits(record) {
         trustedOutputContracts(specialist.trustedOutputs)
         normalizeTrustedPolicy(specialist.trustedOutputPolicy)
         normalizeInterpretationPaths(specialist.trustedInterpretationPaths)
+        normalizeEvidenceBytes(specialist.evidenceBytes)
     }
 }
 
@@ -253,6 +255,10 @@ export function saveHarness(record, { overwrite = false } = {}) {
         const interpretationPaths = normalizeInterpretationPaths(specialist.trustedInterpretationPaths)
         if (specialist.trustedInterpretation && interpretationPaths.length) specialist.trustedInterpretationPaths = interpretationPaths
         else delete specialist.trustedInterpretationPaths
+
+        const evidenceBytes = normalizeEvidenceBytes(specialist.evidenceBytes)
+        if (evidenceBytes != null) specialist.evidenceBytes = evidenceBytes
+        else delete specialist.evidenceBytes
 
         const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
         if (capacityWaitSeconds) specialist.capacityWaitSeconds = capacityWaitSeconds
