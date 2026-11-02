@@ -838,12 +838,15 @@ async function runRoster(context, input) {
     return payload
 }
 
-function selectionSources(context, results) {
+export function selectionSources(context, results) {
     return results
         .filter((result) => result.status === 'completed' && !result.ungrounded)
         .flatMap((result) => {
             const specialist = context.roster.specialists.find((item) => item.name === result.name)
-            return (context.trustedCaptures?.get(result.name) || []).filter((item) => {
+            const captured = context.displayedSourceCaptures?.has(result.name)
+                ? context.displayedSourceCaptures.get(result.name)
+                : context.trustedCaptures?.get(result.name) || []
+            return captured.filter((item) => {
                 if (verifiedQueryCapture(item)) return true
                 return (
                     item.callId &&
@@ -2412,6 +2415,17 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
     throwIfClient(context)
     if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
     replaceTrustedArtifacts(context, specialist.name, rendered.artifacts)
+    const rememberDisplayedSources = () => {
+        if (!context.displayedSourceCaptures) context.displayedSourceCaptures = new Map()
+        context.displayedSourceCaptures.set(
+            specialist.name,
+            captured.filter((item) =>
+                rendered.captureRefs.some(
+                    (ref) => ref.callId === item.callId && ref.toolName === item.toolName && ref.hash === item.pinned?.hash
+                )
+            )
+        )
+    }
     if (specialist.trustedInterpretation === true && answerMode !== 'facts') {
         const artifactContract = specialist.trustedOutputs.some(
             (contract) => contract.mode !== 'markdown' && captured.some((item) => item.toolName === contract.pin)
@@ -2454,8 +2468,10 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
         }
         if (Buffer.byteLength(composed.text) > 200000)
             throw new HarnessError('trusted_output', 'Interpreted output exceeds the composed output limit.')
+        if (answerMode !== 'synthesis' || rendered.artifacts.length || artifactContract || !composed.included) rememberDisplayedSources()
         return { ...rendered, text: composed.text, interpretation: { included: composed.included, reason: composed.reason } }
     }
+    rememberDisplayedSources()
     return rendered
 }
 

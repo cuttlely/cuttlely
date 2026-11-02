@@ -23,7 +23,8 @@ process.env.CUTTLELY_DATA_DIR = dir
 process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 process.env.CUTTLELY_PINNED_QUERIES = '1'
 delete process.env.HERMES_API_URL
-const { runHarness, verifiedMonetaryQueryReadout, interpretationPathsForCapture } = await import('./run.mjs')
+const { runHarness, verifiedMonetaryQueryReadout, interpretationPathsForCapture, selectionSources } = await import('./run.mjs')
+const { answerSelections } = await import('./answer-context.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { offeredPinnedTools, invokeOfferedPinnedTool, setGatewayContext, registerProfileToken, forgetProfileToken, startGateway } =
     await import('./gateway.mjs')
@@ -45,6 +46,42 @@ const clone = structuredClone
 function capture(result = body, pin = contract.pin, digest = contract.hash) {
     return { result, callId: 'actual-server-call', toolName: pin, pinned: { name: pin, hash: digest, version: 1 } }
 }
+
+test('displayed report lineage preserves a selection when an unused query adds identifiers to the same rows', async () => {
+    const records = [
+        { ticket_id: 'T-2', name: 'Second' },
+        { ticket_id: 'T-1', name: 'First' }
+    ]
+    const report = '| Ticket ID | Name |\n|---|---|\n| T-2 | Second |\n| T-1 | First |'
+    const pin = { pin: 'pq_ticket_report', hash: 'ab'.repeat(32), mode: 'markdown', fields: [{ path: 'rows.0.report' }] }
+    const stamped = { ...capture({ rows: [{ report, records }] }, pin.pin, pin.hash), sourceTurn: 'actual-turn' }
+    const queryHash = 'cd'.repeat(32)
+    const extra = {
+        callId: 'extra-query',
+        sourceTurn: 'actual-turn',
+        toolName: 'query',
+        result: { rows: records.map((r) => ({ ...r, account_id: 'account-' + r.ticket_id })) },
+        traceFields: { sqlHash: queryHash },
+        queryEvidence: { kind: 'native-read-only-query', sqlHash: queryHash, rowCap: 100, statementTimeoutMs: 15000 }
+    }
+    // These sources have the same displayed identity but different record metadata.
+    assert.deepEqual(answerSelections(report, [stamped, extra]), [])
+    const specialist = { name: 'data', trustedOutputs: [pin] }
+    const rendered = await renderTrustedOutputs(specialist, [stamped, extra])
+    assert.deepEqual(rendered.captureRefs, [{ callId: stamped.callId, toolName: stamped.toolName, hash: pin.hash }])
+    const context = {
+        roster: { specialists: [specialist] },
+        trustedCaptures: new Map([['data', [stamped, extra]]]),
+        displayedSourceCaptures: new Map([['data', [stamped]]])
+    }
+    const sources = selectionSources(context, [{ name: 'data', status: 'completed' }])
+    assert.deepEqual(
+        answerSelections(rendered.text, sources)[0].records.map((r) => r.ticket_id),
+        ['T-2', 'T-1']
+    )
+    assert(!JSON.stringify(answerSelections(rendered.text, sources)).includes('account_id'))
+    assert.deepEqual(selectionSources(context, [{ name: 'data', status: 'failed' }]), [])
+})
 
 test('mixed-source interpretation preserves each mapped scope and verifies additional query captures independently', async () => {
     const report = {
@@ -1256,6 +1293,9 @@ test('a later specialist turn receives every source-backed selected key beyond t
         records.map((row) => `| ${row.ticket_id} | ${row.name} ${'long description '.repeat(10)} |`).join('\n')
     const result = { rows: [{ scope: 'Verified source scope.', report, records }] }
     const first = await runFixture({ markdownOnly: true, result })
+    const { appendTurn } = await import('./session.mjs')
+    appendTurn(first.name, 'chat', 'Explain a separate technical topic.', 'An unrelated documentation explanation.', [], [])
+    appendTurn(first.name, 'chat', 'Make that explanation one sentence.', 'A short documentation sentence.', [], [])
     const next = await runFixture({
         markdownOnly: true,
         result,
