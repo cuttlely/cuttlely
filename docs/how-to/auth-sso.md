@@ -195,14 +195,16 @@ SCIM v2 does not support bulk operations, sorting, or ETags. List pages are limi
 
 ## Upgrade behavior
 
-On the first start after upgrade, Cuttlely records a database installation id and infers the current method once:
+These steps happen once, on the first start of 1.4.9 or later after upgrading from 1.4.8 or earlier. Upgrading from 1.4.9 or 1.4.10 to 1.5.0 repeats neither of them.
+
+On that first start, Cuttlely records a database installation id and infers the current method once:
 
 -   A complete WorkOS configuration remains on WorkOS.
 -   A complete WorkOS configuration with `CUTTLELY_LOCAL_USERS=true` also remains on WorkOS. The page reports the mixed settings for review, but automatic email linking and invitation sign-in continue normally.
 -   Local-user mode remains on Local login.
 -   An owner-only installation keeps recovery access without enabling ordinary local login.
 
-On the first start with this release, Cuttlely writes one database cutoff marker. Everyone whose browser still has the older sealed WorkOS session signs in again once. The old cookie is cleared and is never exchanged into a Cuttlely session. Existing local-user sessions are unchanged, and API keys continue working. Repeated starts reuse the marker and do not repeat the cutoff.
+On that first start, Cuttlely also writes one database cutoff marker. Everyone whose browser still has the older sealed WorkOS session signs in again once. The old cookie is cleared and is never exchanged into a Cuttlely session. Existing local-user sessions are unchanged, and API keys continue working. Repeated starts reuse the marker and do not repeat the cutoff.
 
 Legacy `externalId` values are WorkOS subjects. When the upgraded installation has a stable WorkOS provider identity, Cuttlely copies those subjects into durable provider links before OIDC can be activated. When no stable WorkOS provider identity can be attributed, the subjects are recorded as unmigrated and inert instead; they cannot match a generic OIDC provider and do not block OIDC activation. **Auth / SSO** reports how many inert subjects remain.
 
