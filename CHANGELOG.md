@@ -18,6 +18,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Duplicating a harness from the canvas settings now creates the copy as a harness, listed under Harnesses, instead of as a chatflow. A duplicated pipeline likewise stays a pipeline.
 -   A Markdown trusted-output contract can set an optional `renderWhen` condition on a source field, so a complete lookup that returns an unresolved outcome with empty report fields no longer rejects the whole response. Nonmatching outcomes remain evidence for resolution or clarification, and a later matching result still renders its factual output. Missing condition fields, query errors and truncated results still fail. Contracts without the condition keep their behavior. See [Trusted outputs](./docs/reference/trusted-outputs.md). [#386](https://github.com/cuttlely/cuttlely/pull/386).
 -   Protected renderers keep references to the captures that produced their factual output, so a list selection survives unrelated conversation turns even when an unused query returned the same displayed record IDs with extra metadata. All verified evidence and existing source checks still apply. The Web Browser tool gains an optional source-text mode that reads bounded excerpts of the real page and records the exact destination; the summary mode stays the default. [#385](https://github.com/cuttlely/cuttlely/pull/385).
 
