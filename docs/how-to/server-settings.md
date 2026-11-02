@@ -255,9 +255,3 @@ From a terminal (in Docker, prefix with `docker compose exec -u node cuttlely`):
 **History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value. A secret is recorded only as changed. The same list is `GET /api/v1/server-settings/history`. It is paged, newest first, and only the organization owner can read it. The newest 1000 changes are kept (`CUTTLELY_HISTORY_KEEP`, 100 to 10000). A value saved on this page wins over the environment variable. Older ones are removed when a new change is saved. Those same changes also appear on the [audit log](./audit-log.md). **Audit log retention** (`CUTTLELY_AUDIT_RETENTION_DAYS`, 90, from 1 to 3650) is how many days that log keeps. A valid host value wins over the saved value. It does not delete this history.
 
 ![History. Saved 6 changes by rosa.diaz@example.com, with the date and time under the name: MCP sign-in wait default to 20000, Longest MCP tool description default to 512, Longest MCP tool name default to 64, Row cap default to 80, Query timeout default to 20000, and Keep warm every default to 30. The bar says 6 saved changes wait for a restart.](../images/server-settings/server-settings-history.png)
-
-### Protected source evidence
-
-Under **Agent runtime** > **Limits**, **Evidence budget (bytes)** controls the protected source detail available to specialists for analysis. The default is **40000**, with a range of **4096** to **262144**. Review and save, then restart to apply. A host-set value locks the field.
-
-To increase this for one specialist, set **Evidence budget (bytes)** in that Harness Specialist's additional parameters. Blank inherits the Admin default. Larger budgets can reduce extra calls for long descriptions but increase input-token use; small model-context limits still apply. Output tokens and report validation are unchanged. See [Evidence budget](../reference/trusted-outputs.md#evidence-budget).

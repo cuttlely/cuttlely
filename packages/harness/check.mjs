@@ -253,7 +253,6 @@ const trustedOutputTests = spawnSync(
     [
         '--test',
         path.join(root, 'packages/harness/trusted-output.test.mjs'),
-        path.join(root, 'packages/harness/evidence-budget.test.mjs'),
         path.join(root, 'packages/harness/retrieval-capture.test.mjs'),
         path.join(root, 'packages/harness/retrieval-capture-bridge.test.mjs')
     ],

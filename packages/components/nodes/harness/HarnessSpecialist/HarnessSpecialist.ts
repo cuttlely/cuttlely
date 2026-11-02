@@ -14,7 +14,7 @@ class HarnessSpecialist_Harness implements INode {
     constructor() {
         this.label = 'Harness Specialist'
         this.name = 'harnessSpecialist'
-        this.version = 2.6
+        this.version = 2.5
         this.type = 'HarnessSpecialist'
         this.icon = 'harness.svg'
         this.category = 'Harness'
@@ -143,15 +143,6 @@ class HarnessSpecialist_Harness implements INode {
                 additionalParams: true,
                 description:
                     'Let the specialist read bounded source evidence and lead with a labeled interpretation. Source-owned factual output remains unchanged. Unsupported numeric, date or currency claims suppress the interpretation.'
-            },
-            {
-                label: 'Evidence budget (bytes)',
-                name: 'evidenceBytes',
-                type: 'number',
-                optional: true,
-                additionalParams: true,
-                description:
-                    'Optional protected source evidence budget, 4096 to 262144 bytes. Blank inherits Admin → Agent runtime (default 40000). Larger budgets expose more source detail to the model and can increase token use; they do not change output tokens or report validation.'
             },
             {
                 label: 'Interpretation evidence paths',

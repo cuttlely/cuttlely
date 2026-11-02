@@ -1,4 +1,3 @@
-import { DEFAULT_EVIDENCE_BYTES, defaultEvidenceBytes, evidenceBudget } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -1285,7 +1284,6 @@ function resolveRoster(record, profileName = record.name) {
         const explicit = modelChoice(specialist.model)
         return {
             ...specialist,
-            evidenceBytes: evidenceBudget(specialist).bytes,
             hermesToolsets: hermesToolsetsFor(specialist),
             model: explicit || chiefModel
         }
@@ -1797,11 +1795,6 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push('platform_toolsets:')
     yaml.push('  api_server:')
     for (const name of enabled) yaml.push(`    - ${name}`)
-    const budget = evidenceBudget(specialist)
-    yaml.push('tool_budget:')
-    yaml.push(`  mcp_result_size_chars: ${budget.mcpResultChars}`)
-    yaml.push(`  default_result_size_chars: ${budget.resultChars}`)
-    yaml.push(`  turn_budget_chars: ${budget.turnChars}`)
     yaml.push('terminal:')
     yaml.push(`  cwd: ${yamlQuote(workspace)}`)
     if (specialist.codeExecution) {
@@ -1827,18 +1820,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push('  tool_search:')
     yaml.push('    enabled: "off"')
     pushMcpServers(yaml, blocks)
-    // The gateway selects the authorized node from its token, not this model label. For an expanded
-    // budget, expose the selected model name so the runtime can resolve its real context window instead
-    // of treating a profile alias as an unknown model. Keep the conservative alias for fallback routes.
-    const selectedModel = specialist.model?.inputs?.modelName
-    const contextModel =
-        budget.bytes > DEFAULT_EVIDENCE_BYTES &&
-        !specialist.fallbackModel &&
-        typeof selectedModel === 'string' &&
-        /^[A-Za-z0-9._-]{1,200}$/.test(selectedModel)
-            ? selectedModel
-            : specialist.profileName
-    pushModel(yaml, contextModel, issued.base)
+    pushModel(yaml, specialist.profileName, issued.base)
     pushProviders(yaml)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
     writeProfileSecrets(specialist.profileName, specialistCredentialEnv(specialist), {
@@ -2267,8 +2249,7 @@ function compileProfileFiles(record, options = {}) {
         specialists: resolved.specialists,
         chiefToolsets: CHIEF_TOOLSETS,
         dispatch: resolved.mixed ? 'roster' : 'delegation',
-        agentRunTimeoutMs: agentRunTimeoutMs(),
-        defaultEvidenceBytes: defaultEvidenceBytes()
+        agentRunTimeoutMs: agentRunTimeoutMs()
     }
     writeIfChanged(path.join(dir, 'harness-roster.json'), JSON.stringify(compiled, null, 2))
     writeIfChanged(path.join(dir, 'SOUL.md'), chiefPrompt(compiled, { specialists: resolved.specialists, mixed: resolved.mixed }))
@@ -2676,7 +2657,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '8'
+export const PROFILE_COMPILER_VERSION = '7'
 
 function compilerVersionOf(dir) {
     try {
@@ -2735,7 +2716,6 @@ export function profileOutdated(record) {
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION || profileTreeBlocked(dir)) return true
     const roster = onDiskRoster(dir)
     // The stdio child gets a compiled env, so an Admin restart must refresh a changed run timeout before loading it.
-    if (roster?.defaultEvidenceBytes !== defaultEvidenceBytes()) return true
     if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
@@ -3101,13 +3081,7 @@ function recheckCached(compiled) {
 }
 
 export function compileProfileCached(record) {
-    const key = [
-        hermesHome(),
-        agentRunTimeoutMs(),
-        defaultEvidenceBytes(),
-        JSON.stringify(record),
-        credentialStamp(credentialIdsIn(record))
-    ].join('\0')
+    const key = [hermesHome(), agentRunTimeoutMs(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {

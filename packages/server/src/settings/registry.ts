@@ -525,20 +525,6 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
-        key: 'CUTTLELY_HARNESS_EVIDENCE_BYTES',
-        section: 'runtime',
-        group: 'Limits',
-        label: 'Evidence budget (bytes)',
-        help: 'Protected source evidence available to a specialist for analysis. A specialist can override this on its canvas node. Larger budgets expose more source detail and can increase token use. Output tokens and report validation are unchanged. Restart to apply.',
-        type: 'number',
-        integer: true,
-        min: 4096,
-        max: 262144,
-        defaultLabel: '40000 bytes',
-        defaultValue: '40000',
-        risk: 'medium'
-    },
-    {
         key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS',
         section: 'runtime',
         group: 'Limits',
