@@ -67,3 +67,5 @@ Companion documentation provenance: `packages/harness/retrieval-capture.mjs` hol
 Agent team tuning: `docs/how-to/tune-agent-team.md` compares answer paths and connects row caps, native files, run limits, scoped capacity waiting, Live API sessions and source-backed QA.
 
 Source-backed follow-ups: `packages/harness/answer-context.mjs` extracts bounded record selections from executed rows matched to displayed tables. `answer-context.test.mjs` covers multiple entity grains, order, ambiguity, privacy, bounds and session persistence; `trusted-output.test.mjs` covers the next specialist request, bounded revalidated repair, native report selection and per-step output intent. The tuning guide documents the shared behavior and limits.
+
+The optional Web Browser source-text reader is `packages/components/nodes/tools/WebBrowser/sourcePage.ts`, with source/protocol/size checks in `sourcePage.test.ts`. It belongs to Harnesses and the Analyst; the inherited node wrapper supplies the existing secure HTTP fetcher through this entry point.
