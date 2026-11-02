@@ -276,6 +276,13 @@ function toPublic(row) {
 export function harnessRunRecordStatus(result, error) {
     if (error?.code === 'aborted') return 'cancelled'
     if (!result || error) return 'failed'
+    const specialists = result.trace?.specialists || []
+    if (
+        specialists.some((item) => item.status !== 'completed') ||
+        (result.trustedOutput === true && result.trustedOutputComplete === false)
+    )
+        return 'completed_with_errors'
+    if (result.trustedOutput === true && result.trustedOutputComplete === true) return 'succeeded'
     const tools = (result.trace?.specialists || []).flatMap((item) => settleToolChips(item.tools || []))
     if (tools.some((tool) => tool.status === 'failed')) return 'completed_with_errors'
     return 'succeeded'

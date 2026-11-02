@@ -12752,6 +12752,33 @@ check(
     JSON.stringify({ tool: toolErrorRun?.status, crash: crashedRun?.status, retried: retriedRun?.status })
 )
 
+{
+    const { harnessRunRecordStatus } = await import('./history.mjs')
+    const recovered = {
+        trustedOutput: true,
+        trustedOutputComplete: true,
+        trace: {
+            specialists: [
+                {
+                    status: 'completed',
+                    tools: [
+                        { name: 'search', status: 'failed' },
+                        { name: 'query', status: 'done' }
+                    ]
+                }
+            ]
+        }
+    }
+    check(
+        'completed verified sections recover tool attempts while missing sections and failed specialists remain errors',
+        harnessRunRecordStatus(recovered) === 'succeeded' &&
+            harnessRunRecordStatus({ ...recovered, trustedOutputComplete: false }) === 'completed_with_errors' &&
+            harnessRunRecordStatus({ ...recovered, trace: { specialists: [{ status: 'failed', tools: [] }] } }) ===
+                'completed_with_errors' &&
+            harnessRunRecordStatus({ trace: recovered.trace }) === 'completed_with_errors'
+    )
+}
+
 function analystHermesFetch(planFor) {
     const runs = new Map()
     let n = 0

@@ -139,9 +139,11 @@ export async function createRun({
                 if (signal?.aborted) throw error
                 continue
             }
+            const transportCode = error?.cause?.code || error?.code
+            const codeNote = typeof transportCode === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(transportCode) ? ` [${transportCode}]` : ''
             throw new HarnessError(
                 'hermes_unreachable',
-                `Harness "${harnessName}" cannot run: Hermes did not accept POST /v1/runs on localhost (${error.message}).`
+                `Harness "${harnessName}" cannot run: Hermes did not accept POST /v1/runs on localhost (${error.message}${codeNote}).`
             )
         } finally {
             clearTimeout(timer)
