@@ -1,6 +1,6 @@
 import { load } from 'cheerio'
 import { getText, parseInputs } from '@langchain/classic/tools/webbrowser'
-import { secureFetch } from '../../../src/httpSecurity'
+import type { RequestInit } from 'node-fetch'
 
 const SOURCE_MARKER = '\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n'
 type SourceResponse = {
@@ -10,16 +10,16 @@ type SourceResponse = {
     headers: { get: (name: string) => string | null }
     text: () => Promise<string>
 }
-type SourceFetch = (url: string, init?: Parameters<typeof secureFetch>[1]) => Promise<SourceResponse>
+type SourceFetch = (url: string, init?: RequestInit) => Promise<SourceResponse>
 
 // This mode returns fetched text rather than a second model's account of the page.
-export async function readSourcePage(input: string, fetchPage: SourceFetch = secureFetch): Promise<string> {
+export async function readSourcePage(input: string, fetchPage: SourceFetch): Promise<string> {
     const [target] = parseInputs(input)
     const requested = new URL(target)
     if (requested.href.length > 4096 || !['http:', 'https:'].includes(requested.protocol) || requested.username || requested.password)
         throw new Error('A public HTTP(S) page URL without embedded credentials is required.')
     // node-fetch 2's signal declaration predates Node's current AbortSignal fields.
-    const signal = AbortSignal.timeout(20000) as unknown as NonNullable<Parameters<typeof secureFetch>[1]>['signal']
+    const signal = AbortSignal.timeout(20000) as unknown as RequestInit['signal']
     const response = await fetchPage(requested.href, { size: 2097152, signal })
     if (!response.ok) throw new Error(`Source page returned HTTP ${response.status}.`)
     const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()

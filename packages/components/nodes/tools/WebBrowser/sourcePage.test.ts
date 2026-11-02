@@ -1,9 +1,9 @@
 import { readSourcePage } from './sourcePage'
-import { secureFetch } from '../../../src/httpSecurity'
+import type { RequestInit } from 'node-fetch'
 
 const marker = '\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n'
 function fetched(body: string, type = 'text/html', ok = true) {
-    return jest.fn(async (_url: string, _init?: Parameters<typeof secureFetch>[1]) => ({
+    return jest.fn(async (_url: string, _init?: RequestInit) => ({
         ok,
         status: ok ? 200 : 503,
         url: 'https://example.org/final',
