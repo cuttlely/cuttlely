@@ -23,6 +23,7 @@ import {
 
 // project imports
 import Settings from '@/views/settings'
+import { duplicateCanvasPath } from '@/utils/canvasKind'
 import FlowiseMigrationWizard from '@/ui-component/flow/FlowiseMigrationWizard'
 import SaveChatflowDialog from '@/ui-component/dialog/SaveChatflowDialog'
 import APICodeDialog from '@/views/chatflows/APICodeDialog'
@@ -288,13 +289,7 @@ const CanvasHeader = ({
                 const parsedFlowData = JSON.parse(flowData)
                 flowData = JSON.stringify(parsedFlowData)
                 localStorage.setItem('duplicatedFlowData', flowData)
-                if (isAgentflowV2) {
-                    window.open(`${uiBaseURL}/v2/agentcanvas`, '_blank')
-                } else if (isAgentCanvas) {
-                    window.open(`${uiBaseURL}/agentcanvas`, '_blank')
-                } else {
-                    window.open(`${uiBaseURL}/canvas`, '_blank')
-                }
+                window.open(`${uiBaseURL}${duplicateCanvasPath({ isHarnessCanvas, isEtlCanvas, isAgentflowV2, isAgentCanvas })}`, '_blank')
             } catch (e) {
                 console.error(e)
             }
