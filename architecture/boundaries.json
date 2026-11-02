@@ -415,7 +415,9 @@
             "packages/ui/src/utils/analystStatus.test.js",
             "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
             "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
-            "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts"
+            "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts",
+            "packages/components/nodes/tools/WebBrowser/sourcePage.ts",
+            "packages/components/nodes/tools/WebBrowser/sourcePage.test.ts"
         ],
         "inherited": [
             "packages/server/**",
