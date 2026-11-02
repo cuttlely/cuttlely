@@ -23,6 +23,29 @@ after(() => fs.rmSync(dir, { recursive: true, force: true }))
 const crmUrl = 'https://crm.example.com/accounts/99?ref=acme'
 const secret = path.join(path.dirname(specialistWorkspace('_')), 'mask-unit', 'zz-secret-path.csv')
 
+test('authority-only application URIs survive masking without exempting filesystem or credential forms', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    for (const value of ['api://default', 'custom-app://tenant-id', '`api://00000000-0000-0000-0000-000000000000`']) {
+        assert.equal(maskWorkspacePaths(value), value)
+        assert.equal(maskDetail(value), value)
+        for (let at = 0; at <= value.length; at++) {
+            const state = workspaceMaskState()
+            assert.equal(scanWorkspaceText(state, value.slice(0, at), root) + scanWorkspaceText(state, value.slice(at), root, true), value)
+        }
+    }
+    for (const value of [
+        'file://private',
+        'C://private',
+        'api://user:password@host',
+        'api://default/tmp/private',
+        'api://default%2fprivate',
+        `api://default,${secret}`
+    ]) {
+        assert(!maskWorkspacePaths(value).includes('private'))
+        assert(!maskWorkspacePaths(value).includes('password'))
+    }
+})
+
 test('Markdown citations preserve HTTPS destinations in batch, JSON and every streaming split', () => {
     const root = path.dirname(specialistWorkspace('_'))
     const values = [
