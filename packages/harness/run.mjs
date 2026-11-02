@@ -27,7 +27,13 @@ import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSch
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
-import { renderTrustedOutputs, composeTrustedOutputs, verifiedUnmappedOutput, sourceMarkdown } from './trusted-output.mjs'
+import {
+    renderTrustedOutputs,
+    composeTrustedOutputs,
+    verifiedUnmappedOutput,
+    sourceMarkdown,
+    trustedOutputApplies
+} from './trusted-output.mjs'
 import {
     beginRetrievedSources,
     takeRetrievedSources,
@@ -2275,7 +2281,7 @@ async function selectReportCaptures(context, specialist, captured, task) {
     if (context.replay || overBudget(context)) return captured
     const candidates = captured.flatMap((item) => {
         const contract = specialist.trustedOutputs.find((entry) => entry.pin === item.toolName)
-        if (!contract || item.result?.sourceExecution === 'not_executed') return []
+        if (!contract || item.result?.sourceExecution === 'not_executed' || !trustedOutputApplies(contract, item.result)) return []
         return [{ item, contract }]
     })
     if (candidates.length < 2 || candidates.length > 12 || candidates.some(({ contract }) => contract.mode !== 'markdown')) return captured
@@ -2326,8 +2332,23 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
     const captured = context.trustedCaptures?.get(specialist.name) || []
     const mapped = (name) => specialist.trustedOutputs.some((contract) => name === contract.pin || name?.endsWith(`__${contract.pin}`))
     const mappedAttempt =
-        captured.some((item) => mapped(item.toolName)) ||
-        (context.toolLog || []).some((tool) => tool.specialist === specialist.name && mapped(tool.name))
+        captured.some((item) => {
+            const contract = specialist.trustedOutputs.find((entry) => entry.pin === item.toolName)
+            return (
+                contract &&
+                (!item.callId ||
+                    item.pinned?.hash !== contract.hash ||
+                    item.pinned?.name !== contract.pin ||
+                    !Number.isInteger(item.pinned?.version) ||
+                    trustedOutputApplies(contract, item.result))
+            )
+        }) ||
+        (context.toolLog || []).some(
+            (tool) =>
+                tool.specialist === specialist.name &&
+                mapped(tool.name) &&
+                !captured.some((item) => item.toolName === tool.name || tool.name?.endsWith(`__${item.toolName}`))
+        )
     if (!mappedAttempt) {
         const ownArtifacts = [...(context.turnImages || []), ...(context.turnFiles || [])]
             .flat()
