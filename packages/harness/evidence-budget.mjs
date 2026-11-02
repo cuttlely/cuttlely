@@ -40,3 +40,17 @@ export function evidenceBudget(specialist) {
         turnChars: Math.max(200000, mcpResultChars * 2)
     }
 }
+
+// The model label a specialist sends to the runtime. For an expanded budget, use the selected model name so
+// the runtime resolves its real context window and applies its cap, instead of treating the profile alias as
+// an unknown model. Default budgets and fallback routes keep the profile alias. The compiled profile default
+// and every request path share this choice, because the runtime honors a request's model ahead of the default.
+export function specialistContextModel(specialist) {
+    const selectedModel = specialist?.model?.inputs?.modelName
+    return evidenceBudget(specialist).bytes > DEFAULT_EVIDENCE_BYTES &&
+        !specialist.fallbackModel &&
+        typeof selectedModel === 'string' &&
+        /^[A-Za-z0-9._-]{1,200}$/.test(selectedModel)
+        ? selectedModel
+        : specialist.profileName
+}

@@ -63,7 +63,7 @@ test('a large escaped Unicode source stays complete within the configured receip
     assert(protectedInterpretationIssues('The loss is 987654321.', [body]).length > 0)
 })
 
-test('canvas round trip and profile refresh preserve a scoped override and update inherited defaults', () => {
+test('canvas round trip and profile refresh preserve a scoped override and update inherited defaults', async () => {
     const canvas = JSON.parse(fs.readFileSync(new URL('../../samples/harnesses/research.canvas.json', import.meta.url)))
     const flow = JSON.parse(canvas.flowData)
     const original = flow.nodes.find((node) => node.data?.name === 'harnessSpecialist')
@@ -88,6 +88,15 @@ test('canvas round trip and profile refresh preserve a scoped override and updat
     const expanded = compiled.specialists[0]
     const yaml = fs.readFileSync(path.join(dir, 'runtime', 'profiles', expanded.profileName, 'config.yaml'), 'utf8')
     assert(yaml.includes('default: gpt-5.6-luna'))
+    // The runtime honors a request's model ahead of the profile default, so both request paths must send the
+    // same selected model, or context detection sees the profile alias and the model-specific cap is not applied.
+    const { hermesSpecialistRequest } = await import('./run.mjs')
+    const { rosterSpecialistBody } = await import('./specialist-run.mjs')
+    assert.equal(hermesSpecialistRequest(expanded, { task: 'Count orders.', chatId: 'chat-budget' }).body.model, 'gpt-5.6-luna')
+    assert.equal(rosterSpecialistBody(expanded, 'Count orders.').model, 'gpt-5.6-luna')
+    const inherited = compiled.specialists[1]
+    assert.equal(hermesSpecialistRequest(inherited, { task: 'Count orders.', chatId: 'chat-budget' }).body.model, inherited.profileName)
+    assert.equal(rosterSpecialistBody(inherited, 'Count orders.').model, inherited.profileName)
     assert(yaml.includes(`mcp_result_size_chars: ${evidenceBudget(expanded).mcpResultChars}`))
     assert(yaml.includes(`default_result_size_chars: ${evidenceBudget(expanded).resultChars}`))
     assert(yaml.includes(`turn_budget_chars: ${evidenceBudget(expanded).turnChars}`))

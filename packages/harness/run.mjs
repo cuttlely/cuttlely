@@ -1,4 +1,4 @@
-import { evidenceBudget } from './evidence-budget.mjs'
+import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -3141,7 +3141,7 @@ export function hermesSpecialistRequest(
         input: fitted.messages.at(-1).content,
         session_id: specialistSessionId(specialist.profileName, chatId, turnId),
         provider: 'custom',
-        model: specialist.profileName
+        model: specialistContextModel(specialist)
     }
     const memoryPrompt = fitted.messages[0].content
     if (memoryPrompt) body.instructions = memoryPrompt

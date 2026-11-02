@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { specialistContextModel } from './evidence-budget.mjs'
 
 // Each turn is its own Hermes session, so a specialist does not replay every earlier turn of the chat. The chat
 // part before the turn mark still scopes the analyst page cursor, so "show more" keeps working across turns.
@@ -21,6 +22,6 @@ export function rosterSpecialistBody(specialist, task, turnId) {
         input: String(task ?? ''),
         session_id: specialistSessionId(specialist.profileName, 'tool', turnId),
         provider: 'custom',
-        model: specialist.profileName
+        model: specialistContextModel(specialist)
     }
 }
