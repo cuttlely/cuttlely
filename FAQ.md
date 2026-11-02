@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.5.0)
+# Cuttlely FAQ (1.5.1)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,14 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.5.1?
+
+-   **Evidence budget (bytes)** under **Admin** > **Agent runtime** > **Limits** sets how much protected source detail specialists get for analysis, and a Harness Specialist can set its own. The default stays at 40000 bytes. See [Set the evidence budget](./docs/how-to/evidence-budget.md).
+-   Importing an exported chatflow, and **Sync Nodes**, keep a connection whose saved output handle lists a single class, so the chain keeps its chat model and memory.
+-   No breaking changes; read the [1.5.1 changelog](./CHANGELOG.md#151---2026-11-02). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.5.1`, or run `npm i cuttlely@1.5.1`.
+
+Full notes: [v1.5.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.5.1).
 
 ### What's new in 1.5.0?
 

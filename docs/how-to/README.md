@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.5.1
+
+-   **New:** [Set the evidence budget](./evidence-budget.md). **Evidence budget (bytes)** in **Admin** sets how much protected source detail specialists get for analysis, with an optional value per specialist.
+
 ## New in 1.5.0
 
 -   **New:** [SCIM provisioning](./auth-sso.md#scim-provisioning). Okta or Entra ID creates, updates and deactivates Cuttlely users, and group mappings give them a team and a role, with a preview first.
@@ -17,6 +21,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   [Tune and publish an agent team](./tune-agent-team.md). Choose how a team reads data and answers, then check a draft before Publish.
 -   [Analyst mode](./analyst.md). A specialist with its own database that creates tables and answers from them.
 -   [Pinned queries](./pinned-queries.md). Saved, tested SQL with typed parameters on the Postgres (MCP) node.
+-   [Set the evidence budget](./evidence-budget.md). How much protected source detail a specialist gets for analysis, for the server or one specialist.
 -   [Context and tokens](./context-and-tokens.md). How a team keeps each prompt short, and where a run shows the tokens it used.
 -   [How the customer care demo works](./customer-care-demo.md). The specialists, data and rules behind the demo team.
 -   [Try the demo](./try-the-demo.md). Watch a customer care team resolve a late-order complaint in about a minute.

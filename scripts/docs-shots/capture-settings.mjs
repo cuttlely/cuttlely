@@ -669,6 +669,36 @@ async function safeBoot(browser) {
     }
 }
 
+async function captureEvidenceBudget(browser) {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-evidence-'))
+    const port = await freePort()
+    const server = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true', LOG_LEVEL: 'info' })
+    try {
+        console.log('evidence budget', server.base)
+        await waitForPing(server)
+        const { context, page } = await newPage(browser, { width: 1440, height: 1100 })
+        try {
+            await register(page, server.base, ROSA, setupCodeFrom(server))
+            await page.evaluate(() => localStorage.setItem('cuttlely.serverSettings.getStartedDismissed', '1'))
+            await openSettings(page, server.base)
+            await section(page, 'runtime')
+            const row = page.getByTestId('setting-CUTTLELY_HARNESS_EVIDENCE_BYTES')
+            await row.waitFor()
+            await fillNumber(page, 'CUTTLELY_HARNESS_EVIDENCE_BYTES', 80000)
+            await row.evaluate((element) => element.scrollIntoView({ block: 'center' }))
+            const file = path.join(IMAGES, 'evidence-budget/admin-evidence-budget.png')
+            mkdirSync(path.dirname(file), { recursive: true })
+            await page.screenshot({ path: file, animations: 'disabled' })
+            console.log('wrote evidence-budget/admin-evidence-budget.png')
+        } finally {
+            await context.close()
+        }
+    } finally {
+        server.stop()
+        rmSync(dataDir, { recursive: true, force: true })
+    }
+}
+
 async function captureTesting(browser) {
     const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-testing-'))
     const port = await freePort()
@@ -837,6 +867,10 @@ async function main() {
     try {
         if (process.env.DOCS_SHOTS === 'testing') {
             await captureTesting(browser)
+            return
+        }
+        if (process.env.DOCS_SHOTS === 'evidence-budget') {
+            await captureEvidenceBudget(browser)
             return
         }
         if (process.env.DOCS_SHOTS === 'roles') {

@@ -4,13 +4,19 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-02
+
 ### Added
 
--   **Admin → Agent runtime → Evidence budget (bytes)** controls how much protected source detail specialists receive for analysis. An optional specialist override is preserved in canvas exports and imports. The default remains 40000 bytes; larger budgets coordinate evidence extraction and runtime inline-result limits without changing source reports, output-token limits or validation.
+-   **Admin → Agent runtime → Evidence budget (bytes)** controls how much protected source detail specialists receive for analysis. An optional specialist override is preserved in canvas exports and imports. The default remains 40000 bytes; larger budgets coordinate evidence extraction and runtime inline-result limits without changing source reports, output-token limits or validation. See [Set the evidence budget](./docs/how-to/evidence-budget.md). [#392](https://github.com/cuttlely/cuttlely/pull/392).
 
 ### Fixed
 
--   Importing an exported chatflow, with or without the import wizard, and **Sync Nodes** now keep a connection whose saved output handle lists a single class, such as `chatOpenAI_0-output-chatOpenAI-ChatOpenAI`, or no class. Before, such connections were removed with "the output it came from is no longer on …", which left the chain without its chat model or memory so it could not chat. Handles that list several classes, and anchor names that contain dashes, match as before. Older exports that were already imported and saved without these connections need them connected again, or the export imported again. Refs [#362](https://github.com/cuttlely/cuttlely/issues/362).
+-   Importing an exported chatflow, with or without the import wizard, and **Sync Nodes** now keep a connection whose saved output handle lists a single class, such as `chatOpenAI_0-output-chatOpenAI-ChatOpenAI`, or no class. Before, such connections were removed with "the output it came from is no longer on …", which left the chain without its chat model or memory so it could not chat. Handles that list several classes, and anchor names that contain dashes, match as before. Older exports that were already imported and saved without these connections need them connected again, or the export imported again. Refs [#362](https://github.com/cuttlely/cuttlely/issues/362). [#393](https://github.com/cuttlely/cuttlely/pull/393).
+
+### Upgrade notes / breaking changes
+
+-   No breaking changes. The evidence budget default stays at 40000 bytes, so answers are unchanged until you raise it. A new value applies after a restart. Flows imported before 1.5.1 that lost a chat model or memory connection need it connected again, or the export imported again.
 
 ## [1.5.0] - 2026-11-01
 
@@ -742,7 +748,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/cuttlely/cuttlely/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/cuttlely/cuttlely/compare/v1.4.10...v1.5.0
 [1.4.10]: https://github.com/cuttlely/cuttlely/compare/v1.4.9...v1.4.10
 [1.4.9]: https://github.com/cuttlely/cuttlely/compare/v1.4.8...v1.4.9
