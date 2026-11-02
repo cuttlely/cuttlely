@@ -1873,3 +1873,38 @@ test('a still-invalid documentation repair remains unavailable without relaxing 
     assert.equal(out.prompts.filter((m) => String(m[0]?.content).startsWith('Repair a documentation answer')).length, 1)
     assert.equal(out.payload.artifacts.length, 1)
 })
+
+test('structured citation repair renders captured source IDs while preserving the protected report and artifact', async () => {
+    const out = await runFixture({
+        multi: true,
+        mixedDocs: true,
+        documentationProse: 'Read https://unretrieved.example/',
+        documentationRepair: JSON.stringify({ answer: 'Use the documented authentication flow. {{source:S1}}' })
+    })
+    assert(out.payload.text.endsWith('Use the documented authentication flow. [Source 1](<https://example.org/docs/auth>)'))
+    assert(out.payload.text.includes('13 source observations'))
+    assert(!out.payload.text.includes('could not be completed'))
+    assert(!out.payload.text.includes('{{source:'))
+    assert(!out.payload.text.includes('unretrieved.example'))
+    const repairs = out.prompts.filter((m) => String(m[0]?.content).startsWith('Repair a documentation answer'))
+    assert.equal(repairs.length, 1)
+    assert.equal(JSON.parse(repairs[0][1].content).sources[0].id, 'S1')
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.requests.length, 2)
+})
+
+test('a fabricated source ID in citation repair leaves protected facts and attachments available', async () => {
+    const out = await runFixture({
+        multi: true,
+        mixedDocs: true,
+        documentationProse: 'Read https://unretrieved.example/',
+        documentationRepair: JSON.stringify({ answer: 'Invented support. {{source:S99}}' })
+    })
+    assert(out.payload.text.includes('13 source observations'))
+    assert(out.payload.text.includes('could not be completed'))
+    assert(!out.payload.text.includes('{{source:'))
+    assert(!out.payload.text.includes('Invented support'))
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.equal(out.prompts.filter((m) => String(m[0]?.content).startsWith('Repair a documentation answer')).length, 1)
+})
