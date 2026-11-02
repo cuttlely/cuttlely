@@ -35,8 +35,8 @@ curl -s https://cuttlely.example.com/api/v1/scim/v2/Users \
     "active": true
   }'
 
-# Deactivate it the way Entra ID does. Replace <id> with the id from the create response.
-curl -s -X PATCH https://cuttlely.example.com/api/v1/scim/v2/Users/<id> \
+# Deactivate it the way Entra ID does. First set CUTTLELY_SCIM_USER_ID to the id from the create response.
+curl -s -X PATCH "https://cuttlely.example.com/api/v1/scim/v2/Users/$CUTTLELY_SCIM_USER_ID" \
   -H "Authorization: Bearer $CUTTLELY_SCIM_TOKEN" \
   -H "Content-Type: application/scim+json" \
   -d '{

@@ -26,7 +26,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Documentation companions with invalid citations receive one bounded tool-free repair against their original captured sources. The same exact-URL validator checks the repair; a still-invalid result stays unavailable without changing the protected business report or requerying data. [#379](https://github.com/cuttlely/cuttlely/pull/379).
 
--   Protected interpretation accepts a configured reporting symbol as metadata without an amount, while retaining typed amount and denomination checks. Currency rejections provide bounded literal feedback to the single tool-free repair and opt-in private author diagnostics. [#378](https://github.com/cuttlely/cuttlely/pull/378).
+-   Protected interpretation accepts a configured reporting symbol as metadata without an amount, while retaining typed amount and denomination checks. Currency rejections provide bounded literal feedback to the tool-free repairs and opt-in private author diagnostics. [#378](https://github.com/cuttlely/cuttlely/pull/378).
 
 -   Successful Web Browser calls can supply turn-scoped visited-page receipts to a documentation-only companion of a protected report. HTTP/network failures and non-web or credential-bearing URLs cannot supply citation evidence; analyst and executable roles keep their existing restrictions. [#378](https://github.com/cuttlely/cuttlely/pull/378).
 
@@ -42,7 +42,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Unmapped factual answers retain validated narrative evidence instead of being reduced to a table of identifiers. Harness planning can ask a fixed question for essential missing scope before running a specialist. Protected interpretation recognizes equivalent source timestamp displays without accepting invented times or business quantities, and tool-free repair retains more evidence for a single captured report. [#375](https://github.com/cuttlely/cuttlely/pull/375).
 
--   Agent-team follow-ups can retain the exact source-backed record selection and order across shortened history and specialist changes. The shared router distinguishes factual presentation from analysis and recognizes shared query scopes when choosing an owner for a complete deliverable. Protected analysis gets one tool-free, revalidated repair for unsupported claims, and an unmapped source fallback presents bounded business records instead of nested field paths. Equivalent duration abbreviations and written monetary scales retain unit and denomination checks. See [team tuning](./docs/how-to/tune-agent-team.md#carry-intent-and-record-scope-between-turns). [#372](https://github.com/cuttlely/cuttlely/pull/372).
+-   Agent-team follow-ups can retain the exact source-backed record selection and order across shortened history and specialist changes. The shared router distinguishes factual presentation from analysis and recognizes shared query scopes when choosing an owner for a complete deliverable. Protected analysis gets tool-free, revalidated repairs for unsupported claims (up to two), and an unmapped source fallback presents bounded business records instead of nested field paths. Equivalent duration abbreviations and written monetary scales retain unit and denomination checks. See [team tuning](./docs/how-to/tune-agent-team.md#carry-intent-and-record-scope-between-turns). [#372](https://github.com/cuttlely/cuttlely/pull/372).
 
 ### Upgrade notes / breaking changes
 
