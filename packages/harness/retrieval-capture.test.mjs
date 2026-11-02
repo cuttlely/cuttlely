@@ -5,7 +5,8 @@ import {
     recordRetrievedSources,
     takeRetrievedSources,
     endRetrievedSources,
-    citedRetrievedGuidance
+    citedRetrievedGuidance,
+    renderRetrievedSourceReferences
 } from './retrieval-capture.mjs'
 import { composeTrustedOutputs } from './trusted-output.mjs'
 
@@ -17,6 +18,58 @@ const document = {
 }
 const specialist = { modules: [{ nodeName: 'retrieverTool' }] }
 const guidance = `Use the supported authentication method. [Authentication][auth]\n\n[auth]: ${url}`
+
+test('documentation repair references use captured destinations and remain citation-validated', () => {
+    const sources = [{ url }, { url: 'https://example.org/docs/a(b)?version=2&mode=auth#login' }]
+    const answer = renderRetrievedSourceReferences(
+        JSON.stringify({ answer: 'Authenticate using the documented method. {{source:S1}} Compare version limits. {{source:S2}}' }),
+        sources
+    )
+    assert.equal(
+        answer,
+        `Authenticate using the documented method. [Source 1](<${url}>) Compare version limits. [Source 2](<${sources[1].url}>)`
+    )
+    assert(
+        citedRetrievedGuidance(
+            specialist,
+            answer,
+            sources.map((s) => ({ metadata: { source: s.url } }))
+        )
+    )
+    assert.equal(renderRetrievedSourceReferences(guidance, sources), guidance)
+    assert.equal(
+        renderRetrievedSourceReferences('```json\n{"answer":"Use the method. {{source:S1}}"}\n```', sources),
+        `Use the method. [Source 1](<${url}>)`
+    )
+    const invented = renderRetrievedSourceReferences('{"answer":"Read {{source:S1}} and https://unretrieved.example/"}', sources)
+    assert.equal(citedRetrievedGuidance(specialist, invented, [document]), null)
+})
+
+test('invalid, missing, credentialed and out-of-range repair references fail closed', () => {
+    for (const reply of [
+        '{"answer":"Read {{source:S0}}"}',
+        '{"answer":"Read {{source:S2}}"}',
+        '{"answer":"Read {{source:S33}}"}',
+        '{"answer":"Read {{source:S1.0}}"}',
+        '{"answer":"Read {{source:S1}"}',
+        '{{source:'.repeat(7000),
+        '{"answer":"Read {{source:S1}}", "sources":["https://invented.example/"]}',
+        '{"answer":null}',
+        '{"answer":""}',
+        '{invalid',
+        'x'.repeat(65537)
+    ])
+        assert.equal(renderRetrievedSourceReferences(reply, [{ url }]), null, reply.slice(0, 100))
+    for (const destination of ['file:///private/data', 'https://user:password@example.org/', 'not a URL'])
+        assert.equal(renderRetrievedSourceReferences('{"answer":"Read {{source:S1}}"}', [{ url: destination }]), null)
+    assert.equal(renderRetrievedSourceReferences('{"answer":"Read {{source:S1}}"}', []), null)
+    assert.equal(
+        renderRetrievedSourceReferences(JSON.stringify({ answer: '{{source:S1}}'.repeat(100) }), [
+            { url: `https://example.org/${'x'.repeat(4000)}` }
+        ]),
+        null
+    )
+})
 
 test('retrieval receipts require an active exact turn and actual call identity, and are consumed once', () => {
     beginRetrievedSources(scope)
