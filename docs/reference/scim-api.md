@@ -45,7 +45,7 @@ curl -s -X PATCH "https://cuttlely.example.com/api/v1/scim/v2/Users/$CUTTLELY_SC
   }'
 ```
 
-Each request appears in the Operations section of the SCIM card. Deactivation ends that user's sessions and disables their API credentials and personal tokens.
+Each request appears in the Operations section of the SCIM card. Deactivation ends that user's sessions and disables the API credentials and personal tokens they own. API credentials created before 1.4.9 have no recorded owner and stay usable; see [Sessions and account status](../how-to/auth-sso.md#sessions-and-account-status).
 
 ## Discovery
 

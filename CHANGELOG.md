@@ -47,7 +47,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Upgrade notes / breaking changes
 
 -   **Back up first.** The first start of 1.5.0 adds the SCIM provisioning tables. Back up your data directory, including its encryption key, or your database before you upgrade. Existing users, sign-in methods, sessions and API credentials are unchanged, and the SCIM endpoint refuses every request until an administrator creates a SCIM credential on **Admin** > **Auth / SSO**.
--   **With SCIM in use, the identity provider decides who is active.** A manual disable in Cuttlely is reversed by the next provider update that sends `active: true`, so disable or unassign provisioned people in the identity provider instead.
+-   **For SCIM-provisioned users, the identity provider decides who is active.** A manual disable in Cuttlely is reversed by the next provider update that sends `active: true`, so disable or unassign provisioned people in the identity provider instead. Accounts not linked through SCIM stay managed in Cuttlely.
 -   **`TOKEN_HASH_SECRET` also covers the SCIM credential.** After rotating it, SCIM requests fail authentication until an administrator uses **Rotate** with no overlap, or **Revoke** and then **Create**, and enters the new value at the identity provider.
 -   Coming from 1.4.8 or earlier, read the [1.4.9 upgrade notes](#149---2026-10-31) first.
 
