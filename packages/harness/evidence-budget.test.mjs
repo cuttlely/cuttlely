@@ -73,6 +73,7 @@ test('canvas round trip and profile refresh preserve a scoped override and updat
     original.data.inputs.evidenceBytes = '262144'
     original.data.inputs.enableFileAccess = true
     const roster = rosterFromFlow({ name: 'evidence-config', chatflowId: 'evidence-config', flowData: JSON.stringify(flow) })
+    roster.chief.model.inputs.modelName = 'gpt-5.6-luna'
     saveHarness(roster)
     const saved = getHarness(roster.name)
     assert.equal(saved.specialists[0].evidenceBytes, 262144)
@@ -86,6 +87,7 @@ test('canvas round trip and profile refresh preserve a scoped override and updat
     let compiled = read()
     const expanded = compiled.specialists[0]
     const yaml = fs.readFileSync(path.join(dir, 'runtime', 'profiles', expanded.profileName, 'config.yaml'), 'utf8')
+    assert(yaml.includes('default: gpt-5.6-luna'))
     assert(yaml.includes(`mcp_result_size_chars: ${evidenceBudget(expanded).mcpResultChars}`))
     assert(yaml.includes(`default_result_size_chars: ${evidenceBudget(expanded).resultChars}`))
     assert(yaml.includes(`turn_budget_chars: ${evidenceBudget(expanded).turnChars}`))

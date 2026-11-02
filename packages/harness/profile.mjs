@@ -1,4 +1,4 @@
-import { defaultEvidenceBytes, evidenceBudget } from './evidence-budget.mjs'
+import { DEFAULT_EVIDENCE_BYTES, defaultEvidenceBytes, evidenceBudget } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -1827,7 +1827,18 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push('  tool_search:')
     yaml.push('    enabled: "off"')
     pushMcpServers(yaml, blocks)
-    pushModel(yaml, specialist.profileName, issued.base)
+    // The gateway selects the authorized node from its token, not this model label. For an expanded
+    // budget, expose the selected model name so the runtime can resolve its real context window instead
+    // of treating a profile alias as an unknown model. Keep the conservative alias for fallback routes.
+    const selectedModel = specialist.model?.inputs?.modelName
+    const contextModel =
+        budget.bytes > DEFAULT_EVIDENCE_BYTES &&
+        !specialist.fallbackModel &&
+        typeof selectedModel === 'string' &&
+        /^[A-Za-z0-9._-]{1,200}$/.test(selectedModel)
+            ? selectedModel
+            : specialist.profileName
+    pushModel(yaml, contextModel, issued.base)
     pushProviders(yaml)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
     writeProfileSecrets(specialist.profileName, specialistCredentialEnv(specialist), {
