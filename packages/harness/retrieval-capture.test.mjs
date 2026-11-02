@@ -196,3 +196,26 @@ test('successful browser summaries supply exact visited URLs; failed calls and u
     }
     assert.deepEqual((await run('customTool', 'https://example.org/docs/auth', text)).sources, [])
 })
+
+test('source-text browser mode captures actual document receipts instead of treating the display text as a source', async () => {
+    const { executeModule } = await import('./bridge.mjs')
+    let sources = []
+    const fetched = [{ pageContent: 'Actual fetched page text: map users and groups to policies.', metadata: { source: url } }]
+    const result = await executeModule({ nodeName: 'webBrowser', nodeId: 'source-browser', inputs: { readSource: true } }, url, {
+        flowOptions: { appDataSource: {} },
+        onRetrievedSources: (docs) => {
+            sources = docs
+        },
+        loadNode: async () =>
+            class {
+                async init() {
+                    return {
+                        invoke: async () => 'Displayed source excerpt.\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n' + JSON.stringify(fetched)
+                    }
+                }
+            }
+    })
+    assert.equal(result, 'Displayed source excerpt.')
+    assert.deepEqual(sources, fetched)
+    assert(!sources.some((doc) => doc.pageContent === result))
+})
