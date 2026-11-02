@@ -816,7 +816,7 @@ async function runRoster(context, input) {
                       (result) =>
                           result.status === 'completed' &&
                           (result.trustedOutput || result.trustedPassthrough || result.retrievedGuidance) &&
-                          result.recovery?.reason !== 'interpretationOmitted'
+                          (result.recovery?.reason !== 'interpretationOmitted' || !result.interpretationRequested)
                   ),
                   ...(context.deliveryDeadlineAt ? { trustedOutputDeadlineAt: context.deliveryDeadlineAt } : {})
               }
@@ -1797,7 +1797,7 @@ async function routeSteps(context, input, history) {
         'If an essential scope is missing and cannot be resolved from the request, history or a documented source default, return only {"clarification":"selection|entity|metric|period|region|record_type|comparison"}. A clarification asks for missing input before execution. Do not delegate a nonexistent record set or invent values. Use steps when the request can be fulfilled.',
         context.images?.length ? ROUTE_IMAGES : '',
         synthesis
-            ? 'Choose answerMode "facts" for source facts, tables, lists and counts; "analysis" for a complete report with interpretation or an artifact deliverable; "synthesis" for a self-contained concise or custom narrative using a specialist that supports validated synthesis. Synthesis does not append a full factual report. Preserve all requested evidence dimensions: make broad business needs concrete in each task rather than treating brevity as permission to omit required facts. Resolve intent from the whole conversation, not isolated keywords. Permissions, source identity and validation remain mandatory.'
+            ? 'Choose answerMode "facts" for source facts, tables, lists, counts and factual exports; "analysis" for a complete report with interpretation or requested analysis accompanying an artifact; "synthesis" for a self-contained concise or custom narrative using a specialist that supports validated synthesis. Synthesis does not append a full factual report. Preserve all requested evidence dimensions: make broad business needs concrete in each task rather than treating brevity as permission to omit required facts. Resolve intent from the whole conversation, not isolated keywords. Permissions, source identity and validation remain mandatory.'
             : 'For each step choose answerMode "facts" for direct source facts, lists or counts, and "analysis" for explanation, interpretation, comparison, recommendations or artifacts. Resolve the intent from the whole conversation, not isolated keywords. This affects presentation only; source permissions and validation remain mandatory.',
         `Reply with JSON only: {"steps":[{"specialist":"NAME","task":"...","after":"","answerMode":"facts|analysis${
             synthesis ? '|synthesis' : ''
@@ -2743,6 +2743,7 @@ async function runStep(context, step) {
         const completed = maskWorkspacePaths({
             name: specialist.name,
             status: 'completed',
+            ...(['analysis', 'synthesis'].includes(step.answerMode) ? { interpretationRequested: true } : {}),
             task,
             publicTask: step.task,
             text: out.text,
