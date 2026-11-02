@@ -72,8 +72,8 @@ export function retrievalOnlySpecialist(specialist) {
 export function renderRetrievedSourceReferences(reply, sources) {
     if (typeof reply !== 'string' || Buffer.byteLength(reply) > 65536) return null
     let text = reply.trim()
-    const fenced = text.match(/^```(?:json)?\s*\n([\s\S]*)\n```$/)
-    if (fenced) text = fenced[1].trim()
+    const fence = ['```json\n', '```\n', '```json\r\n', '```\r\n'].find((prefix) => text.startsWith(prefix))
+    if (fence && text.endsWith('\n```')) text = text.slice(fence.length, -4).trim()
     if (text.startsWith('{')) {
         try {
             const value = JSON.parse(text)
@@ -85,7 +85,7 @@ export function renderRetrievedSourceReferences(reply, sources) {
     }
     let invalid = false
     let bytes = Buffer.byteLength(text)
-    text = text.replace(/\{\{source:([^}]+)\}\}/g, (_token, id) => {
+    text = text.replace(/\{\{source:([^{}]*)\}\}/g, (_token, id) => {
         if (invalid) return ''
         const match = /^S([1-9]\d*)$/.exec(id)
         const index = match ? Number(match[1]) - 1 : -1

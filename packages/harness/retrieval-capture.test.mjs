@@ -52,6 +52,7 @@ test('invalid, missing, credentialed and out-of-range repair references fail clo
         '{"answer":"Read {{source:S33}}"}',
         '{"answer":"Read {{source:S1.0}}"}',
         '{"answer":"Read {{source:S1}"}',
+        '{{source:'.repeat(7000),
         '{"answer":"Read {{source:S1}}", "sources":["https://invented.example/"]}',
         '{"answer":null}',
         '{"answer":""}',
