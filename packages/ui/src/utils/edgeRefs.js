@@ -2,16 +2,37 @@ import cloneDeep from 'lodash/cloneDeep'
 
 import { normalizeCanvasFlow, normalizeNodeData } from './normalizeCanvasFlow'
 
-const handlesEqual = (a, b) => {
+const ANCHOR_SIDE = /-(?:input|output)-/
+
+const withoutClassList = (value) => {
+    const lastDash = value.lastIndexOf('-')
+    if (lastDash === -1) return value
+    return value.substring(lastDash + 1).includes('|') ? value.substring(0, lastDash) : value
+}
+
+// A handle is `<node id>-<input|output>-<anchor name>` followed by an optional class segment. Exported
+// chatflows list that segment as several classes joined by `|`, as a single class, or leave it out, and the
+// anchor name may itself contain dashes. A segment without `|` cannot be told apart from the end of a dashed
+// anchor name, so keep both readings and let either one match the other handle's anchor name.
+const handleParts = (value) => {
+    const side = value.match(ANCHOR_SIDE)
+    if (!side) return null
+    const head = value.slice(0, side.index + side[0].length)
+    const rest = value.slice(head.length)
+    const lastDash = rest.lastIndexOf('-')
+    if (lastDash === -1) return { head, name: rest, withoutSingleClass: null }
+    if (rest.substring(lastDash + 1).includes('|')) return { head, name: rest.substring(0, lastDash), withoutSingleClass: null }
+    return { head, name: rest, withoutSingleClass: rest.substring(0, lastDash) }
+}
+
+export const handlesEqual = (a, b) => {
     if (a === b) return true
-    const withoutClassList = (value) => {
-        if (!value) return value
-        const lastDash = value.lastIndexOf('-')
-        if (lastDash === -1) return value
-        const suffix = value.substring(lastDash + 1)
-        return suffix.includes('|') ? value.substring(0, lastDash) : value
-    }
-    return withoutClassList(a) === withoutClassList(b)
+    if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false
+    const left = handleParts(a)
+    const right = handleParts(b)
+    if (!left || !right) return withoutClassList(a) === withoutClassList(b)
+    if (left.head !== right.head) return false
+    return left.name === right.name || left.withoutSingleClass === right.name || left.name === right.withoutSingleClass
 }
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

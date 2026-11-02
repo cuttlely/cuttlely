@@ -1,9 +1,19 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { anyNeedsSync, applyEdgeRefs, fillSpecDefaults, healImportedFlow, needsSync, stageCanvasPayload, wizardHeal } from './edgeRefs'
+import {
+    anyNeedsSync,
+    applyEdgeRefs,
+    fillSpecDefaults,
+    handlesEqual,
+    healImportedFlow,
+    needsSync,
+    stageCanvasPayload,
+    wizardHeal
+} from './edgeRefs'
 import { scanFlowiseMigration } from './flowiseMigration.mjs'
-import { showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from './genericHelper'
+import * as genericHelper from './genericHelper'
+import { showHideInputAnchors, showHideInputParams, updateOutdatedNodeData, updateOutdatedNodeEdge } from './genericHelper'
 import { normalizeCanvasFlow, specsByName } from './normalizeCanvasFlow'
 
 const copy = (value) => JSON.parse(JSON.stringify(value))
@@ -530,5 +540,95 @@ describe('chatflow import healing', () => {
         expect(report.level).toBe('attention')
         expect(report.canvas.edges).toHaveLength(1)
         expect(report.attention.some((message) => message.includes('input it pointed at is no longer'))).toBe(true)
+    })
+})
+
+describe('handles that list a single class', () => {
+    const pipeList = 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel|BaseLanguageModel|Runnable'
+
+    it.each([
+        ['a pipe list', pipeList, 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel'],
+        ['a single class', pipeList, 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI'],
+        [
+            'a single class on both sides',
+            'bufferMemory_0-output-bufferMemory-BufferMemory',
+            'bufferMemory_0-output-bufferMemory-BufferMemory'
+        ],
+        [
+            'a single class against a pipe list',
+            'bufferMemory_0-output-bufferMemory-BufferMemory',
+            'bufferMemory_0-output-bufferMemory-BufferMemory|BaseMemory'
+        ],
+        ['no class', pipeList, 'chatOpenAI_0-output-chatOpenAI'],
+        ['no class against a single class', 'bufferMemory_0-output-bufferMemory-BufferMemory', 'bufferMemory_0-output-bufferMemory'],
+        ['a dashed anchor with a pipe list', 'ifElse_0-output-when-true-string|number', 'ifElse_0-output-when-true-string|json'],
+        ['a dashed anchor with a single class', 'ifElse_0-output-when-true-string|number', 'ifElse_0-output-when-true-string'],
+        ['a dashed anchor with no class', 'ifElse_0-output-when-true-string|number', 'ifElse_0-output-when-true'],
+        [
+            'a dashed node id',
+            'target-with-hyphen-input-model-BaseChatModel',
+            'target-with-hyphen-input-model-BaseChatModel|BaseLanguageModel'
+        ]
+    ])('matches %s', (_label, anchorId, handle) => {
+        expect(handlesEqual(anchorId, handle)).toBe(true)
+        expect(handlesEqual(handle, anchorId)).toBe(true)
+    })
+
+    it.each([
+        ['a different output name', pipeList, 'chatOpenAI_0-output-chatModel-ChatOpenAI'],
+        ['a different node', pipeList, 'chatOpenAI_1-output-chatOpenAI-ChatOpenAI'],
+        ['an input against an output', 'chatOpenAI_0-input-chatOpenAI-ChatOpenAI', 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI'],
+        ['a shorter dashed anchor', 'ifElse_0-output-when-true-string|number', 'ifElse_0-output-when'],
+        ['two different anchors with no class', 'ifElse_0-output-when-true', 'ifElse_0-output-when-false'],
+        ['an empty handle', pipeList, undefined]
+    ])('does not match %s', (_label, anchorId, handle) => {
+        expect(handlesEqual(anchorId, handle)).toBe(false)
+        expect(handlesEqual(handle, anchorId)).toBe(false)
+    })
+
+    it('shares one comparison with the generic helpers', () => {
+        expect(genericHelper.handlesEqual).toBe(handlesEqual)
+    })
+
+    const expectBakeryEdges = (nodes, edges, attention = []) => {
+        const chain = nodes.find((node) => node.data.name === 'conversationChain')
+        expect(chain.data.inputs.model).toBe('{{chatOpenAI_0.data.instance}}')
+        expect(chain.data.inputs.memory).toBe('{{bufferMemory_0.data.instance}}')
+        expect(edges.map((edge) => edge.id).sort()).toEqual(['edge-bakery-memory', 'edge-bakery-model'])
+        expect(attention.filter((message) => message.includes('Removed the edge'))).toEqual([])
+    }
+
+    it('keeps the model and memory edges when importing an exported chatflow', () => {
+        const { report, healed } = prepareImport('chat-import-bakery-single-class.json')
+        expectBakeryEdges(healed.nodes, healed.edges, [...report.attention, ...healed.attention])
+    })
+
+    it('keeps the model and memory edges during wizard preparation', () => {
+        const { report } = prepareImport('chat-import-bakery-single-class.json')
+        const healed = wizardHeal(specs)({ nodes: report.canvas.nodes, edges: report.canvas.edges, route: '/canvas' })
+        expectBakeryEdges(healed.nodes, healed.edges, healed.attention)
+    })
+
+    it('keeps the edges when Sync Nodes updates an older saved graph', () => {
+        const { report } = prepareImport('chat-import-bakery-single-class.json')
+        const saved = normalizeCanvasFlow(report.canvas, specsByName(specs))
+        const synced = healImportedFlow(saved.nodes, saved.edges, specs, {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData,
+            showHide: { params: showHideInputParams, anchors: showHideInputAnchors }
+        })
+        expectBakeryEdges(synced.nodes, synced.edges, synced.attention)
+    })
+
+    it('keeps single-class edges when a node is updated in place', () => {
+        const source = fixture('chat-import-bakery-single-class.json').flowData
+        const model = source.nodes.find((node) => node.id === 'chatOpenAI_0').data
+        const updated = {
+            ...model,
+            outputAnchors: [
+                { ...model.outputAnchors[0], id: 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel|BaseLanguageModel|Runnable' }
+            ]
+        }
+        expect(updateOutdatedNodeEdge(updated, source.edges)).toEqual([])
     })
 })
