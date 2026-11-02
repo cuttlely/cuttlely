@@ -66,7 +66,7 @@ Keep rules narrow enough to be unambiguous. Do not turn a benchmark's exact ques
 
 ### Preserve a report or a download
 
-Prepare the output in its source query, then bind the actual tested statement hash in **Trusted outputs**. A Markdown contract selects source text fields; the monthly-utilization renderer preserves account/product key/unit series and calendar gaps; a table CSV preserves source headers, order and exact numeric strings. CSV and utilization source tables are limited to 100 rows. Contract validation refuses incomplete or mismatched sources rather than inventing missing data.
+Prepare the output in its source query, then bind the actual tested statement hash in **Trusted outputs**. A Markdown contract selects source text fields; the monthly-utilization renderer preserves account/product key/unit series and calendar gaps; a table CSV preserves source headers, order and exact numeric strings. Utilization source tables are limited to 100 rows, and so are CSV source tables unless the CSV contract sets `maxRows`, up to 10,000. Set `escapeFormulas: true` on a CSV contract when people open the file in a spreadsheet app; see [Trusted outputs](../reference/trusted-outputs.md). Contract validation refuses incomplete or mismatched sources rather than inventing missing data.
 
 Use a dedicated export pin when a query should always produce a CSV, and keep the normal ranking pin for text or chart requests. This avoids turning an ordinary table answer into a download just because both tasks use the same business calculation. The complete CSV payload, three contract examples, strict versus verified passthrough policies, limits and empty-result behavior are in [Trusted pinned-query outputs](../reference/trusted-outputs.md).
 
