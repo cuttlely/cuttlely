@@ -240,7 +240,7 @@ Numeric HTML references are normalized consistently on both sides of literal val
 
 **Admin → Agent runtime → Limits → Evidence budget (bytes)** sets the server default for protected source evidence (`CUTTLELY_HARNESS_EVIDENCE_BYTES`). It accepts an integer from 4096 to 262144; the default is 40000. Restart after changing the Admin setting.
 
-On a Harness Specialist, **Additional parameters → Evidence budget (bytes)** (`evidenceBytes`) overrides that default for just that specialist. Leave it blank to inherit. The override travels with saved rosters and canvas exports/imports. Draft runs use the draft value, so a larger budget can be tried before publication.
+On a Harness Specialist, **Additional parameters → Evidence budget (bytes)** (`evidenceBytes`) overrides that default for just that specialist. Leave it blank to inherit. Update an older specialist node to version 2.6 to reveal the field. The override travels with saved rosters and canvas exports/imports. Draft runs use the draft value, so a larger budget can be tried before publication.
 
 The budget covers model-facing source observations and any complete factual overview. Escaped transport overhead has a separate allowance, and the compiled runtime profile receives matching per-result and per-turn ceilings. Extraction scales its string and field limits with an increased budget. Coverage still reports omitted fields or truncated strings; a larger budget does not establish that the underlying business population is complete. Repair attempts receive the expanded evidence budget too.
 

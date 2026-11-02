@@ -14,7 +14,7 @@ class HarnessSpecialist_Harness implements INode {
     constructor() {
         this.label = 'Harness Specialist'
         this.name = 'harnessSpecialist'
-        this.version = 2.5
+        this.version = 2.6
         this.type = 'HarnessSpecialist'
         this.icon = 'harness.svg'
         this.category = 'Harness'
