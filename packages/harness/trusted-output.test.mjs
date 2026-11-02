@@ -366,29 +366,84 @@ test('author outcome conditions retain unresolved evidence without rendering emp
         assert.throws(() => trustedOutputContracts([{ ...gated, renderWhen: gate }]), { code: 'trusted_output' })
 })
 
+test('source-owned outcome text is exact, optional, and subject to the same source guards', async () => {
+    const gate = { path: 'rows.0.identity_status', equals: 'unique', otherwisePath: 'rows.0.choice' }
+    const contract = { ...mdContract, renderWhen: gate }
+    assert.deepEqual(trustedOutputContracts([contract]), [contract])
+    const body = {
+        rows: [
+            { identity_status: 'ambiguous', choice: 'Select a source account:\n\n| Account |\n| --- |\n| Example East |\n| Example West |' }
+        ]
+    }
+    const specialist = { trustedOutputs: [contract] }
+    const pending = capture(body, contract.pin, contract.hash)
+    const out = await renderTrustedOutputs(specialist, [pending])
+    assert.equal(out.text, body.rows[0].choice)
+    assert.equal(out.outcomeOnly, true)
+    assert.equal(out.captureRefs.length, 1)
+    for (const bad of [{ ...body, truncated: true }, { ...body, error: 'query failed' }, { rows: [{ identity_status: 'ambiguous' }] }])
+        await assert.rejects(renderTrustedOutputs(specialist, [capture(bad, contract.pin, contract.hash)]), { code: 'trusted_output' })
+    await assert.rejects(renderTrustedOutputs(specialist, [capture(body, contract.pin, 'ff'.repeat(32))]), { code: 'trusted_output' })
+    for (const otherwisePath of ['rows.__proto__.choice', 'rows.*.choice', '', {}])
+        assert.throws(() => trustedOutputContracts([{ ...contract, renderWhen: { ...gate, otherwisePath } }]), { code: 'trusted_output' })
+})
+
 test('unresolved account lookup supports clarification and a subsequent resolved report in the real harness', async () => {
-    const result = { rows: [{ identity_status: 'ambiguous', candidates: ['Example East', 'Example West'], scope: '', report: '' }] }
+    const clarificationText = 'Which account do you mean: Example East or Example West?'
+    const result = {
+        rows: [
+            {
+                identity_status: 'ambiguous',
+                candidate_count: 2,
+                candidates: ['Example East', 'Example West'],
+                scope: '',
+                report: null,
+                markdown: clarificationText
+            }
+        ]
+    }
     const options = {
         markdownOnly: true,
         outcomeGate: true,
+        outcomePath: 'rows.0.markdown',
+        markdownFields: [{ path: 'rows.0.scope' }, { path: 'rows.0.markdown' }],
         result,
         interpretation: true,
+        reportingSymbol: '$',
         policy: 'verified-passthrough',
         createModelFile: false,
         input: 'Give me an account health report for Example.'
     }
-    const clarification = await runFixture({ ...options, prose: 'Which account do you mean: Example East or Example West?' })
-    assert.match(clarification.payload.text, /Example East or Example West\?/, JSON.stringify(clarification.payload.trace))
-    assert.equal(clarification.payload.trace.specialists[0].status, 'completed')
-    const recovered = await runFixture({
-        ...options,
-        additionalReport: true,
-        additionalResult: { rows: [{ scope: 'Verified account scope', report: 'Complete source report', identity_status: 'unique' }] },
-        prose: 'Complete source report'
-    })
-    assert.equal(recovered.payload.trace.specialists[0].status, 'completed')
-    assert.match(recovered.payload.text, /Complete source report/)
-    assert.doesNotMatch(recovered.payload.text, /could not be validated|Example West/)
+    for (const answerMode of ['synthesis', 'analysis']) {
+        const clarification = await runFixture({ ...options, answerMode, prose: 'MODEL MUST NOT REPLACE SOURCE CLARIFICATION' })
+        assert.equal(clarification.payload.text, clarificationText, JSON.stringify(clarification.payload.trace))
+        assert.equal(clarification.payload.trustedOutputComplete, true)
+        assert.equal(clarification.payload.trace.specialists[0].status, 'completed')
+        const prose =
+            'Example East has current ACV of $1,234.56. The recorded procurement concern requires a current owner update before assuming the renewal is secure.'
+        const recovered = await runFixture({
+            ...options,
+            answerMode,
+            additionalReport: true,
+            additionalResult: {
+                rows: [
+                    {
+                        scope: 'Verified account scope',
+                        markdown: 'Complete source report: current ACV $1,234.56; procurement concern remains recorded.',
+                        report: { account_name: 'Example East', current_acv: '1234.56', note: 'The procurement concern remains recorded.' },
+                        identity_status: 'unique',
+                        candidate_count: 1
+                    }
+                ]
+            },
+            prose
+        })
+        assert.equal(recovered.payload.trace.specialists[0].status, 'completed')
+        assert.equal(recovered.payload.trustedOutputComplete, true, JSON.stringify(recovered.payload.trace))
+        assert.ok(recovered.payload.text.includes(prose), recovered.payload.text)
+        if (answerMode === 'analysis') assert.match(recovered.payload.text, /Complete source report/)
+        assert.doesNotMatch(recovered.payload.text, /could not be validated|Example West/)
+    }
 })
 
 let serial = 0
@@ -434,6 +489,8 @@ async function runFixture({
     queryRowCap = 100,
     markdownOnly = false,
     outcomeGate = false,
+    outcomePath,
+    markdownFields,
     diagnostics = false,
     unmatchedDiagnostics = false,
     replay = false
@@ -504,7 +561,16 @@ async function runFixture({
                           trustedOutputs: [
                               {
                                   ...person.contract,
-                                  ...(outcomeGate ? { renderWhen: { path: 'rows.0.identity_status', equals: 'unique' } } : {}),
+                                  ...(markdownFields ? { fields: markdownFields } : {}),
+                                  ...(outcomeGate
+                                      ? {
+                                            renderWhen: {
+                                                path: 'rows.0.identity_status',
+                                                equals: 'unique',
+                                                ...(outcomePath ? { otherwisePath: outcomePath } : {})
+                                            }
+                                        }
+                                      : {}),
                                   ...(reportingSymbol ? { reportingCurrencySymbol: reportingSymbol } : {}),
                                   ...(diagnostics ? { interpretationDiagnostics: true } : {})
                               },
@@ -512,7 +578,23 @@ async function runFixture({
                                   ? [{ ...mdContract, pin: 'pq_unrequested_report', hash: mdHash, interpretationDiagnostics: true }]
                                   : []),
                               ...(additionalReport
-                                  ? [{ ...mdContract, pin: additionalEntry.name, hash: compilePinned(additionalEntry).statementHash }]
+                                  ? [
+                                        {
+                                            ...mdContract,
+                                            pin: additionalEntry.name,
+                                            hash: compilePinned(additionalEntry).statementHash,
+                                            ...(markdownFields ? { fields: markdownFields } : {}),
+                                            ...(outcomeGate
+                                                ? {
+                                                      renderWhen: {
+                                                          path: 'rows.0.identity_status',
+                                                          equals: 'unique',
+                                                          ...(outcomePath ? { otherwisePath: outcomePath } : {})
+                                                      }
+                                                  }
+                                                : {})
+                                        }
+                                    ]
                                   : [])
                           ]
                       }

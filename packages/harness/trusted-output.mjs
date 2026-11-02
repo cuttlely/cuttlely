@@ -55,6 +55,15 @@ export function trustedOutputContracts(value) {
             )
                 fail('Invalid trusted output outcome condition.')
             contract.renderWhen = { path: gate.path, equals: gate.equals }
+            if (gate.otherwisePath != null) {
+                if (
+                    typeof gate.otherwisePath !== 'string' ||
+                    gate.otherwisePath.length > 300 ||
+                    !gate.otherwisePath.split('.').every((part) => /^(?:[a-zA-Z_][a-zA-Z0-9_]*|[0-9]+)$/.test(part) && !badPath.has(part))
+                )
+                    fail('Invalid trusted source-outcome text path.')
+                contract.renderWhen.otherwisePath = gate.otherwisePath
+            }
         }
         if (entry.interpretationDiagnostics != null && typeof entry.interpretationDiagnostics !== 'boolean')
             fail('Interpretation diagnostics must be a boolean.')
@@ -611,6 +620,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
     const sections = [],
         artifacts = [],
         captureRefs = [],
+        outcomes = [],
         seen = new Set()
     for (const { item, contract } of matched) {
         check(signal)
@@ -647,7 +657,10 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
             })
         )
             continue
-        if (!trustedOutputApplies(contract, item.result)) continue
+        if (!trustedOutputApplies(contract, item.result)) {
+            if (contract.renderWhen.otherwisePath) outcomes.push({ item, contract })
+            continue
+        }
         const id = hash(JSON.stringify([contract.pin, item.result]))
         if (seen.has(id)) continue
         seen.add(id)
@@ -663,6 +676,15 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
         }
     }
     check(signal)
+    const outcomeOnly = !sections.length && outcomes.length > 0
+    if (outcomeOnly) {
+        for (const { item, contract } of outcomes) {
+            const text = sourceMarkdown(item.result, { ...contract, fields: [{ path: contract.renderWhen.otherwisePath }] })
+            if (sections.includes(text)) continue
+            sections.push(text)
+            captureRefs.push({ callId: item.callId, toolName: item.toolName, hash: item.pinned.hash })
+        }
+    }
     if (!sections.length) return null
     const text = sections.join('\n\n')
     if (
@@ -671,7 +693,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
         artifacts.filter((item) => item.type === 'csv').length > TURN_FILE_LIMITS.count
     )
         fail('Verified output exceeds turn limits.')
-    return { text, artifacts, captureRefs }
+    return { text, artifacts, captureRefs, ...(outcomeOnly ? { outcomeOnly: true } : {}) }
 }
 
 // Model-facing only: the full result has already been retained on the server.
