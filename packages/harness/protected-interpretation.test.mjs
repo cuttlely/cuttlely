@@ -34,6 +34,36 @@ const paths = ['rows.0.report']
 const useful =
     'The workshop addressed the technical question, but procurement remains unresolved in the dated notes. Confirm the decision owner and ask whether the procurement review still blocks the renewal. This is a suggested follow-up, not evidence that approval has been obtained.'
 
+test('per-source evidence paths preserve mapped restrictions and independent monetary provenance', () => {
+    const mapped = { rows: [{ allowed: { notes: 'Procurement remains pending.' }, excluded: { amount: '98765', currency: 'EUR' } }] }
+    const extra = { rows: [{ current_acv: '1234.56', currency: 'USD' }] }
+    const chosen = ['rows.0.allowed']
+    const sources = [mapped, extra]
+    const sourcePaths = [chosen, []]
+    const text = useful + ' Current ACV is $1,234.56.'
+    assert(protectedInterpretationIssues(text, sources, chosen, '$').includes('unsupported_number'))
+    const out = composeProtectedInterpretation({
+        interpretation: text,
+        facts: 'EXACT REPORT',
+        sources,
+        paths: chosen,
+        sourcePaths,
+        reportingCurrencySymbol: '$'
+    })
+    assert.equal(out.included, true)
+    assert(out.text.endsWith('EXACT REPORT'))
+    assert(
+        protectedInterpretationIssues(useful + ' The amount is 98765.', sources, chosen, '$', { sourcePaths }).includes(
+            'unsupported_number'
+        )
+    )
+    assert(
+        protectedInterpretationIssues(useful + ' Current ACV is EUR 1,234.56.', sources, chosen, '$', { sourcePaths }).includes(
+            'unsupported_currency'
+        )
+    )
+})
+
 const calendarSource = {
     rows: [{ start: '2032-05-03T00:00:00Z', observed: '2032-05-30T00:00:00Z', end: '2032-06-01T00:00:00Z', amount: '8.20', count: 31 }]
 }

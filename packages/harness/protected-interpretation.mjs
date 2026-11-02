@@ -575,10 +575,13 @@ function decodeNumericEntities(value) {
     })
 }
 
-function sourceFacts(sources, paths, full = false, reportingSymbol) {
+function sourceFacts(sources, paths, full = false, reportingSymbol, sourcePaths) {
     const reporting = normalizeReportingCurrencySymbol(reportingSymbol)
     const evidence = sources.flatMap((source, sourceIndex) =>
-        (full ? fullLiteralEvidence(source, paths) : protectedInterpretationEvidence(source, paths).sourceEvidence).map((item) => ({
+        (full
+            ? fullLiteralEvidence(source, sourcePaths?.[sourceIndex] ?? paths)
+            : protectedInterpretationEvidence(source, sourcePaths?.[sourceIndex] ?? paths).sourceEvidence
+        ).map((item) => ({
             ...item,
             ...(item.narrative ? { narrative: true } : {}),
             sourceIndex
@@ -682,7 +685,7 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
     }
     for (const item of monetary) item.unboundCurrencies = unboundCurrencies.get(item.sourceIndex) || new Set()
     const pinnedTrendCertificates = []
-    for (const source of sources) {
+    for (const [sourceIndex, source] of sources.entries()) {
         const body = parsed(source),
             pin = body?.pinned
         if (
@@ -693,7 +696,8 @@ function sourceFacts(sources, paths, full = false, reportingSymbol) {
             pin.version < 1
         )
             continue
-        const fields = full ? fullLiteralEvidence(body, paths) : protectedInterpretationEvidence(body, paths).sourceEvidence
+        const selectedPaths = sourcePaths?.[sourceIndex] ?? paths
+        const fields = full ? fullLiteralEvidence(body, selectedPaths) : protectedInterpretationEvidence(body, selectedPaths).sourceEvidence
         const certified = fields.some((item) => /(?:^|\.)comparable_trend_evidence_verified$/.test(item.path) && item.value === true)
         const dated = new Set(fields.filter((item) => /trend/i.test(item.path)).flatMap((item) => dateLiterals(String(item.value ?? ''))))
         if (certified && dated.size >= 2) {
@@ -831,10 +835,10 @@ function compactClaims(text, facts, issues, diagnostic) {
 
 // Author-controlled presentation framing is separate from the unchanged source
 // report. Suppress a default caption when the actual monetary records conflict.
-export function protectedReportingCaption(sources, paths = [], reportingSymbol) {
+export function protectedReportingCaption(sources, paths = [], reportingSymbol, sourcePaths) {
     const symbol = normalizeReportingCurrencySymbol(reportingSymbol)
     if (!symbol) return ''
-    const facts = sourceFacts(Array.isArray(sources) ? sources : [sources], paths, true)
+    const facts = sourceFacts(Array.isArray(sources) ? sources : [sources], paths, true, undefined, sourcePaths)
     if (
         !facts.monetary.length ||
         facts.monetary.some((item) => {
@@ -1023,7 +1027,7 @@ export function protectedLiteralIssues(value, sources, paths = [], reportingSymb
         (body) => body && Array.isArray(body.rows) && !body.error && body.status !== 'error' && !body.columnsChanged
     )
     if (!successful.length || successful.length !== sourceList.length) return ['missing_source_evidence']
-    const facts = sourceFacts(successful, paths, true, reportingSymbol)
+    const facts = sourceFacts(successful, paths, true, reportingSymbol, diagnosticOptions?.sourcePaths)
     const empty = successful.every((body) => body.rows.length === 0)
     if (!facts.evidence.length && !empty) return ['missing_source_evidence']
     // An empty selected result does not imply a business count unless the store explicitly returned it.
@@ -1039,7 +1043,7 @@ export function protectedInterpretationIssues(interpretation, sources, paths = [
     if (unresolvedIdentity(sourceList)) return ['unresolved_source_identity']
     // Model context is sampled; provenance is checked against original returned values
     // under the same author-selected paths and the independent bounded source scan.
-    const facts = sourceFacts(sourceList, paths, true, reportingSymbol)
+    const facts = sourceFacts(sourceList, paths, true, reportingSymbol, diagnosticOptions?.sourcePaths)
     if (!facts.evidence.length) return ['missing_source_evidence']
     return literalIssues(text, facts, numericDiagnosticSink(diagnosticOptions))
 }
@@ -1050,15 +1054,17 @@ export function composeProtectedInterpretation({
     facts,
     sources,
     paths = [],
+    sourcePaths,
     reportingCurrencySymbol,
     diagnostics = false
 }) {
     const sourceText = typeof facts === 'string' ? facts : ''
-    const caption = protectedReportingCaption(sources, paths, reportingCurrencySymbol)
+    const caption = protectedReportingCaption(sources, paths, reportingCurrencySymbol, sourcePaths)
     const framedSource = caption ? `${caption}\n\n${sourceText}` : sourceText
     const text = cleanInterpretation(interpretation)
     const claimDiagnostics = []
     const issues = protectedInterpretationIssues(text, sources, paths, reportingCurrencySymbol, {
+        sourcePaths,
         diagnostics: diagnostics === true,
         onDiagnostic: (record) => claimDiagnostics.push(record)
     })
