@@ -26,6 +26,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Documentation companions with invalid citations receive one bounded tool-free repair against their original captured sources. The same exact-URL validator checks the repair; a still-invalid result stays unavailable without changing the protected business report or requerying data. [#379](https://github.com/cuttlely/cuttlely/pull/379).
 
+-   A documentation citation repair now names captured sources by their listed IDs, and the runtime writes the links to those sources. A repair that chose the right captured documents is no longer refused because a URL was copied inexactly. The citation validator, role restrictions and single bounded repair are unchanged; an unknown source ID, malformed structured reply or oversized result leaves the companion unavailable as before. [#384](https://github.com/cuttlely/cuttlely/pull/384).
+
 -   Protected interpretation accepts a configured reporting symbol as metadata without an amount, while retaining typed amount and denomination checks. Currency rejections provide bounded literal feedback to the tool-free repairs and opt-in private author diagnostics. [#378](https://github.com/cuttlely/cuttlely/pull/378).
 
 -   Successful Web Browser calls can supply turn-scoped visited-page receipts to a documentation-only companion of a protected report. HTTP/network failures and non-web or credential-bearing URLs cannot supply citation evidence; analyst and executable roles keep their existing restrictions. [#378](https://github.com/cuttlely/cuttlely/pull/378).
