@@ -1,3 +1,4 @@
+import { normalizeEvidenceBytes } from './evidence-budget.mjs'
 import { parsePinFirstRules } from './pin-first.mjs'
 import { trustedOutputContracts } from './trusted-output.mjs'
 import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
@@ -213,6 +214,9 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 ...(inputs.trustedOutputPolicy ? { trustedOutputPolicy: inputs.trustedOutputPolicy } : {}),
                 ...(boolInput(inputs.trustedInterpretation) ? { trustedInterpretation: true } : {}),
                 ...(inputs.trustedInterpretationPaths ? { trustedInterpretationPaths: inputs.trustedInterpretationPaths } : {}),
+                ...(normalizeEvidenceBytes(inputs.evidenceBytes) != null
+                    ? { evidenceBytes: normalizeEvidenceBytes(inputs.evidenceBytes) }
+                    : {}),
                 ...(boolInput(inputs.answerDirect) ? { answerDirect: true } : {}),
                 ...(specialistCapacityWaitSeconds(inputs.capacityWaitSeconds)
                     ? { capacityWaitSeconds: specialistCapacityWaitSeconds(inputs.capacityWaitSeconds) }
@@ -258,6 +262,9 @@ export function assertFlowLimits({ name, flowData }) {
                 ...(inputs.trustedOutputPolicy ? { trustedOutputPolicy: inputs.trustedOutputPolicy } : {}),
                 ...(boolInput(inputs.trustedInterpretation) ? { trustedInterpretation: true } : {}),
                 ...(inputs.trustedInterpretationPaths ? { trustedInterpretationPaths: inputs.trustedInterpretationPaths } : {}),
+                ...(normalizeEvidenceBytes(inputs.evidenceBytes) != null
+                    ? { evidenceBytes: normalizeEvidenceBytes(inputs.evidenceBytes) }
+                    : {}),
                 mcpServers: [...bindings, ...parseMaybeJson(inputs.mcpServers)]
             }
         })
