@@ -10,6 +10,14 @@ import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-a
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
 import scimOperations from '../content/docs/docs/images/auth-sso/scim-operations.png'
+import oidcShot from '../content/docs/docs/images/auth-sso/auth-sso-methods.png'
+import localLoginShot from '../content/docs/docs/images/auth-sso/signin-local.png'
+import scimMappingShot from '../content/docs/docs/images/auth-sso/scim-mapping-preview.png'
+import workosShot from '../content/docs/docs/images/workos/authentication-methods.png'
+import analystOffShot from '../content/docs/docs/images/analyst/analyst-off-note.png'
+import tidyShot from '../content/docs/docs/images/harnesses/canvas-tidy-after.png'
+import webBrowserShot from '../content/docs/docs/images/harnesses/web-browser-source-text.png'
+import trustedOutputsShot from '../content/docs/docs/images/trusted-outputs/csv-escape-formulas.png'
 import Focus from '../components/Focus.astro'
 import CopyButton from '../components/CopyButton.astro'
 import { mediaUrl as versionedMedia } from '../../scripts/media-version.mjs'
@@ -128,6 +136,66 @@ const installs = [
     { title: 'Docker', text: 'The install most people want. SQLite, one container.', href: '/docs/how-to/docker/', icon: 'laptop' },
     { title: 'Render', text: 'A hosted install with Postgres, from the Blueprint in the repository.', href: '/docs/how-to/render/', icon: 'rocket' },
     { title: 'From source', text: 'For changing Cuttlely. Node 24 and pnpm.', href: '/docs/how-to/from-source/', icon: 'seti:git' }
+] as const
+
+// The how-to guides behind the 1.5.0 release, with the docs picture each one opens with.
+const howTos = [
+    {
+        title: 'Generic OIDC',
+        text: 'Sign people in through Okta, Entra ID or another OpenID Connect provider. Test the sign-in before you switch.',
+        href: '/docs/how-to/auth-sso/#set-up-generic-oidc',
+        image: oidcShot,
+        alt: 'Auth / SSO with the sign-in methods and a Generic OIDC draft for an example issuer.'
+    },
+    {
+        title: 'Local login',
+        text: 'Email and password accounts kept in Cuttlely, with one-time invite links.',
+        href: '/docs/how-to/auth-sso/#set-up-local-login',
+        image: localLoginShot,
+        alt: 'The Sign In page with Local login active and an example email filled in.'
+    },
+    {
+        title: 'SCIM provisioning',
+        text: 'Okta or Entra ID creates, updates and deactivates users, and groups map to teams with a preview.',
+        href: '/docs/how-to/auth-sso/#scim-provisioning',
+        image: scimMappingShot,
+        alt: 'The SCIM group mapping preview listing the made-up people who get access.'
+    },
+    {
+        title: 'WorkOS',
+        text: 'Sign people in with WorkOS AuthKit, with owner recovery ready first.',
+        href: '/docs/how-to/auth-sso/#set-up-workos',
+        image: workosShot,
+        alt: 'The Authentication methods page in the WorkOS dashboard.'
+    },
+    {
+        title: 'Analyst',
+        text: 'A specialist that answers from a database. The panel is regrouped, and a harness says when this server has no database for it.',
+        href: '/docs/how-to/analyst/',
+        image: analystOffShot,
+        alt: 'A harness specialist card that says Not connected. because this server has no database for its analyst.'
+    },
+    {
+        title: 'Tidy layout',
+        text: 'One click puts Harness Prime first and one row per specialist. Undo puts the cards back.',
+        href: '/docs/how-to/harnesses/#tidy-the-layout',
+        image: tidyShot,
+        alt: 'A harness canvas after Tidy layout, with each specialist on its own row.'
+    },
+    {
+        title: 'Web pages as source text',
+        text: 'The Web Browser card can return excerpts of the real page and record the address it read.',
+        href: '/docs/how-to/harnesses/#read-web-pages-as-source-text',
+        image: webBrowserShot,
+        alt: 'The Web Browser card settings with Return source text turned on.'
+    },
+    {
+        title: 'Trusted outputs',
+        text: 'Bind a tested query to exact Markdown, a chart or a complete CSV, with opt-in formula escaping.',
+        href: '/docs/reference/trusted-outputs/',
+        image: trustedOutputsShot,
+        alt: 'A trusted output CSV contract with escapeFormulas set to true.'
+    }
 ] as const
 ---
 
@@ -613,6 +681,34 @@ const installs = [
             </figure>
             <p class="cl-center cl-note">
                 The SCIM tests follow the request examples Okta and Entra ID publish. They are compatibility tests, not certification by either provider.
+            </p>
+        </section>
+
+        <section id="how-to-guides" class="cl-section" aria-labelledby="how-to-title">
+            <div class="cl-center">
+                <p class="cl-kicker">How-to guides</p>
+                <h2 id="how-to-title" class="cl-display">New and updated in 1.5.0</h2>
+                <p class="cl-lead">Step-by-step guides for sign-in, provisioning, the analyst and the harness canvas.</p>
+            </div>
+            <ul class="cl-tiles cl-howto-tiles">
+                {
+                    howTos.map((item) => (
+                        <li class="cl-tile">
+                            <a class="cl-tile-link" href={item.href}>
+                                <span class="cl-tile-media cl-howto-media">
+                                    <Image src={item.image} alt={item.alt} widths={[400, 640]} sizes="(min-width: 68rem) 320px, 100vw" loading="lazy" class="cl-howto-thumb" />
+                                </span>
+                                <span class="cl-tile-body">
+                                    <span class="cl-tile-title cl-display">{item.title}</span>
+                                    <span class="cl-tile-text">{item.text}</span>
+                                </span>
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
+            <p class="cl-center">
+                <a class="cl-link-arrow" href="/docs/how-to/">All how-to guides <Icon name="right-arrow" /></a>
             </p>
         </section>
 
