@@ -1,3 +1,4 @@
+import { evidenceBudget } from './evidence-budget.mjs'
 // Optional output contracts consume only the server-captured result of a stamped pin.
 // The model selects business parameters; it never supplies renderer code or source rows.
 import crypto from 'node:crypto'
@@ -719,23 +720,24 @@ export function trustedOutputReceipt(specialist, pin, raw, callId) {
     } catch {
         return null
     }
+    const budget = evidenceBudget(specialist)
     let sourceOverview
     if (specialist.trustedInterpretation === true && contract.mode === 'markdown') {
         try {
             const overview = { text: sourceMarkdown(body, contract), complete: true }
             // Keep complete source report fields, never a clipped table masquerading as the whole set.
-            if (Buffer.byteLength(JSON.stringify(overview)) <= 32768) sourceOverview = overview
+            if (Buffer.byteLength(JSON.stringify(overview)) <= budget.overviewBytes) sourceOverview = overview
         } catch {
             // A capture receipt must not imply that final rendering succeeded.
         }
     }
     const overviewBytes = sourceOverview ? Buffer.byteLength(JSON.stringify(sourceOverview)) : 0
-    let evidenceBytes = 40000 - overviewBytes - 1024
+    let evidenceBytes = budget.bytes - overviewBytes - 1024
     const evidence = () =>
         protectedInterpretationEvidence(
             body,
             specialist.trustedInterpretationPaths,
-            { maxBytes: evidenceBytes },
+            { maxBytes: evidenceBytes, maxString: budget.maxString, maxLeaves: budget.maxLeaves },
             contract.reportingCurrencySymbol || reportingCurrencySymbol(specialist.trustedOutputs)
         )
     const receipt = {
@@ -756,18 +758,18 @@ export function trustedOutputReceipt(specialist, pin, raw, callId) {
                 : 'The server captured the exact source for verified output. Finish without copying rows, rewriting source sections or creating files. Rendering is validated before delivery.'
     }
     let encoded = JSON.stringify(receipt)
-    // Hermes wraps MCP text in {result: text} before its 50,000-character spill
+    // Hermes wraps MCP text in {result: text} before the profile's configured spill
     // threshold. Count escaped envelope bytes too, leaving room for transport metadata.
     // A spill would replace this source context with a preview and an unreadable file.
-    while (Buffer.byteLength(JSON.stringify({ result: encoded })) > 48000) {
+    while (Buffer.byteLength(JSON.stringify({ result: encoded })) > budget.receiptBytes) {
         if (receipt.interpretationEvidence && evidenceBytes > 512) {
-            const excess = Buffer.byteLength(JSON.stringify({ result: encoded })) - 48000
+            const excess = Buffer.byteLength(JSON.stringify({ result: encoded })) - budget.receiptBytes
             evidenceBytes = Math.max(512, evidenceBytes - excess - 1024)
             receipt.interpretationEvidence = evidence()
         } else if (receipt.sourceOverview) {
             // An overview is complete or absent, never clipped into a false complete set.
             delete receipt.sourceOverview
-            evidenceBytes = 39000
+            evidenceBytes = budget.bytes - 1000
             if (receipt.interpretationEvidence) receipt.interpretationEvidence = evidence()
         } else if (receipt.interpretationEvidence) {
             delete receipt.interpretationEvidence
