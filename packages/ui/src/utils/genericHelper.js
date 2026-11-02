@@ -1,6 +1,8 @@
 import { uniq, get, isEqual } from 'lodash'
 import moment from 'moment'
 
+import { handlesEqual } from './edgeRefs'
+
 export const getUniqueNodeId = (nodeData, nodes) => {
     let suffix = 0
 
@@ -358,17 +360,7 @@ export const updateOutdatedNodeData = (newComponentNodeData, existingComponentNo
     return initNewComponentNodeData
 }
 
-export const handlesEqual = (a, b) => {
-    if (a === b) return true
-    const withoutClassList = (value) => {
-        if (!value) return value
-        const lastDash = value.lastIndexOf('-')
-        if (lastDash === -1) return value
-        const suffix = value.substring(lastDash + 1)
-        return suffix.includes('|') ? value.substring(0, lastDash) : value
-    }
-    return withoutClassList(a) === withoutClassList(b)
-}
+export { handlesEqual }
 
 export const updateOutdatedNodeEdge = (newComponentNodeData, edges) => {
     const removedEdges = []
