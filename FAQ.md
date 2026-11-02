@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.10)
+# Cuttlely FAQ (1.5.0)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,17 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.5.0?
+
+-   **SCIM v2 provisioning.** Identity providers such as Okta and Entra ID can create, update and deactivate Cuttlely users and push groups. On **Admin** > **Auth / SSO**, create the SCIM credential, map a provider group to a Cuttlely team, optionally with a role, after previewing exactly what will change, and watch request counts and recent errors in Operations. Deactivating a SCIM-provisioned person in the identity provider ends their Cuttlely sessions and disables the API credentials and personal tokens they own; API credentials created before 1.4.9 have no recorded owner and stay usable. See [Choose the sign-in method](./docs/how-to/auth-sso.md#scim-provisioning) and the [SCIM API](./docs/reference/scim-api.md).
+-   **Tidy layout** on the harness canvas lines the cards up: Harness Prime and its chat model first, then one row per Harness Specialist. Save to keep the new layout, or **Undo** to put the cards back. See [Tidy the layout](./docs/how-to/harnesses.md#tidy-the-layout).
+-   Trusted-output CSV reports have an opt-in `escapeFormulas` setting that keeps spreadsheet apps from treating a cell as a formula. It is off by default, so files are unchanged until you turn it on. See [Trusted outputs](./docs/reference/trusted-outputs.md).
+-   Agent teams keep more source-backed evidence across follow-ups and repairs, keep citation links intact, and no longer drop a completed report after a refused retry. When Harness Prime routes a turn, it can ask a specialist that interprets protected evidence for a short self-contained summary. The [changelog](./CHANGELOG.md#150---2026-11-01) lists every fix.
+-   Read the upgrade notes in the [1.5.0 changelog](./CHANGELOG.md#150---2026-11-01) before you upgrade. Back up first. For SCIM-provisioned users, the identity provider decides who is active; other accounts stay managed in Cuttlely. Coming from 1.4.8, also read the [1.4.9 upgrade notes](./CHANGELOG.md#149---2026-10-31).
+-   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.5.0`, or run `npm i cuttlely@1.5.0`.
+
+Full notes: [v1.5.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.5.0).
 
 ### What's new in 1.4.10?
 

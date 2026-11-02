@@ -6,6 +6,47 @@ The SCIM v2 base path is `/api/v1/scim/v2`. Send the one-time credential created
 
 Every request receives a correlation id and passes the SCIM request limit before a JSON body is read. A request over that limit returns `429`; otherwise, a missing or inactive SCIM credential returns `401` before body parsing. Credential rotation may keep the previous value active for an administrator-selected overlap of 0 to 24 hours. Validation reads the database for every request, so overlap end and revocation apply across application processes. After authentication, malformed JSON sent with a supported content type returns `400 invalidSyntax`, and a body over 256 KB returns a SCIM `413` error. Both carry a correlation id and appear in Operations diagnostics.
 
+Setup steps for Okta and Entra ID, group mappings, and troubleshooting are in [SCIM provisioning](../how-to/auth-sso.md#scim-provisioning).
+
+## Try the endpoint
+
+These requests use the example origin `https://cuttlely.example.com` and keep the credential in the `CUTTLELY_SCIM_TOKEN` environment variable of your shell. Use the base URL shown on the SCIM card.
+
+```bash
+# Discovery: no users are touched.
+curl -s https://cuttlely.example.com/api/v1/scim/v2/ServiceProviderConfig \
+  -H "Authorization: Bearer $CUTTLELY_SCIM_TOKEN"
+
+# The connection probe identity providers send. An unknown userName returns an empty list.
+curl -s -G https://cuttlely.example.com/api/v1/scim/v2/Users \
+  --data-urlencode 'filter=userName eq "bob@example.com"' \
+  -H "Authorization: Bearer $CUTTLELY_SCIM_TOKEN"
+
+# Create a user. The response is 201 with the stable SCIM resource id.
+curl -s https://cuttlely.example.com/api/v1/scim/v2/Users \
+  -H "Authorization: Bearer $CUTTLELY_SCIM_TOKEN" \
+  -H "Content-Type: application/scim+json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    "userName": "bob@example.com",
+    "externalId": "ext-1001",
+    "name": { "givenName": "Bob", "familyName": "Example" },
+    "emails": [{ "value": "bob@example.com", "type": "work", "primary": true }],
+    "active": true
+  }'
+
+# Deactivate it the way Entra ID does. First set CUTTLELY_SCIM_USER_ID to the id from the create response.
+curl -s -X PATCH "https://cuttlely.example.com/api/v1/scim/v2/Users/$CUTTLELY_SCIM_USER_ID" \
+  -H "Authorization: Bearer $CUTTLELY_SCIM_TOKEN" \
+  -H "Content-Type: application/scim+json" \
+  -d '{
+    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+    "Operations": [{ "op": "Replace", "path": "active", "value": "False" }]
+  }'
+```
+
+Each request appears in the Operations section of the SCIM card. Deactivation ends that user's sessions and disables the API credentials and personal tokens they own. API credentials created before 1.4.9 have no recorded owner and stay usable; see [Sessions and account status](../how-to/auth-sso.md#sessions-and-account-status).
+
 ## Discovery
 
 -   `GET /ServiceProviderConfig` reports PATCH and filtering, a maximum list count of 100, no bulk, no password change, no sorting, and no ETags.
@@ -59,5 +100,20 @@ The fixture suites follow published Okta and Entra ID request examples. They do 
 ## Errors
 
 Errors use schema `urn:ietf:params:scim:api:messages:2.0:Error`, a string `status`, a `detail`, a correlation id, and `scimType` where defined. Cuttlely uses `invalidFilter`, `invalidValue`, `invalidSyntax`, `uniqueness`, `mutability`, `noTarget`, and `tooMany`.
+
+| Status | `scimType`      | Usual cause                                                                                                                                                  |
+| ------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `400`  | `invalidFilter` | The filter uses an operator or attribute other than `eq` on the supported attributes, or it does not parse.                                                  |
+| `400`  | `invalidValue`  | A value is not allowed, such as a `userName` that is not an email address, a repeated query parameter, or a group member that is not a current SCIM User id. |
+| `400`  | `invalidSyntax` | The body is not valid JSON, or a PATCH request has a malformed path, an unsupported operation, or no `Operations` list.                                      |
+| `400`  | `mutability`    | The request tries to change `id`, `password`, or `roles`, or to remove `active`.                                                                             |
+| `401`  | none            | The bearer credential is missing, revoked, or past its rotation overlap.                                                                                     |
+| `404`  | `noTarget`      | The User or Group id does not exist, or was deleted.                                                                                                         |
+| `409`  | `uniqueness`    | The account belongs to another organization, or the `userName`, `externalId`, or group name is already used.                                                 |
+| `409`  | `mutability`    | The change would leave an organization without an active owner.                                                                                              |
+| `413`  | `tooMany`       | The body is over 256 KB.                                                                                                                                     |
+| `415`  | `invalidSyntax` | The `Content-Type` is not `application/scim+json` or `application/json`.                                                                                     |
+| `429`  | `tooMany`       | The SCIM request limit was reached. The identity provider retries later.                                                                                     |
+| `501`  | none            | `/Bulk` is not supported.                                                                                                                                    |
 
 Each supported query parameter may appear only once. Repeated parameters, including `filter`, `attributes`, `excludedAttributes`, `startIndex`, and `count`, return `400 invalidValue` in the SCIM error shape.
