@@ -67,6 +67,44 @@ export function retrievalOnlySpecialist(specialist) {
     )
 }
 
+// A repair chooses captured source identities; the runtime owns their destinations.
+// Valid legacy Markdown still goes through the same citation check below.
+export function renderRetrievedSourceReferences(reply, sources) {
+    if (typeof reply !== 'string' || Buffer.byteLength(reply) > 65536) return null
+    let text = reply.trim()
+    const fence = ['```json\n', '```\n', '```json\r\n', '```\r\n'].find((prefix) => text.startsWith(prefix))
+    if (fence && text.endsWith('\n```')) text = text.slice(fence.length, -4).trim()
+    if (text.startsWith('{')) {
+        try {
+            const value = JSON.parse(text)
+            if (!value || Object.keys(value).length !== 1 || typeof value.answer !== 'string') return null
+            text = value.answer
+        } catch {
+            return null
+        }
+    }
+    let invalid = false
+    let bytes = Buffer.byteLength(text)
+    text = text.replace(/\{\{source:([^{}]*)\}\}/g, (_token, id) => {
+        if (invalid) return ''
+        const match = /^S([1-9]\d*)$/.exec(id)
+        const index = match ? Number(match[1]) - 1 : -1
+        const url = index >= 0 && index < MAX_SOURCES ? sourceUrl(sources?.[index]?.url) : ''
+        if (!url) {
+            invalid = true
+            return ''
+        }
+        const reference = `[Source ${index + 1}](<${url}>)`
+        bytes += Buffer.byteLength(reference) - Buffer.byteLength(_token)
+        if (bytes > 65536) {
+            invalid = true
+            return ''
+        }
+        return reference
+    })
+    return !invalid && !text.includes('{{source:') && text.trim() ? text : null
+}
+
 export function citedRetrievedGuidance(specialist, text, sources) {
     if (!retrievalOnlySpecialist(specialist) || typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 65536) return null
     const urls = new Set((sources || []).map((doc) => sourceUrl(doc?.metadata?.source)).filter(Boolean))
