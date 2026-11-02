@@ -1,5 +1,7 @@
 # Memory
 
+Keep evidence capture, requested delivery and run outcome separate. An exploratory capture is not automatically another requested report; a concise synthesis must be self-contained when no factual section is appended. Source selection can choose verified captures but cannot rewrite them or hide executed failures. Keep recovery bounded and tool-free, retain date precision, and derive success from verified routed sections rather than every failed attempt. Application identifiers containing a URI authority are not filesystem paths; avoid a scheme-wide path exemption.
+
 Evidence paths belong to a capture, not the whole specialist turn. Applying one mapped report's fields to an additional authorized raw query can discard real facts during repair. Reuse the existing capture-identity and passthrough checks for additional results, preserve mapped field restrictions, and keep initial validation and repair on the same per-source selection.
 
 Label internal retrieval context separately from an answer's citations. A generic source-list heading after specialist prose can look like part of that prose and cause the chief to copy clipped or unrelated retrieval hits into the answer. Retain the grounding passages and exact URLs while making the input/output boundary explicit; preserve actual specialist citation lines.
