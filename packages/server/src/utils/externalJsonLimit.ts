@@ -5,6 +5,10 @@ export const EXTERNAL_JSON_LIMIT = '1mb'
 
 export const mcpJsonParser = express.json({ limit: EXTERNAL_JSON_LIMIT, type: 'application/json' })
 
+export function isScimEndpointPath(path: string): boolean {
+    return path === '/api/v1/scim/v2' || path.startsWith('/api/v1/scim/v2/')
+}
+
 export function requestApiPath(req: { originalUrl?: string; url?: string; baseUrl?: string; path?: string }): string {
     const raw = req.originalUrl || `${req.baseUrl || ''}${req.path || req.url || ''}`
     return normalizeApiPath(raw.split('?')[0])
@@ -17,7 +21,8 @@ export function skipGlobalJsonParser(req: { originalUrl?: string; url?: string; 
         path.startsWith('/api/v1/a2a/') ||
         path === '/api/v1/orchestrate' ||
         path.startsWith('/api/v1/orchestrate/') ||
-        isMcpEndpointPath(path)
+        isMcpEndpointPath(path) ||
+        isScimEndpointPath(path)
     )
 }
 

@@ -121,6 +121,11 @@ export function builtInPermissionJson(name: string): string | null {
     return keys ? JSON.stringify(keys) : null
 }
 
+/** Roles granted by provisioning mappings cannot be Owner or administer Auth / SSO. */
+export function scimMappingRoleAllowed(name: string, permissions: string[]): boolean {
+    return name.trim().toLowerCase() !== 'owner' && !permissions.includes('authentication:manage')
+}
+
 /** True when the new set drops a key, or the person loses the owner bypass. */
 export function permissionsLowered(before: string[], after: string[], lostOwner: boolean): boolean {
     if (lostOwner) return true

@@ -434,10 +434,9 @@ const Users = () => {
                     onConfirm()
                 }
             } catch (error) {
+                const serverMessage = error?.response?.data?.message
                 enqueueSnackbar({
-                    message: `Failed to delete User: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: serverMessage || 'The user could not be removed from the organization.',
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

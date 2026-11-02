@@ -20,8 +20,12 @@ import {
     addAuthenticationSwitchStage,
     addLocalDirectory,
     addOidcProvider,
+    addScimGroups,
+    addScimProvisioning,
     addWorkosSessionId,
-    removeLocalDirectory
+    removeLocalDirectory,
+    removeScimGroups,
+    removeScimProvisioning
 } from './schemaMigration'
 
 interface Call {
@@ -55,6 +59,9 @@ function mysqlFamilyRunner(type: 'mysql' | 'mariadb'): { runner: QueryRunner; ca
     const calls: Call[] = []
     const runner = {
         connection: { options: { type } },
+        async hasColumn() {
+            return false
+        },
         async query(sql: string, params?: unknown[]) {
             calls.push({ sql, params })
             return []
@@ -188,5 +195,136 @@ describe.each([
         expect(migration).toContain(`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ${collation}`)
         expect(calls.some((call) => call.sql.includes('information_schema.TABLES') && call.sql.includes('TABLE_NAME = ?'))).toBe(true)
         expect(calls.some((call) => call.sql.includes('$1'))).toBe(false)
+    })
+})
+
+describe.each(['mysql', 'mariadb'] as const)('SCIM schema on %s', (dialect) => {
+    it('uses binary comparison for provider external ids while retaining unique indexes', async () => {
+        const { runner, calls } = mysqlFamilyRunner(dialect)
+        await addScimProvisioning(runner)
+        await addScimGroups(runner)
+
+        const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE \`${table}\``))?.sql || ''
+        const configurationSeed = calls.find((call) => call.sql.startsWith('INSERT INTO `identity_scim_configuration`'))?.sql || ''
+        expect(configurationSeed).toContain('SELECT 1 FROM DUAL WHERE NOT EXISTS')
+        expect(create('identity_scim_user')).toContain('`externalId` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL')
+        expect(create('identity_scim_group')).toContain('`externalId` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL')
+        expect(
+            calls.some(
+                (call) =>
+                    call.sql ===
+                    'CREATE UNIQUE INDEX `IDX_identity_scim_user_external` ON `identity_scim_user` (`organizationId`, `externalId`)'
+            )
+        ).toBe(true)
+        expect(
+            calls.some(
+                (call) =>
+                    call.sql ===
+                    'CREATE UNIQUE INDEX `IDX_identity_scim_group_external` ON `identity_scim_group` (`organizationId`, `externalId`)'
+            )
+        ).toBe(true)
+    })
+})
+
+describe('SCIM schema on postgres', () => {
+    it('uses uuid for SCIM ids and every reference to a core uuid id', async () => {
+        const { runner, calls } = postgresRunner(new Set(['apikey']))
+        await addScimProvisioning(runner)
+        await addScimGroups(runner)
+
+        const create = (table: string) => calls.find((call) => call.sql.startsWith(`CREATE TABLE "${table}"`))?.sql || ''
+        const configurationSeed = calls.find((call) => call.sql.startsWith('INSERT INTO "identity_scim_configuration"'))?.sql || ''
+        expect(configurationSeed).toContain('SELECT 1 WHERE NOT EXISTS')
+        expect(configurationSeed).not.toContain('FROM DUAL')
+        const uuidColumns: Record<string, string[]> = {
+            identity_scim_configuration: ['organizationId', 'activeTokenId', 'previousTokenId'],
+            identity_scim_token: ['id', 'organizationId', 'createdBy'],
+            identity_scim_user: ['id', 'organizationId', 'userId'],
+            identity_personal_token: ['id', 'ownerUserId'],
+            identity_scim_group: ['id', 'organizationId'],
+            identity_scim_group_member: ['groupId', 'scimUserId'],
+            identity_scim_mapping: ['id', 'organizationId', 'groupId', 'workspaceId', 'roleId', 'createdBy'],
+            identity_scim_assignment: ['mappingId', 'userId', 'workspaceId', 'roleId'],
+            identity_scim_diagnostic: ['id', 'organizationId']
+        }
+        for (const [table, columns] of Object.entries(uuidColumns)) {
+            for (const column of columns) expect(create(table)).toContain(`"${column}" uuid`)
+        }
+    })
+})
+
+describe('SCIM schema on sqlite', () => {
+    it('is idempotent and its down path removes every added object', async () => {
+        const tables = new Set(['apikey'])
+        const columns = new Map([['apikey', new Set(['id'])]])
+        const indexes = new Map<string, Set<string>>()
+        const calls: string[] = []
+        const runner = {
+            connection: { options: { type: 'sqlite' } },
+            async hasColumn(table: string, column: string) {
+                return columns.get(table)?.has(column) || false
+            },
+            async dropColumn(table: string, column: string) {
+                columns.get(table)?.delete(column)
+            },
+            async query(sql: string, params: unknown[] = []) {
+                calls.push(sql)
+                if (sql.includes('sqlite_master')) return tables.has(String(params[0])) ? [{ name: params[0] }] : []
+                if (sql.startsWith('PRAGMA index_list')) {
+                    const table = /\("([^"]+)"\)/.exec(sql)?.[1] || ''
+                    return [...(indexes.get(table) || [])].map((name) => ({ name }))
+                }
+                const createTable = /^CREATE TABLE "([^"]+)"/.exec(sql)
+                if (createTable) {
+                    tables.add(createTable[1])
+                    columns.set(createTable[1], new Set([...sql.matchAll(/"([A-Za-z][A-Za-z0-9]+)"/g)].map((match) => match[1])))
+                }
+                const addColumn = /^ALTER TABLE "([^"]+)" ADD COLUMN "([^"]+)"/.exec(sql)
+                if (addColumn) columns.get(addColumn[1])?.add(addColumn[2])
+                const createIndex = /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS "([^"]+)" ON "([^"]+)"/.exec(sql)
+                if (createIndex) {
+                    if (!indexes.has(createIndex[2])) indexes.set(createIndex[2], new Set())
+                    indexes.get(createIndex[2])?.add(createIndex[1])
+                }
+                const dropTable = /^DROP TABLE IF EXISTS "([^"]+)"/.exec(sql)
+                if (dropTable) tables.delete(dropTable[1])
+                return []
+            }
+        } as unknown as QueryRunner
+
+        await addScimProvisioning(runner)
+        await addScimProvisioning(runner)
+        await addScimGroups(runner)
+        await addScimGroups(runner)
+        for (const table of ['identity_scim_configuration', 'identity_scim_token', 'identity_scim_user', 'identity_personal_token']) {
+            expect(tables.has(table)).toBe(true)
+            expect(calls.filter((sql) => sql.startsWith(`CREATE TABLE "${table}"`))).toHaveLength(1)
+        }
+        for (const table of [
+            'identity_scim_group',
+            'identity_scim_group_member',
+            'identity_scim_mapping',
+            'identity_scim_assignment',
+            'identity_scim_diagnostic'
+        ]) {
+            expect(tables.has(table)).toBe(true)
+            expect(calls.filter((sql) => sql.startsWith(`CREATE TABLE "${table}"`))).toHaveLength(1)
+        }
+        expect(columns.get('apikey')?.has('disabledAt')).toBe(true)
+        expect(columns.get('identity_scim_group')?.has('normalizedDisplayName')).toBe(true)
+        const configurationSeed = calls.find((sql) => sql.startsWith('INSERT INTO "identity_scim_configuration"')) || ''
+        expect(configurationSeed).toContain('SELECT 1 WHERE NOT EXISTS')
+        expect(configurationSeed).not.toContain('FROM DUAL')
+        expect(calls).toContain(
+            'CREATE UNIQUE INDEX IF NOT EXISTS "IDX_identity_scim_group_name" ON "identity_scim_group" ("organizationId", "normalizedDisplayName")'
+        )
+        expect(calls).toContain(
+            'CREATE INDEX IF NOT EXISTS "IDX_identity_scim_diagnostic_org_completed" ON "identity_scim_diagnostic" ("organizationId", "completedAt")'
+        )
+
+        await removeScimGroups(runner)
+        await removeScimProvisioning(runner)
+        expect([...tables].filter((table) => table.startsWith('identity_scim') || table === 'identity_personal_token')).toEqual([])
+        expect(columns.get('apikey')?.has('disabledAt')).toBe(false)
     })
 })

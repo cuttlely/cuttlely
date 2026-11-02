@@ -553,6 +553,34 @@ describe('provider-scoped identity links', () => {
         db.close()
     })
 
+    it('first-links a pending mailbox after provisioning activates it', async () => {
+        const db = database()
+        await addOidcProvider(db.source.createQueryRunner())
+        const provisioned = user('provisioned-1', 'provisioned@example.com', 'invited')
+        const identity = {
+            providerKey: 'provider',
+            subject: 'provisioned-subject',
+            issuer: 'https://id.example',
+            email: 'provisioned@example.com',
+            emailVerified: true
+        }
+        await expect(resolveOidcUser(db.source, store([provisioned]), identity, { trustMissing: false })).resolves.toMatchObject({
+            ok: false,
+            reason: 'invite_required'
+        })
+
+        provisioned.status = 'active'
+
+        await expect(resolveOidcUser(db.source, store([provisioned]), identity, { trustMissing: false })).resolves.toMatchObject({
+            ok: true,
+            user: { id: 'provisioned-1' },
+            basis: 'email_verified',
+            linkCreated: true
+        })
+        await expect(findProviderLink(db.source, 'provider', 'provisioned-subject')).resolves.toMatchObject({ userId: 'provisioned-1' })
+        db.close()
+    })
+
     it('passes the first-owner provider link into the owner transaction', async () => {
         const db = database()
         await addOidcProvider(db.source.createQueryRunner())

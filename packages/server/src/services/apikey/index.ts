@@ -187,7 +187,7 @@ const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefine
     const lookup = storedApiKeyLookup(suppliedKey)
     const hashed = await repo.findOneBy({ apiKey: lookup })
     const hashedDecision = decideStoredApiKeyAuth(hashed ?? undefined, suppliedKey, 'lookup')
-    if (hashedDecision.status === 'accept') return hashed && (await apiKeyOwnerActive(hashed)) ? hashed : undefined
+    if (hashedDecision.status === 'accept') return hashed && !hashed.disabledAt && (await apiKeyOwnerActive(hashed)) ? hashed : undefined
     if (hashedDecision.status !== 'absent') return undefined
 
     const legacy = await repo.findOneBy({ apiKey: suppliedKey })
@@ -196,7 +196,8 @@ const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefine
         await repo.update({ id: legacy.id, apiKey: suppliedKey }, { apiKey: legacyDecision.lookup })
         legacy.apiKey = legacyDecision.lookup
     }
-    if (legacyDecision.status === 'accept-rewrite') return legacy && (await apiKeyOwnerActive(legacy)) ? legacy : undefined
+    if (legacyDecision.status === 'accept-rewrite')
+        return legacy && !legacy.disabledAt && (await apiKeyOwnerActive(legacy)) ? legacy : undefined
     return undefined
 }
 
@@ -224,7 +225,7 @@ const getApiKeyById = async (apiKeyId: string) => {
         if (!currentKey) {
             return undefined
         }
-        return (await apiKeyOwnerActive(currentKey)) ? currentKey : undefined
+        return !currentKey.disabledAt && (await apiKeyOwnerActive(currentKey)) ? currentKey : undefined
     } catch (error) {
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: apikeyService.getApiKeyById - ${getErrorMessage(error)}`)
     }

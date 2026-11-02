@@ -71,6 +71,8 @@ import { AddAuthenticationSwitchStage1800900000000 } from './1800900000000-AddAu
 import { AddOidcProvider1801000000000 } from './1801000000000-AddOidcProvider'
 import { AddSessionConvergence1801100000000 } from './1801100000000-AddSessionConvergence'
 import { AddWorkosSessionId1801150000000 } from './1801150000000-AddWorkosSessionId'
+import { AddScimProvisioning1801200000000 } from './1801200000000-AddScimProvisioning'
+import { AddScimGroups1801200000001 } from './1801200000001-AddScimGroups'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -168,5 +170,7 @@ export const postgresMigrations = [
     AddAuthenticationSwitchStage1800900000000,
     AddOidcProvider1801000000000,
     AddSessionConvergence1801100000000,
-    AddWorkosSessionId1801150000000
+    AddWorkosSessionId1801150000000,
+    AddScimProvisioning1801200000000,
+    AddScimGroups1801200000001
 ]

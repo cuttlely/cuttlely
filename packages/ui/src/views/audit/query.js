@@ -14,7 +14,13 @@ export const AUDIT_TYPES = [
     { value: 'pinned_query_change', label: 'Pinned query change' },
     { value: 'auth_method_change', label: 'Sign-in method changed' },
     { value: 'auth_config_change', label: 'OIDC configuration changed' },
-    { value: 'auth_config_warning_ack', label: 'Authentication warning acknowledged' }
+    { value: 'auth_config_warning_ack', label: 'Authentication warning acknowledged' },
+    { value: 'owner_recovery', label: 'Owner recovery sign-in' },
+    { value: 'scim_token', label: 'SCIM credential changed' },
+    { value: 'scim_user', label: 'SCIM user changed' },
+    { value: 'scim_group', label: 'SCIM group changed' },
+    { value: 'scim_mapping', label: 'SCIM mapping changed' },
+    { value: 'scim_auth_failure', label: 'SCIM authentication failed' }
 ]
 
 export function auditParams({ type, user, cursor } = {}) {

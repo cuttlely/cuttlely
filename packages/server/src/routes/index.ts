@@ -86,7 +86,8 @@ import {
     identityAuditRouter,
     identityAuthenticationRouter,
     oidcAdminRouter,
-    oidcAuthRouter
+    oidcAuthRouter,
+    identityScimRouter
 } from '../identity'
 import { closedRouter, denyClosedFeature } from '../identity/ossPlatform'
 import { uiIconRateLimiter, uiPageRateLimiter } from '../utils/rateLimit'
@@ -195,6 +196,7 @@ router.use('/workspaceuser', identityWorkspaceUserRouter)
 router.use('/audit', identityAuditRouter)
 router.use('/authentication-settings/oidc', oidcAdminRouter)
 router.use('/authentication-settings', identityAuthenticationRouter)
+router.use('/scim/v2', identityScimRouter)
 router.use('/organization', closedRouter())
 router.use('/loginmethod', closedRouter())
 router.use('/logs', logRouter)
