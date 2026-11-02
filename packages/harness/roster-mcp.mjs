@@ -140,7 +140,7 @@ async function runSpecialist(args, signal) {
     if (!name || !task) throw new Error('run_specialist needs a specialist name and a task.')
     const specialist = (roster?.specialists || []).find((item) => item.name === name)
     if (!specialist?.profileName) throw new Error(`Specialist "${name}" is not on this roster.`)
-    const body = rosterSpecialistBody(specialist, task)
+    const body = rosterSpecialistBody(specialist, task, undefined, roster?.chief)
     const timeoutMs = agentRunTimeoutMs()
     const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
     const startedAt = capacityWaitSeconds ? Date.now() : 0

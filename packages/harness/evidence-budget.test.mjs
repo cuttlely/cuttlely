@@ -97,6 +97,29 @@ test('canvas round trip and profile refresh preserve a scoped override and updat
     const inherited = compiled.specialists[1]
     assert.equal(hermesSpecialistRequest(inherited, { task: 'Count orders.', chatId: 'chat-budget' }).body.model, inherited.profileName)
     assert.equal(rosterSpecialistBody(inherited, 'Count orders.').model, inherited.profileName)
+    // A fallback inherited from Harness Prime may have a smaller window, so the alias stays.
+    const chief = { fallbackModel: { nodeName: 'chatOpenAI' } }
+    assert.equal(
+        hermesSpecialistRequest(expanded, { task: 'Count orders.', chatId: 'chat-budget', chief }).body.model,
+        expanded.profileName
+    )
+    assert.equal(rosterSpecialistBody(expanded, 'Count orders.', undefined, chief).model, expanded.profileName)
+    // Catalog names with ':', '/' or '@' are sent as selected and quoted in the compiled profile.
+    for (const name of ['anthropic.claude-sonnet-4-5-20250929-v1:0', 'openai/gpt-5.6-luna', 'claude-sonnet-4-5@20250929']) {
+        const named = { ...expanded, model: { ...expanded.model, inputs: { ...expanded.model.inputs, modelName: name } } }
+        assert.equal(rosterSpecialistBody(named, 'Count orders.').model, name)
+    }
+    roster.chief.model.inputs.modelName = 'openai/gpt-5.6-luna'
+    saveHarness(roster, { overwrite: true })
+    compileProfileCached(getHarness(roster.name))
+    const slashed = read().specialists[0]
+    const slashedYaml = fs.readFileSync(path.join(dir, 'runtime', 'profiles', slashed.profileName, 'config.yaml'), 'utf8')
+    assert(slashedYaml.includes('default: "openai/gpt-5.6-luna"'), slashedYaml)
+    assert.equal(rosterSpecialistBody(slashed, 'Count orders.').model, 'openai/gpt-5.6-luna')
+    roster.chief.model.inputs.modelName = 'gpt-5.6-luna'
+    saveHarness(roster, { overwrite: true })
+    compileProfileCached(getHarness(roster.name))
+    compiled = read()
     assert(yaml.includes(`mcp_result_size_chars: ${evidenceBudget(expanded).mcpResultChars}`))
     assert(yaml.includes(`default_result_size_chars: ${evidenceBudget(expanded).resultChars}`))
     assert(yaml.includes(`turn_budget_chars: ${evidenceBudget(expanded).turnChars}`))

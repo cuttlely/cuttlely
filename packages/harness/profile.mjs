@@ -1389,10 +1389,11 @@ function pushMcpServers(yaml, blocks) {
     }
 }
 
-function pushModel(yaml, defaultName, baseUrl) {
+function pushModel(yaml, defaultName, baseUrl, quoted = false) {
     yaml.push('model:')
     yaml.push('  provider: custom')
-    yaml.push(`  default: ${yamlToken(defaultName)}`)
+    // A selected model name may contain ':', '/' or '@' (Bedrock, OpenRouter, Vertex); quote it.
+    yaml.push(`  default: ${quoted && !/^[A-Za-z0-9._-]+$/.test(defaultName) ? yamlQuote(defaultName) : yamlToken(defaultName)}`)
     if (baseUrl) yaml.push(`  base_url: ${yamlQuote(baseUrl)}`)
 }
 
@@ -1828,8 +1829,8 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push('    enabled: "off"')
     pushMcpServers(yaml, blocks)
     // The gateway selects the authorized node from its token, not this model label.
-    const contextModel = specialistContextModel(specialist)
-    pushModel(yaml, contextModel, issued.base)
+    const contextModel = specialistContextModel(specialist, record.chief)
+    pushModel(yaml, contextModel, issued.base, contextModel !== specialist.profileName)
     pushProviders(yaml)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
     writeProfileSecrets(specialist.profileName, specialistCredentialEnv(specialist), {

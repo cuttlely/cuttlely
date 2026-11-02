@@ -3126,7 +3126,7 @@ export function recentTurnsText(history = []) {
 
 export function hermesSpecialistRequest(
     specialist,
-    { memory = '', history = [], task = '', chatId = '', turnId, budget = specialistContextTokens() } = {}
+    { memory = '', history = [], task = '', chatId = '', turnId, budget = specialistContextTokens(), chief } = {}
 ) {
     const soulTokens = estimateTokens(specialistSoul(specialist))
     const fitted = fitSpecialistPrompt({
@@ -3141,7 +3141,7 @@ export function hermesSpecialistRequest(
         input: fitted.messages.at(-1).content,
         session_id: specialistSessionId(specialist.profileName, chatId, turnId),
         provider: 'custom',
-        model: specialistContextModel(specialist)
+        model: specialistContextModel(specialist, chief)
     }
     const memoryPrompt = fitted.messages[0].content
     if (memoryPrompt) body.instructions = memoryPrompt
@@ -3151,6 +3151,7 @@ export function hermesSpecialistRequest(
 async function runHermesSpecialist(context, specialist, task) {
     const imageDir = turnImageDirFor(specialist)
     const { body, truncated } = hermesSpecialistRequest(specialist, {
+        chief: context.roster?.chief,
         memory: context.memoryBlock || '',
         history: context.promptMessages || [],
         task: imageDir ? `${task}\n\n${turnImageNote(imageDir)}` : task,

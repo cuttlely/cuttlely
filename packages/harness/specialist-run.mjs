@@ -17,11 +17,11 @@ export function sessionChat(sessionId) {
 
 // The run Harness Prime starts with run_specialist. The specialist's instructions are already in its Hermes
 // profile (SOUL.md), so the run carries only the task; sending them again would put them in the prompt twice.
-export function rosterSpecialistBody(specialist, task, turnId) {
+export function rosterSpecialistBody(specialist, task, turnId, chief) {
     return {
         input: String(task ?? ''),
         session_id: specialistSessionId(specialist.profileName, 'tool', turnId),
         provider: 'custom',
-        model: specialistContextModel(specialist)
+        model: specialistContextModel(specialist, chief)
     }
 }
