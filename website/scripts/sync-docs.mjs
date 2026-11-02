@@ -32,10 +32,15 @@ const GEN = path.join(SITE, 'src', 'generated')
 
 // ---------- pure helpers (tested in scripts/sync-docs.test.mjs) ----------
 
-/** The site route for a Markdown file under docs/, e.g. docs/how-to/docker.md -> /docs/how-to/docker/. */
+/**
+ * The site route for a Markdown file under docs/, e.g. docs/how-to/docker.md -> /docs/how-to/docker/.
+ * A README is the index of its folder: docs/how-to/README.md -> /docs/how-to/.
+ */
 export function docRoute(repoPath) {
     const rel = repoPath.replace(/^docs\//, '').replace(/\.md$/, '')
     if (rel === 'README') return '/docs/'
+    const folder = rel.match(/^(.+)\/README$/)
+    if (folder) return `/docs/${folder[1].toLowerCase()}/`
     return `/docs/${rel.toLowerCase()}/`
 }
 
@@ -367,6 +372,7 @@ export function sync({ check = true, write = true } = {}) {
         items: [
             { label: 'Quickstart', link: '/quickstart/' },
             { label: 'Docs overview', link: '/docs/' },
+            { label: 'How-to guides', link: '/docs/how-to/' },
             { label: titles['/docs/how-to/try-the-demo/'] || 'Try the demo', link: '/docs/how-to/try-the-demo/' }
         ]
     }

@@ -1126,6 +1126,23 @@
     line-height: 1.6;
 }
 
+/* ---------- home: how-to tiles ---------- */
+.cl-howto-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+}
+.cl-howto-media {
+    display: block;
+    background: var(--cuttlely-surface);
+}
+.cl-howto-thumb {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    object-position: top left;
+}
+
 /* ---------- home: installs ---------- */
 .cl-installs {
     list-style: none;

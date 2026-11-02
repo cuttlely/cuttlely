@@ -2,6 +2,8 @@
 
 This guide walks through connecting a Cuttlely install to WorkOS AuthKit, step by step. It matches the identity code in `packages/server/src/identity/` and `render.yaml`. Every environment variable and route named here exists in that code.
 
+WorkOS is one of the sign-in methods on **Admin** > **Auth / SSO**. To sign people in through your own OpenID Connect provider instead, see [Set up generic OIDC](../how-to/auth-sso.md#set-up-generic-oidc). For email and password accounts kept in Cuttlely, see [Set up local login](../how-to/auth-sso.md#set-up-local-login).
+
 The WorkOS dashboard changes often. Menu names, tab names, field labels, and screenshots below were checked against the dashboard in October 2026 but may have moved or been renamed since. If a label does not match, look for the closest equivalent on the same screen.
 
 No secret values appear in this guide. Never paste an API key, a cookie password, or a break-glass password into git, a pull request, a chat, a ticket, or a shell command that lands in history.

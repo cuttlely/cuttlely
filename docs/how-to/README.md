@@ -1,0 +1,59 @@
+# How-to guides
+
+Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
+
+## New in 1.5.0
+
+-   **New:** [SCIM provisioning](./auth-sso.md#scim-provisioning). Okta or Entra ID creates, updates and deactivates Cuttlely users, and group mappings give them a team and a role, with a preview first.
+-   **New:** [Tidy the layout](./harnesses.md#tidy-the-layout). **Tidy layout** on the harness canvas puts Harness Prime first and one row per specialist; **Undo** puts the cards back.
+-   **New:** [Read web pages as source text](./harnesses.md#read-web-pages-as-source-text). The Web Browser card can return bounded excerpts of the real page and record the exact address it read.
+-   **New:** [Trusted outputs](../reference/trusted-outputs.md). The CSV contract's opt-in `escapeFormulas` setting, and `renderWhen` with `otherwisePath` for lookups that end unresolved.
+-   **Updated:** [Set up generic OIDC](./auth-sso.md#set-up-generic-oidc) and [Set up local login](./auth-sso.md#set-up-local-login). The sign-in methods added in 1.4.9, now on one page with SCIM and [WorkOS](./auth-sso.md#set-up-workos).
+-   **Updated:** [Analyst mode](./analyst.md#recent-changes). The regrouped Postgres (MCP) panel, and the **Not connected.** note a harness shows when this server has no database for its analyst.
+
+## Build agent teams
+
+-   [Harnesses](./harnesses.md). Build an agent team, connect a chat model, try it, publish it and call it from your app.
+-   [Tune and publish an agent team](./tune-agent-team.md). Choose how a team reads data and answers, then check a draft before Publish.
+-   [Analyst mode](./analyst.md). A specialist with its own database that creates tables and answers from them.
+-   [Pinned queries](./pinned-queries.md). Saved, tested SQL with typed parameters on the Postgres (MCP) node.
+-   [Context and tokens](./context-and-tokens.md). How a team keeps each prompt short, and where a run shows the tokens it used.
+-   [How the customer care demo works](./customer-care-demo.md). The specialists, data and rules behind the demo team.
+-   [Try the demo](./try-the-demo.md). Watch a customer care team resolve a late-order complaint in about a minute.
+
+## Build flows and pipelines
+
+-   [Canvas cards](./canvas.md). Chatflows, agentflows and the cards on the canvas, compact or classic.
+-   [ETL](./etl.md). Pipelines that load, clean, split, embed and store your data for search.
+-   [Optional node packs](./node-packs.md). Load more nodes and credentials from a directory or a package.
+-   [Share and embed a chat](./share-and-embed.md). A public link for a chatflow, or a chat on your website.
+
+## Test and ship changes
+
+-   [Version history](./versioning.md). Drafts and Publish, compare and restore versions, and move a flow from Dev to Prod.
+-   [A/B test a change with Compare](./ab-testing.md). Ask the same questions of Live and your draft and see what changed.
+-   [Evaluations](./evaluations.md). Datasets and checks that score answers, and a Publish that waits for them.
+-   [Turn real answers into tests](./tests-from-answers.md). Make a test row from a rated answer in the message viewer.
+-   [Fail a build when answers change](./ci-gate.md). Run the Publish check from CI with `cuttlely check`.
+-   [Run traces](./observability.md). Optional OpenTelemetry traces for predictions, agentflow runs and harness runs.
+
+## Install and run
+
+-   [Docker](./docker.md). The install most people want: SQLite, one container.
+-   [Render](./render.md). A hosted install with Postgres, from the Blueprint in the repository.
+-   [Build from source and run the dev server](./from-source.md). Build Cuttlely yourself and change it with live reload.
+-   [Server settings](./server-settings.md). Change how the server runs from **Admin** > **Server Settings**.
+
+## Sign in and manage people
+
+-   [Choose the sign-in method](./auth-sso.md). Local login, generic OIDC or WorkOS, owner recovery, and SCIM provisioning.
+-   [Sign in](./sign-in.md). Create the first account, sign in and invite people.
+-   [Users without AuthKit](./users-without-authkit.md). Email and password accounts, with one-time invite and reset links.
+-   [Roles and permissions](./roles-and-permissions.md). Teams, built-in and custom roles, and what each permission allows.
+-   [Audit log](./audit-log.md). Who signed in, changed a role or a setting, and when.
+
+## Connect other platforms
+
+-   [Call a chatflow from Orchestrate](./orchestrate.md). Register a published chatflow as an external agent that a native agent calls.
+-   [Use a chatflow as an Orchestrate toolkit](./orchestrate-mcp.md). Import a flow's MCP endpoint as a remote toolkit.
+-   [Record the Orchestrate demo](./orchestrate-demo.md). The runbook for the Larkfield Home orders demo.

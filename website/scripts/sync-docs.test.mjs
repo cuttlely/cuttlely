@@ -21,6 +21,10 @@ describe('sync-docs', () => {
         assert.equal(docRoute('docs/how-to/docker.md'), '/docs/how-to/docker/')
         assert.equal(docOutPath('docs/README.md'), 'docs/index.md')
         assert.equal(docOutPath('docs/api.md'), 'docs/api.md')
+        assert.equal(docRoute('docs/how-to/README.md'), '/docs/how-to/')
+        assert.equal(docOutPath('docs/how-to/README.md'), 'docs/how-to/index.md')
+        assert.equal(rewriteTarget('./how-to/README.md', 'docs/README.md').url, '/docs/how-to/')
+        assert.equal(rewriteTarget('./README.md#new-in-150', 'docs/how-to/auth-sso.md').url, '/docs/how-to/#new-in-150')
     })
 
     it('rewrites repository links to site routes or GitHub', () => {

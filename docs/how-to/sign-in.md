@@ -1,6 +1,6 @@
 # Sign in
 
-A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. Owner recovery keeps that account available when another sign-in method is selected. When several people need to sign in, select Local login, WorkOS, or generic OIDC under **Admin** > **Auth / SSO**. See [Choose the sign-in method](./auth-sso.md). To let people who already have a password use Local login, see [Users without AuthKit](./users-without-authkit.md). That option is off by default. Invited people still have no password until a sign-in link exists.
+A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. Owner recovery keeps that account available when another sign-in method is selected. When several people need to sign in, select Local login, WorkOS, or generic OIDC under **Admin** > **Auth / SSO**. See [Choose the sign-in method](./auth-sso.md). To let people who already have a password use Local login, see [Users without AuthKit](./users-without-authkit.md). That option is off by default. Invited people still have no password until a sign-in link exists. Step-by-step setup for each method is in [Set up local login](./auth-sso.md#set-up-local-login) and [Set up generic OIDC](./auth-sso.md#set-up-generic-oidc).
 
 Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render uses WorkOS and does not show an ordinary password form.
 
