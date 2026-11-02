@@ -9,6 +9,7 @@ import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
 import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-answer.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
+import scimOperations from '../content/docs/docs/images/auth-sso/scim-operations.png'
 import Focus from '../components/Focus.astro'
 import CopyButton from '../components/CopyButton.astro'
 import { mediaUrl as versionedMedia } from '../../scripts/media-version.mjs'
@@ -111,8 +112,8 @@ const teamFeatures = [
     },
     {
         title: 'Sign in your way',
-        text: 'Start with one owner account, then add WorkOS AuthKit or an email and password for each person.',
-        href: '/docs/how-to/sign-in/',
+        text: 'Start with one owner account, then choose Local login, WorkOS AuthKit or a generic OpenID Connect provider. Owner recovery stays available.',
+        href: '/docs/how-to/auth-sso/',
         icon: 'padlock'
     },
     {
@@ -573,6 +574,48 @@ const installs = [
             </div>
         </section>
 
+        <section id="single-sign-on-and-scim" class="cl-section" aria-labelledby="sso-title">
+            <span id="auth-sso-scim" class="cl-anchor" aria-hidden="true"></span>
+            <div class="cl-center">
+                <p class="cl-kicker">Auth / SSO</p>
+                <h2 id="sso-title" class="cl-display">Single sign-on and SCIM, built in.</h2>
+                <p class="cl-lead">
+                    Pick how people sign in, and let your identity provider manage the accounts it provisions. Choose the method and set up SCIM on the Auth / SSO admin page. Method changes and recovery sign-ins are in the audit log.
+                </p>
+            </div>
+            <div class="cl-testing-points">
+                <ul class="cl-checks">
+                    <li>
+                        <strong>Your sign-in method.</strong> Local login, WorkOS AuthKit, or a generic OpenID Connect provider such as Okta or Entra ID. Test a provider before you
+                        switch, and owner recovery keeps an owner able to sign in. <a href="/docs/how-to/auth-sso/">Choose the sign-in method</a>.
+                    </li>
+                    <li>
+                        <strong>SCIM v2 provisioning.</strong> Okta and Entra ID create, update and deactivate users and push groups. Deactivating a provisioned person in the identity provider ends
+                        their Cuttlely sessions and disables the API credentials and personal tokens they own. <a href="/docs/how-to/auth-sso/#scim-provisioning">Set up SCIM</a>.
+                    </li>
+                    <li>
+                        <strong>Groups become teams, with a preview.</strong> Map a provider group to a team and role. Cuttlely shows exactly who gets access before you confirm, and manual
+                        memberships stay yours.
+                    </li>
+                    <li>
+                        <strong>Provisioning at a glance.</strong> Operations shows request times, counts and recent errors with correlation ids, without storing provisioned profile attributes.{' '}
+                        <a href="/docs/reference/scim-api/">SCIM API reference</a>.
+                    </li>
+                </ul>
+            </div>
+            <figure class="cl-shot cl-shot-wide">
+                <ZoomableImage
+                    src={scimOperations}
+                    alt="The SCIM provisioning card on Auth / SSO. Operations shows Users created 3, disabled 1 and group operations 1, one recent error with its correlation id, and the group mapping Support Engineers to Default Workspace as viewer."
+                    widths={[720, 1080, 1440]}
+                    sizes="(min-width: 68rem) 1000px, 100vw"
+                />
+            </figure>
+            <p class="cl-center cl-note">
+                The SCIM tests follow the request examples Okta and Entra ID publish. They are compatibility tests, not certification by either provider.
+            </p>
+        </section>
+
         <section id="every-flow-an-mcp-server" class="cl-section" aria-labelledby="mcp-title">
             <div class="cl-center">
                 <p class="cl-kicker">MCP</p>
@@ -677,7 +720,7 @@ const installs = [
                 />
             </figure>
             <p class="cl-center">
-                Change sign-in, the database, storage and more from <strong>Admin</strong>. A team can sign in with local users and no AuthKit, with a password, or with WorkOS AuthKit. The audit log lists sign-in, role, and settings changes. Some limits apply immediately. <a href="/docs/how-to/server-settings/#agent-run-time">Agent run time</a> sets the specialist wait: four minutes by default, five minutes if needed, or 0 for unlimited. Save and restart to apply; a shorter turn limit still applies.
+                Change sign-in, the database, storage and more from <strong>Admin</strong>. A team can sign in with Local login, WorkOS AuthKit or generic OIDC, and SCIM keeps provisioned accounts in step with your identity provider. The audit log lists sign-in, role, and settings changes. Some limits apply immediately. <a href="/docs/how-to/server-settings/#agent-run-time">Agent run time</a> sets the specialist wait: four minutes by default, five minutes if needed, or 0 for unlimited. Save and restart to apply; a shorter turn limit still applies.
             </p>
             <p class="cl-center cl-note">
                 Cuttlely does not report usage, check for updates or load fonts, scripts or images from other sites. <a href="/security/#what-cuttlely-connects-to"

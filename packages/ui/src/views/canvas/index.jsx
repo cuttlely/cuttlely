@@ -74,6 +74,7 @@ import {
 } from '@/utils/genericHelper'
 import { anyNeedsSync, applyEdgeRefs, healImportedFlow, stageCanvasPayload } from '@/utils/edgeRefs'
 import { readyToFit, FIT_ON_OPEN } from '@/utils/canvasFit'
+import { newCanvasType } from '@/utils/canvasKind'
 import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 import useNotifier from '@/utils/useNotifier'
@@ -461,7 +462,7 @@ const Canvas = () => {
                     deployed: false,
                     isPublic: false,
                     flowData,
-                    type: isEtlCanvas ? 'ETL' : isHarnessCanvas ? 'HARNESS' : isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW'
+                    type: newCanvasType({ isEtlCanvas, isHarnessCanvas, isAgentCanvas })
                 }
                 if (isChatCanvas) {
                     const chatbotConfig = withStarterQuestions(undefined, builderStartersRef.current)
