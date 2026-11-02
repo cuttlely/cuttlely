@@ -1,4 +1,3 @@
-import { evidenceBudget } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -2633,12 +2632,10 @@ async function repairInterpretation(
         }
     )
     const sources = captured.slice(0, 8)
-    const budget = evidenceBudget(specialist)
     const evidence = sources.map((item) =>
         protectedInterpretationEvidence(item.result, interpretationPathsForCapture(specialist, item, paths), {
-            maxBytes: Math.floor(Math.max(64000, budget.bytes) / Math.max(1, sources.length)),
-            maxString: budget.maxString,
-            maxLeaves: budget.maxLeaves
+            maxBytes: Math.floor(64000 / Math.max(1, sources.length)),
+            maxLeaves: 600
         })
     )
     try {

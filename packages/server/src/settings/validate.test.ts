@@ -157,12 +157,3 @@ describe('checking values from the page', () => {
         expect(checkValue(def('LOG_LEVEL'), null)).toEqual({ ok: true, value: '' })
     })
 })
-
-describe('protected evidence budget', () => {
-    it('exposes a bounded integer in Admin runtime with the existing default', () => {
-        const setting = def('CUTTLELY_HARNESS_EVIDENCE_BYTES')
-        expect(setting).toMatchObject({ section: 'runtime', group: 'Limits', type: 'number', defaultValue: '40000' })
-        expect(checkValue(setting, '131072')).toEqual({ ok: true, value: '131072' })
-        for (const value of ['4095', '262145', '40000.5', 'bad']) expect(checkValue(setting, value).ok).toBe(false)
-    })
-})
