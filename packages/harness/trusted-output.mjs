@@ -41,6 +41,21 @@ export function trustedOutputContracts(value) {
             fail('A trusted output needs a unique pin, its tested hash and a supported mode.')
         pins.add(entry.pin)
         const contract = { pin: entry.pin, hash: entry.hash, mode: entry.mode }
+        if (entry.renderWhen != null) {
+            const gate = entry.renderWhen
+            if (
+                entry.mode !== 'markdown' ||
+                !gate ||
+                typeof gate.path !== 'string' ||
+                gate.path.length > 300 ||
+                !gate.path.split('.').every((part) => /^(?:[a-zA-Z_][a-zA-Z0-9_]*|[0-9]+)$/.test(part) && !badPath.has(part)) ||
+                !['string', 'boolean', 'number'].includes(typeof gate.equals) ||
+                (typeof gate.equals === 'string' && gate.equals.length > 1000) ||
+                (typeof gate.equals === 'number' && !Number.isFinite(gate.equals))
+            )
+                fail('Invalid trusted output outcome condition.')
+            contract.renderWhen = { path: gate.path, equals: gate.equals }
+        }
         if (entry.interpretationDiagnostics != null && typeof entry.interpretationDiagnostics !== 'boolean')
             fail('Interpretation diagnostics must be a boolean.')
         if (entry.interpretationDiagnostics === true) {
@@ -174,6 +189,21 @@ export function sourceMarkdown(body, contract) {
     const text = sections.join('\n\n')
     if (Buffer.byteLength(text) > TRUSTED_OUTPUT_LIMIT) fail('Trusted Markdown exceeds the output limit.')
     return text // Preserve source bytes, including reference blocks and scope captions.
+}
+
+// Conditions apply only to complete source envelopes, never errors or partial results.
+// A nonmatching outcome remains raw evidence for resolution or clarification.
+export function trustedOutputApplies(contract, body) {
+    if (!contract.renderWhen) return true
+    if (body?.sourceExecution === 'not_executed') return true
+    completeResult(body, { allowEmpty: Boolean(contract.emptyText) })
+    let value = body
+    for (const key of contract.renderWhen.path.split('.')) {
+        if (!own(value, key)) fail('Trusted output outcome field is missing.')
+        value = value[key]
+    }
+    if (!['string', 'boolean', 'number'].includes(typeof value)) fail('Trusted output outcome must be a scalar.')
+    return value === contract.renderWhen.equals
 }
 
 function monthsBetween(start, end) {
@@ -617,6 +647,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
             })
         )
             continue
+        if (!trustedOutputApplies(contract, item.result)) continue
         const id = hash(JSON.stringify([contract.pin, item.result]))
         if (seen.has(id)) continue
         seen.add(id)
@@ -632,6 +663,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
         }
     }
     check(signal)
+    if (!sections.length) return null
     const text = sections.join('\n\n')
     if (
         Buffer.byteLength(text) > TRUSTED_OUTPUT_LIMIT ||
@@ -661,6 +693,7 @@ export function trustedOutputReceipt(specialist, pin, raw, callId) {
         return null
     try {
         completeResult(body, { allowEmpty: contract.mode === 'markdown' && Boolean(contract.emptyText) })
+        if (!trustedOutputApplies(contract, body)) return null
     } catch {
         return null
     }

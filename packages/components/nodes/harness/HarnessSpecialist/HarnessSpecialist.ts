@@ -117,7 +117,7 @@ class HarnessSpecialist_Harness implements INode {
                 optional: true,
                 additionalParams: true,
                 description:
-                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths), monthly-utilization-png or table-payload-csv. Consumes the actual server result for exact factual output/files and skips Harness Prime rewriting. Interpret protected evidence can add a separate source-grounded readout before those facts. Empty is off.'
+                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths), monthly-utilization-png or table-payload-csv. Markdown can use renderWhen: {path, equals} to render only matching complete source outcomes; other outcomes remain evidence for resolution or clarification. Consumes the actual server result for exact factual output/files and skips Harness Prime rewriting. Interpret protected evidence can add a separate source-grounded readout before those facts. Empty is off.'
             },
             {
                 label: 'Unmapped output policy',

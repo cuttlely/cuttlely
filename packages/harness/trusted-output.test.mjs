@@ -14,6 +14,7 @@ import {
     tablePayloadCsv,
     renderTrustedOutputs,
     sourceMarkdown,
+    trustedOutputApplies,
     composeTrustedOutputs,
     verifiedUnmappedOutput
 } from './trusted-output.mjs'
@@ -334,6 +335,62 @@ test('Markdown source bytes, reference definitions and each scoped section survi
     assert.equal(sourceMarkdown({ rows: [{ text: 'a\n' }, { text: 'b\n' }] }, fields), 'a\n\n\nb\n')
 })
 
+test('author outcome conditions retain unresolved evidence without rendering empty report fields', async () => {
+    const gated = { ...mdContract, renderWhen: { path: 'rows.0.identity_status', equals: 'unique' } }
+    assert.deepEqual(trustedOutputContracts([gated]), [gated])
+    const unresolved = { rows: [{ identity_status: 'ambiguous', candidates: ['A', 'B'], scope: '', report: '' }] }
+    assert.equal(trustedOutputApplies(gated, unresolved), false)
+    const specialist = { name: 'report', trustedOutputs: [gated], trustedInterpretation: true }
+    const pending = capture(unresolved, gated.pin, gated.hash)
+    assert.equal(await renderTrustedOutputs(specialist, [pending]), null)
+    const resolved = capture(
+        { rows: [{ identity_status: 'unique', scope: 'Verified account scope', report: markdown }] },
+        gated.pin,
+        gated.hash
+    )
+    resolved.callId = 'resolved-call'
+    const out = await renderTrustedOutputs(specialist, [pending, resolved])
+    assert.equal(out.text, '## Outlook\n\nVerified account scope\n\n' + markdown)
+    assert.equal(out.captureRefs.length, 1)
+    assert.equal(out.captureRefs[0].callId, 'resolved-call')
+    assert.equal(trustedOutputReceipt(specialist, gated.pin, { ...unresolved, pinned: pending.pinned }, pending.callId), null)
+    for (const bad of [{ ...unresolved, truncated: true }, { ...unresolved, error: 'query failed' }, { rows: [{}] }])
+        await assert.rejects(renderTrustedOutputs(specialist, [capture(bad, gated.pin, gated.hash)]), { code: 'trusted_output' })
+    await assert.rejects(renderTrustedOutputs(specialist, [capture(unresolved, gated.pin, 'ff'.repeat(32))]), { code: 'trusted_output' })
+    await assert.rejects(renderTrustedOutputs({ ...specialist, trustedOutputs: [mdContract] }, [pending]), { code: 'trusted_output' })
+    for (const gate of [
+        { path: 'rows.__proto__.x', equals: 'unique' },
+        { path: 'rows.*.x', equals: 'unique' },
+        { path: 'rows.0.x', equals: {} }
+    ])
+        assert.throws(() => trustedOutputContracts([{ ...gated, renderWhen: gate }]), { code: 'trusted_output' })
+})
+
+test('unresolved account lookup supports clarification and a subsequent resolved report in the real harness', async () => {
+    const result = { rows: [{ identity_status: 'ambiguous', candidates: ['Example East', 'Example West'], scope: '', report: '' }] }
+    const options = {
+        markdownOnly: true,
+        outcomeGate: true,
+        result,
+        interpretation: true,
+        policy: 'verified-passthrough',
+        createModelFile: false,
+        input: 'Give me an account health report for Example.'
+    }
+    const clarification = await runFixture({ ...options, prose: 'Which account do you mean: Example East or Example West?' })
+    assert.match(clarification.payload.text, /Example East or Example West\?/, JSON.stringify(clarification.payload.trace))
+    assert.equal(clarification.payload.trace.specialists[0].status, 'completed')
+    const recovered = await runFixture({
+        ...options,
+        additionalReport: true,
+        additionalResult: { rows: [{ scope: 'Verified account scope', report: 'Complete source report', identity_status: 'unique' }] },
+        prose: 'Complete source report'
+    })
+    assert.equal(recovered.payload.trace.specialists[0].status, 'completed')
+    assert.match(recovered.payload.text, /Complete source report/)
+    assert.doesNotMatch(recovered.payload.text, /could not be validated|Example West/)
+})
+
 let serial = 0
 async function runFixture({
     interpretationPaths,
@@ -376,6 +433,7 @@ async function runFixture({
     nativeReceipt = true,
     queryRowCap = 100,
     markdownOnly = false,
+    outcomeGate = false,
     diagnostics = false,
     unmatchedDiagnostics = false,
     replay = false
@@ -446,6 +504,7 @@ async function runFixture({
                           trustedOutputs: [
                               {
                                   ...person.contract,
+                                  ...(outcomeGate ? { renderWhen: { path: 'rows.0.identity_status', equals: 'unique' } } : {}),
                                   ...(reportingSymbol ? { reportingCurrencySymbol: reportingSymbol } : {}),
                                   ...(diagnostics ? { interpretationDiagnostics: true } : {})
                               },
