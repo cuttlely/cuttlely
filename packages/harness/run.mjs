@@ -1499,6 +1499,85 @@ export const SCOPE_CLARIFICATIONS = Object.freeze({
     record_type: 'What type of records should I use?',
     comparison: 'What should I compare the results against?'
 })
+export const ROUTE_SCOPE_REVIEW =
+    'Review whether the proposed clarification actually asks for missing input. A supplied name, abbreviation, typo, ' +
+    'identifier or resolvable conversation reference is provided scope even if you cannot recognize or uniquely match it. ' +
+    'Delegate that resolution to the specialist whose sources and capabilities fit the request. Do not confuse an ' +
+    'unresolved source lookup with an absent user input. Respect author-documented defaults and preserve record grain ' +
+    'and selected membership. Never invent an entity, record set, metric, period or default. Earlier assistant ' +
+    'clarifications are not proof that input is still missing. If essential input really is absent, confirm the ' +
+    'clarification. Otherwise return a corrected specialist plan and scopeEvidence with source ' +
+    '"request", "conversation", "selection" or "defaults", and a short exact quote from that supplied source ' +
+    'showing the available scope. Keep all requested work in the delegated tasks. Return JSON only.'
+
+export function parseScopeReview(content, specialists, input, sources = {}) {
+    let parsed
+    try {
+        parsed = JSON.parse(String(content || ''))
+    } catch {
+        return null
+    }
+    const evidence = parsed?.scopeEvidence
+    const source = { request: String(input || ''), ...sources }
+    const quoteText = (value) =>
+        String(value || '')
+            .normalize('NFKC')
+            .replace(/\s+/g, '')
+            .toLowerCase()
+    if (
+        !evidence ||
+        !['request', 'conversation', 'selection', 'defaults'].includes(evidence.source) ||
+        typeof evidence.quote !== 'string' ||
+        !evidence.quote.trim() ||
+        evidence.quote.length > 1000 ||
+        !quoteText(source[evidence.source]).includes(quoteText(evidence.quote))
+    )
+        return null
+    const route = parseRouteSteps(content, specialists, input)
+    return route.ok && !route.clarification && route.steps.length ? route : null
+}
+
+async function reviewScopeClarification(context, input, history, proposed, specialists) {
+    const questions = new Set(Object.values(SCOPE_CLARIFICATIONS))
+    const scopeHistory = (history || []).filter(
+        (message) => message.role !== 'assistant' || !questions.has(String(message.content || '').trim())
+    )
+    const sources = {
+        conversation: [context.memoryBlock, ...scopeHistory.map((message) => String(message.content || ''))].filter(Boolean).join('\n'),
+        selection: context.selectionBlock || '',
+        defaults: [context.roster.chief?.instructions, ...specialists.map((specialist) => routerLine(specialist, 0))]
+            .filter(Boolean)
+            .join('\n')
+    }
+    const fitted = fitChiefMessages({
+        system: [
+            ROUTE_SCOPE_REVIEW,
+            `Proposed missing scope: ${proposed}.`,
+            `Author instructions and specialist capabilities:\n${sources.defaults}`,
+            'Reply with {"clarification":"KIND"} to confirm, or ' +
+                '{"scopeEvidence":{"source":"request|conversation|selection|defaults","quote":"..."},' +
+                '"steps":[{"specialist":"NAME","task":"...","answerMode":"facts|analysis|synthesis"}]}.'
+        ].join('\n'),
+        memory: context.memoryBlock || '',
+        history: scopeHistory,
+        user: [input, sources.selection].filter(Boolean).join('\n\n'),
+        budget: chiefContextTokens()
+    })
+    noteTruncated(context, fitted.truncated)
+    try {
+        const reply = await callModel(context, chiefModel(context.roster), {
+            messages: withPromptImages(fitted.messages, context.images),
+            json: true,
+            role: 'route'
+        })
+        return parseScopeReview(reply.content, specialists, input, sources)
+    } catch (error) {
+        if (context.workSignal?.aborted || context.clientSignal?.aborted || context.budgetSignal?.aborted) throw error
+        // Failure to review never invents a scope or widens access to a default source.
+        console.warn(`[harness] ${context.name} scope clarification review failed errorKind=${routeErrorKind(error)}`)
+        return null
+    }
+}
 export const ROUTE_IMAGES =
     'The user attached images. You can see them; specialists cannot. When a task depends on an image, write what the image shows into the task.'
 
@@ -1804,7 +1883,7 @@ async function routeSteps(context, input, history) {
         !history?.length && !context.selectionBlock
             ? 'This chat has no prior turns or stored record selection. Resolve references from the current request; do not assume an earlier list exists.'
             : '',
-        'If an essential scope is missing and cannot be resolved from the request, history or a documented source default, return only {"clarification":"selection|entity|metric|period|region|record_type|comparison"}. A clarification asks for missing input before execution. Do not delegate a nonexistent record set or invent values. Use steps when the request can be fulfilled.',
+        'If an essential scope is missing and cannot be resolved from the request, history or a documented source default, return only {"clarification":"selection|entity|metric|period|region|record_type|comparison"}. A supplied entity label is provided scope even when its spelling, spacing, alias or identity is unfamiliar: delegate matching to the source owner instead of asking for an entity already supplied. Clarification is for absent input, not for an unexecuted lookup. Do not delegate a nonexistent record set or invent values. Use steps when the request can be fulfilled.',
         context.images?.length ? ROUTE_IMAGES : '',
         synthesis
             ? 'Choose answerMode "facts" for source facts, tables, lists, counts and factual exports; "analysis" for a complete report with interpretation or requested analysis accompanying an artifact; "synthesis" for a self-contained concise or custom narrative using a specialist that supports validated synthesis. Synthesis does not append a full factual report. Preserve all requested evidence dimensions: make broad business needs concrete in each task rather than treating brevity as permission to omit required facts. Resolve intent from the whole conversation, not isolated keywords. Permissions, source identity and validation remain mandatory.'
@@ -1867,7 +1946,11 @@ async function routeSteps(context, input, history) {
             routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input, fallback: true }] : [] }
         }
     }
-    if (routed.clarification) return finishUnpaged(context, SCOPE_CLARIFICATIONS[routed.clarification], started)
+    if (routed.clarification) {
+        const reviewed = await reviewScopeClarification(context, input, history, routed.clarification, specialists)
+        if (reviewed) routed = reviewed
+        else return finishUnpaged(context, SCOPE_CLARIFICATIONS[routed.clarification], started)
+    }
     // An empty plan (or one naming no roster specialist) is not an answer to route on, so no input-driven analyst route
     // (a lone analyst, the analyst choice call, `show more` paging) widens or steers it: it runs exactly one step on
     // the chief's default specialist. The analyst routes apply only to a plan that named a roster specialist.

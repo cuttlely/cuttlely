@@ -1,5 +1,7 @@
 # Memory
 
+A supplied entity label is scope even when the coordinator cannot recognize its spelling or uniquely match it. Delegate identity resolution to a capable source owner. Before sending a missing-scope question, review the request and grounded context once; do not let an earlier server clarification become evidence that the input is absent. Retain factual conversation context, require a supported evidence quote for corrected routes, and fail back to the safe question on invalid review.
+
 Keep evidence capture, requested delivery and run outcome separate. An exploratory capture is not automatically another requested report; a concise synthesis must be self-contained when no factual section is appended. Source selection can choose verified captures but cannot rewrite them or hide executed failures. Keep recovery bounded and tool-free, retain date precision, and derive success from verified routed sections rather than every failed attempt. Application identifiers containing a URI authority are not filesystem paths; avoid a scheme-wide path exemption.
 
 Evidence paths belong to a capture, not the whole specialist turn. Applying one mapped report's fields to an additional authorized raw query can discard real facts during repair. Reuse the existing capture-identity and passthrough checks for additional results, preserve mapped field restrictions, and keep initial validation and repair on the same per-source selection.
