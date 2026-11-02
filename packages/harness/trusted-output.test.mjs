@@ -1386,7 +1386,7 @@ test('router-selected facts retain mapped source output without optional interpr
     assert.equal(out.calls.length, 2)
 })
 
-test('factual mode retains validated narrative from an unmapped nested source instead of an identity-only table', async () => {
+test('factual mode delivers validated narrative from an unmapped nested source without a chief rewrite', async () => {
     const prose = 'The recorded technical concern is a connection timeout during replication; the team requested a technical workshop.'
     const out = await runFixture({
         interpretation: true,
@@ -1407,9 +1407,9 @@ test('factual mode retains validated narrative from an unmapped nested source in
         prose
     })
     const handoff = out.prompts.find((messages) => String(messages[0]?.content).startsWith('You are Harness Prime'))
-    assert(handoff)
-    assert(JSON.stringify(handoff).includes(prose))
-    assert(!JSON.stringify(handoff).includes('| account id |'))
+    assert(!handoff)
+    assert(out.payload.text.includes(prose))
+    assert(!out.payload.text.includes('| account id |'))
     assert.equal(out.calls.length, 2)
     assert.equal(out.prompts.filter((messages) => String(messages[0]?.content).startsWith('Repair an evidence-based answer')).length, 0)
 })
@@ -1651,7 +1651,8 @@ test('uncapped guarded query retains valid readout and default capped behavior w
     })
     assert.equal(uncapped.calls.length, 1)
     assert.equal(uncapped.payload.trace.specialists[0].recovery, undefined)
-    assert(uncapped.prompts.some((messages) => JSON.stringify(messages).includes(prose)))
+    assert(uncapped.payload.text.includes(prose))
+    assert(!uncapped.prompts.some((messages) => String(messages[0]?.content).startsWith('You are Harness Prime')))
     const ordinary = await runFixture({
         freeQuery: true,
         unmapped: true,

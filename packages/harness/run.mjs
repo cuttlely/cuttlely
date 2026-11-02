@@ -2373,7 +2373,7 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
                         interpretation: { included: false, reason: issues.join(',') }
                     }
                 }
-                if (answerMode === 'synthesis' && !ownArtifacts.length)
+                if (!ownArtifacts.length && (answerMode === 'synthesis' || !factualText))
                     return { text, artifacts: [], interpretation: { included: true, reason: '' } }
                 if (factualText) {
                     const caption = protectedReportingCaption(
