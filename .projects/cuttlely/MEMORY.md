@@ -199,3 +199,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A valid business report should not require a new query because a companion cites one unreturned URL. Give the documentation-only role one bounded tool-free repair with its existing source URLs and bodies; revalidate against the same whitelist and retain the original report and attachments. Never let this repair path run for analyst or executable roles.
 
 -   Native Markdown escaped a timestamp plus as &#43;. Source facts decoded it, but answer validation read 43 as an unsupported quantity. Normalize numeric HTML references before both source and claim parsing; test source and answer encodings, timestamp precision, unsupported percentages and currencies. Do not broaden evidence scope to mask a representation mismatch.
+
+-   Citation repair should select captured source IDs and let the runtime render URL destinations. Asking the model to copy exact URLs can repeat a citation rejection even when the right documents were captured. Keep the same citation whitelist, role restrictions, bounded repair count and original protected reports; invalid IDs must fail closed.
