@@ -17,7 +17,8 @@ export async function executeModule(binding, input, options = {}) {
     if (options.assertCall) options.assertCall()
     const raw = await callPrepared(prepared, input, options.assertCall)
     if (typeof options.onRetrievedSources === 'function') {
-        if (binding.nodeName === 'retrieverTool') options.onRetrievedSources(splitToolOutput(raw).documents)
+        if (binding.nodeName === 'retrieverTool' || (binding.nodeName === 'webBrowser' && binding.inputs?.readSource === true))
+            options.onRetrievedSources(splitToolOutput(raw).documents)
         else if (
             binding.nodeName === 'webBrowser' &&
             typeof input === 'string' &&

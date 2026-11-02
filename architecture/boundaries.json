@@ -415,7 +415,9 @@
             "packages/ui/src/utils/analystStatus.test.js",
             "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
             "packages/ui/src/views/canvas/pinnedQueries/pinnedList.test.js",
-            "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts"
+            "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.mode.test.ts",
+            "packages/components/nodes/tools/WebBrowser/sourcePage.ts",
+            "packages/components/nodes/tools/WebBrowser/sourcePage.test.ts"
         ],
         "inherited": [
             "packages/server/**",
@@ -498,7 +500,9 @@
                 "packages/server/src/routes/apiKeyCaseBypass.test.ts",
                 "packages/server/src/routes/harnessNamesForKey.test.ts",
                 "packages/server/src/routes/export-import/index.test.ts",
-                "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts"
+                "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts",
+                "packages/components/nodes/tools/WebBrowser/sourcePage.ts",
+                "packages/components/nodes/tools/WebBrowser/sourcePage.test.ts"
             ],
             "entryPoints": [
                 "packages/components/nodes/harness/Harness/Harness.ts",
@@ -526,7 +530,8 @@
                 "packages/ui/src/views/harnesses/HarnessHome.jsx",
                 "packages/ui/src/views/harnesses/index.jsx",
                 "packages/server/src/utils/harnessToolPayload.ts",
-                "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts"
+                "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
+                "packages/components/nodes/tools/WebBrowser/sourcePage.ts"
             ]
         },
         {

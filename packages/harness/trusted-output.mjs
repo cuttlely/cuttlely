@@ -580,6 +580,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
     if (!matched.length) return null
     const sections = [],
         artifacts = [],
+        captureRefs = [],
         seen = new Set()
     for (const { item, contract } of matched) {
         check(signal)
@@ -619,6 +620,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
         const id = hash(JSON.stringify([contract.pin, item.result]))
         if (seen.has(id)) continue
         seen.add(id)
+        captureRefs.push({ callId: item.callId, toolName: item.toolName, hash: item.pinned.hash })
         if (contract.mode === 'markdown') sections.push(sourceMarkdown(item.result, contract))
         else {
             const rendered =
@@ -637,7 +639,7 @@ export async function renderTrustedOutputs(specialist, captured, { signal, previ
         artifacts.filter((item) => item.type === 'csv').length > TURN_FILE_LIMITS.count
     )
         fail('Verified output exceeds turn limits.')
-    return { text, artifacts }
+    return { text, artifacts, captureRefs }
 }
 
 // Model-facing only: the full result has already been retained on the server.
