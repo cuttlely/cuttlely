@@ -2340,6 +2340,7 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
                     item.pinned?.hash !== contract.hash ||
                     item.pinned?.name !== contract.pin ||
                     !Number.isInteger(item.pinned?.version) ||
+                    contract.renderWhen?.otherwisePath ||
                     trustedOutputApplies(contract, item.result))
             )
         }) ||
@@ -2447,6 +2448,16 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
             )
         )
     }
+    if (rendered.outcomeOnly) {
+        // The author selected source-owned clarification, not a business interpretation.
+        rememberDisplayedSources()
+        return rendered
+    }
+    // Keep resolution outcomes in the step history, outside the later report's claim witnesses.
+    const interpretationCaptures = captured.filter((item) => {
+        const contract = specialist.trustedOutputs.find((entry) => entry.pin === item.toolName)
+        return !contract?.renderWhen || trustedOutputApplies(contract, item.result)
+    })
     if (specialist.trustedInterpretation === true && answerMode !== 'facts') {
         const artifactContract = specialist.trustedOutputs.some(
             (contract) => contract.mode !== 'markdown' && captured.some((item) => item.toolName === contract.pin)
@@ -2458,9 +2469,9 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
             composeProtectedInterpretation({
                 interpretation: maskWorkspacePaths(interpretation),
                 facts: rendered.text,
-                sources: captured.map((item) => item.result),
+                sources: interpretationCaptures.map((item) => item.result),
                 paths: specialist.trustedInterpretationPaths,
-                sourcePaths: captured.map((item) => interpretationPathsForCapture(specialist, item)),
+                sourcePaths: interpretationCaptures.map((item) => interpretationPathsForCapture(specialist, item)),
                 includeFacts: answerMode !== 'synthesis' || rendered.artifacts.length > 0 || artifactContract,
                 diagnostics: diagnosticPins.length > 0 && !context.replay,
                 reportingCurrencySymbol:
@@ -2471,9 +2482,17 @@ async function protectStepOutput(context, specialist, { dataTask, text, factualT
         let composed = compose(text)
         let repairDraft = text
         for (let attempt = 0; !composed.included && attempt < 2; attempt++) {
-            const repaired = await repairInterpretation(context, specialist, repairDraft, captured, composed.reason.split(','), task, {
-                finalAttempt: attempt === 1
-            })
+            const repaired = await repairInterpretation(
+                context,
+                specialist,
+                repairDraft,
+                interpretationCaptures,
+                composed.reason.split(','),
+                task,
+                {
+                    finalAttempt: attempt === 1
+                }
+            )
             if (!repaired) break
             composed = compose(repaired)
             repairDraft = repaired
