@@ -145,6 +145,15 @@ class HarnessSpecialist_Harness implements INode {
                     'Let the specialist read bounded source evidence and lead with a labeled interpretation. Source-owned factual output remains unchanged. Unsupported numeric, date or currency claims suppress the interpretation.'
             },
             {
+                label: 'Evidence budget (bytes)',
+                name: 'evidenceBytes',
+                type: 'number',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Optional protected source evidence budget, 4096 to 262144 bytes. Blank inherits Admin → Agent runtime (default 40000). Larger budgets expose more source detail to the model and can increase token use; they do not change output tokens or report validation.'
+            },
+            {
                 label: 'Interpretation evidence paths',
                 name: 'trustedInterpretationPaths',
                 type: 'json',

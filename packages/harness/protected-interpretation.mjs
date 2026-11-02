@@ -1,3 +1,4 @@
+import { MAX_EVIDENCE_BYTES } from './evidence-budget.mjs'
 // Optional model interpretation is kept separate from the exact source-owned report.
 // These checks establish literal provenance, not that a model's inference is correct.
 import { HarnessError } from './errors.mjs'
@@ -118,9 +119,9 @@ function clip(text, limit) {
 /** A bounded, path-labeled view of real source observations for an opted-in model. */
 export function protectedInterpretationEvidence(raw, paths = [], limits = {}, reportingSymbol) {
     const reporting = normalizeReportingCurrencySymbol(reportingSymbol)
-    const maxBytes = Math.min(MAX_BYTES, Math.max(512, Number(limits.maxBytes) || MAX_BYTES))
-    const maxString = Math.min(MAX_STRING, Math.max(40, Number(limits.maxString) || MAX_STRING))
-    const maxLeaves = Math.min(MAX_LEAVES, Math.max(1, Number(limits.maxLeaves) || MAX_LEAVES))
+    const maxBytes = Math.min(MAX_EVIDENCE_BYTES, Math.max(512, Number(limits.maxBytes) || MAX_BYTES))
+    const maxString = Math.min(MAX_EVIDENCE_BYTES, Math.max(40, Number(limits.maxString) || MAX_STRING))
+    const maxLeaves = Math.min(4000, Math.max(1, Number(limits.maxLeaves) || MAX_LEAVES))
     const guidance = reporting
         ? PROTECTED_INTERPRETATION_GUIDANCE.replace(
               'Use numeric values, percentages, currency and dates only as returned; do not invent or recalculate figures. Missing currency does not mean dollars.',

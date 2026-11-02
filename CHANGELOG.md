@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   **Admin → Agent runtime → Evidence budget (bytes)** controls how much protected source detail specialists receive for analysis. An optional specialist override is preserved in canvas exports and imports. The default remains 40000 bytes; larger budgets coordinate evidence extraction and runtime inline-result limits without changing source reports, output-token limits or validation.
+
 ## [1.5.0] - 2026-11-01
 
 ### Added

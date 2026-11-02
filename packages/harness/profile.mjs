@@ -1,3 +1,4 @@
+import { defaultEvidenceBytes, evidenceBudget } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -1284,6 +1285,7 @@ function resolveRoster(record, profileName = record.name) {
         const explicit = modelChoice(specialist.model)
         return {
             ...specialist,
+            evidenceBytes: evidenceBudget(specialist).bytes,
             hermesToolsets: hermesToolsetsFor(specialist),
             model: explicit || chiefModel
         }
@@ -1795,6 +1797,11 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     yaml.push('platform_toolsets:')
     yaml.push('  api_server:')
     for (const name of enabled) yaml.push(`    - ${name}`)
+    const budget = evidenceBudget(specialist)
+    yaml.push('tool_budget:')
+    yaml.push(`  mcp_result_size_chars: ${budget.mcpResultChars}`)
+    yaml.push(`  default_result_size_chars: ${budget.resultChars}`)
+    yaml.push(`  turn_budget_chars: ${budget.turnChars}`)
     yaml.push('terminal:')
     yaml.push(`  cwd: ${yamlQuote(workspace)}`)
     if (specialist.codeExecution) {
@@ -2249,7 +2256,8 @@ function compileProfileFiles(record, options = {}) {
         specialists: resolved.specialists,
         chiefToolsets: CHIEF_TOOLSETS,
         dispatch: resolved.mixed ? 'roster' : 'delegation',
-        agentRunTimeoutMs: agentRunTimeoutMs()
+        agentRunTimeoutMs: agentRunTimeoutMs(),
+        defaultEvidenceBytes: defaultEvidenceBytes()
     }
     writeIfChanged(path.join(dir, 'harness-roster.json'), JSON.stringify(compiled, null, 2))
     writeIfChanged(path.join(dir, 'SOUL.md'), chiefPrompt(compiled, { specialists: resolved.specialists, mixed: resolved.mixed }))
@@ -2657,7 +2665,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '7'
+export const PROFILE_COMPILER_VERSION = '8'
 
 function compilerVersionOf(dir) {
     try {
@@ -2716,6 +2724,7 @@ export function profileOutdated(record) {
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION || profileTreeBlocked(dir)) return true
     const roster = onDiskRoster(dir)
     // The stdio child gets a compiled env, so an Admin restart must refresh a changed run timeout before loading it.
+    if (roster?.defaultEvidenceBytes !== defaultEvidenceBytes()) return true
     if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
@@ -3081,7 +3090,13 @@ function recheckCached(compiled) {
 }
 
 export function compileProfileCached(record) {
-    const key = [hermesHome(), agentRunTimeoutMs(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
+    const key = [
+        hermesHome(),
+        agentRunTimeoutMs(),
+        defaultEvidenceBytes(),
+        JSON.stringify(record),
+        credentialStamp(credentialIdsIn(record))
+    ].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {
