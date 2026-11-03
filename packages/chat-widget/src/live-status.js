@@ -42,12 +42,13 @@ export function toolPhrase(tool, toolLabel) {
 
 function specialistStatus(specialist, toolLabel) {
     const tools = Array.isArray(specialist?.tools) ? specialist.tools : []
-    const last = tools[tools.length - 1]
-    if (last && last.status === 'running') {
-        const phrase = toolPhrase(last, toolLabel)
+    // Tools can run side by side: name the latest one still running, and think only once none is.
+    const running = tools.filter((tool) => tool?.status === 'running').pop()
+    if (running) {
+        const phrase = toolPhrase(running, toolLabel)
         return { phase: 'tool', row: `Running ${phrase}…`, verb: `is running ${phrase}…` }
     }
-    if (last) return { phase: 'thinking', row: 'Thinking about the results…', verb: 'is thinking about the results…' }
+    if (tools.length) return { phase: 'thinking', row: 'Thinking about the results…', verb: 'is thinking about the results…' }
     return { phase: 'working', row: 'Working…', verb: 'is working…' }
 }
 

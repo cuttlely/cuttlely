@@ -74,6 +74,17 @@ describe('reduceRun', () => {
         assert.equal(runStatus(run), null)
     })
 
+    it('keeps naming a tool while another one started alongside it is still running', () => {
+        let run = emptyRun('desk')
+        run = reduceRun(run, 'specialist', { phase: 'start', name: 'researcher' })
+        run = reduceRun(run, 'tool', { phase: 'start', specialist: 'researcher', name: 'query' })
+        run = reduceRun(run, 'tool', { phase: 'start', specialist: 'researcher', name: 'describe' })
+        run = reduceRun(run, 'tool', { phase: 'done', specialist: 'researcher', name: 'describe' })
+        assert.equal(runStatus(run).line, 'researcher is running a SQL query…')
+        run = reduceRun(run, 'tool', { phase: 'done', specialist: 'researcher', name: 'query' })
+        assert.equal(runStatus(run).line, 'researcher is thinking about the results…')
+    })
+
     it('reads the enhanced status messages switch from the flow settings, on by default', () => {
         assert.equal(normalizeConfig({}).enhancedStatus, true)
         assert.equal(normalizeConfig({ enhancedStatusMessages: { status: true } }).enhancedStatus, true)

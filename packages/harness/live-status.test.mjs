@@ -66,6 +66,21 @@ describe('live status line from streamed harness events', () => {
         assert.equal(status.line, 'researcher is running a SQL query…', 'the specialist with a running tool leads')
     })
 
+    it('keeps naming a tool while another one started alongside it is still running', () => {
+        const trace = fold([
+            { type: 'route', phase: 'done', steps: [{ specialist: 'researcher' }] },
+            { type: 'specialist', phase: 'start', name: 'researcher' },
+            { type: 'tool', phase: 'start', specialist: 'researcher', name: 'query' },
+            { type: 'tool', phase: 'start', specialist: 'researcher', name: 'describe' },
+            { type: 'tool', phase: 'done', specialist: 'researcher', name: 'describe' }
+        ])
+        const status = liveStatus(trace)
+        assert.equal(status.line, 'researcher is running a SQL query…')
+        assert.equal(status.perSpecialist.researcher, 'Running a SQL query…')
+        const after = liveStatus(reduceHarnessEvent(trace, { type: 'tool', phase: 'done', specialist: 'researcher', name: 'query' }))
+        assert.equal(after.line, 'researcher is thinking about the results…')
+    })
+
     it('stays out of the reduced trace', () => {
         const trace = fold([
             { type: 'route', phase: 'start' },
