@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Agentflow template variables now insert text containing dollar-sign sequences, such as `$'`, `$&`, `$$`, `$1` or `` $` ``, exactly as written. Before, a value such as `SELECT 'a$''b' AS x` in `{{ question }}`, `$flow`, `$vars`, `$form`, `$webhook`, `$iteration` or a node output could arrive changed.
+
 ## [1.5.1] - 2026-11-02
 
 ### Added
