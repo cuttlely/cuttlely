@@ -1487,6 +1487,11 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/utils/buildAgentflow.dollarLiteral.test.ts",
+            "to": "packages/server/src/utils/buildAgentflow.ts",
+            "reason": "regression test for agentflow template variable resolution"
+        },
+        {
             "from": "packages/server/src/utils/buildAgentflow.replay.test.ts",
             "to": "packages/server/src/utils/buildAgentflow.ts"
         },
