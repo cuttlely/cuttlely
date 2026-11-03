@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   While a harness run is in progress, the run card in the app chat and in the embedded chat widget shows a live status line, such as `sql_analyst is running a SQL query…`, a status on each running specialist row, and a ticking timer. The line follows only the steps the run reports (route, specialist, tool and handoff). Screen readers hear a new status at most once every few seconds. Optional playful lines appear during long steps; turn them off per chatflow in **Configuration** > **Chat** > **Enhanced Status Messages** (on by default), which the widget also follows. The finished card is unchanged. See [Read the run card](./docs/how-to/harnesses.md#read-the-run-card).
+
 ## [1.5.1] - 2026-11-02
 
 ### Added

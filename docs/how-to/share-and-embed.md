@@ -34,7 +34,7 @@ On a phone the chat fills the screen.
 -   **Starter prompts** on the welcome screen and **follow-up prompts** under an answer, when the chatflow has them.
 -   **Thumbs up and down** under each answer when **Chat Feedback** is on for the chatflow, and a copy button on every answer.
 -   **Image uploads** (picker, paste or drag) when the chatflow accepts images.
--   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made.
+-   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made. While the run works, the card shows a live status line and a timer, plus optional playful lines during long steps when the chatflow's **Enhanced Status Messages** setting is on (the default). See [Read the run card](./harnesses.md#read-the-run-card).
 
 ![A chatflow that runs the bakery-demo harness, in dark mode. The question Compare sourdough and rye loaves: sourdough 120, rye 75 is answered under a Run complete card. The answer is a table titled Loaves compared, with Sourdough 120 and Rye 75.](../images/share-and-embed/harness-chart.png)
 
@@ -53,7 +53,7 @@ A chatflow that is not public, or that needs an API key, does not open for visit
 The chat uses Cuttlely's colors and type by default. The chatflow's share settings change it:
 
 -   **Share Chatbot** tab: **Title**, **Title Avatar Link**, **Welcome Message**, **Error Message**, **Font Size**, **TextInput Placeholder**, the title, message and input colors, the send button color, and **Start new session when chatbot link is opened or refreshed**.
--   **Configuration** (the settings button on the canvas): **Starter Prompts**, **Follow-up Prompts**, **Chat Feedback**, and **Allowed Domains**.
+-   **Configuration** (the settings button on the canvas): **Starter Prompts**, **Follow-up Prompts**, **Chat Feedback**, **Enhanced Status Messages**, and **Allowed Domains**.
 
 A color you leave at the dialog's default keeps Cuttlely's theme. Colors are used as you pick them; check that text stays readable on your background.
 

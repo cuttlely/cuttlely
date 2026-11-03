@@ -20,7 +20,8 @@ import {
     IconServer,
     IconAdjustments,
     IconBolt,
-    IconClipboardCheck
+    IconClipboardCheck,
+    IconSparkles
 } from '@tabler/icons-react'
 import PerfectScrollbar from 'react-perfect-scrollbar'
 
@@ -31,6 +32,7 @@ import RateLimit from '@/ui-component/extended/RateLimit'
 import AllowedDomains from '@/ui-component/extended/AllowedDomains'
 import OverrideConfig from '@/ui-component/extended/OverrideConfig'
 import ChatFeedback from '@/ui-component/extended/ChatFeedback'
+import EnhancedStatusMessages from '@/ui-component/extended/EnhancedStatusMessages'
 import AnalyseFlow from '@/ui-component/extended/AnalyseFlow'
 import StarterPrompts from '@/ui-component/extended/StarterPrompts'
 import Leads from '@/ui-component/extended/Leads'
@@ -98,6 +100,12 @@ const CONFIGURATION_GROUPS = [
                 id: 'chatFeedback',
                 icon: IconThumbUp,
                 description: 'Allow users to rate responses'
+            },
+            {
+                label: 'Enhanced Status Messages',
+                id: 'enhancedStatusMessages',
+                icon: IconSparkles,
+                description: 'Playful lines during long run steps'
             }
         ]
     },
@@ -183,6 +191,8 @@ function getSectionStatus(sectionId, chatflow) {
             return chatbotConfig?.followUpPrompts?.status === true
         case 'chatFeedback':
             return chatbotConfig?.chatFeedback?.status === true
+        case 'enhancedStatusMessages':
+            return chatbotConfig?.enhancedStatusMessages?.status !== false
         case 'speechToText': {
             if (!chatflow.speechToText) return false
             try {
@@ -294,6 +304,8 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
                 return <FollowUpPrompts {...props} />
             case 'chatFeedback':
                 return <ChatFeedback {...props} />
+            case 'enhancedStatusMessages':
+                return <EnhancedStatusMessages {...props} />
             case 'speechToText':
                 return <SpeechToText {...props} />
             case 'textToSpeech':

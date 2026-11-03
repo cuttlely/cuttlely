@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { emptyRun, formatMs, reduceRun } from '../src/run.js'
+import { emptyRun, formatMs, reduceRun, runStatus } from '../src/run.js'
+import { normalizeConfig } from '../src/config.js'
 
 describe('reduceRun', () => {
     it('follows a harness run from plan to answer', () => {
@@ -42,5 +43,40 @@ describe('reduceRun', () => {
         assert.equal(formatMs(5400), '5.4 s')
         assert.equal(formatMs(95000), '1 min 35 s')
         assert.equal(formatMs(null), '')
+    })
+
+    it('gives the live status line for each streamed event type', () => {
+        const lines = []
+        let run = emptyRun('desk')
+        const steps = [
+            ['route', { phase: 'start' }],
+            ['route', { phase: 'done', steps: [{ specialist: 'researcher' }, { specialist: 'writer' }] }],
+            ['specialist', { phase: 'start', name: 'researcher' }],
+            ['tool', { phase: 'start', specialist: 'researcher', name: 'mcp__researcher__query' }],
+            ['tool', { phase: 'done', specialist: 'researcher', name: 'mcp__researcher__query' }],
+            ['specialist', { phase: 'done', name: 'researcher', ms: 800 }],
+            ['handoff', { phase: 'start' }]
+        ]
+        for (const [type, event] of steps) {
+            run = reduceRun(run, type, event)
+            lines.push(runStatus(run).line)
+        }
+        assert.deepEqual(lines, [
+            'Picking specialists…',
+            'Picking specialists…',
+            'researcher is working…',
+            'researcher is running a SQL query…',
+            'researcher is thinking about the results…',
+            'Working…',
+            'Pulling it together and writing the answer…'
+        ])
+        run = reduceRun(run, 'final', {})
+        assert.equal(runStatus(run), null)
+    })
+
+    it('reads the enhanced status messages switch from the flow settings, on by default', () => {
+        assert.equal(normalizeConfig({}).enhancedStatus, true)
+        assert.equal(normalizeConfig({ enhancedStatusMessages: { status: true } }).enhancedStatus, true)
+        assert.equal(normalizeConfig({ enhancedStatusMessages: { status: false } }).enhancedStatus, false)
     })
 })
