@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-// Cut a Cuttlely release from a maintainer machine. GitHub Actions does not run releases.
+// Cut a Cuttlely release from a maintainer machine. GitHub Actions builds and pushes the release image.
 //
-//   pnpm release [X.Y.Z | major | minor | patch] [--dry-run] [--local] [--push] [--publish] [--npm]
+//   pnpm release [X.Y.Z | major | minor | patch] [--dry-run] [--local] [--local-image] [--push] [--publish] [--npm]
 //
 // With no version, the version comes from a "## [X.Y.Z] - Unreleased" heading in CHANGELOG.md.
 //
 //   --dry-run   change nothing: run the checks, print the plan and the release notes
-//   (no flag)   verify, bump, update CHANGELOG, commit, tag, build and check the image locally,
-//               push the release commit and tag, and create a draft GitHub release
-//   --local     stop before anything leaves this machine: no git push and no draft release
-//   --push      also push the image to the registry (multi-arch when buildx can build arm64)
+//   (no flag)   verify, bump, update CHANGELOG, commit and tag, push both, wait for the release-image
+//               workflow to publish the image, and create a draft GitHub release
+//   --local     stop before anything leaves this machine and build and check the image locally
+//   --local-image  use the maintainer-machine image build and start-and-ping check as a fallback
+//   --push      with --local-image, also push that local build (multi-arch when available)
 //   --publish   publish the GitHub release instead of leaving a draft (needs the image in the registry)
 //   --npm       publish the npm packages from the annotated tag, after the image and GitHub release exist
 //
@@ -55,6 +56,9 @@ export const CHANGELOG = 'CHANGELOG.md'
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
 const HEADING = /^## \[([^\]]+)\](?: - (.+))?\s*$/
 const PING_TIMEOUT_MS = 6 * 60 * 1000
+const REGISTRY_WAIT_TIMEOUT_MS = 45 * 60 * 1000
+const REGISTRY_WAIT_POLL_MS = 15 * 1000
+export const RELEASE_IMAGE_WORKFLOW = '.github/workflows/release-image.yml'
 
 export class ReleaseError extends Error {}
 
@@ -65,6 +69,7 @@ export function parseArgs(argv) {
         version: null,
         dryRun: false,
         local: false,
+        localImage: false,
         push: false,
         publish: false,
         npm: false,
@@ -76,6 +81,7 @@ export function parseArgs(argv) {
         const arg = argv[i]
         if (arg === '--dry-run') opts.dryRun = true
         else if (arg === '--local') opts.local = true
+        else if (arg === '--local-image') opts.localImage = true
         else if (arg === '--push') opts.push = true
         else if (arg === '--publish') opts.publish = true
         else if (arg === '--npm') opts.npm = true
@@ -93,10 +99,18 @@ export function parseArgs(argv) {
     }
     if (opts.local && (opts.push || opts.publish))
         throw new ReleaseError('--local keeps everything on this machine, so it cannot be used with --push or --publish.')
+    if (opts.local) opts.localImage = true
     if (opts.npm && (opts.local || opts.push || opts.publish))
         throw new ReleaseError('--npm publishes the npm packages from the tagged release. Run it on its own: pnpm release X.Y.Z --npm.')
     if (opts.npm && !opts.version) throw new ReleaseError('--npm needs a version: pnpm release X.Y.Z --npm.')
     if (opts.npm && !parseSemver(opts.version)) throw new ReleaseError(`--npm needs an exact version (X.Y.Z), not ${opts.version}.`)
+    if (opts.push && !opts.localImage)
+        throw new ReleaseError(
+            '--push is the maintainer-machine fallback. Add --local-image, or let the release-image workflow push the image.'
+        )
+    if (opts.image && !opts.localImage)
+        throw new ReleaseError('--image applies to the maintainer-machine fallback. Add --local-image to use it.')
+    if (opts.skipImageCheck && !opts.localImage) throw new ReleaseError('--skip-image-check applies only with --local-image or --local.')
     return opts
 }
 
@@ -306,6 +320,51 @@ export function imageLabels({ version, sha, slug, created }) {
     }
 }
 
+export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, created, image }) {
+    const errors = []
+    const targetImage = image || defaultImage(slug)
+    const refName = String(ref || '').replace(/^refs\/tags\//, '')
+    let mode = null
+    let version = null
+    let tags = []
+    let guard = false
+
+    if (event === 'push' && refName.startsWith('v')) {
+        mode = 'release'
+        version = refName.slice(1)
+        guard = true
+        if (!parseSemver(version)) errors.push(`Tag ${refName} is not a release tag in the form vX.Y.Z or vX.Y.Z-pre.N.`)
+        if (packageVersion !== version)
+            errors.push(`Tag ${refName} does not match the root package.json version ${packageVersion || 'missing'}.`)
+        if (!errors.length) tags = imageTags(targetImage, version)
+    } else if (event === 'push' && refName.startsWith('ci-dryrun-')) {
+        mode = 'dry-run-tag'
+        version = refName
+        tags = [`${targetImage}:${refName}`]
+    } else if (event === 'workflow_dispatch') {
+        mode = 'dispatch'
+        version = String(inputTag || '')
+        if (!version) errors.push('The dispatch image tag is required.')
+        else if (!version.startsWith('ci-') && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.(0|[1-9]\d*)$/.test(version))
+            errors.push('A dispatch image tag must start with ci- or be an rc tag in the form X.Y.Z-rc.N.')
+        if (!errors.length) tags = [`${targetImage}:${version}`]
+    } else {
+        errors.push(`Unsupported release image event ${event || 'missing'} for ref ${refName || 'missing'}.`)
+    }
+
+    return {
+        mode,
+        version,
+        image: targetImage,
+        tags,
+        tagNames: tags.map((tag) => tag.slice(targetImage.length + 1)),
+        labels: version ? imageLabels({ version, sha, slug, created }) : {},
+        latest: tags.includes(`${targetImage}:latest`),
+        guard,
+        errors
+    }
+}
+
 // The current buildx builder, from `docker buildx inspect --bootstrap`.
 export function buildxInfo(inspectOutput) {
     const platforms = new Set()
@@ -366,9 +425,9 @@ export function preflightProblems(state) {
             problems.push(`${state.version} is older than the current version ${state.currentVersion}.`)
         if (state.changelogProblem) problems.push(state.changelogProblem)
     }
-    if (!state.docker) problems.push('docker was not found. The release builds the image.')
+    if (state.localImage && !state.docker) problems.push('docker was not found. --local-image builds the image on this machine.')
     if (!state.local && !state.gh) problems.push('gh is not installed or not signed in (gh auth status). It creates the GitHub release.')
-    if (state.publish && !state.push && !state.imageInRegistry)
+    if (state.localImage && state.publish && !state.push && !state.imageInRegistry)
         problems.push(`--publish needs the image in the registry. Add --push, or push ${state.image}:${state.version} first.`)
     return problems
 }
@@ -400,9 +459,12 @@ function responseHeader(res, name) {
     return found ? headers[found] : null
 }
 
-// Anonymous manifest check for ghcr.io/cuttlely/cuttlely:version. No registry credentials.
-export async function anonymousManifestExists(version, fetchImpl = globalThis.fetch) {
-    const manifestUrl = `https://ghcr.io/v2/cuttlely/cuttlely/manifests/${encodeURIComponent(version)}`
+// Anonymous manifest check for a ghcr.io image. No registry sign-in.
+export async function anonymousManifestExists(version, fetchImpl = globalThis.fetch, image = NPM_IMAGE) {
+    const prefix = 'ghcr.io/'
+    const repository = String(image).startsWith(prefix) ? String(image).slice(prefix.length) : ''
+    if (!repository || repository.split('/').some((part) => !part)) return { ok: false, error: true }
+    const manifestUrl = `https://ghcr.io/v2/${repository}/manifests/${encodeURIComponent(version)}`
     const headers = { Accept: MANIFEST_ACCEPT }
     let res
     try {
@@ -441,6 +503,37 @@ export async function anonymousManifestExists(version, fetchImpl = globalThis.fe
     if (res.status === 200) return { ok: true, error: false }
     if (res.status === 404) return { ok: false, error: false }
     return { ok: false, error: true }
+}
+
+export async function waitForRegistryImage(
+    { image, version, resumeCommand = `pnpm release ${version}` },
+    {
+        fetchImpl = globalThis.fetch,
+        timeoutMs = REGISTRY_WAIT_TIMEOUT_MS,
+        pollMs = REGISTRY_WAIT_POLL_MS,
+        now = () => Date.now(),
+        sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        log = say
+    } = {}
+) {
+    const started = now()
+    const deadline = started + timeoutMs
+    log(`  Waiting for ${image}:${version} from ${RELEASE_IMAGE_WORKFLOW} (up to ${Math.ceil(timeoutMs / 60000)} minutes).`)
+    for (;;) {
+        const manifest = await anonymousManifestExists(version, fetchImpl, image)
+        if (manifest.ok) {
+            log(`  ${image}:${version} is available.`)
+            return true
+        }
+        const current = now()
+        if (current >= deadline) break
+        const elapsedSeconds = Math.max(0, Math.floor((current - started) / 1000))
+        log(`  Still waiting for the image (${elapsedSeconds}s elapsed).`)
+        await sleep(Math.min(pollMs, Math.max(0, deadline - current)))
+    }
+    throw new ReleaseError(
+        `Timed out waiting for ${image}:${version} from ${RELEASE_IMAGE_WORKFLOW}. Check that workflow run, then resume with ${resumeCommand} after the image is available.`
+    )
 }
 
 export function npmTokenValue(env) {
@@ -500,14 +593,17 @@ Cuts a release from a clean main that matches origin/main. The version defaults 
 "## [X.Y.Z] - Unreleased" heading in CHANGELOG.md.
 
   --dry-run           change nothing: run every check, print the plan and the release notes
-  --local             stop before anything leaves this machine (no git push, no draft release)
-  --push              also push the image (multi-arch when buildx can build linux/arm64)
+  --local             stop before anything leaves this machine; implies --local-image
+  --local-image       build and check the image on this machine as a fallback
+  --push              with --local-image, also push that build (multi-arch when available)
   --publish           publish the GitHub release instead of leaving a draft
   --npm               publish cuttlely and @cuttlely/chat from the annotated tag vX.Y.Z
   --image <name>      image name (default ghcr.io/<owner>/<repo>)
   --skip-image-check  do not start the local image to check /api/v1/ping
 
-Without --push and --publish, the image stays on this machine and the GitHub release is a draft.
+By default, the release tag starts ${RELEASE_IMAGE_WORKFLOW}; the command waits for its image and
+then creates a draft GitHub release. --publish publishes after that wait. --push and --image require
+--local-image. The local image path retains the build, start-and-ping check, and optional local push.
 --npm is a later step, from that tag, after the image and the GitHub release are public.
 See docs/releases.md.`
 
@@ -603,12 +699,13 @@ function readState(root, opts) {
     }
 
     const image = opts.image || defaultImage(slug)
-    const docker = has('docker', ['version', '--format', '{{.Server.Version}}'])
+    const docker = opts.localImage ? has('docker', ['version', '--format', '{{.Server.Version}}']) : null
     const gh = has('gh', ['auth', 'status'])
     const imageInRegistry = docker && opts.publish && !opts.push ? has('docker', ['manifest', 'inspect', `${image}:${version}`]) : false
-    const builder = docker
-        ? buildxInfo(run('docker', ['buildx', 'inspect', '--bootstrap'], { allowFail: true }).stdout)
-        : { driver: null, platforms: [] }
+    const builder =
+        opts.localImage && docker
+            ? buildxInfo(run('docker', ['buildx', 'inspect', '--bootstrap'], { allowFail: true }).stdout)
+            : { driver: null, platforms: [] }
 
     return {
         log,
@@ -633,6 +730,7 @@ function readState(root, opts) {
         imageInRegistry,
         builder,
         multiArch: canBuildMultiArch(builder),
+        localImage: opts.localImage,
         local: opts.local,
         push: opts.push,
         publish: opts.publish
@@ -697,7 +795,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         ? 'dry run'
         : opts.local
         ? 'local'
-        : [opts.push && 'push', opts.publish && 'publish'].filter(Boolean).join(' + ') || 'draft'
+        : [opts.localImage && 'local image', opts.push && 'push', opts.publish && 'publish'].filter(Boolean).join(' + ') || 'draft'
     say(`Cuttlely release ${state.version} (${mode})`)
     for (const line of state.log) say(line)
 
@@ -710,13 +808,17 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         ['product versions match', !state.versionMismatch],
         [`tag v${state.version} is new`, state.resume ? 'resume' : !state.localTag && !state.remoteTag],
         ['CHANGELOG.md has the release', state.resume ? 'resume' : !state.changelogProblem],
-        ['docker', state.docker],
-        [
-            'buildx builder for linux/amd64 and linux/arm64',
-            state.multiArch ? true : 'no, the image will be linux/amd64 only (docker buildx create --use for multi-arch)'
-        ],
         ['gh signed in', state.gh ? true : opts.local ? 'not needed with --local' : false]
     ]
+    if (state.localImage) {
+        checks.splice(checks.length - 1, 0, ['docker', state.docker])
+        checks.splice(checks.length - 1, 0, [
+            'buildx builder for linux/amd64 and linux/arm64',
+            state.multiArch ? true : 'no, a local push will use linux/amd64 only'
+        ])
+    } else {
+        checks.splice(checks.length - 1, 0, [`${RELEASE_IMAGE_WORKFLOW} image build`, true])
+    }
     for (const [label, ok] of checks)
         say(`  ${ok === true ? 'ok  ' : typeof ok === 'string' ? '--  ' : 'FAIL'} ${label}${typeof ok === 'string' ? `: ${ok}` : ''}`)
 
@@ -727,15 +829,17 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         ? null
         : updateChangelog(state.changelogText, { version: state.version, date, slug: state.slug, previousTag: prevTag })
     const notes = nextChangelog ? releaseNotes(nextChangelog, state.version, { image: state.image, slug: state.slug }) : null
-    const plan = dockerPlan({
-        image: state.image,
-        version: state.version,
-        sha: state.resume ? state.head : '<release commit>',
-        slug: state.slug,
-        created,
-        multiArch: state.multiArch,
-        push: opts.push
-    })
+    const plan = state.localImage
+        ? dockerPlan({
+              image: state.image,
+              version: state.version,
+              sha: state.resume ? state.head : '<release commit>',
+              slug: state.slug,
+              created,
+              multiArch: state.multiArch,
+              push: opts.push
+          })
+        : { tags: imageTags(state.image, state.version), local: null, push: [] }
 
     if (opts.dryRun) {
         step('Plan (nothing below runs in a dry run)')
@@ -747,11 +851,14 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
             lines.push(formatCommand('git', ['commit', '-m', `Release v${state.version}`]))
             lines.push(formatCommand('git', ['tag', '-a', `v${state.version}`, '-m', `Cuttlely ${state.version}`]))
         }
-        lines.push(formatCommand('docker', plan.local))
-        if (!opts.skipImageCheck) lines.push(`start ${plan.tags[0]} with a throwaway volume and wait for /api/v1/ping to answer pong`)
+        if (state.localImage) {
+            lines.push(formatCommand('docker', plan.local))
+            if (!opts.skipImageCheck) lines.push(`start ${plan.tags[0]} with a temporary volume and wait for /api/v1/ping to answer pong`)
+        }
         if (!opts.local) {
             lines.push(formatCommand('git', ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/v${state.version}`]))
             for (const cmd of plan.push) lines.push(formatCommand('docker', cmd))
+            lines.push(`wait for ${state.image}:${state.version} from ${RELEASE_IMAGE_WORKFLOW}`)
             lines.push(
                 opts.publish
                     ? formatCommand('gh', [
@@ -827,37 +934,41 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         say(`  ${short(sha)} Release v${state.version}`)
     }
 
-    const realPlan = dockerPlan({
-        image: state.image,
-        version: state.version,
-        sha,
-        slug: state.slug,
-        created,
-        multiArch: state.multiArch,
-        push: opts.push
-    })
-    step(`Build ${realPlan.tags.join(' and ')}`)
-    const existing = run(
-        'docker',
-        ['image', 'inspect', '-f', '{{ index .Config.Labels "org.opencontainers.image.revision" }}', realPlan.tags[0]],
-        { allowFail: true }
-    )
-    if (existing.status === 0 && existing.stdout === sha) {
-        say('  Already built from this commit.')
-    } else {
-        say(`  ${formatCommand('docker', realPlan.local)}`)
-        run('docker', realPlan.local, { cwd: root, capture: false })
-    }
-    if (!opts.skipImageCheck) {
-        step('Start the image and wait for /api/v1/ping')
-        await checkImage(realPlan.tags[0])
-        say('  pong')
+    const realPlan = state.localImage
+        ? dockerPlan({
+              image: state.image,
+              version: state.version,
+              sha,
+              slug: state.slug,
+              created,
+              multiArch: state.multiArch,
+              push: opts.push
+          })
+        : { tags: imageTags(state.image, state.version), local: null, push: [] }
+    if (state.localImage) {
+        step(`Build ${realPlan.tags.join(' and ')}`)
+        const existing = run(
+            'docker',
+            ['image', 'inspect', '-f', '{{ index .Config.Labels "org.opencontainers.image.revision" }}', realPlan.tags[0]],
+            { allowFail: true }
+        )
+        if (existing.status === 0 && existing.stdout === sha) {
+            say('  Already built from this commit.')
+        } else {
+            say(`  ${formatCommand('docker', realPlan.local)}`)
+            run('docker', realPlan.local, { cwd: root, capture: false })
+        }
+        if (!opts.skipImageCheck) {
+            step('Start the image and wait for /api/v1/ping')
+            await checkImage(realPlan.tags[0])
+            say('  pong')
+        }
     }
 
     if (opts.local) {
         say(`\nLocal release v${state.version} is ready. Nothing left this machine.`)
-        say(`Next: pnpm release ${state.version}            push the commit and tag, draft the GitHub release`)
-        say(`      pnpm release ${state.version} --push --publish   also push the image and publish`)
+        say(`Next: pnpm release ${state.version}            push the commit and tag, wait for the workflow image, draft the GitHub release`)
+        say(`      pnpm release ${state.version} --local-image --push --publish   use the local fallback and publish`)
         say(`      pnpm release ${state.version} --npm   publish the npm packages from the tag, after both are public`)
         return 0
     }
@@ -879,6 +990,25 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
             run('docker', cmd, { cwd: root, capture: false })
         }
     }
+
+    step(`Wait for ${state.image}:${state.version}`)
+    await waitForRegistryImage(
+        {
+            image: state.image,
+            version: state.version,
+            resumeCommand: `pnpm release ${state.version}${opts.localImage ? ' --local-image' : ''}${opts.push ? ' --push' : ''}${
+                opts.publish ? ' --publish' : ''
+            }`
+        },
+        {
+            fetchImpl: deps.fetch || globalThis.fetch,
+            timeoutMs: deps.registryTimeoutMs,
+            pollMs: deps.registryPollMs,
+            now: deps.now,
+            sleep: deps.sleep,
+            log: deps.log || say
+        }
+    )
 
     step(opts.publish ? 'Publish the GitHub release' : 'Draft the GitHub release')
     const finalChangelog = fs.readFileSync(path.join(root, CHANGELOG), 'utf8')
@@ -927,8 +1057,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
     }
 
     say(`\nRelease v${state.version} done (${mode}).`)
-    if (!opts.push) say(`The image is only on this machine. Push it with: pnpm release ${state.version} --push`)
-    if (!opts.publish) say(`The GitHub release is a draft. Publish it with: pnpm release ${state.version} --push --publish`)
+    if (!opts.publish) say(`The GitHub release is a draft. Publish it with: pnpm release ${state.version} --publish`)
     say(`After the image is in the registry and the GitHub release is published, from the tag: pnpm release ${state.version} --npm`)
     return 0
 }

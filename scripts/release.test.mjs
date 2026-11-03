@@ -17,8 +17,11 @@ import {
     buildxInfo,
     bumpVersion,
     canBuildMultiArch,
+    ciImagePlan,
     compareSemver,
+    defaultImage,
     dockerPlan,
+    imageLabels,
     main,
     npmImageRef,
     npmPublishProblems,
@@ -30,7 +33,8 @@ import {
     releaseSection,
     setPackageVersion,
     slugFromRemote,
-    updateChangelog
+    updateChangelog,
+    waitForRegistryImage
 } from './release.mjs'
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'release.mjs')
@@ -55,6 +59,7 @@ test('parseArgs reads the version and flags, and keeps --local apart from --push
         version: '1.2.3',
         dryRun: true,
         local: false,
+        localImage: false,
         push: false,
         publish: false,
         npm: false,
@@ -62,11 +67,14 @@ test('parseArgs reads the version and flags, and keeps --local apart from --push
         skipImageCheck: false,
         help: false
     })
-    const o = parseArgs(['--push', '--publish', '--image', 'ghcr.io/a/b'])
+    const o = parseArgs(['--local-image', '--push', '--publish', '--image', 'ghcr.io/a/b'])
     assert.equal(o.push && o.publish, true)
     assert.equal(o.image, 'ghcr.io/a/b')
     assert.equal(parseArgs(['1.0.1', '--npm']).npm, true)
     assert.throws(() => parseArgs(['--local', '--push']), ReleaseError)
+    assert.equal(parseArgs(['--local']).localImage, true)
+    assert.throws(() => parseArgs(['--push']), /Add --local-image/)
+    assert.throws(() => parseArgs(['--image', 'ghcr.io/a/b']), /Add --local-image/)
     assert.throws(() => parseArgs(['--npm', '--push']), /on its own/)
     assert.throws(() => parseArgs(['--npm', '--publish']), /on its own/)
     assert.throws(() => parseArgs(['--npm', '--local']), /on its own/)
@@ -165,6 +173,45 @@ test('docker plan: amd64 locally; multi-arch only with a builder that can, and o
     assert.equal(slugFromRemote('https://example.com/acme/cuttlely'), null)
 })
 
+test('CI image plans release, test-tag and dispatch modes from one label source', () => {
+    const base = {
+        packageVersion: '1.5.3',
+        sha: 'abc123',
+        slug: 'cuttlely/cuttlely',
+        created: '2026-11-03T12:00:00.000Z',
+        image: defaultImage('cuttlely/cuttlely')
+    }
+    const stable = ciImagePlan({ ...base, event: 'push', ref: 'refs/tags/v1.5.3' })
+    assert.deepEqual(stable.errors, [])
+    assert.deepEqual(stable.tags, ['ghcr.io/cuttlely/cuttlely:1.5.3', 'ghcr.io/cuttlely/cuttlely:latest'])
+    assert.equal(stable.latest, true)
+    assert.equal(stable.guard, true)
+    assert.deepEqual(stable.labels, imageLabels({ version: '1.5.3', sha: base.sha, slug: base.slug, created: base.created }))
+
+    const prerelease = ciImagePlan({ ...base, packageVersion: '1.5.3-rc.0', event: 'push', ref: 'v1.5.3-rc.0' })
+    assert.deepEqual(prerelease.errors, [])
+    assert.deepEqual(prerelease.tags, ['ghcr.io/cuttlely/cuttlely:1.5.3-rc.0'])
+    assert.equal(prerelease.latest, false)
+
+    const mismatch = ciImagePlan({ ...base, packageVersion: '1.5.2', event: 'push', ref: 'v1.5.3' })
+    assert.match(mismatch.errors.join('\n'), /does not match/)
+
+    const testTag = ciImagePlan({ ...base, packageVersion: '0.0.0', event: 'push', ref: 'refs/tags/ci-dryrun-42' })
+    assert.deepEqual(testTag.errors, [])
+    assert.deepEqual(testTag.tags, ['ghcr.io/cuttlely/cuttlely:ci-dryrun-42'])
+    assert.equal(testTag.latest, false)
+    assert.equal(testTag.guard, false)
+
+    for (const tag of ['ci-manual-42', '1.5.3-rc.7']) {
+        const dispatch = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: tag })
+        assert.deepEqual(dispatch.errors, [])
+        assert.deepEqual(dispatch.tags, [`ghcr.io/cuttlely/cuttlely:${tag}`])
+        assert.equal(dispatch.latest, false)
+    }
+    const refused = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: '1.5.3' })
+    assert.match(refused.errors.join('\n'), /must start with ci-/)
+})
+
 test('preflight lists every reason to refuse', () => {
     const ok = {
         dirty: [],
@@ -179,6 +226,7 @@ test('preflight lists every reason to refuse', () => {
         remoteTag: false,
         docker: true,
         gh: true,
+        localImage: false,
         local: false,
         push: false,
         publish: false
@@ -191,6 +239,7 @@ test('preflight lists every reason to refuse', () => {
         originMain: 'b',
         localTag: true,
         latestTag: 'v1.0.0',
+        localImage: true,
         docker: false,
         gh: false,
         publish: true,
@@ -233,7 +282,9 @@ function fixture() {
     const repo = path.join(dir, 'repo')
     const bin = path.join(dir, 'bin')
     const log = path.join(dir, 'calls.log')
+    const fetchStub = path.join(dir, 'fetch-stub.mjs')
     fs.mkdirSync(bin)
+    fs.writeFileSync(fetchStub, 'globalThis.fetch = async () => ({ status: 200, ok: true, headers: { get() { return null } } })\n')
     sh(dir, 'git', ['init', '-q', '--bare', '-b', 'main', origin])
     sh(dir, 'git', ['init', '-q', '-b', 'main', repo])
     for (const [k, v] of [
@@ -303,9 +354,21 @@ exit 0`
         const res = spawnSync(process.execPath, [SCRIPT, ...args], {
             cwd: repo,
             encoding: 'utf8',
-            env: { PATH: bin, HOME: dir, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', TZ: 'America/Chicago' }
+            env: {
+                PATH: bin,
+                HOME: dir,
+                GIT_CONFIG_NOSYSTEM: '1',
+                GIT_TERMINAL_PROMPT: '0',
+                NODE_OPTIONS: `--import=${fetchStub}`,
+                TZ: 'America/Chicago'
+            }
         })
-        return { code: res.status, out: `${res.stdout}${res.stderr}` }
+        return {
+            code: res.status,
+            out: `${res.stdout || ''}${res.stderr || ''}${res.error ? `\n${res.error.message}` : ''}${
+                res.signal ? `\nsignal ${res.signal}` : ''
+            }`
+        }
     }
     const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '')
     const cleanup = () => fs.rmSync(dir, { recursive: true, force: true })
@@ -319,14 +382,26 @@ test('dry run on a clean, synced main passes and changes nothing', (t) => {
     const res = f.runRelease(['--dry-run'])
     assert.equal(res.code, 0, res.out)
     assert.match(res.out, /Version 1\.0\.0 comes from CHANGELOG\.md/)
-    assert.match(res.out, /docker build --platform linux\/amd64 -t ghcr\.io\/acme\/cuttlely:1\.0\.0 -t ghcr\.io\/acme\/cuttlely:latest/)
+    assert.match(res.out, /wait for ghcr\.io\/acme\/cuttlely:1\.0\.0 from \.github\/workflows\/release-image\.yml/)
     assert.match(res.out, /gh release create v1\.0\.0 .*--draft/)
-    assert.doesNotMatch(res.out, /docker push/)
+    assert.doesNotMatch(res.out, /docker build|docker push/)
     assert.match(res.out, /Dry run passed/)
     assert.equal(sh(f.repo, 'git', ['rev-parse', 'HEAD']), before)
     assert.equal(sh(f.repo, 'git', ['status', '--porcelain']), '')
     assert.equal(sh(f.repo, 'git', ['tag']), '')
-    assert.doesNotMatch(f.calls(), /docker (build |push|run)|gh release create|pnpm verify/)
+    assert.doesNotMatch(f.calls(), /docker |gh release create|pnpm verify/)
+})
+
+test('--local-image keeps the maintainer-machine image plan', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    const res = f.runRelease(['--local-image', '--dry-run'])
+    assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /docker build --platform linux\/amd64/)
+    assert.match(res.out, /temporary volume and wait for \/api\/v1\/ping/)
+    assert.match(f.calls(), /docker version/)
+    assert.match(f.calls(), /docker buildx inspect/)
+    assert.doesNotMatch(f.calls(), /docker build --platform|docker run/)
 })
 
 test('dry run refuses a dirty tree, another branch, and a main that is behind origin', (t) => {
@@ -370,7 +445,10 @@ test('a real run with --local commits, tags and builds, and nothing leaves the m
 test('a minor release bumps both package files; then a resumed run drafts, and --push --publish finishes', (t) => {
     const f = fixture()
     t.after(f.cleanup)
-    assert.equal(f.runRelease(['--skip-image-check']).code, 0)
+    const first = f.runRelease([])
+    assert.equal(first.code, 0, first.out)
+    assert.match(first.out, /Wait for ghcr\.io\/acme\/cuttlely:1\.0\.0/)
+    assert.doesNotMatch(f.calls(), /docker /)
     assert.equal(fs.readFileSync(`${f.dir}/released`, 'utf8').trim(), 'true')
     assert.match(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), /refs\/tags\/v1\.0\.0/)
 
@@ -388,7 +466,7 @@ test('a minor release bumps both package files; then a resumed run drafts, and -
     for (const file of VERSION_FILES) {
         assert.equal(JSON.parse(fs.readFileSync(path.join(f.repo, file), 'utf8')).version, '1.1.0', file)
     }
-    res = f.runRelease(['1.1.0', '--push', '--publish', '--skip-image-check'])
+    res = f.runRelease(['1.1.0', '--local-image', '--push', '--publish', '--skip-image-check'])
     assert.equal(res.code, 0, res.out)
     assert.match(res.out, /Resuming: v1\.1\.0 is already on this commit/)
     assert.match(f.calls(), /docker push ghcr\.io\/acme\/cuttlely:1\.1\.0/)
@@ -418,6 +496,7 @@ test('the launcher and the widget are version files, and the registry image tag 
     assert.deepEqual(NPM_PACKAGE_FILES, ['packages/cli/package.json', 'packages/chat-widget/package.json'])
     assert.equal(npmImageRef('1.0.1'), `${NPM_IMAGE}:1.0.1`)
     assert.match(HELP, /--npm/)
+    assert.match(HELP, /--local-image/)
     assert.equal(redactSecret('token secret-value in the log', 'secret-value'), 'token NPM_TOKEN in the log')
 })
 
@@ -437,6 +516,48 @@ test('unpublished workspace packages are private, and the root workspace list ma
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
         if (published.has(manifest.name)) assert.notEqual(manifest.private, true)
         else assert.equal(manifest.private, true)
+    }
+})
+
+test('the release image workflow has narrow permissions, pinned actions and env-only run inputs', () => {
+    const rootDir = path.resolve(path.dirname(SCRIPT), '..')
+    const text = fs.readFileSync(path.join(rootDir, '.github/workflows/release-image.yml'), 'utf8')
+    const permissions = /^permissions:\n((?: {4}[^\n]+\n)+)/m.exec(text)
+    assert.ok(permissions)
+    assert.deepEqual(
+        permissions[1]
+            .trim()
+            .split('\n')
+            .map((line) => line.trim())
+            .sort(),
+        ['contents: read', 'packages: write']
+    )
+    const uses = [...text.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1])
+    assert.ok(uses.length > 0)
+    for (const value of uses) assert.match(value, /^[^@\s]+@[0-9a-f]{40}$/)
+
+    const lines = text.split('\n')
+    const runBlocks = []
+    for (let index = 0; index < lines.length; index++) {
+        const start = /^(\s*)run:\s*\|\s*$/.exec(lines[index])
+        if (!start) continue
+        const indent = start[1].length
+        const block = []
+        for (index += 1; index < lines.length; index++) {
+            if (!lines[index].trim()) {
+                block.push(lines[index])
+                continue
+            }
+            if (lines[index].search(/\S/) <= indent) break
+            block.push(lines[index])
+        }
+        index -= 1
+        runBlocks.push(block.join('\n'))
+    }
+    assert.ok(runBlocks.length > 0)
+    for (const block of runBlocks) {
+        assert.doesNotMatch(block, /\$\{\{\s*inputs\./)
+        assert.doesNotMatch(block, /\$\{\{\s*github\.ref_name/)
     }
 })
 
@@ -501,6 +622,50 @@ test('the manifest check is anonymous and stays on ghcr.io', async () => {
         throw new Error('offline')
     })
     assert.deepEqual(down, { ok: false, error: true })
+})
+
+test('the registry wait is bounded, reports progress and can use short test intervals', async () => {
+    let clock = 0
+    let attempts = 0
+    const lines = []
+    await waitForRegistryImage(
+        { image: 'ghcr.io/cuttlely/cuttlely', version: '1.5.3' },
+        {
+            fetchImpl: async () => manifestResponse(++attempts >= 3 ? 200 : 404),
+            timeoutMs: 50,
+            pollMs: 5,
+            now: () => clock,
+            sleep: async (ms) => {
+                clock += ms
+            },
+            log: (line) => lines.push(line)
+        }
+    )
+    assert.equal(attempts, 3)
+    assert.match(lines.join('\n'), /Still waiting/)
+    assert.match(lines.join('\n'), /is available/)
+
+    clock = 0
+    await assert.rejects(
+        waitForRegistryImage(
+            {
+                image: 'ghcr.io/cuttlely/cuttlely',
+                version: '1.5.3',
+                resumeCommand: 'pnpm release 1.5.3 --publish'
+            },
+            {
+                fetchImpl: async () => manifestResponse(404),
+                timeoutMs: 10,
+                pollMs: 5,
+                now: () => clock,
+                sleep: async (ms) => {
+                    clock += ms
+                },
+                log: () => {}
+            }
+        ),
+        /release-image\.yml.*pnpm release 1\.5\.3 --publish/
+    )
 })
 
 test('npm publish problems name every refusal and never the token', () => {

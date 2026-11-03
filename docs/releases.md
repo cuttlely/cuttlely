@@ -12,7 +12,7 @@ Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MAJOR
 
 The product version is the `version` in the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog and `GET /api/v1/version` report the server package's version. The `cuttlely` launcher and `@cuttlely/chat` use that same version, because the launcher's default image tag is its own version. The other workspace packages keep their own internal version numbers, which are not the product version.
 
-Each release is an annotated Git tag `vX.Y.Z`, a GitHub release whose notes come from the changelog, and a Docker image tagged `X.Y.Z`. [Cutting a release](#cutting-a-release) covers how a maintainer makes one.
+Each release is an annotated Git tag `vX.Y.Z`, a GitHub release whose notes come from the changelog, and a Docker image tagged `X.Y.Z`. The tag push starts `.github/workflows/release-image.yml`, which builds `linux/amd64` and `linux/arm64`, records provenance and an SBOM, and adds `:latest` only for a stable release. [Cutting a release](#cutting-a-release) covers how a maintainer makes one.
 
 ## What counts as a breaking change
 
@@ -54,9 +54,9 @@ When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A pl
 
 ## Cutting a release
 
-Releases are cut from a maintainer machine with `pnpm release`. GitHub Actions does not build or publish them.
+Releases are cut from a maintainer machine with `pnpm release`. The release image is built and pushed by `.github/workflows/release-image.yml` after the release tag is pushed.
 
-You need Node 24, pnpm, Docker and the GitHub CLI signed in (`gh auth status`). To push the image, also sign Docker in to the registry, for example `gh auth token | docker login ghcr.io -u <your GitHub user> --password-stdin` with a token that has the `write:packages` scope (`gh auth refresh -s write:packages`).
+You need Node 24, pnpm and the GitHub CLI signed in (`gh auth status`). Docker is needed only for the `--local-image` fallback.
 
 1. Make sure `CHANGELOG.md` lists everything under `## [Unreleased]`, or under `## [X.Y.Z] - Unreleased` for a planned version.
 1. Remove draft notes from that section: an intro line that says the notes are a draft, a TODO heading, or a placeholder for work that did not land. `pnpm release` copies the section body into the GitHub release as it is, so the section has to start with real entries under **Added**, **Changed**, **Fixed** and the other groups.
@@ -72,8 +72,8 @@ You need Node 24, pnpm, Docker and the GitHub CLI signed in (`gh auth status`). 
 1. Run it for real:
 
     ```bash
-    pnpm release                          # draft: nothing public
-    pnpm release X.Y.Z --push --publish   # push the image and publish the GitHub release
+    pnpm release                          # push commit and tag, wait for the image, create a draft
+    pnpm release X.Y.Z --publish          # wait for the image and publish the GitHub release
     pnpm release X.Y.Z --npm              # from the tag: publish the npm packages
     ```
 
@@ -87,18 +87,21 @@ It then runs these steps, in order:
 2. Set the version in `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`.
 3. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
 4. Commit `Release vX.Y.Z` and create the annotated tag `vX.Y.Z`.
-5. Build the image as `ghcr.io/cuttlely/cuttlely:X.Y.Z` and `:latest` for `linux/amd64`. Labels record the version and the commit.
-6. Start the image with a throwaway volume and wait for `/api/v1/ping` to answer.
-7. Push the release commit and the tag, then create a draft GitHub release with the changelog section as its notes.
+5. Push the release commit and annotated tag. The tag starts `.github/workflows/release-image.yml`.
+6. The workflow builds the root `Dockerfile` for `linux/amd64` and `linux/arm64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
+7. Wait, with a bounded timeout and progress lines, until the versioned image is available in the registry. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
-Two flags go further, and neither is ever the default:
+The image flags are:
 
--   `--push` pushes the image. When the current buildx builder can build `linux/arm64` (a `docker-container` builder, made with `docker buildx create --use`), it builds and pushes `linux/amd64` and `linux/arm64` together. Otherwise it pushes the `linux/amd64` image it built.
--   `--publish` publishes the GitHub release instead of leaving a draft. The image has to be in the registry, so use it with `--push`, or after an earlier `--push`.
+-   `--local-image` is the fallback. It keeps the prior maintainer-machine Docker build and start-and-ping check. Add `--push` to push that build; a capable buildx builder pushes both platforms, and another builder pushes `linux/amd64`.
+-   `--push` is accepted only with `--local-image`.
+-   `--image <name>` and `--skip-image-check` also apply only to the local image path.
+-   `--publish` publishes the GitHub release after the registry wait instead of leaving a draft.
+-   `--local` implies `--local-image` and stops after the local build and check, so nothing leaves the machine.
 
-`--local` stops after step 6, so nothing leaves the machine. A pre-release such as `1.1.0-rc.1` gets no `:latest` tag and is marked as a pre-release.
+For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual run can select another `ref`; an empty value uses the branch where the run starts.
 
-A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --push --publish` after a draft run.
+A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
 The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
 
@@ -128,8 +131,8 @@ No output means they match. A difference means the package was not packed from t
 GitHub Actions does not publish to npm. Publish from the annotated tag, after the image is in the registry and the GitHub release is published:
 
 ```bash
-pnpm release                          # bump, tag, and draft the GitHub release
-pnpm release X.Y.Z --push --publish   # push the image and publish the GitHub release
+pnpm release                          # bump, tag, wait for the image, and draft the GitHub release
+pnpm release X.Y.Z --publish          # publish after the image workflow completes
 git checkout vX.Y.Z                   # npm publish reads this tag
 pnpm release X.Y.Z --npm              # publish cuttlely and @cuttlely/chat
 ```
