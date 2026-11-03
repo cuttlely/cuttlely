@@ -52,6 +52,7 @@ import {
 } from './protected-interpretation.mjs'
 import { sourceAnswerFallback } from './source-answer-fallback.mjs'
 import { answerSelections, selectionContext } from './answer-context.mjs'
+import { priorAnswerInputs, answerInputIndex, stageAnswerInputs } from './answer-inputs.mjs'
 import { reportingCurrencySymbol } from './reporting-currency.mjs'
 import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-output.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
@@ -620,9 +621,13 @@ function loadPrompt(context) {
     if (context.replay) {
         context.memoryBlock = ''
         context.promptMessages = []
+        context.answerInputs = []
         return []
     }
     const prompt = readPromptContext(context.name, context.chatId)
+    // Preserve the exact displayed text before analyst-page compaction or model
+    // context fitting. Only file-capable runs receive full copies, on disk.
+    context.answerInputs = context.roster?.specialists?.some(writesFiles) ? priorAnswerInputs(prompt.messages) : []
     context.selectionBlock = selectionContext(prompt.selections)
     context.memoryBlock = prompt.block
     context.promptMessages = (prompt.messages || []).map((message) => {
@@ -1899,7 +1904,7 @@ async function routeSteps(context, input, history) {
         system,
         memory: context.memoryBlock || '',
         history,
-        user: [input, context.selectionBlock].filter(Boolean).join('\n\n'),
+        user: [input, context.selectionBlock, answerInputIndex(context.answerInputs)].filter(Boolean).join('\n\n'),
         budget: chiefContextTokens()
     })
     noteTruncated(context, fitted.truncated)
@@ -3150,11 +3155,15 @@ export function hermesSpecialistRequest(
 
 async function runHermesSpecialist(context, specialist, task) {
     const imageDir = turnImageDirFor(specialist)
+    // Register before staging or request construction so all failures and aborts
+    // use the same turn cleanup as generated artifacts.
+    if (imageDir && context.turnFolders) context.turnFolders.add(imageDir)
+    const answerInputs = imageDir ? stageAnswerInputs(context.answerInputs, imageDir) : ''
     const { body, truncated } = hermesSpecialistRequest(specialist, {
         chief: context.roster?.chief,
         memory: context.memoryBlock || '',
         history: context.promptMessages || [],
-        task: imageDir ? `${task}\n\n${turnImageNote(imageDir)}` : task,
+        task: [task, answerInputs, turnImageNote(imageDir)].filter(Boolean).join('\n\n'),
         chatId: context.chatId,
         turnId: context.turnId
     })

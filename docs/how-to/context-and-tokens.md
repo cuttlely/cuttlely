@@ -10,6 +10,8 @@ Harness Prime reads the question and writes one task per specialist. The task st
 
 The prompt for the next turn is a short summary of older turns, up to eight pinned facts, and the last two turns. The full transcript stays on disk. A specialist that runs in the agent runtime also gets each of those earlier messages cut at 1,500 characters. Its instructions are already part of its agent runtime profile, so they are not sent again with the task. Each turn starts a new session there.
 
+For a follow-up such as "save that report as PDF," a file-capable specialist also gets the complete recent answers as temporary Markdown input files. These come from the same harness and chat, before any prompt shortening. Harness Prime sees a small index rather than a second copy of the report; the specialist reads the selected file with its code or file tools. Up to two recent answers fit within a shared 1 MiB UTF-8 limit, newest first. An answer that cannot fit is marked unavailable and omitted whole, never silently cut. The files are hidden from download discovery and removed with the run folder. A fresh chat or a publish-check replay does not receive another chat's inputs. New independent questions retain their own scope.
+
 Any other specialist gets those same last two turns and the same summary. If that prompt is over its cap, older turns are dropped first. The run card says so.
 
 On Saturday someone asks the bakery team, "How many rye loaves did we sell, and can I order a custom chocolate cake for Monday?" Harness Prime can send `orders` a task about rye loaves and `baker` a task about the Monday cake. `orders` does not also receive every earlier message about cakes.
