@@ -70,6 +70,10 @@ Workflow cards look the same in both settings. Only where their settings open ch
 
 ![The Bakery greeting workflow in the dark theme. Start connects to Reply. The Reply card is selected, and its Message field, reading Welcome to the bakery! Ask me about today's bread., is in a side panel docked on the right of the canvas.](../images/canvas/canvas-workflow-panel.png)
 
+### Template variables insert values exactly
+
+In an agentflow, a template variable in a card's text, such as `{{ question }}`, `{{ $flow.state.region }}`, `{{ $vars.region }}`, `{{ $form.email }}`, `{{ $iteration }}` or a node output, is replaced by its value character for character. That includes `$` characters and sequences such as `$&`, `$'`, `$$` or `$1`, so a question such as `SELECT 'a$''b' AS x` reaches the card exactly as typed. Before 1.5.2, such sequences could change the inserted text. Which value a variable gets is described in [Override configuration](../reference/override-config.md#request-variables-and-vars).
+
 ### Older V1 agentflows
 
 **Add New** on **Agentflows** opens the agentflow canvas. Older V1 agentflows are hidden from the app: **Add New**, **Duplicate** and templates no longer make new ones. Existing ones still run through the API, embeds and shared links, still open from a direct link, and appear under **Legacy agentflows** when a workspace has any.

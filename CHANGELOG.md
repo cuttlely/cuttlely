@@ -4,17 +4,25 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-03
+
 ### Added
 
--   While a harness run is in progress, the run card in the app chat and in the embedded chat widget shows a live status line, such as `sql_analyst is running a SQL query…`, a status on each running specialist row, and a ticking timer. The line follows only the steps the run reports (route, specialist, tool and handoff). Screen readers hear a new status at most once every few seconds. Optional playful lines appear during long steps; turn them off per chatflow in **Configuration** > **Chat** > **Enhanced Status Messages** (on by default), which the widget also follows. The finished card is unchanged. See [Read the run card](./docs/how-to/harnesses.md#read-the-run-card).
+-   While a harness run is in progress, the run card in the app chat and in the embedded chat widget shows a live status line, such as `sql_analyst is running a SQL query…`, a status on each running specialist row, and a ticking timer. The line follows only the steps the run reports (route, specialist, tool and handoff). Screen readers hear a new status at most once every few seconds. Optional playful lines appear during long steps; turn them off per chatflow in **Configuration** > **Chat** > **Enhanced Status Messages** (on by default), which the widget also follows. The finished card is unchanged. See [Read the run card](./docs/how-to/harnesses.md#read-the-run-card). [#396](https://github.com/cuttlely/cuttlely/pull/396).
+
+-   Tables in chat answers can be sorted by column. Click a column header, or press Enter or Space on it, to sort ascending, then again for descending. Numbers, amounts with a currency, percentages and unambiguous dates sort by value, ID and code columns sort as text, values such as `n/a` or `unknown` stay last, and rows keep their original order until you click. It works in the app chat and, once an answer finishes, in the embedded chat widget. Sorting changes only the view: the answer text and conversation memory are unchanged, and nothing is sent to the model or a database. See [Sort answer tables](./docs/how-to/answer-tables.md). [#398](https://github.com/cuttlely/cuttlely/pull/398).
 
 ### Changed
 
--   More varied playful status lines on the running harness card, with no repeats until each set has shown.
+-   More varied playful status lines on the running harness card, with no repeats until each set has shown. [#399](https://github.com/cuttlely/cuttlely/pull/399).
 
 ### Fixed
 
--   Agentflow template variables now insert text containing dollar-sign sequences, such as `$'`, `$&`, `$$`, `$1` or `` $` ``, exactly as written. Before, a value such as `SELECT 'a$''b' AS x` in `{{ question }}`, `$flow`, `$vars`, `$form`, `$webhook`, `$iteration` or a node output could arrive changed.
+-   Agentflow template variables now insert text containing dollar-sign sequences, such as `$'`, `$&`, `$$`, `$1` or `` $` ``, exactly as written. Before, a value such as `SELECT 'a$''b' AS x` in `{{ question }}`, `$flow`, `$vars`, `$form`, `$webhook`, `$iteration` or a node output could arrive changed. [#397](https://github.com/cuttlely/cuttlely/pull/397).
+
+### Upgrade notes / breaking changes
+
+-   No breaking changes. Enhanced status messages are on for every chatflow by default; turn them off per chatflow under **Configuration** > **Chat** > **Enhanced Status Messages**. Answer tables need no setting.
 
 ## [1.5.1] - 2026-11-02
 
@@ -762,7 +770,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/cuttlely/cuttlely/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/cuttlely/cuttlely/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/cuttlely/cuttlely/compare/v1.4.10...v1.5.0
 [1.4.10]: https://github.com/cuttlely/cuttlely/compare/v1.4.9...v1.4.10

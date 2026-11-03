@@ -2,6 +2,12 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.5.2
+
+-   **New:** [Sort answer tables](./answer-tables.md). Click a column header in a chat answer's table to sort it, in the app chat and the embedded widget.
+-   **Updated:** [While a run works](./harnesses.md#while-a-run-works). A running harness card shows a live status line, a status per specialist and a timer, with optional playful lines you can turn off per chatflow.
+-   **Updated:** [Template variables insert values exactly](./canvas.md#template-variables-insert-values-exactly). Agentflow variables keep `$` characters as written.
+
 ## New in 1.5.1
 
 -   **New:** [Set the evidence budget](./evidence-budget.md). **Evidence budget (bytes)** in **Admin** sets how much protected source detail specialists get for analysis, with an optional value per specialist.
@@ -32,6 +38,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   [ETL](./etl.md). Pipelines that load, clean, split, embed and store your data for search.
 -   [Optional node packs](./node-packs.md). Load more nodes and credentials from a directory or a package.
 -   [Share and embed a chat](./share-and-embed.md). A public link for a chatflow, or a chat on your website.
+-   [Sort answer tables](./answer-tables.md). Sort the rows of a table in a chat answer by any column.
 
 ## Test and ship changes
 
