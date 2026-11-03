@@ -33,10 +33,10 @@ npx cuttlely stop
 npx cuttlely status
 npx cuttlely logs
 npx cuttlely upgrade
-npx cuttlely start --port 8080 --tag 1.5.0 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.5.1 --env-file .env --no-open
 ```
 
-`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.5.0` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
+`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.5.1` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
 
 If Docker is missing or not running, the command says so and links to this page. The first account is the same as Compose: the one-time setup link is in `npx cuttlely logs`.
 
@@ -224,7 +224,7 @@ Then use this config on the Custom MCP node (paths exist only after those mounts
 }
 ```
 
-Rules that apply in 1.5.0:
+Rules that apply in 1.5.1:
 
 -   The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
 -   If any args are present, the first must match a path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS. List absolute paths you control. Relative paths are strongly discouraged and only work if you explicitly allow-list that exact relative path.
