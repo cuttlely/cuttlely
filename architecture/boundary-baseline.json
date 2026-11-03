@@ -1933,6 +1933,31 @@
             "reason": "The test renders the inherited component it covers with saved values that are blank or not valid JSON."
         },
         {
+            "from": "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Enhanced status messages setting in the chatflow configuration dialog saves through the chatflows API and shared UI helpers, like the other chat settings"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx",
+            "to": "packages/ui/src/store/actions.js",
+            "reason": "Enhanced status messages setting in the chatflow configuration dialog saves through the chatflows API and shared UI helpers, like the other chat settings"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx",
+            "to": "packages/ui/src/ui-component/button/StyledButton.jsx",
+            "reason": "Enhanced status messages setting in the chatflow configuration dialog saves through the chatflows API and shared UI helpers, like the other chat settings"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx",
+            "to": "packages/ui/src/ui-component/switch/Switch.jsx",
+            "reason": "Enhanced status messages setting in the chatflow configuration dialog saves through the chatflows API and shared UI helpers, like the other chat settings"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js",
+            "reason": "Enhanced status messages setting in the chatflow configuration dialog saves through the chatflows API and shared UI helpers, like the other chat settings"
+        },
+        {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/store/actions.js"
         },

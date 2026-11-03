@@ -505,7 +505,8 @@
                 "packages/server/src/routes/export-import/index.test.ts",
                 "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts",
                 "packages/components/nodes/tools/WebBrowser/sourcePage.ts",
-                "packages/components/nodes/tools/WebBrowser/sourcePage.test.ts"
+                "packages/components/nodes/tools/WebBrowser/sourcePage.test.ts",
+                "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx"
             ],
             "entryPoints": [
                 "packages/components/nodes/harness/Harness/Harness.ts",
@@ -530,6 +531,7 @@
                 "packages/ui/src/utils/harnessStream.js",
                 "packages/ui/src/views/chatmessage/HarnessChatNotice.jsx",
                 "packages/ui/src/views/chatmessage/HarnessRunTrace.jsx",
+                "packages/ui/src/ui-component/extended/EnhancedStatusMessages.jsx",
                 "packages/ui/src/views/harnesses/HarnessHome.jsx",
                 "packages/ui/src/views/harnesses/index.jsx",
                 "packages/server/src/utils/harnessToolPayload.ts",
