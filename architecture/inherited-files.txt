@@ -1789,6 +1789,8 @@ packages/ui/src/ui-component/loading/Loader.jsx
 packages/ui/src/ui-component/markdown/CodeBlock.jsx
 packages/ui/src/ui-component/markdown/Markdown.css
 packages/ui/src/ui-component/markdown/MemoizedReactMarkdown.jsx
+packages/ui/src/ui-component/markdown/SortableTable.jsx
+packages/ui/src/ui-component/markdown/SortableTable.test.js
 packages/ui/src/ui-component/pagination/TablePagination.jsx
 packages/ui/src/ui-component/picker/DatePicker.jsx
 packages/ui/src/ui-component/picker/MonthDaysPicker.jsx
