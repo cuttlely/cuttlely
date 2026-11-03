@@ -1,5 +1,7 @@
 # Artifacts
 
+Shared chat download access: `packages/chat-widget/src/api.js` reads stored files with the chat session token and retries only a 403 without the browser cookie. `packages/chat-widget/test/widget.test.js` covers the public token conflict and the existing successful private download path.
+
 Prior-answer export inputs: `packages/harness/answer-inputs.mjs` builds a bounded recent-answer index and stages complete same-chat Markdown in each file-capable run's hidden input folder. `answer-inputs.test.mjs` covers exact bytes, source endings, UTF-8 limits, artifact exclusion, context fitting, concurrent chat isolation, replay, non-file behavior and cleanup. The harness check includes these tests; `docs/how-to/context-and-tokens.md` documents the handoff and limits.
 
 Where things live. Merged work is in `git log` and the closed pull requests (`gh pr list -R cuttlely/cuttlely --state merged`); open work is in the [issues](https://github.com/cuttlely/cuttlely/issues). This file does not copy either list.
