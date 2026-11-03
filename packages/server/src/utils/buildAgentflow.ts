@@ -324,7 +324,7 @@ export const resolveVariables = async (
             const variableFullPath = reference
 
             if (variableFullPath === QUESTION_VAR_PREFIX) {
-                resolvedValue = resolvedValue.replace(match, question)
+                resolvedValue = resolvedValue.replace(match, () => String(question))
                 resolvedValue = uploadedFilesContent ? `${uploadedFilesContent}\n\n${resolvedValue}` : resolvedValue
             }
 
@@ -336,7 +336,7 @@ export const resolveVariables = async (
                         Array.isArray(variableValue) || (typeof variableValue === 'object' && variableValue !== null)
                             ? JSON.stringify(variableValue)
                             : variableValue
-                    resolvedValue = resolvedValue.replace(match, formattedValue)
+                    resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
                 }
             }
 
@@ -347,20 +347,20 @@ export const resolveVariables = async (
                         Array.isArray(variableValue) || (typeof variableValue === 'object' && variableValue !== null)
                             ? JSON.stringify(variableValue)
                             : variableValue
-                    resolvedValue = resolvedValue.replace(match, formattedValue)
+                    resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
                 }
             }
 
             if (variableFullPath === FILE_ATTACHMENT_PREFIX) {
-                resolvedValue = resolvedValue.replace(match, uploadedFilesContent)
+                resolvedValue = resolvedValue.replace(match, () => String(uploadedFilesContent))
             }
 
             if (variableFullPath === CHAT_HISTORY_VAR_PREFIX) {
-                resolvedValue = resolvedValue.replace(match, convertChatHistoryToText(chatHistory))
+                resolvedValue = resolvedValue.replace(match, () => String(convertChatHistoryToText(chatHistory)))
             }
 
             if (variableFullPath === RUNTIME_MESSAGES_LENGTH_VAR_PREFIX) {
-                resolvedValue = resolvedValue.replace(match, flowConfig?.runtimeChatHistoryLength ?? 0)
+                resolvedValue = resolvedValue.replace(match, () => String(flowConfig?.runtimeChatHistoryLength ?? 0))
             }
 
             if (variableFullPath === LOOP_COUNT_VAR_PREFIX) {
@@ -374,11 +374,11 @@ export const resolveVariables = async (
                         currentLoopCount = loopCounts.get(latestLoopNode.nodeId) || 0
                     }
                 }
-                resolvedValue = resolvedValue.replace(match, currentLoopCount.toString())
+                resolvedValue = resolvedValue.replace(match, () => currentLoopCount.toString())
             }
 
             if (variableFullPath === CURRENT_DATE_TIME_VAR_PREFIX) {
-                resolvedValue = resolvedValue.replace(match, new Date().toISOString())
+                resolvedValue = resolvedValue.replace(match, () => new Date().toISOString())
             }
 
             if (variableFullPath.startsWith('$iteration')) {
@@ -387,9 +387,9 @@ export const resolveVariables = async (
                         // If it's exactly $iteration, stringify the entire value
                         const formattedValue =
                             typeof iterationContext.value === 'object' ? JSON.stringify(iterationContext.value) : iterationContext.value
-                        resolvedValue = resolvedValue.replace(match, formattedValue)
+                        resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
                     } else if (typeof iterationContext.value === 'string') {
-                        resolvedValue = resolvedValue.replace(match, iterationContext?.value)
+                        resolvedValue = resolvedValue.replace(match, () => String(iterationContext?.value))
                     } else if (typeof iterationContext.value === 'object') {
                         const iterationValue = get(iterationContext.value, variableFullPath.replace('$iteration.', ''))
                         // For arrays and objects, stringify them to prevent toString() conversion issues
@@ -397,7 +397,7 @@ export const resolveVariables = async (
                             Array.isArray(iterationValue) || (typeof iterationValue === 'object' && iterationValue !== null)
                                 ? JSON.stringify(iterationValue)
                                 : iterationValue
-                        resolvedValue = resolvedValue.replace(match, formattedValue)
+                        resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
                     }
                 }
             }
@@ -411,7 +411,7 @@ export const resolveVariables = async (
                         Array.isArray(variableValue) || (typeof variableValue === 'object' && variableValue !== null)
                             ? JSON.stringify(variableValue)
                             : variableValue
-                    resolvedValue = resolvedValue.replace(match, formattedValue)
+                    resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
                 }
             }
 
@@ -423,7 +423,7 @@ export const resolveVariables = async (
                         Array.isArray(variableValue) || (typeof variableValue === 'object' && variableValue !== null)
                             ? JSON.stringify(variableValue)
                             : variableValue
-                    resolvedValue = resolvedValue.replace(match, formattedValue)
+                    resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
                 }
             }
 
@@ -451,7 +451,7 @@ export const resolveVariables = async (
                             resolvedValue = formattedValue
                         } else {
                             // Otherwise do a standard string‐replace
-                            resolvedValue = String(resolvedValue).replace(match, String(formattedValue))
+                            resolvedValue = String(resolvedValue).replace(match, () => String(formattedValue))
                         }
                         // Skip fallback logic
                         continue
@@ -475,7 +475,7 @@ export const resolveVariables = async (
                     Array.isArray(actualValue) || (typeof actualValue === 'object' && actualValue !== null)
                         ? JSON.stringify(actualValue)
                         : actualValue?.toString() ?? match
-                resolvedValue = resolvedValue.replace(match, formattedValue)
+                resolvedValue = resolvedValue.replace(match, () => String(formattedValue))
             }
         }
 

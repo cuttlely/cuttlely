@@ -8,6 +8,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   While a harness run is in progress, the run card in the app chat and in the embedded chat widget shows a live status line, such as `sql_analyst is running a SQL query…`, a status on each running specialist row, and a ticking timer. The line follows only the steps the run reports (route, specialist, tool and handoff). Screen readers hear a new status at most once every few seconds. Optional playful lines appear during long steps; turn them off per chatflow in **Configuration** > **Chat** > **Enhanced Status Messages** (on by default), which the widget also follows. The finished card is unchanged. See [Read the run card](./docs/how-to/harnesses.md#read-the-run-card).
 
+### Fixed
+
+-   Agentflow template variables now insert text containing dollar-sign sequences, such as `$'`, `$&`, `$$`, `$1` or `` $` ``, exactly as written. Before, a value such as `SELECT 'a$''b' AS x` in `{{ question }}`, `$flow`, `$vars`, `$form`, `$webhook`, `$iteration` or a node output could arrive changed.
+
 ## [1.5.1] - 2026-11-02
 
 ### Added
