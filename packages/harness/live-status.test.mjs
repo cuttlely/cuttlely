@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { describe, it } from 'node:test'
-import { ENHANCED_DELAY_MS, ENHANCED_ROTATE_MS, enhancedLine, formatElapsed, liveStatus, nextAnnouncement } from './live-status.mjs'
+import {
+    ENHANCED_DELAY_MS,
+    ENHANCED_LINES,
+    ENHANCED_ROTATE_MS,
+    createEnhancedRotator,
+    createLineDeck,
+    formatElapsed,
+    liveStatus,
+    nextAnnouncement
+} from './live-status.mjs'
 import { emptyTrace, reduceHarnessEvent } from './trace.mjs'
 
 const fold = (events) => events.reduce((trace, event) => reduceHarnessEvent(trace, event), emptyTrace('desk'))
@@ -91,18 +100,86 @@ describe('live status line from streamed harness events', () => {
     })
 })
 
+// A small seeded generator so every shuffle in these tests is the same on every run.
+function seeded(seed) {
+    let state = seed >>> 0
+    return () => {
+        state = (state + 0x6d2b79f5) >>> 0
+        let t = state
+        t = Math.imul(t ^ (t >>> 15), t | 1)
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+}
+
+const PHASES = ['route', 'working', 'tool', 'thinking', 'handoff']
+const at = (slot) => ENHANCED_DELAY_MS + slot * ENHANCED_ROTATE_MS
+
 describe('enhanced lines', () => {
-    it('wait a few seconds into a real step, rotate, and never name anything', () => {
-        assert.equal(enhancedLine('tool', ENHANCED_DELAY_MS - 1), '')
-        assert.equal(enhancedLine('tool', ENHANCED_DELAY_MS), 'Cross-checking the numbers…')
-        assert.equal(enhancedLine('tool', ENHANCED_DELAY_MS + ENHANCED_ROTATE_MS), 'Lining up the joins…')
-        assert.equal(enhancedLine('thinking', ENHANCED_DELAY_MS), 'Weighing a few angles…')
-        assert.equal(enhancedLine('handoff', ENHANCED_DELAY_MS + ENHANCED_ROTATE_MS), 'Double-checking the totals…')
-        assert.equal(enhancedLine('route', 60000), '', 'only phases with a list get one')
+    it('have at least 20 distinct lines per phase, none shared between phases', () => {
+        assert.deepEqual(Object.getOwnPropertyNames(ENHANCED_LINES).sort(), [...PHASES].sort())
+        const seen = new Map()
+        for (const phase of PHASES) {
+            const list = ENHANCED_LINES[phase]
+            assert.ok(list.length >= 20, `${phase} has ${list.length} lines`)
+            assert.equal(new Set(list).size, list.length, `${phase} has a duplicate`)
+            for (const line of list) {
+                assert.match(line, /^\S.*\S…$/, `${phase}: ${line}`)
+                assert.equal(seen.has(line), false, `"${line}" is in ${seen.get(line)} and ${phase}`)
+                seen.set(line, phase)
+            }
+        }
+    })
+
+    it('show every line once per cycle and never repeat across a reshuffle', () => {
+        for (const phase of PHASES) {
+            const list = ENHANCED_LINES[phase]
+            for (const seed of [1, 7, 42, 2026]) {
+                const deck = createLineDeck(list, seeded(seed))
+                let previous = null
+                for (let cycle = 0; cycle < 60; cycle++) {
+                    const drawn = list.map(() => deck.next())
+                    assert.deepEqual([...drawn].sort(), [...list].sort(), `${phase} seed ${seed} cycle ${cycle} shows each line once`)
+                    assert.notEqual(drawn[0], previous, `${phase} seed ${seed} cycle ${cycle} starts on the line before it`)
+                    previous = drawn[drawn.length - 1]
+                }
+            }
+        }
+    })
+
+    it('never start a cycle on the last line, even when the shuffle lands there', () => {
+        // With two lines each shuffle makes one draw: 0.999 keeps the order and 0 swaps it, so cycles alternate
+        // b, a then a, b. Without the guard every second cycle would start on the line that just ended the one before.
+        let calls = 0
+        const deck = createLineDeck(['a…', 'b…'], () => (calls++ % 2 ? 0 : 0.999))
+        const drawn = Array.from({ length: 40 }, () => deck.next())
+        assert.ok(calls >= 20, 'the deck reshuffled')
+        for (let i = 1; i < drawn.length; i++) assert.notEqual(drawn[i], drawn[i - 1], `draw ${i}`)
+    })
+
+    it('wait a few seconds into a real step, hold each line for a rotation, then draw the next', () => {
+        const rotator = createEnhancedRotator({ random: seeded(3) })
+        assert.equal(rotator.line('tool', ENHANCED_DELAY_MS - 1), '')
+        const first = rotator.line('tool', at(0))
+        assert.ok(ENHANCED_LINES.tool.includes(first))
+        assert.equal(rotator.line('tool', at(0) + 1000), first, 'the same line until the rotation is due')
+        const shown = [first]
+        for (let slot = 1; slot < ENHANCED_LINES.tool.length; slot++) shown.push(rotator.line('tool', at(slot)))
+        assert.equal(new Set(shown).size, ENHANCED_LINES.tool.length, 'no repeat until the pool has shown')
+        assert.ok(ENHANCED_LINES.thinking.includes(rotator.line('thinking', at(0))))
+        assert.equal(rotator.line('start', 60000), '', 'only phases with a list get one')
+        assert.equal(rotator.line('waiting', 60000), '')
+    })
+
+    it('draw a new line when a new real step starts', () => {
+        const rotator = createEnhancedRotator({ random: seeded(9) })
+        const first = rotator.line('tool', at(0))
+        assert.equal(rotator.line('tool', 0), '', 'a new real line clears the filler')
+        assert.notEqual(rotator.line('tool', at(0)), first)
     })
 
     it('are off when the setting is off', () => {
-        assert.equal(enhancedLine('tool', 60000, false), '')
+        assert.equal(createEnhancedRotator().line('tool', 60000, false), '')
     })
 })
 
@@ -126,5 +203,23 @@ describe('announcements and timer', () => {
         const here = fs.readFileSync(new URL('./live-status.mjs', import.meta.url), 'utf8')
         const widget = fs.readFileSync(new URL('../chat-widget/src/live-status.js', import.meta.url), 'utf8')
         assert.equal(widget, here)
+    })
+
+    it('uses the same line pools as the chat widget', () => {
+        // Read as text: the harness package does not import from other packages.
+        const pools = (source) => {
+            const block = source.slice(
+                source.indexOf('export const ENHANCED_LINES = {'),
+                source.indexOf('\n}\n', source.indexOf('export const ENHANCED_LINES = {'))
+            )
+            const out = {}
+            for (const match of block.matchAll(/^ {4}(\w+): \[([\s\S]*?)^ {4}\]/gm))
+                out[match[1]] = [...match[2].matchAll(/'([^']*)'/g)].map((item) => item[1])
+            return out
+        }
+        const here = pools(fs.readFileSync(new URL('./live-status.mjs', import.meta.url), 'utf8'))
+        const widget = pools(fs.readFileSync(new URL('../chat-widget/src/live-status.js', import.meta.url), 'utf8'))
+        assert.deepEqual(here, ENHANCED_LINES, 'the text reader finds every pool')
+        assert.deepEqual(widget, here)
     })
 })

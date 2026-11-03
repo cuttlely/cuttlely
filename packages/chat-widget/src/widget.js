@@ -4,7 +4,7 @@ import { createClient, describeError } from './api.js'
 import { colorVariables, normalizeConfig } from './config.js'
 import { icons, mark } from './icons.js'
 import { renderMarkdown, safeUrl } from './markdown.js'
-import { enhancedLine, formatElapsed, nextAnnouncement } from './live-status.js'
+import { createEnhancedRotator, formatElapsed, nextAnnouncement } from './live-status.js'
 import { emptyRun, formatMs, reduceRun, runStatus } from './run.js'
 import { scrub } from './scrub.js'
 import { styles } from './styles.js'
@@ -616,7 +616,7 @@ export class ChatWidget {
                     h('span', {
                         class: 'dc-run-enhanced',
                         'aria-hidden': 'true',
-                        text: enhancedLine(status.phase, Date.now() - since.at, this.config.enhancedStatus)
+                        text: this.enhancedLineFor(status.phase, Date.now() - since.at)
                     })
                 ])
             )
@@ -642,6 +642,12 @@ export class ChatWidget {
         return details
     }
 
+    // The live run card's playful line. Each phase's lines show in a shuffled order with no repeat until all have shown.
+    enhancedLineFor(phase, sinceMs) {
+        if (!this.enhancedRotator) this.enhancedRotator = createEnhancedRotator()
+        return this.enhancedRotator.line(phase, sinceMs, this.config.enhancedStatus)
+    }
+
     liveSinceFor(line, now) {
         if (!this.liveSince || this.liveSince.line !== line) this.liveSince = { line, at: now }
         return this.liveSince
@@ -657,7 +663,7 @@ export class ChatWidget {
         const elapsed = node.querySelector('.dc-run-elapsed')
         if (elapsed) elapsed.textContent = formatElapsed(now - bot.run.startedAt)
         const extra = node.querySelector('.dc-run-enhanced')
-        if (extra) extra.textContent = enhancedLine(status.phase, now - since.at, this.config.enhancedStatus)
+        if (extra) extra.textContent = this.enhancedLineFor(status.phase, now - since.at)
         const spoken = nextAnnouncement(this.liveSpoken, status.line, now)
         if (spoken !== this.liveSpoken) {
             this.liveSpoken = spoken

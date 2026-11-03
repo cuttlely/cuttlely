@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import { fakeServer, installDom, json, sseResponse, until } from './dom.js'
+import { ENHANCED_LINES, ENHANCED_ROTATE_MS } from '../src/live-status.js'
 
 const FLOW = '11111111-2222-3333-4444-555555555555'
 let env
@@ -256,7 +257,12 @@ describe('chat widget', () => {
         const bot = t.widget.messages[1]
         t.widget.liveSince.at -= 10000
         t.widget.tickLive(bot)
-        assert.equal(t.$('.dc-run-enhanced').textContent, 'Lining up the joins…')
+        const playful = t.$('.dc-run-enhanced').textContent
+        assert.ok(ENHANCED_LINES.tool.includes(playful), playful)
+        t.widget.liveSince.at -= ENHANCED_ROTATE_MS
+        t.widget.tickLive(bot)
+        assert.ok(ENHANCED_LINES.tool.includes(t.$('.dc-run-enhanced').textContent))
+        assert.notEqual(t.$('.dc-run-enhanced').textContent, playful, 'the next rotation draws a new line')
         assert.equal(t.$('.dc-run-enhanced').getAttribute('aria-hidden'), 'true')
         send({ event: 'harness.tool', data: { phase: 'done', specialist: 'sql_analyst', name: 'mcp__sql_analyst__query' } })
         await until(() => t.$('.dc-run-line')?.textContent === 'sql_analyst is thinking about the results…')

@@ -3882,6 +3882,14 @@
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
         {
+            "path": "packages/ui/src/ui-component/markdown/SortableTable.jsx",
+            "reason": "Sortable answer tables from #398 belong with the shared markdown components"
+        },
+        {
+            "path": "packages/ui/src/ui-component/markdown/SortableTable.test.js",
+            "reason": "Sortable answer tables from #398 belong with the shared markdown components"
+        },
+        {
             "path": "packages/ui/src/utils/__fixtures__/import/agentic-rag-v2.json",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
