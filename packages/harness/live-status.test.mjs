@@ -205,8 +205,21 @@ describe('announcements and timer', () => {
         assert.equal(widget, here)
     })
 
-    it('uses the same line pools as the chat widget', async () => {
-        const widget = await import('../chat-widget/src/live-status.js')
-        assert.deepEqual(widget.ENHANCED_LINES, ENHANCED_LINES)
+    it('uses the same line pools as the chat widget', () => {
+        // Read as text: the harness package does not import from other packages.
+        const pools = (source) => {
+            const block = source.slice(
+                source.indexOf('export const ENHANCED_LINES = {'),
+                source.indexOf('\n}\n', source.indexOf('export const ENHANCED_LINES = {'))
+            )
+            const out = {}
+            for (const match of block.matchAll(/^ {4}(\w+): \[([\s\S]*?)^ {4}\]/gm))
+                out[match[1]] = [...match[2].matchAll(/'([^']*)'/g)].map((item) => item[1])
+            return out
+        }
+        const here = pools(fs.readFileSync(new URL('./live-status.mjs', import.meta.url), 'utf8'))
+        const widget = pools(fs.readFileSync(new URL('../chat-widget/src/live-status.js', import.meta.url), 'utf8'))
+        assert.deepEqual(here, ENHANCED_LINES, 'the text reader finds every pool')
+        assert.deepEqual(widget, here)
     })
 })
