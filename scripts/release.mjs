@@ -344,12 +344,21 @@ export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, c
     } else if (event === 'workflow_dispatch') {
         mode = 'dispatch'
         version = String(inputTag || '')
+        const rcTag = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.(0|[1-9]\d*)$/.test(version)
         if (!version) errors.push('The dispatch image tag is required.')
-        else if (!version.startsWith('ci-') && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.(0|[1-9]\d*)$/.test(version))
+        else if (!version.startsWith('ci-') && !rcTag)
             errors.push('A dispatch image tag must start with ci- or be an rc tag in the form X.Y.Z-rc.N.')
+        if (rcTag && packageVersion !== version)
+            errors.push(`Tag ${version} does not match the root package.json version ${packageVersion || 'missing'}.`)
         if (!errors.length) tags = [`${targetImage}:${version}`]
     } else {
         errors.push(`Unsupported release image event ${event || 'missing'} for ref ${refName || 'missing'}.`)
+    }
+
+    const tagNames = tags.map((tag) => tag.slice(targetImage.length + 1))
+    for (const tagName of tagNames) {
+        if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(tagName))
+            errors.push(`Image tag ${tagName} does not match the Docker tag grammar ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$.`)
     }
 
     return {
@@ -357,7 +366,7 @@ export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, c
         version,
         image: targetImage,
         tags,
-        tagNames: tags.map((tag) => tag.slice(targetImage.length + 1)),
+        tagNames,
         labels: version ? imageLabels({ version, sha, slug, created }) : {},
         latest: tags.includes(`${targetImage}:latest`),
         guard,
@@ -429,8 +438,6 @@ export function preflightProblems(state) {
     if (!state.local && !state.gh) problems.push('gh is not installed or not signed in (gh auth status). It creates the GitHub release.')
     if (!state.push && state.image !== state.workflowImage)
         problems.push(`The release image workflow publishes only to ${state.workflowImage}. Use --push with a custom --image.`)
-    if (state.localImage && state.publish && !state.push && !state.imageInRegistry)
-        problems.push(`--publish needs the image in the registry. Add --push, or push ${state.image}:${state.version} first.`)
     return problems
 }
 
@@ -704,7 +711,6 @@ function readState(root, opts) {
     const image = opts.image || workflowImage
     const docker = opts.localImage ? has('docker', ['version', '--format', '{{.Server.Version}}']) : null
     const gh = has('gh', ['auth', 'status'])
-    const imageInRegistry = docker && opts.publish && !opts.push ? has('docker', ['manifest', 'inspect', `${image}:${version}`]) : false
     const builder =
         opts.localImage && docker
             ? buildxInfo(run('docker', ['buildx', 'inspect', '--bootstrap'], { allowFail: true }).stdout)
@@ -731,7 +737,6 @@ function readState(root, opts) {
         workflowImage,
         docker,
         gh,
-        imageInRegistry,
         builder,
         multiArch: canBuildMultiArch(builder),
         localImage: opts.localImage,

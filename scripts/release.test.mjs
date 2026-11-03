@@ -202,12 +202,21 @@ test('CI image plans release, test-tag and dispatch modes from one label source'
     assert.equal(testTag.latest, false)
     assert.equal(testTag.guard, false)
 
-    for (const tag of ['ci-manual-42', '1.5.3-rc.7']) {
-        const dispatch = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: tag })
+    for (const [tag, packageVersion] of [
+        ['ci-manual-42', '0.0.0'],
+        ['1.5.3-rc.7', '1.5.3-rc.7']
+    ]) {
+        const dispatch = ciImagePlan({ ...base, packageVersion, event: 'workflow_dispatch', inputTag: tag })
         assert.deepEqual(dispatch.errors, [])
         assert.deepEqual(dispatch.tags, [`ghcr.io/cuttlely/cuttlely:${tag}`])
         assert.equal(dispatch.latest, false)
     }
+    const dispatchMismatch = ciImagePlan({ ...base, packageVersion: '1.5.2', event: 'workflow_dispatch', inputTag: '1.5.3-rc.7' })
+    assert.match(dispatchMismatch.errors.join('\n'), /Tag 1\.5\.3-rc\.7 does not match the root package\.json version 1\.5\.2/)
+    const invalidDispatchTag = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: 'ci-feature/foo' })
+    assert.match(invalidDispatchTag.errors.join('\n'), /does not match the Docker tag grammar/)
+    const invalidTestTag = ciImagePlan({ ...base, event: 'push', ref: 'refs/tags/ci-dryrun-feature/foo' })
+    assert.match(invalidTestTag.errors.join('\n'), /does not match the Docker tag grammar/)
     const refused = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: '1.5.3' })
     assert.match(refused.errors.join('\n'), /must start with ci-/)
 })
@@ -238,6 +247,7 @@ test('preflight lists every reason to refuse', () => {
         'The release image workflow publishes only to ghcr.io/acme/cuttlely. Use --push with a custom --image.'
     ])
     assert.deepEqual(preflightProblems({ ...ok, image: 'ghcr.io/acme/other', push: true }), [])
+    assert.deepEqual(preflightProblems({ ...ok, localImage: true, publish: true }), [])
     const bad = preflightProblems({
         ...ok,
         dirty: [' M x'],
@@ -260,8 +270,7 @@ test('preflight lists every reason to refuse', () => {
         'not newer',
         'nothing to release',
         'docker was not found',
-        'gh is not',
-        '--publish needs'
+        'gh is not'
     ]) {
         assert.ok(
             bad.some((p) => p.includes(needle)),
@@ -342,7 +351,6 @@ function fixture() {
   "image inspect") exit 1 ;;
   "exec "*) echo '{"message":"pong"}' ;;
   "inspect "*) echo true ;;
-  "manifest inspect") exit 1 ;;
 esac
 exit 0`
     )
@@ -414,6 +422,15 @@ test('--local-image keeps the maintainer-machine image plan', (t) => {
     assert.match(f.calls(), /docker version/)
     assert.match(f.calls(), /docker buildx inspect/)
     assert.doesNotMatch(f.calls(), /docker build --platform|docker run/)
+})
+
+test('--local-image --publish waits for the workflow image without a registry probe', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    const res = f.runRelease(['--local-image', '--publish', '--dry-run'])
+    assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /wait for ghcr\.io\/acme\/cuttlely:1\.0\.0 from \.github\/workflows\/release-image\.yml/)
+    assert.doesNotMatch(f.calls(), /manifest inspect/)
 })
 
 test('a local push does not start an anonymous registry wait', (t) => {

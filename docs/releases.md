@@ -99,7 +99,7 @@ The image flags are:
 -   `--publish` publishes the GitHub release after the workflow registry wait or the completed local push instead of leaving a draft.
 -   `--local` implies `--local-image` and stops after the local build and check, so nothing leaves the machine.
 
-For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual run can select another `ref`; an empty value uses the branch where the run starts.
+For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual rc tag must equal the version in the checked-out root `package.json`; manual `ci-` tags and pushed `ci-dryrun-*` tags do not use that comparison. Every planned image tag must match the Docker tag grammar `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`. A manual run can select another `ref`; an empty value uses the branch where the run starts.
 
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
