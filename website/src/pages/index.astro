@@ -18,6 +18,8 @@ import analystOffShot from '../content/docs/docs/images/analyst/analyst-off-note
 import tidyShot from '../content/docs/docs/images/harnesses/canvas-tidy-after.png'
 import webBrowserShot from '../content/docs/docs/images/harnesses/web-browser-source-text.png'
 import trustedOutputsShot from '../content/docs/docs/images/trusted-outputs/csv-escape-formulas.png'
+import liveStatusShot from '../content/docs/docs/images/harnesses/run-card-live-status-playful.png'
+import answerTableShot from '../content/docs/docs/images/answer-tables/answer-table-sorted.png'
 import Focus from '../components/Focus.astro'
 import CopyButton from '../components/CopyButton.astro'
 import { mediaUrl as versionedMedia } from '../../scripts/media-version.mjs'
@@ -138,8 +140,22 @@ const installs = [
     { title: 'From source', text: 'For changing Cuttlely. Node 24 and pnpm.', href: '/docs/how-to/from-source/', icon: 'seti:git' }
 ] as const
 
-// The how-to guides behind the 1.5.0 release, with the docs picture each one opens with.
+// The how-to guides behind the 1.5 releases, with the docs picture each one opens with.
 const howTos = [
+    {
+        title: 'Live run status',
+        text: 'A running harness card says what each specialist is doing, with a timer and optional playful lines you can turn off per chatflow.',
+        href: '/docs/how-to/harnesses/#while-a-run-works',
+        image: liveStatusShot,
+        alt: 'A running harness card: sql_analyst is running a SQL query, a timer at 0:06 and the italic line Cross-checking the numbers.'
+    },
+    {
+        title: 'Sortable answer tables',
+        text: 'Click a column header in a chat answer to sort numbers, amounts, dates or text. The answer itself does not change.',
+        href: '/docs/how-to/answer-tables/',
+        image: answerTableShot,
+        alt: 'A chat answer table of orders by region, sorted by Revenue from high to low.'
+    },
     {
         title: 'Generic OIDC',
         text: 'Sign people in through Okta, Entra ID or another OpenID Connect provider. Test the sign-in before you switch.',
@@ -687,8 +703,8 @@ const howTos = [
         <section id="how-to-guides" class="cl-section" aria-labelledby="how-to-title">
             <div class="cl-center">
                 <p class="cl-kicker">How-to guides</p>
-                <h2 id="how-to-title" class="cl-display">New and updated in 1.5.0</h2>
-                <p class="cl-lead">Step-by-step guides for sign-in, provisioning, the analyst and the harness canvas.</p>
+                <h2 id="how-to-title" class="cl-display">New and updated in 1.5</h2>
+                <p class="cl-lead">Step-by-step guides for the run card, answer tables, sign-in, provisioning, the analyst and the harness canvas.</p>
             </div>
             <ul class="cl-tiles cl-howto-tiles">
                 {
