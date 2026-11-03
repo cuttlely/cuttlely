@@ -252,16 +252,20 @@ The website source is `website/` (Astro 7.4.0 and Starlight, static, with its ow
 
 ```bash
 pnpm release --dry-run                # changes nothing: checks, plan, release notes
-pnpm release                          # verify, bump, CHANGELOG, commit, tag, build and ping the image, push commit and tag, draft release
-pnpm release X.Y.Z --push --publish   # on the tagged commit: push the image, publish the GitHub release
+pnpm release                          # verify, bump, commit, tag, push, wait for the workflow image, draft release
+pnpm release X.Y.Z --publish          # on the tagged commit: wait for the image, publish the GitHub release
+pnpm release X.Y.Z --local-image      # fallback: build and ping the image on this machine
+pnpm release X.Y.Z --local-image --push --publish # fallback: push that build and publish
 pnpm release X.Y.Z --npm              # from the annotated tag: publish the npm packages
 pnpm release X.Y.Z --npm --dry-run    # the same npm checks and plan, no publish
 ```
 
 -   Product version files: root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. Other workspace packages keep their own numbers. `pnpm release` bumps them together. The launcher's default image tag is its own version, so `npx cuttlely` at `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`.
--   npm publish is the last step, from the annotated tag, after the image is in the registry and the GitHub release is published. `pnpm release X.Y.Z --npm` refuses otherwise. `NPM_TOKEN` is an npm access token for the cuttlely org, set in the environment. It is not stored in the repository and the command does not print it. There is no publish workflow. Details are in `docs/releases.md`.
+-   npm publish is the last step, from the annotated tag, after the image is in the registry and the GitHub release is published. `pnpm release X.Y.Z --npm` refuses otherwise. npm publishing remains a maintainer-machine step. Details are in `docs/releases.md`.
 -   A user-visible line goes under `## [Unreleased]` in `CHANGELOG.md`, or under `## [1.3.1] - Unreleased` while that planned section exists (`pnpm release` refuses entries in both). `pnpm release` dates that section and opens a fresh `## [Unreleased]` (`docs/releases.md`). v1.3.0 is dated 2026-10-18.
--   The image is `linux/amd64` unless the buildx builder is `docker-container` with `linux/arm64`.
+-   A release tag starts `.github/workflows/release-image.yml`. It builds and pushes `linux/amd64` and `linux/arm64` with provenance and an SBOM. A stable version also moves `:latest`; a pre-release does not.
+-   A `ci-dryrun-*` tag and a manual workflow run publish only their requested test tag and never move `:latest`. Manual tags must begin `ci-` or match `X.Y.Z-rc.N`.
+-   `--local-image` is the fallback that keeps the local Docker build and start-and-ping check. `--push` is accepted only with that flag. `--local` implies it and keeps all work on the machine.
 -   The release commit goes straight to `main` with the hook skips, because the full verify already ran on that tree. Branch protection must allow the releasing maintainer to bypass.
 -   After a release, refresh the upgrade fixture (D31): build the release tag in its own checkout, run `node scripts/upgrade-fixture.mjs --server-root <that checkout> --out scripts/fixtures/upgrade`, and ship it as a pull request.
 -   Model list updates need no release: edit `packages/components/models.json` and follow `docs/reference/model-list.md`.
