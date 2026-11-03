@@ -44,3 +44,24 @@ describe('utilGetUploadsConfig with a Harness node', () => {
         expect(config.isImageUploadAllowed).toBe(false)
     })
 })
+
+describe('utilGetUploadsConfig with Full File Upload', () => {
+    beforeEach(() => findOneBy.mockReset())
+
+    it('lists the document types the chat can attach when Full File Upload is on', async () => {
+        findOneBy.mockResolvedValue({
+            ...flow([]),
+            chatbotConfig: JSON.stringify({ fullFileUpload: { status: true, allowedUploadFileTypes: 'application/pdf,text/plain' } })
+        })
+        const config = await utilGetUploadsConfig('flow-1')
+        expect(config.isFullFileUploadAllowed).toBe(true)
+        expect(config.fullFileUploadTypes.sort()).toEqual(['.pdf', '.tsv', '.txt'])
+    })
+
+    it('reports no full file types when Full File Upload is off', async () => {
+        findOneBy.mockResolvedValue({ ...flow([]), chatbotConfig: JSON.stringify({ fullFileUpload: { status: false } }) })
+        const config = await utilGetUploadsConfig('flow-1')
+        expect(config.isFullFileUploadAllowed).toBe(false)
+        expect(config.fullFileUploadTypes).toEqual([])
+    })
+})

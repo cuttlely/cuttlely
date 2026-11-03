@@ -261,6 +261,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .dc-attach:hover { color: var(--dc-fg); background: var(--dc-surface-2); }
 .dc-pending { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .dc-pending-item { position: relative; }
+.dc-pending-note { flex-basis: 100%; font-size: 0.85em; color: var(--dc-muted); }
 .dc-pending-item img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; border: 1px solid var(--dc-border); display: block; }
 .dc-pending-item button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--dc-fg); color: var(--dc-bg); display: grid; place-items: center; padding: 0; }
 .dc-pending-item button svg { width: 12px; height: 12px; }

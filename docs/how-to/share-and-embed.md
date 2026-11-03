@@ -34,6 +34,7 @@ On a phone the chat fills the screen.
 -   **Starter prompts** on the welcome screen and **follow-up prompts** under an answer, when the chatflow has them.
 -   **Thumbs up and down** under each answer when **Chat Feedback** is on for the chatflow, and a copy button on every answer.
 -   **Image uploads** (picker, paste or drag) when the chatflow accepts images.
+-   **File uploads**: the paperclip also picks documents when **File Upload** is on for the chatflow (**Configuration** > **Media & Files** > **File Upload**). It offers the document types that setting allows, up to 25 MB each and up to 4 attachments per message, and sends the files with the question. The flow reads them the same way as files attached in the canvas chat.
 -   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made. While the run works, the card shows a live status line and a timer, plus optional playful lines during long steps when the chatflow's **Enhanced Status Messages** setting is on (the default). See [While a run works](./harnesses.md#while-a-run-works).
 
 ![A chatflow that runs the bakery-demo harness, in dark mode. The question Compare sourdough and rye loaves: sourdough 120, rye 75 is answered under a Run complete card. The answer is a table titled Loaves compared, with Sourdough 120 and Rye 75.](../images/share-and-embed/harness-chart.png)
@@ -48,7 +49,7 @@ Model output is always shown as text: HTML in an answer is never run, even when 
 
 ### Not in the shared chat yet
 
-**Speech to Text**, **Text to Speech**, **Leads**, and **File Upload** (whole files for the chatflow to read) don't show in the shared chat or the embed yet. Try them in the canvas chat.
+**Speech to Text**, **Text to Speech**, and **Leads** don't show in the shared chat or the embed yet. Try them in the canvas chat.
 
 ### Private chatflows
 

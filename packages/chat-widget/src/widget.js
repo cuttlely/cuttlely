@@ -861,6 +861,8 @@ export class ChatWidget {
 
     renderComposer() {
         const img = this.config.imageUpload
+        const doc = this.config.fileUpload
+        const attachLabel = doc ? 'Attach a file' : 'Attach an image'
         this.pendingEl = h('div', { class: 'dc-pending', hidden: true })
         this.input = h('textarea', {
             rows: '1',
@@ -876,10 +878,10 @@ export class ChatWidget {
             }
         })
         const parts = []
-        if (img) {
+        if (img || doc) {
             this.fileInput = h('input', {
                 type: 'file',
-                accept: img.types.join(','),
+                accept: [...(img?.types || []), ...(doc?.types || [])].join(','),
                 multiple: true,
                 hidden: true,
                 tabindex: '-1',
@@ -894,8 +896,8 @@ export class ChatWidget {
                 h('button', {
                     class: 'dc-attach',
                     type: 'button',
-                    'aria-label': 'Attach an image',
-                    title: 'Attach an image',
+                    'aria-label': attachLabel,
+                    title: attachLabel,
                     html: icons.attach,
                     onclick: () => this.fileInput.click()
                 })
@@ -910,7 +912,7 @@ export class ChatWidget {
             this.window.addEventListener('dragover', (event) => {
                 event.preventDefault()
                 if (!this.dropEl) {
-                    this.dropEl = h('div', { class: 'dc-drop', text: 'Drop an image to attach' })
+                    this.dropEl = h('div', { class: 'dc-drop', text: doc ? 'Drop a file to attach' : 'Drop an image to attach' })
                     this.window.append(this.dropEl)
                 }
             })
@@ -956,11 +958,14 @@ export class ChatWidget {
 
     renderPending() {
         if (!this.pendingEl) return
-        this.pendingEl.hidden = !this.pending.length
+        this.pendingEl.hidden = !this.pending.length && !this.pendingNote
         this.pendingEl.replaceChildren(
+            ...(this.pendingNote ? [h('div', { class: 'dc-pending-note', role: 'status', text: this.pendingNote })] : []),
             ...this.pending.map((item, index) =>
                 h('div', { class: 'dc-pending-item' }, [
-                    h('img', { src: item.data, alt: item.name }),
+                    item.file
+                        ? h('span', { class: 'dc-file-chip', html: icons.doc }, [item.name])
+                        : h('img', { src: item.data, alt: item.name }),
                     h('button', {
                         type: 'button',
                         'aria-label': `Remove ${item.name}`,
@@ -978,11 +983,25 @@ export class ChatWidget {
 
     async addFiles(fileList) {
         const img = this.config.imageUpload
-        if (!img) return
+        const doc = this.config.fileUpload
+        if (!img && !doc) return
+        this.pendingNote = ''
         for (const file of Array.from(fileList || [])) {
-            if (this.pending.length >= 4) break
-            if (!img.types.includes(file.type)) {
-                this.announce(`${file.name} is not an image this chat accepts.`)
+            if (this.pending.length >= 4) {
+                // Shown as well as announced, so a sighted user sees the files that were left out.
+                this.pendingNote = `Up to 4 attachments per message. ${file.name} and any later files were not added.`
+                this.announce(this.pendingNote)
+                break
+            }
+            if (!img?.types.includes(file.type)) {
+                const ext = /\.[^./\\]+$/.exec(String(file.name || '').toLowerCase())?.[0] || ''
+                if (!doc || !doc.types.includes(ext)) {
+                    this.announce(`${file.name} is not a ${doc ? 'file' : 'image'} this chat accepts.`)
+                } else if (!file.size || file.size > doc.maxMB * 1024 * 1024) {
+                    this.announce(`${file.name} is empty or larger than ${doc.maxMB} MB.`)
+                } else {
+                    this.pending.push({ file, name: file.name, mime: file.type })
+                }
                 continue
             }
             if (file.size > img.maxMB * 1024 * 1024) {
@@ -1087,7 +1106,7 @@ export class ChatWidget {
         if (index > 0 && this.messages[index - 1]?.role === 'user') this.messages.splice(index - 1, 2)
         else this.messages.splice(index, 1)
         this.nodes.clear()
-        this.send(question.text, question.extra, question.uploads)
+        this.send(question.text, question.extra, question.uploads, question.files)
     }
 
     abort(byUser) {
@@ -1098,16 +1117,20 @@ export class ChatWidget {
         if (byUser) this.announce('Stopped')
     }
 
-    async send(text, extra = {}, uploadsOverride) {
+    async send(text, extra = {}, uploadsOverride, filesOverride) {
         if (this.state !== 'ready' || this.busy) return
         const question = typeof text === 'string' ? text : this.input?.value || ''
-        const uploads = uploadsOverride || this.pending.map((item) => ({ data: item.data, type: 'file', name: item.name, mime: item.mime }))
-        if (!question.trim() && !uploads.length) return
+        const uploads =
+            uploadsOverride ||
+            this.pending.filter((item) => !item.file).map((item) => ({ data: item.data, type: 'file', name: item.name, mime: item.mime }))
+        const files = filesOverride || this.pending.filter((item) => item.file).map((item) => item.file)
+        if (!question.trim() && !uploads.length && !files.length) return
         if (this.input && typeof text !== 'string') {
             this.input.value = ''
             this.autosize()
         }
         this.pending = []
+        this.pendingNote = ''
         this.renderPending()
 
         const user = {
@@ -1115,6 +1138,7 @@ export class ChatWidget {
             role: 'user',
             text: question.trim(),
             images: uploads.map((item) => item.data),
+            files: files.map((file) => file.name),
             status: 'done',
             rev: 0
         }
@@ -1130,6 +1154,7 @@ export class ChatWidget {
         if (this.chatId) body.chatId = this.chatId
         if (this.sessionToken) body.sessionToken = this.sessionToken
         if (uploads.length) body.uploads = uploads
+        if (files.length) body.files = files
         if (extra.humanInput) body.humanInput = extra.humanInput
         if (extra.action) body.action = extra.action
         if (this.options.overrideConfig && typeof this.options.overrideConfig === 'object')
@@ -1167,7 +1192,7 @@ export class ChatWidget {
                     return
                 }
                 bot.error = info.message
-                bot.retry = { text: question.trim(), extra, uploads }
+                bot.retry = { text: question.trim(), extra, uploads, files }
             }
         } finally {
             if (this.controller === controller) this.controller = null
