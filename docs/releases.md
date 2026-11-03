@@ -89,7 +89,7 @@ It then runs these steps, in order:
 4. Commit `Release vX.Y.Z` and create the annotated tag `vX.Y.Z`.
 5. Push the release commit and annotated tag. The tag starts `.github/workflows/release-image.yml`.
 6. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64` and `linux/arm64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
-7. Wait, with a bounded timeout and progress lines, until the workflow's versioned image is available in the registry. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
+7. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
 The image flags are:
 

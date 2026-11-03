@@ -7,7 +7,7 @@
 //
 //   --dry-run   change nothing: run the checks, print the plan and the release notes
 //   (no flag)   verify, bump, update CHANGELOG, commit and tag, push both, wait for the release-image
-//               workflow to publish the image, and create a draft GitHub release
+//               workflow run to pass and its image to be available, and create a draft GitHub release
 //   --local     stop before anything leaves this machine and build and check the image locally
 //   --local-image  use the maintainer-machine image build and start-and-ping check as a fallback
 //   --push      with --local-image, also push that local build (multi-arch when available)
@@ -515,9 +515,10 @@ export async function anonymousManifestExists(version, fetchImpl = globalThis.fe
 }
 
 export async function waitForRegistryImage(
-    { image, version, resumeCommand = `pnpm release ${version}` },
+    { image, version, sha, cwd, resumeCommand = `pnpm release ${version}` },
     {
         fetchImpl = globalThis.fetch,
+        runner = run,
         timeoutMs = REGISTRY_WAIT_TIMEOUT_MS,
         pollMs = REGISTRY_WAIT_POLL_MS,
         now = () => Date.now(),
@@ -527,21 +528,60 @@ export async function waitForRegistryImage(
 ) {
     const started = now()
     const deadline = started + timeoutMs
-    log(`  Waiting for ${image}:${version} from ${RELEASE_IMAGE_WORKFLOW} (up to ${Math.ceil(timeoutMs / 60000)} minutes).`)
+    const tag = `v${version}`
+    log(
+        `  Waiting for ${RELEASE_IMAGE_WORKFLOW} run for ${tag} to pass and ${image}:${version} to be available (up to ${Math.ceil(
+            timeoutMs / 60000
+        )} minutes).`
+    )
     for (;;) {
-        const manifest = await anonymousManifestExists(version, fetchImpl, image)
-        if (manifest.ok) {
-            log(`  ${image}:${version} is available.`)
-            return true
+        const listed = runner(
+            'gh',
+            [
+                'run',
+                'list',
+                '--workflow',
+                'release-image.yml',
+                '--event',
+                'push',
+                '--commit',
+                sha,
+                '--json',
+                'databaseId,status,conclusion,headBranch,url'
+            ],
+            { cwd, allowFail: true }
+        )
+        let workflowRun = null
+        if (listed.status === 0) {
+            try {
+                const runs = JSON.parse(listed.stdout)
+                if (Array.isArray(runs)) workflowRun = runs.find((item) => item && item.headBranch === tag) || null
+            } catch {
+                workflowRun = null
+            }
+        }
+        if (workflowRun?.status === 'completed') {
+            if (workflowRun.conclusion !== 'success') {
+                throw new ReleaseError(
+                    `${RELEASE_IMAGE_WORKFLOW} run ${workflowRun.url || '(URL unavailable)'} completed with conclusion ${
+                        workflowRun.conclusion || 'unknown'
+                    }. Resume with ${resumeCommand} after the run passes.`
+                )
+            }
+            const manifest = await anonymousManifestExists(version, fetchImpl, image)
+            if (manifest.ok) {
+                log(`  ${RELEASE_IMAGE_WORKFLOW} run passed and ${image}:${version} is available.`)
+                return true
+            }
         }
         const current = now()
         if (current >= deadline) break
         const elapsedSeconds = Math.max(0, Math.floor((current - started) / 1000))
-        log(`  Still waiting for the image (${elapsedSeconds}s elapsed).`)
+        log(`  Still waiting for the workflow run and image (${elapsedSeconds}s elapsed).`)
         await sleep(Math.min(pollMs, Math.max(0, deadline - current)))
     }
     throw new ReleaseError(
-        `Timed out waiting for ${image}:${version} from ${RELEASE_IMAGE_WORKFLOW}. Check that workflow run, then resume with ${resumeCommand} after the image is available.`
+        `Timed out waiting for ${RELEASE_IMAGE_WORKFLOW} run for ${tag} to pass and ${image}:${version} to be available. Check that workflow run, then resume with ${resumeCommand}.`
     )
 }
 
@@ -867,7 +907,10 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         if (!opts.local) {
             lines.push(formatCommand('git', ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/v${state.version}`]))
             for (const cmd of plan.push) lines.push(formatCommand('docker', cmd))
-            if (!opts.push) lines.push(`wait for ${state.workflowImage}:${state.version} from ${RELEASE_IMAGE_WORKFLOW}`)
+            if (!opts.push)
+                lines.push(
+                    `wait for the ${RELEASE_IMAGE_WORKFLOW} run for v${state.version} to pass and ${state.workflowImage}:${state.version} to be available`
+                )
             lines.push(
                 opts.publish
                     ? formatCommand('gh', [
@@ -976,7 +1019,9 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
 
     if (opts.local) {
         say(`\nLocal release v${state.version} is ready. Nothing left this machine.`)
-        say(`Next: pnpm release ${state.version}            push the commit and tag, wait for the workflow image, draft the GitHub release`)
+        say(
+            `Next: pnpm release ${state.version}            push the commit and tag, wait for the workflow run and image, draft the GitHub release`
+        )
         say(`      pnpm release ${state.version} --local-image --push --publish   use the local fallback and publish`)
         say(`      pnpm release ${state.version} --npm   publish the npm packages from the tag, after both are public`)
         return 0
@@ -1001,15 +1046,18 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
     }
 
     if (!opts.push) {
-        step(`Wait for ${state.workflowImage}:${state.version}`)
+        step(`Wait for ${RELEASE_IMAGE_WORKFLOW} run for v${state.version}`)
         await waitForRegistryImage(
             {
                 image: state.workflowImage,
                 version: state.version,
+                sha,
+                cwd: root,
                 resumeCommand: `pnpm release ${state.version}${opts.localImage ? ' --local-image' : ''}${opts.publish ? ' --publish' : ''}`
             },
             {
                 fetchImpl: deps.fetch || globalThis.fetch,
+                runner: deps.run || run,
                 timeoutMs: deps.registryTimeoutMs,
                 pollMs: deps.registryPollMs,
                 now: deps.now,

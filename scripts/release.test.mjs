@@ -358,6 +358,7 @@ exit 0`
         'gh',
         `case "$1 $2" in
   "auth status") exit 0 ;;
+  "run list") echo '[{"databaseId":1,"status":"completed","conclusion":"success","headBranch":"v1.0.0","url":"https://github.com/acme/cuttlely/actions/runs/1"}]' ;;
   "release view") [ -f "${dir}/released" ] || exit 1; cat "${dir}/released" ;;
   "release create") case "$*" in *--draft*) echo true > "${dir}/released" ;; *) echo false > "${dir}/released" ;; esac ;;
   "release edit") echo false > "${dir}/released" ;;
@@ -402,7 +403,10 @@ test('dry run on a clean, synced main passes and changes nothing', (t) => {
     const res = f.runRelease(['--dry-run'])
     assert.equal(res.code, 0, res.out)
     assert.match(res.out, /Version 1\.0\.0 comes from CHANGELOG\.md/)
-    assert.match(res.out, /wait for ghcr\.io\/acme\/cuttlely:1\.0\.0 from \.github\/workflows\/release-image\.yml/)
+    assert.match(
+        res.out,
+        /wait for the \.github\/workflows\/release-image\.yml run for v1\.0\.0 to pass and ghcr\.io\/acme\/cuttlely:1\.0\.0 to be available/
+    )
     assert.match(res.out, /gh release create v1\.0\.0 .*--draft/)
     assert.doesNotMatch(res.out, /docker build|docker push/)
     assert.match(res.out, /Dry run passed/)
@@ -429,7 +433,10 @@ test('--local-image --publish waits for the workflow image without a registry pr
     t.after(f.cleanup)
     const res = f.runRelease(['--local-image', '--publish', '--dry-run'])
     assert.equal(res.code, 0, res.out)
-    assert.match(res.out, /wait for ghcr\.io\/acme\/cuttlely:1\.0\.0 from \.github\/workflows\/release-image\.yml/)
+    assert.match(
+        res.out,
+        /wait for the \.github\/workflows\/release-image\.yml run for v1\.0\.0 to pass and ghcr\.io\/acme\/cuttlely:1\.0\.0 to be available/
+    )
     assert.doesNotMatch(f.calls(), /manifest inspect/)
 })
 
@@ -487,7 +494,7 @@ test('a minor release bumps both package files; then a resumed run drafts, and -
     t.after(f.cleanup)
     const first = f.runRelease([])
     assert.equal(first.code, 0, first.out)
-    assert.match(first.out, /Wait for ghcr\.io\/acme\/cuttlely:1\.0\.0/)
+    assert.match(first.out, /Wait for \.github\/workflows\/release-image\.yml run for v1\.0\.0/)
     assert.doesNotMatch(f.calls(), /docker /)
     assert.equal(fs.readFileSync(`${f.dir}/released`, 'utf8').trim(), 'true')
     assert.match(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), /refs\/tags\/v1\.0\.0/)
@@ -692,14 +699,47 @@ test('the manifest check is anonymous and stays on ghcr.io', async () => {
     assert.deepEqual(down, { ok: false, error: true })
 })
 
-test('the registry wait is bounded, reports progress and can use short test intervals', async () => {
+test('the workflow wait succeeds after an in-progress poll and confirms the manifest', async () => {
     let clock = 0
-    let attempts = 0
+    let runAttempts = 0
+    let manifestAttempts = 0
     const lines = []
     await waitForRegistryImage(
-        { image: 'ghcr.io/cuttlely/cuttlely', version: '1.5.3' },
+        { image: 'ghcr.io/cuttlely/cuttlely', version: '1.5.3', sha: 'release-sha' },
         {
-            fetchImpl: async () => manifestResponse(++attempts >= 3 ? 200 : 404),
+            runner: (cmd, args, options) => {
+                runAttempts += 1
+                assert.equal(cmd, 'gh')
+                assert.deepEqual(args, [
+                    'run',
+                    'list',
+                    '--workflow',
+                    'release-image.yml',
+                    '--event',
+                    'push',
+                    '--commit',
+                    'release-sha',
+                    '--json',
+                    'databaseId,status,conclusion,headBranch,url'
+                ])
+                assert.equal(options.allowFail, true)
+                return {
+                    status: 0,
+                    stdout: JSON.stringify([
+                        {
+                            databaseId: 1,
+                            status: runAttempts === 1 ? 'in_progress' : 'completed',
+                            conclusion: runAttempts === 1 ? null : 'success',
+                            headBranch: 'v1.5.3',
+                            url: 'https://github.com/cuttlely/cuttlely/actions/runs/1'
+                        }
+                    ])
+                }
+            },
+            fetchImpl: async () => {
+                manifestAttempts += 1
+                return manifestResponse(200)
+            },
             timeoutMs: 50,
             pollMs: 5,
             now: () => clock,
@@ -709,20 +749,117 @@ test('the registry wait is bounded, reports progress and can use short test inte
             log: (line) => lines.push(line)
         }
     )
-    assert.equal(attempts, 3)
+    assert.equal(runAttempts, 2)
+    assert.equal(manifestAttempts, 1)
     assert.match(lines.join('\n'), /Still waiting/)
-    assert.match(lines.join('\n'), /is available/)
+    assert.match(lines.join('\n'), /run passed.*is available/)
+})
 
-    clock = 0
+test('a completed unsuccessful workflow run names its URL and the resume command', async () => {
     await assert.rejects(
         waitForRegistryImage(
             {
                 image: 'ghcr.io/cuttlely/cuttlely',
                 version: '1.5.3',
+                sha: 'release-sha',
                 resumeCommand: 'pnpm release 1.5.3 --publish'
             },
             {
-                fetchImpl: async () => manifestResponse(404),
+                runner: () => ({
+                    status: 0,
+                    stdout: JSON.stringify([
+                        {
+                            databaseId: 2,
+                            status: 'completed',
+                            conclusion: 'failure',
+                            headBranch: 'v1.5.3',
+                            url: 'https://github.com/cuttlely/cuttlely/actions/runs/2'
+                        }
+                    ])
+                }),
+                fetchImpl: async () => {
+                    throw new Error('the manifest must not be checked')
+                },
+                log: () => {}
+            }
+        ),
+        (error) => {
+            assert.ok(error instanceof ReleaseError)
+            assert.match(error.message, /https:\/\/github\.com\/cuttlely\/cuttlely\/actions\/runs\/2/)
+            assert.match(error.message, /pnpm release 1\.5\.3 --publish/)
+            return true
+        }
+    )
+})
+
+test('a workflow run for another tag is ignored', async () => {
+    let clock = 0
+    let runAttempts = 0
+    let manifestAttempts = 0
+    await waitForRegistryImage(
+        { image: 'ghcr.io/cuttlely/cuttlely', version: '1.5.3', sha: 'release-sha' },
+        {
+            runner: () => {
+                runAttempts += 1
+                return {
+                    status: 0,
+                    stdout: JSON.stringify([
+                        {
+                            databaseId: runAttempts,
+                            status: 'completed',
+                            conclusion: 'success',
+                            headBranch: runAttempts === 1 ? 'v1.5.2' : 'v1.5.3',
+                            url: `https://github.com/cuttlely/cuttlely/actions/runs/${runAttempts}`
+                        }
+                    ])
+                }
+            },
+            fetchImpl: async () => {
+                manifestAttempts += 1
+                return manifestResponse(200)
+            },
+            timeoutMs: 20,
+            pollMs: 5,
+            now: () => clock,
+            sleep: async (ms) => {
+                clock += ms
+            },
+            log: () => {}
+        }
+    )
+    assert.equal(runAttempts, 2)
+    assert.equal(manifestAttempts, 1)
+})
+
+test('an existing manifest alone does not end the bounded workflow wait', async () => {
+    let clock = 0
+    let manifestAttempts = 0
+
+    await assert.rejects(
+        waitForRegistryImage(
+            {
+                image: 'ghcr.io/cuttlely/cuttlely',
+                version: '1.5.3',
+                sha: 'release-sha',
+                resumeCommand: 'pnpm release 1.5.3 --publish'
+            },
+            {
+                runner: () => ({
+                    status: 0,
+                    stdout: JSON.stringify([
+                        {
+                            databaseId: 3,
+                            status: 'in_progress',
+                            conclusion: null,
+                            headBranch: 'v1.5.3',
+                            url: 'https://github.com/cuttlely/cuttlely/actions/runs/3'
+                        }
+                    ])
+                }),
+                fetchImpl: async () => {
+                    manifestAttempts += 1
+                    return manifestResponse(200)
+                },
                 timeoutMs: 10,
                 pollMs: 5,
                 now: () => clock,
@@ -734,6 +871,7 @@ test('the registry wait is bounded, reports progress and can use short test inte
         ),
         /release-image\.yml.*pnpm release 1\.5\.3 --publish/
     )
+    assert.equal(manifestAttempts, 0)
 })
 
 test('npm publish problems name every refusal and never the token', () => {
