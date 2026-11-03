@@ -5,6 +5,7 @@ import './Markdown.css'
 import { CodeBlock } from '../markdown/CodeBlock'
 import rehypeMathjax from 'rehype-mathjax'
 import { containsLaTeX, preprocessLatex, remarkPluginsFor } from './math.mjs'
+import SortableTable from './SortableTable'
 
 /**
  * Enhanced Markdown component with memoization for better performance
@@ -39,6 +40,7 @@ export const MemoizedReactMarkdown = memo(
                     remarkPlugins={remarkPlugins}
                     rehypePlugins={rehypePlugins}
                     components={{
+                        table: SortableTable,
                         code({ inline, className, children, ...codeProps }) {
                             const match = /language-(\w+)/.exec(className || '')
                             return !inline ? (

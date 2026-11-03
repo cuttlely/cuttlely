@@ -5,6 +5,7 @@ import { ChatWidget } from './widget.js'
 export { ChatWidget }
 export { renderMarkdown, escapeHtml, safeUrl } from './markdown.js'
 export { normalizeConfig } from './config.js'
+export { tableRowOrder } from './tables.js'
 
 export const ELEMENT_NAME = 'cuttlely-chat'
 
