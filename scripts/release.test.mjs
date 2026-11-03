@@ -600,6 +600,18 @@ test('the release image workflow has narrow permissions, pinned actions and env-
         assert.doesNotMatch(block, /\$\{\{\s*github\.ref_name/)
     }
 
+    const checkout = text.indexOf('- uses: actions/checkout@')
+    const diskStep = text.indexOf('- name: Free runner disk space')
+    const setupNode = text.indexOf('- uses: actions/setup-node@')
+    assert.ok(checkout >= 0 && diskStep > checkout && diskStep < setupNode)
+    const diskBlock = text.slice(diskStep, setupNode)
+    assert.match(
+        diskBlock,
+        /sudo rm -rf \/usr\/share\/dotnet \/usr\/local\/lib\/android \/opt\/ghc \/usr\/local\/\.ghcup \/opt\/hostedtoolcache\/CodeQL/
+    )
+    assert.match(diskBlock, /df -h \//)
+    assert.doesNotMatch(diskBlock, /\$\{\{/)
+
     const checkBuild = text.slice(text.indexOf('- name: Build linux/amd64 release check'), text.indexOf('- name: Build and push'))
     assert.match(checkBuild, /docker\/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc/)
     assert.match(checkBuild, /platforms: linux\/amd64/)
@@ -611,7 +623,10 @@ test('the release image workflow has narrow permissions, pinned actions and env-
     assert.match(checkBuild, /sbom: false/)
     assert.match(checkBuild, /IMAGE_TAG: cuttlely-release-check:\$\{\{ github\.run_id \}\}/)
     assert.match(checkBuild, /await checkImage\(process\.env\.IMAGE_TAG\)/)
-    assert.doesNotMatch(checkBuild.match(/run: \|[\s\S]*$/)?.[0] || '', /\$\{\{/)
+    assert.match(checkBuild, /- name: Remove release check image/)
+    assert.match(checkBuild, /docker image rm "\$IMAGE_TAG" \|\| true/)
+    assert.equal(checkBuild.match(/IMAGE_TAG: cuttlely-release-check:\$\{\{ github\.run_id \}\}/g)?.length, 2)
+    assert.doesNotMatch(checkBuild, /docker image rm[^\n]*\$\{\{/)
 })
 
 function manifestResponse(status, { wwwAuthenticate, body, ok } = {}) {

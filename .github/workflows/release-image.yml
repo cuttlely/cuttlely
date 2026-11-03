@@ -34,6 +34,10 @@ jobs:
               with:
                   ref: ${{ inputs.ref || github.ref }}
                   persist-credentials: false
+            - name: Free runner disk space
+              run: |
+                  sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+                  df -h /
             - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
               with:
                   node-version: 24
@@ -106,6 +110,12 @@ jobs:
 
                   await checkImage(process.env.IMAGE_TAG)
                   NODE
+            - name: Remove release check image
+              env:
+                  IMAGE_TAG: cuttlely-release-check:${{ github.run_id }}
+              run: |
+                  docker image rm "$IMAGE_TAG" || true
+            # This runs on the same buildx builder, reusing the check's linux/amd64 layers so only linux/arm64 builds under QEMU.
             - name: Build and push
               id: build
               uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

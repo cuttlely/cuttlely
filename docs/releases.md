@@ -93,7 +93,7 @@ It then runs these steps, in order:
 
 The image flags are:
 
--   `--local-image` is the fallback. It keeps the prior maintainer-machine Docker build and start-and-ping check. Add `--push` to push that build; a capable buildx builder pushes both platforms, and another builder pushes `linux/amd64`.
+-   `--local-image` is the fallback. It keeps the prior maintainer-machine Docker build and start-and-ping check. Add `--push` to push that build. The pushed release includes `linux/arm64` only when the maintainer's buildx builder can build it; otherwise it includes `linux/amd64`, which Apple silicon runs under emulation.
 -   `--push` is accepted only with `--local-image`. When the push completes, the release continues without an anonymous registry wait.
 -   `--image <name>` and `--skip-image-check` also apply only to the local image path. The workflow publishes only to `ghcr.io/<owner>/<repo>`, so a custom `--image` requires `--push`.
 -   `--publish` publishes the GitHub release after the workflow registry wait or the completed local push instead of leaving a draft.
