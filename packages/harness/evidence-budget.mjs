@@ -40,3 +40,22 @@ export function evidenceBudget(specialist) {
         turnChars: Math.max(200000, mcpResultChars * 2)
     }
 }
+
+// The model label a specialist sends to the runtime. For an expanded budget, use the selected model name so
+// the runtime resolves its real context window and applies its cap, instead of treating the profile alias as
+// an unknown model. Default budgets keep the profile alias, and so does any specialist with a fallback route,
+// its own or the one it inherits from Harness Prime, because the fallback may have a smaller context window.
+// The compiled profile default and every request path share this choice, because the runtime honors a
+// request's model ahead of the profile default.
+export const CONTEXT_MODEL_NAME = /^[A-Za-z0-9._:/@-]{1,200}$/
+
+export function specialistContextModel(specialist, chief) {
+    const selectedModel = specialist?.model?.inputs?.modelName
+    const hasFallback = Boolean(specialist?.fallbackModel || chief?.fallbackModel?.nodeName)
+    return evidenceBudget(specialist).bytes > DEFAULT_EVIDENCE_BYTES &&
+        !hasFallback &&
+        typeof selectedModel === 'string' &&
+        CONTEXT_MODEL_NAME.test(selectedModel)
+        ? selectedModel
+        : specialist.profileName
+}
