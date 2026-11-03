@@ -23,7 +23,7 @@ The value is kept when you export and import the canvas.
 ## What does not change
 
 -   Output-token limits and report validation stay the same.
--   A model with a small context still gets a smaller cap.
+-   Specialist runs use the selected context model, so a model with a small context still gets a smaller cap.
 -   Source reports are the same; only the detail available for analysis changes.
 
 See [Server settings](./server-settings.md#protected-source-evidence) and [Evidence budget](../reference/trusted-outputs.md#evidence-budget).

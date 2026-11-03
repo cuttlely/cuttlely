@@ -40,7 +40,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.5.1?
 
--   **Evidence budget (bytes)** under **Admin** > **Agent runtime** > **Limits** sets how much protected source detail specialists get for analysis, and a Harness Specialist can set its own. The default stays at 40000 bytes. See [Set the evidence budget](./docs/how-to/evidence-budget.md).
+-   **Evidence budget (bytes)** under **Admin** > **Agent runtime** > **Limits** sets how much protected source detail specialists get for analysis, and a Harness Specialist can set its own. The default stays at 40000 bytes. Specialist runs use the selected context model, so the budget cap matches that model. See [Set the evidence budget](./docs/how-to/evidence-budget.md).
 -   Importing an exported chatflow, and **Sync Nodes**, keep a connection whose saved output handle lists a single class, so the chain keeps its chat model and memory.
 -   No breaking changes; read the [1.5.1 changelog](./CHANGELOG.md#151---2026-11-02). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.5.1`, or run `npm i cuttlely@1.5.1`.
 

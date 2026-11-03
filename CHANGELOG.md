@@ -12,6 +12,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Specialist runs now use the selected context model, so the configured evidence budget cap applies, both for a routed turn and for `run_specialist`. Before, runs sent the profile alias, so large-context models got less evidence than the configured budget and small-context models missed their model-specific cap. Specialists on the default budget, or with a fallback model, keep their current behavior. [#395](https://github.com/cuttlely/cuttlely/pull/395).
+
 -   Importing an exported chatflow, with or without the import wizard, and **Sync Nodes** now keep a connection whose saved output handle lists a single class, such as `chatOpenAI_0-output-chatOpenAI-ChatOpenAI`, or no class. Before, such connections were removed with "the output it came from is no longer on …", which left the chain without its chat model or memory so it could not chat. Handles that list several classes, and anchor names that contain dashes, match as before. Older exports that were already imported and saved without these connections need them connected again, or the export imported again. Refs [#362](https://github.com/cuttlely/cuttlely/issues/362). [#393](https://github.com/cuttlely/cuttlely/pull/393).
 
 ### Upgrade notes / breaking changes
