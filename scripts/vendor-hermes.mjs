@@ -29,6 +29,16 @@ export const OWN_FILES = ['CUTTLELY_VENDOR.txt', 'CUTTLELY_EXCLUDE.txt', 'CUTTLE
 export const BUILD_METADATA = ['.python-version', 'pyproject.toml', 'uv.lock', 'pm/lock.json']
 const OWN_DIRS = ['patches/']
 const BOT = { name: 'cuttlely vendor', email: 'vendor@cuttlely.invalid', date: '2000-01-01T00:00:00Z' }
+const REPOSITORY_ENV = [
+    'GIT_DIR',
+    'GIT_WORK_TREE',
+    'GIT_INDEX_FILE',
+    'GIT_COMMON_DIR',
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CEILING_DIRECTORIES',
+    'GIT_DISCOVERY_ACROSS_FILESYSTEM'
+]
 
 export class VendorError extends Error {}
 
@@ -42,6 +52,7 @@ function run(cmd, args, opts = {}) {
 }
 
 function git(cwd, args, opts = {}) {
+    const { clearRepositoryEnv = false, ...runOpts } = opts
     const env = {
         ...process.env,
         GIT_AUTHOR_NAME: BOT.name,
@@ -52,7 +63,12 @@ function git(cwd, args, opts = {}) {
         GIT_COMMITTER_DATE: BOT.date,
         ...(opts.env || {})
     }
-    return run('git', ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...args], { cwd, ...opts, env })
+    if (clearRepositoryEnv) for (const name of REPOSITORY_ENV) delete env[name]
+    return run('git', ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...args], { cwd, ...runOpts, env })
+}
+
+function cacheGit(cwd, args, opts = {}) {
+    return git(cwd, args, { ...opts, clearRepositoryEnv: true })
 }
 
 export function paths(root = SCRIPT_ROOT, env = process.env) {
@@ -435,10 +451,10 @@ function clearStaging(p) {
 
 export function fetchUpstream(p, ref) {
     fs.mkdirSync(p.cache, { recursive: true })
-    if (!fs.existsSync(p.mirror)) git(p.cache, ['init', '-q', '--bare', p.mirror])
-    git(p.mirror, ['fetch', '-q', '--depth', '1', '--no-tags', p.upstream, ref])
-    const commit = git(p.mirror, ['rev-parse', 'FETCH_HEAD^{commit}']).stdout.trim()
-    const date = git(p.mirror, ['log', '-1', '--format=%cI', commit]).stdout.trim()
+    if (!fs.existsSync(p.mirror)) cacheGit(p.cache, ['init', '-q', '--bare', p.mirror])
+    cacheGit(p.mirror, ['fetch', '-q', '--depth', '1', '--no-tags', p.upstream, ref])
+    const commit = cacheGit(p.mirror, ['rev-parse', 'FETCH_HEAD^{commit}']).stdout.trim()
+    const date = cacheGit(p.mirror, ['log', '-1', '--format=%cI', commit]).stdout.trim()
     return { commit, date }
 }
 
@@ -446,12 +462,12 @@ export function fetchUpstream(p, ref) {
 // `previous` is the commit vendored before; its files let a patch apply three-way and leave conflict markers.
 export function buildBase(p, commit, previous) {
     clearStaging(p)
-    git(p.cache, ['init', '-q', p.staging])
-    if (previous && previous !== commit) git(p.staging, ['fetch', '-q', '--depth', '1', p.mirror, previous])
-    git(p.staging, ['fetch', '-q', '--depth', '1', p.mirror, commit])
-    git(p.staging, ['checkout', '-q', '-b', 'vendor', commit])
+    cacheGit(p.cache, ['init', '-q', p.staging])
+    if (previous && previous !== commit) cacheGit(p.staging, ['fetch', '-q', '--depth', '1', p.mirror, previous])
+    cacheGit(p.staging, ['fetch', '-q', '--depth', '1', p.mirror, commit])
+    cacheGit(p.staging, ['checkout', '-q', '-b', 'vendor', commit])
     const patterns = parseExcludes(fs.readFileSync(p.exclude, 'utf8'))
-    const all = git(p.staging, ['ls-files', '-z']).stdout.split('\0').filter(Boolean)
+    const all = cacheGit(p.staging, ['ls-files', '-z']).stdout.split('\0').filter(Boolean)
     const excluded = all.filter((file) => excludedBy(file, patterns))
     const rest = all.filter((file) => !excludedBy(file, patterns))
     const ignored = rest.length
@@ -477,16 +493,16 @@ export function buildBase(p, commit, previous) {
         subset = notIgnored.filter((file) => !keep.has(file))
     }
     const drop = [...excluded, ...ignored, ...subset]
-    for (let i = 0; i < drop.length; i += 500) git(p.staging, ['rm', '-q', '--cached', '--', ...drop.slice(i, i + 500)])
+    for (let i = 0; i < drop.length; i += 500) cacheGit(p.staging, ['rm', '-q', '--cached', '--', ...drop.slice(i, i + 500)])
     for (const file of drop) fs.rmSync(path.join(p.staging, file), { force: true })
-    git(p.staging, ['commit', '-q', '--allow-empty', '-m', `upstream ${commit} minus excluded paths`])
-    git(p.staging, ['tag', 'base'])
+    cacheGit(p.staging, ['commit', '-q', '--allow-empty', '-m', `upstream ${commit} minus excluded paths`])
+    cacheGit(p.staging, ['tag', 'base'])
     return { excluded: excluded.length, ignored, subset: subset.length }
 }
 
 function applyPatches(p, patches) {
     if (!patches.length) return { ok: true }
-    const res = git(p.staging, ['am', '-q', '-3', '--keep-cr', ...patches.map((patch) => patch.file)], { allowFail: true })
+    const res = cacheGit(p.staging, ['am', '-q', '-3', '--keep-cr', ...patches.map((patch) => patch.file)], { allowFail: true })
     if (res.status === 0) return { ok: true }
     return { ok: false, detail: (res.stderr || res.stdout || '').trim() }
 }
@@ -495,7 +511,7 @@ function stoppedMessage(p) {
     const current = fs.existsSync(path.join(p.staging, '.git', 'rebase-apply', 'final-commit'))
         ? fs.readFileSync(path.join(p.staging, '.git', 'rebase-apply', 'final-commit'), 'utf8').split('\n')[0]
         : 'a patch'
-    let conflicts = git(p.staging, ['diff', '--name-only', '--diff-filter=U'], { allowFail: true }).stdout.trim()
+    let conflicts = cacheGit(p.staging, ['diff', '--name-only', '--diff-filter=U'], { allowFail: true }).stdout.trim()
     const failed = path.join(p.staging, '.git', 'rebase-apply', 'patch')
     if (!conflicts && fs.existsSync(failed)) conflicts = patchFiles(fs.readFileSync(failed, 'utf8')).files.join('\n')
     return [
@@ -511,12 +527,17 @@ function stoppedMessage(p) {
 // Patch files from the staging commits after base, one per commit, with stable headers.
 export function exportPatches(p) {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-patches-'))
-    git(p.staging, ['format-patch', '-q', '-N', '--zero-commit', '--no-signature', '--full-index', '-o', out, 'base..HEAD'])
-    return out
+    try {
+        cacheGit(p.staging, ['format-patch', '-q', '-N', '--zero-commit', '--no-signature', '--full-index', '-o', out, 'base..HEAD'])
+        return out
+    } catch (error) {
+        fs.rmSync(out, { recursive: true, force: true })
+        throw error
+    }
 }
 
 function stagingFiles(p) {
-    return git(p.staging, ['ls-files', '-z']).stdout.split('\0').filter(Boolean).sort()
+    return cacheGit(p.staging, ['ls-files', '-z']).stdout.split('\0').filter(Boolean).sort()
 }
 
 // Replace hermes/ with the staging tree. Files Cuttlely owns and anything untracked or ignored (.venv) stay.
@@ -567,16 +588,20 @@ export function swapIn(p, patchDir, { ref, commit }) {
 
 function finish(p, state, log) {
     const patchDir = exportPatches(p)
-    const result = swapIn(p, patchDir, state)
-    clearStaging(p)
-    log(`Vendored ${state.ref} (${state.commit}${state.date ? `, ${state.date}` : ''}).`)
-    log(`hermes/: ${result.changed} file(s) written, ${result.removed} removed. Patches: ${result.patches.join(', ') || 'none'}.`)
-    if (state.ignored?.length) {
-        log(`Dropped because .gitignore matches them (${state.ignored.length}):`)
-        for (const file of state.ignored) log(`  ${file}`)
+    try {
+        const result = swapIn(p, patchDir, state)
+        clearStaging(p)
+        log(`Vendored ${state.ref} (${state.commit}${state.date ? `, ${state.date}` : ''}).`)
+        log(`hermes/: ${result.changed} file(s) written, ${result.removed} removed. Patches: ${result.patches.join(', ') || 'none'}.`)
+        if (state.ignored?.length) {
+            log(`Dropped because .gitignore matches them (${state.ignored.length}):`)
+            for (const file of state.ignored) log(`  ${file}`)
+        }
+        log('Next: bash scripts/setup-hermes.sh, then pnpm verify.')
+        return result
+    } finally {
+        fs.rmSync(patchDir, { recursive: true, force: true })
     }
-    log('Next: bash scripts/setup-hermes.sh, then pnpm verify.')
-    return result
 }
 
 function preflight(p) {
@@ -607,13 +632,13 @@ export function vendor(p, ref, log = console.log) {
 export function resume(p, log = console.log) {
     const state = readState(p)
     if (!state) throw new VendorError('Nothing to continue.')
-    const res = git(p.staging, ['am', '--continue'], { allowFail: true })
+    const res = cacheGit(p.staging, ['am', '--continue'], { allowFail: true })
     if (res.status !== 0) throw new VendorError(stoppedMessage(p))
     return finish(p, state, log)
 }
 
 export function abort(p, log = console.log) {
-    if (fs.existsSync(path.join(p.staging, '.git', 'rebase-apply'))) git(p.staging, ['am', '--abort'], { allowFail: true })
+    if (fs.existsSync(path.join(p.staging, '.git', 'rebase-apply'))) cacheGit(p.staging, ['am', '--abort'], { allowFail: true })
     clearStaging(p)
     log('Dropped the staging copy. hermes/ is unchanged.')
 }
@@ -660,14 +685,14 @@ export function savePatches(p, { name, message } = {}, log = console.log) {
             fs.mkdirSync(path.dirname(to), { recursive: true })
             fs.copyFileSync(from, to)
             fs.chmodSync(to, fs.statSync(from).mode & 0o777)
-            git(p.staging, ['add', '-f', '--', file])
+            cacheGit(p.staging, ['add', '-f', '--', file])
         } else if (fs.existsSync(to)) {
-            git(p.staging, ['rm', '-q', '--', file])
+            cacheGit(p.staging, ['rm', '-q', '--', file])
         }
     }
     const commitFiles = (files, subject, body) => {
         for (const file of files) copyFromHermes(file)
-        git(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
+        cacheGit(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
     }
     for (const patch of patches) {
         const touched = patchFiles(patch.text).files
@@ -677,7 +702,7 @@ export function savePatches(p, { name, message } = {}, log = console.log) {
         if (continued.length) {
             // Replay the earlier patch as written. Copying the working tree here would fold a
             // later patch's edit into this one.
-            const applied = git(p.staging, ['apply', '--index', patch.file], { allowFail: true })
+            const applied = cacheGit(p.staging, ['apply', '--index', patch.file], { allowFail: true })
             if (applied.status !== 0) {
                 clearStaging(p)
                 throw new VendorError(
@@ -689,7 +714,7 @@ export function savePatches(p, { name, message } = {}, log = console.log) {
                 )
             }
             for (const file of finalFiles) copyFromHermes(file)
-            git(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
+            cacheGit(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
         } else {
             commitFiles(finalFiles, subject, body)
         }

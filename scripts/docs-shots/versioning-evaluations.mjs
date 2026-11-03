@@ -429,7 +429,20 @@ function githubStandIn(root) {
 }
 
 function spawnSyncGit(args) {
-    const result = spawnSync('git', args, { encoding: 'utf8' })
+    const env = { ...process.env }
+    for (const name of [
+        'GIT_DIR',
+        'GIT_WORK_TREE',
+        'GIT_INDEX_FILE',
+        'GIT_COMMON_DIR',
+        'GIT_OBJECT_DIRECTORY',
+        'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+        'GIT_CEILING_DIRECTORIES',
+        'GIT_DISCOVERY_ACROSS_FILESYSTEM'
+    ]) {
+        delete env[name]
+    }
+    const result = spawnSync('git', args, { encoding: 'utf8', env })
     if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${brief(result.stderr)}`)
 }
 
