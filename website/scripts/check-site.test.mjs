@@ -2,12 +2,19 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it } from 'node:test'
+import { after, describe, it } from 'node:test'
 import { checkSite, visibleText, homeFirstLoadBytes } from './check-site.mjs'
 import { mediaUrl } from './media-version.mjs'
 
+const siteDirs = new Set()
+
+after(() => {
+    for (const dir of siteDirs) fs.rmSync(dir, { recursive: true, force: true })
+})
+
 function site(files) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-site-'))
+    siteDirs.add(dir)
     for (const [rel, body] of Object.entries(files)) {
         fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
         fs.writeFileSync(path.join(dir, rel), body)

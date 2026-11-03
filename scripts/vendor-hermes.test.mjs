@@ -3,13 +3,15 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import test, { after } from 'node:test'
 import { isolateProcessEnv, testGit } from './test-git.mjs'
 import {
     abort,
     check,
     dataPathsInSource,
     excludedBy,
+    exportPatches,
+    fetchUpstream,
     filesToKeep,
     parseExcludes,
     parseLoaded,
@@ -24,6 +26,20 @@ import {
 const ID = ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false']
 isolateProcessEnv()
 const TMP = fs.realpathSync(os.tmpdir())
+const testDirs = new Set()
+
+after(() => {
+    if (process.env.KEEP_VENDOR_HERMES_TMP === '1') {
+        for (const dir of testDirs) console.log(`Keeping vendor test directory: ${dir}`)
+        return
+    }
+    for (const dir of testDirs) fs.rmSync(dir, { recursive: true, force: true })
+    assert.deepEqual(
+        [...testDirs].filter((dir) => fs.existsSync(dir)),
+        []
+    )
+})
+
 function git(cwd, ...args) {
     const res = testGit(cwd, args, { tmpRoot: TMP, prefix: ID })
     assert.equal(res.status, 0, res.stderr)
@@ -37,6 +53,7 @@ const quiet = () => {}
 
 function setup() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vendor-hermes-'))
+    testDirs.add(dir)
     const up = path.join(dir, 'upstream')
     write(path.join(up, 'README.md'), 'demo agent\n')
     write(path.join(up, 'agent/core.py'), 'def run():\n    return "core"\n')
@@ -61,6 +78,45 @@ function setup() {
     const p = paths(repo, { CUTTLELY_HERMES_UPSTREAM: up, CUTTLELY_HERMES_VENDOR_CACHE: path.join(dir, 'cache') })
     return { dir, up, repo, p }
 }
+
+test('cache git calls ignore repository paths inherited from a hook', () => {
+    const { dir, p } = setup()
+    const decoy = path.join(dir, 'decoy')
+    git(dir, 'init', '-q', '-b', 'main', decoy)
+    const before = git(decoy, 'config', '--bool', 'core.bare').trim()
+    const oldDir = process.env.GIT_DIR
+    const oldWorkTree = process.env.GIT_WORK_TREE
+    process.env.GIT_DIR = path.join(decoy, '.git')
+    process.env.GIT_WORK_TREE = decoy
+    try {
+        fetchUpstream(p, 'v1')
+        assert.equal(git(decoy, 'config', '--bool', 'core.bare').trim(), before)
+    } finally {
+        if (oldDir === undefined) delete process.env.GIT_DIR
+        else process.env.GIT_DIR = oldDir
+        if (oldWorkTree === undefined) delete process.env.GIT_WORK_TREE
+        else process.env.GIT_WORK_TREE = oldWorkTree
+    }
+})
+
+test('source scratch directories are removed after use and after an error', () => {
+    const { dir, p } = setup()
+    vendor(p, 'v1', quiet)
+    const scratchRoot = path.join(dir, 'source-tmp')
+    fs.mkdirSync(scratchRoot)
+    const oldTmpDir = process.env.TMPDIR
+    process.env.TMPDIR = scratchRoot
+    try {
+        assert.deepEqual(check(p), [])
+        assert.deepEqual(fs.readdirSync(scratchRoot), [])
+        assert.throws(() => exportPatches(p), /git/)
+        assert.deepEqual(fs.readdirSync(scratchRoot), [])
+    } finally {
+        if (oldTmpDir === undefined) delete process.env.TMPDIR
+        else process.env.TMPDIR = oldTmpDir
+    }
+})
+
 function commitAll(repo, message) {
     git(repo, 'add', '-A')
     git(repo, 'commit', '-q', '-m', message)
