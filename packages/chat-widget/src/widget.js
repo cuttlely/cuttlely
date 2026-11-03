@@ -958,8 +958,9 @@ export class ChatWidget {
 
     renderPending() {
         if (!this.pendingEl) return
-        this.pendingEl.hidden = !this.pending.length
+        this.pendingEl.hidden = !this.pending.length && !this.pendingNote
         this.pendingEl.replaceChildren(
+            ...(this.pendingNote ? [h('div', { class: 'dc-pending-note', role: 'status', text: this.pendingNote })] : []),
             ...this.pending.map((item, index) =>
                 h('div', { class: 'dc-pending-item' }, [
                     item.file
@@ -984,8 +985,14 @@ export class ChatWidget {
         const img = this.config.imageUpload
         const doc = this.config.fileUpload
         if (!img && !doc) return
+        this.pendingNote = ''
         for (const file of Array.from(fileList || [])) {
-            if (this.pending.length >= 4) break
+            if (this.pending.length >= 4) {
+                // Shown as well as announced, so a sighted user sees the files that were left out.
+                this.pendingNote = `Up to 4 attachments per message. ${file.name} and any later files were not added.`
+                this.announce(this.pendingNote)
+                break
+            }
             if (!img?.types.includes(file.type)) {
                 const ext = /\.[^./\\]+$/.exec(String(file.name || '').toLowerCase())?.[0] || ''
                 if (!doc || !doc.types.includes(ext)) {
@@ -1123,6 +1130,7 @@ export class ChatWidget {
             this.autosize()
         }
         this.pending = []
+        this.pendingNote = ''
         this.renderPending()
 
         const user = {

@@ -55,7 +55,7 @@ describe('utilGetUploadsConfig with Full File Upload', () => {
         })
         const config = await utilGetUploadsConfig('flow-1')
         expect(config.isFullFileUploadAllowed).toBe(true)
-        expect(config.fullFileUploadTypes.sort()).toEqual(['.pdf', '.text', '.tsv', '.txt'])
+        expect(config.fullFileUploadTypes.sort()).toEqual(['.pdf', '.tsv', '.txt'])
     })
 
     it('reports no full file types when Full File Upload is off', async () => {

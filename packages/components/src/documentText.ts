@@ -268,8 +268,9 @@ export const fullFileUploadExtensions = (chatbotConfig?: string | null): string[
     } catch {
         return []
     }
+    // `text` and `markdown` are saved-file aliases; the upload check takes `.txt` and `.md` for those types.
     return Object.entries(CANONICAL_MIME_BY_EXT)
-        .filter(([, mime]) => isDocumentMimeAllowedByConfig(mime, chatbotConfig))
+        .filter(([ext, mime]) => ext !== 'text' && ext !== 'markdown' && isDocumentMimeAllowedByConfig(mime, chatbotConfig))
         .map(([ext]) => `.${ext}`)
 }
 
