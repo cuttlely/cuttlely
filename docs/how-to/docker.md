@@ -69,7 +69,7 @@ Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest r
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium, optional node packs, or the geolocation database out of that build.
 
-The image is built for `linux/amd64`. A release can also carry `linux/arm64` when it was built on a machine that can build both. On Apple silicon, Docker runs the `amd64` image under emulation.
+The release workflow publishes images for both `linux/amd64` and `linux/arm64`. Docker on Apple silicon uses the native `linux/arm64` image.
 
 `docker/docker-compose.yml` uses the same image and the same SQLite settings if you run Compose from that directory. The service name is `cuttlely`. `docker/Dockerfile` is not this image. Building it exits and tells you to use the root `Dockerfile`. Compose does not build it.
 

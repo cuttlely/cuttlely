@@ -88,15 +88,15 @@ It then runs these steps, in order:
 3. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
 4. Commit `Release vX.Y.Z` and create the annotated tag `vX.Y.Z`.
 5. Push the release commit and annotated tag. The tag starts `.github/workflows/release-image.yml`.
-6. The workflow builds the root `Dockerfile` for `linux/amd64` and `linux/arm64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
-7. Wait, with a bounded timeout and progress lines, until the versioned image is available in the registry. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
+6. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64` and `linux/arm64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
+7. Wait, with a bounded timeout and progress lines, until the workflow's versioned image is available in the registry. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
 The image flags are:
 
 -   `--local-image` is the fallback. It keeps the prior maintainer-machine Docker build and start-and-ping check. Add `--push` to push that build; a capable buildx builder pushes both platforms, and another builder pushes `linux/amd64`.
--   `--push` is accepted only with `--local-image`.
--   `--image <name>` and `--skip-image-check` also apply only to the local image path.
--   `--publish` publishes the GitHub release after the registry wait instead of leaving a draft.
+-   `--push` is accepted only with `--local-image`. When the push completes, the release continues without an anonymous registry wait.
+-   `--image <name>` and `--skip-image-check` also apply only to the local image path. The workflow publishes only to `ghcr.io/<owner>/<repo>`, so a custom `--image` requires `--push`.
+-   `--publish` publishes the GitHub release after the workflow registry wait or the completed local push instead of leaving a draft.
 -   `--local` implies `--local-image` and stops after the local build and check, so nothing leaves the machine.
 
 For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual run can select another `ref`; an empty value uses the branch where the run starts.

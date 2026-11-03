@@ -84,6 +84,28 @@ jobs:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Build linux/amd64 release check
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  platforms: linux/amd64
+                  load: true
+                  push: false
+                  tags: cuttlely-release-check:${{ github.run_id }}
+                  labels: ${{ steps.plan.outputs.labels }}
+                  cache-from: type=gha,scope=release-image
+                  provenance: false
+                  sbom: false
+            - name: Start release check image and wait for ping
+              env:
+                  IMAGE_TAG: cuttlely-release-check:${{ github.run_id }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { checkImage } from './scripts/release.mjs'
+
+                  await checkImage(process.env.IMAGE_TAG)
+                  NODE
             - name: Build and push
               id: build
               uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

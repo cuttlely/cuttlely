@@ -229,9 +229,15 @@ test('preflight lists every reason to refuse', () => {
         localImage: false,
         local: false,
         push: false,
-        publish: false
+        publish: false,
+        image: 'ghcr.io/acme/cuttlely',
+        workflowImage: 'ghcr.io/acme/cuttlely'
     }
     assert.deepEqual(preflightProblems(ok), [])
+    assert.deepEqual(preflightProblems({ ...ok, image: 'ghcr.io/acme/other' }), [
+        'The release image workflow publishes only to ghcr.io/acme/cuttlely. Use --push with a custom --image.'
+    ])
+    assert.deepEqual(preflightProblems({ ...ok, image: 'ghcr.io/acme/other', push: true }), [])
     const bad = preflightProblems({
         ...ok,
         dirty: [' M x'],
@@ -284,7 +290,13 @@ function fixture() {
     const log = path.join(dir, 'calls.log')
     const fetchStub = path.join(dir, 'fetch-stub.mjs')
     fs.mkdirSync(bin)
-    fs.writeFileSync(fetchStub, 'globalThis.fetch = async () => ({ status: 200, ok: true, headers: { get() { return null } } })\n')
+    fs.writeFileSync(
+        fetchStub,
+        `import { appendFileSync } from 'node:fs'\n` +
+            `globalThis.fetch = async () => { appendFileSync(${JSON.stringify(
+                log
+            )}, 'registry fetch\\n'); return { status: 200, ok: true, headers: { get() { return null } } } }\n`
+    )
     sh(dir, 'git', ['init', '-q', '--bare', '-b', 'main', origin])
     sh(dir, 'git', ['init', '-q', '-b', 'main', repo])
     for (const [k, v] of [
@@ -402,6 +414,17 @@ test('--local-image keeps the maintainer-machine image plan', (t) => {
     assert.match(f.calls(), /docker version/)
     assert.match(f.calls(), /docker buildx inspect/)
     assert.doesNotMatch(f.calls(), /docker build --platform|docker run/)
+})
+
+test('a local push does not start an anonymous registry wait', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    const local = f.runRelease(['--local', '--skip-image-check'])
+    assert.equal(local.code, 0, local.out)
+    const pushed = f.runRelease(['1.0.0', '--local-image', '--push', '--skip-image-check'])
+    assert.equal(pushed.code, 0, pushed.out)
+    assert.doesNotMatch(pushed.out, /Wait for ghcr\.io/)
+    assert.doesNotMatch(f.calls(), /registry fetch/)
 })
 
 test('dry run refuses a dirty tree, another branch, and a main that is behind origin', (t) => {
@@ -559,6 +582,19 @@ test('the release image workflow has narrow permissions, pinned actions and env-
         assert.doesNotMatch(block, /\$\{\{\s*inputs\./)
         assert.doesNotMatch(block, /\$\{\{\s*github\.ref_name/)
     }
+
+    const checkBuild = text.slice(text.indexOf('- name: Build linux/amd64 release check'), text.indexOf('- name: Build and push'))
+    assert.match(checkBuild, /docker\/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc/)
+    assert.match(checkBuild, /platforms: linux\/amd64/)
+    assert.match(checkBuild, /load: true/)
+    assert.match(checkBuild, /push: false/)
+    assert.match(checkBuild, /cache-from: type=gha,scope=release-image/)
+    assert.doesNotMatch(checkBuild, /cache-to:/)
+    assert.match(checkBuild, /provenance: false/)
+    assert.match(checkBuild, /sbom: false/)
+    assert.match(checkBuild, /IMAGE_TAG: cuttlely-release-check:\$\{\{ github\.run_id \}\}/)
+    assert.match(checkBuild, /await checkImage\(process\.env\.IMAGE_TAG\)/)
+    assert.doesNotMatch(checkBuild.match(/run: \|[\s\S]*$/)?.[0] || '', /\$\{\{/)
 })
 
 function manifestResponse(status, { wwwAuthenticate, body, ok } = {}) {

@@ -427,6 +427,8 @@ export function preflightProblems(state) {
     }
     if (state.localImage && !state.docker) problems.push('docker was not found. --local-image builds the image on this machine.')
     if (!state.local && !state.gh) problems.push('gh is not installed or not signed in (gh auth status). It creates the GitHub release.')
+    if (!state.push && state.image !== state.workflowImage)
+        problems.push(`The release image workflow publishes only to ${state.workflowImage}. Use --push with a custom --image.`)
     if (state.localImage && state.publish && !state.push && !state.imageInRegistry)
         problems.push(`--publish needs the image in the registry. Add --push, or push ${state.image}:${state.version} first.`)
     return problems
@@ -698,7 +700,8 @@ function readState(root, opts) {
         }
     }
 
-    const image = opts.image || defaultImage(slug)
+    const workflowImage = defaultImage(slug)
+    const image = opts.image || workflowImage
     const docker = opts.localImage ? has('docker', ['version', '--format', '{{.Server.Version}}']) : null
     const gh = has('gh', ['auth', 'status'])
     const imageInRegistry = docker && opts.publish && !opts.push ? has('docker', ['manifest', 'inspect', `${image}:${version}`]) : false
@@ -725,6 +728,7 @@ function readState(root, opts) {
         changelogText,
         changelogProblem,
         image,
+        workflowImage,
         docker,
         gh,
         imageInRegistry,
@@ -763,7 +767,7 @@ async function waitForPing(container) {
     return false
 }
 
-async function checkImage(tag) {
+export async function checkImage(tag) {
     const name = `cuttlely-release-check-${process.pid}`
     const volume = `${name}-data`
     run('docker', ['run', '-d', '--name', name, '-v', `${volume}:/var/cuttlely`, '-e', 'CUTTLELY_LOCAL_ADMIN=false', tag])
@@ -858,7 +862,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         if (!opts.local) {
             lines.push(formatCommand('git', ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/v${state.version}`]))
             for (const cmd of plan.push) lines.push(formatCommand('docker', cmd))
-            lines.push(`wait for ${state.image}:${state.version} from ${RELEASE_IMAGE_WORKFLOW}`)
+            if (!opts.push) lines.push(`wait for ${state.workflowImage}:${state.version} from ${RELEASE_IMAGE_WORKFLOW}`)
             lines.push(
                 opts.publish
                     ? formatCommand('gh', [
@@ -991,24 +995,24 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         }
     }
 
-    step(`Wait for ${state.image}:${state.version}`)
-    await waitForRegistryImage(
-        {
-            image: state.image,
-            version: state.version,
-            resumeCommand: `pnpm release ${state.version}${opts.localImage ? ' --local-image' : ''}${opts.push ? ' --push' : ''}${
-                opts.publish ? ' --publish' : ''
-            }`
-        },
-        {
-            fetchImpl: deps.fetch || globalThis.fetch,
-            timeoutMs: deps.registryTimeoutMs,
-            pollMs: deps.registryPollMs,
-            now: deps.now,
-            sleep: deps.sleep,
-            log: deps.log || say
-        }
-    )
+    if (!opts.push) {
+        step(`Wait for ${state.workflowImage}:${state.version}`)
+        await waitForRegistryImage(
+            {
+                image: state.workflowImage,
+                version: state.version,
+                resumeCommand: `pnpm release ${state.version}${opts.localImage ? ' --local-image' : ''}${opts.publish ? ' --publish' : ''}`
+            },
+            {
+                fetchImpl: deps.fetch || globalThis.fetch,
+                timeoutMs: deps.registryTimeoutMs,
+                pollMs: deps.registryPollMs,
+                now: deps.now,
+                sleep: deps.sleep,
+                log: deps.log || say
+            }
+        )
+    }
 
     step(opts.publish ? 'Publish the GitHub release' : 'Draft the GitHub release')
     const finalChangelog = fs.readFileSync(path.join(root, CHANGELOG), 'utf8')
