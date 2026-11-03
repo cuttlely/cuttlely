@@ -30,6 +30,8 @@ Opening backtick code fences release their info line at the newline instead of o
 
 Worker-facing source receipts now account for escaped MCP envelopes and stay under 48,000 bytes, below the worker’s 50,000-character spill threshold. Complete overviews stay whole; sampled evidence is reduced first. Focused tests pass; full release verification is pending for this revision.
 
+Complete recent answers are available to file-capable specialists as temporary Markdown inputs, scoped to the current harness/chat and run folder. The router receives a compact index, while the ordinary 1,500-character previews and prompt caps stay unchanged. Up to two answers share a 1 MiB UTF-8 budget; oversized answers are marked unavailable and omitted whole. Input folders are hidden from artifact discovery and removed on completion, failure or cancellation. Six focused checks cover exact source bytes and final sections, bounds, concurrent chat isolation, replay, ordinary non-file context and cleanup. Full verification is tracked per revision.
+
 # Status
 
 Path masking recognizes Markdown link boundaries consistently in full text and streams. Public HTTP(S) destinations survive labels with spaces, balanced parentheses and adjacent links, while local paths in labels, destinations and quoted titles remain hidden. Focused masking and report checks pass. Pre-execution argument refusals are explicitly marked by the PostgreSQL adapter and cannot erase a completed matching report in the same turn; executed failures remain strict. The earlier full gate exposed a JSON-format masking regression, now corrected; full verification and deployed behavior remain release-specific.
