@@ -13,7 +13,7 @@ import {
     routeSummary,
     traceQuestionForCaption
 } from '../../../../../packages/harness/trace.mjs'
-import { enhancedLine, formatElapsed, liveStatus, nextAnnouncement } from '../../../../../packages/harness/live-status.mjs'
+import { createEnhancedRotator, formatElapsed, liveStatus, nextAnnouncement } from '../../../../../packages/harness/live-status.mjs'
 
 const FILL_NOTE = {
     none: 'The tool took the question as its input.',
@@ -45,8 +45,10 @@ export function liveStatusFor(trace) {
 // The line under the header while a run is in progress: what the run is doing now, a ticking timer, and,
 // when the flow allows it, a lighter enhanced line once the same step has run for a few seconds.
 // Screen readers hear the status line at most once every few seconds; never the timer or the enhanced line.
-export function LiveStatusLine({ status, enhanced = true, startedAt }) {
+export function LiveStatusLine({ status, enhanced = true, startedAt, random }) {
     const [now, setNow] = useState(() => Date.now())
+    // One rotator per card: each phase's playful lines show in a shuffled order with no repeat until all have shown.
+    const [rotator] = useState(() => createEnhancedRotator(random ? { random } : {}))
     const [since, setSince] = useState(() => ({ line: status?.line || '', at: Date.now() }))
     const [announced, setAnnounced] = useState(() => nextAnnouncement(null, status?.line || '', Date.now()))
     const line = status?.line || ''
@@ -62,7 +64,7 @@ export function LiveStatusLine({ status, enhanced = true, startedAt }) {
     }, [line, now])
     if (!status) return null
     // A new real line replaces the enhanced one on the same render, before its own timer starts.
-    const extra = since.line === line ? enhancedLine(status.phase, now - since.at, enhanced) : ''
+    const extra = rotator.line(status.phase, since.line === line ? now - since.at : 0, enhanced)
     return (
         <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ alignItems: 'baseline' }} data-testid='live-status'>
             <Typography variant='body2' data-testid='live-status-line'>
@@ -104,7 +106,8 @@ const visuallyHidden = {
 LiveStatusLine.propTypes = {
     status: PropTypes.object,
     enhanced: PropTypes.bool,
-    startedAt: PropTypes.number
+    startedAt: PropTypes.number,
+    random: PropTypes.func
 }
 
 function routeLine(trace) {

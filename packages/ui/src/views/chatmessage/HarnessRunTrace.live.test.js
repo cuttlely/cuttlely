@@ -11,6 +11,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import HarnessRunTrace from './HarnessRunTrace'
 import { emptyTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
+import { ENHANCED_LINES, ENHANCED_ROTATE_MS } from '../../../../../packages/harness/live-status.mjs'
 
 const theme = createTheme()
 const store = createStore(() => ({ customization: { isDarkMode: false } }))
@@ -72,8 +73,12 @@ describe('live status line', () => {
         const { rerender } = render(card(fold(QUERYING)))
         expect(enhanced()).toBe('')
         act(() => jest.advanceTimersByTime(5000))
-        expect(enhanced()).toBe('Cross-checking the numbers…')
-        expect(screen.getByTestId('live-status-announce').textContent).not.toContain('Cross-checking')
+        const first = enhanced()
+        expect(ENHANCED_LINES.tool).toContain(first)
+        expect(screen.getByTestId('live-status-announce').textContent).not.toContain(first)
+        act(() => jest.advanceTimersByTime(ENHANCED_ROTATE_MS))
+        expect(ENHANCED_LINES.tool).toContain(enhanced())
+        expect(enhanced()).not.toBe(first)
         rerender(card(fold([...QUERYING, { type: 'tool', phase: 'done', specialist: 'sql_analyst', name: 'mcp__sql_analyst__query' }])))
         expect(line()).toBe('sql_analyst is thinking about the results…')
         expect(enhanced()).toBe('')
