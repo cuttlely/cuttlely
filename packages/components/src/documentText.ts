@@ -258,6 +258,21 @@ export const isDocumentMimeAllowedByConfig = (mime: string, chatbotConfig?: stri
     }
 }
 
+/**
+ * File extensions (lower case, with the dot) a chat can attach as full files, or an empty list when Full File Upload is off.
+ * Uses the same allow list check as the prediction API.
+ */
+export const fullFileUploadExtensions = (chatbotConfig?: string | null): string[] => {
+    try {
+        if (!chatbotConfig || JSON.parse(chatbotConfig)?.fullFileUpload?.status !== true) return []
+    } catch {
+        return []
+    }
+    return Object.entries(CANONICAL_MIME_BY_EXT)
+        .filter(([, mime]) => isDocumentMimeAllowedByConfig(mime, chatbotConfig))
+        .map(([ext]) => `.${ext}`)
+}
+
 const displayFileName = (filename: string): string => safeBaseName(filename)
 
 const cutToCap = (text: string, maxChars: number): { text: string; truncated: boolean } => {

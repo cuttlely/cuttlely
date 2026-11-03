@@ -555,4 +555,31 @@ describe('chat widget', () => {
         assert.match(style, /--dc-accent:#7a3b00/)
         assert.doesNotMatch(style, /--dc-user-bg/)
     })
+
+    it('shows the attach button when the flow takes full file uploads and sends the file with the question', async () => {
+        const t = setup({
+            config: () => json(200, { uploads: { isFullFileUploadAllowed: true, fullFileUploadTypes: ['.pdf', '.txt'] } }),
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Read it.' },
+                    { event: 'end', data: '[DONE]' }
+                ])
+        })
+        await until(() => t.$('textarea'))
+        const attach = t.$('.dc-attach')
+        assert.ok(attach, 'attach button is shown')
+        assert.equal(attach.getAttribute('aria-label'), 'Attach a file')
+        assert.equal(t.$('input[type=file]').getAttribute('accept'), '.pdf,.txt')
+        await t.widget.addFiles([new File(['made-up notes'], 'notes.txt', { type: 'text/plain' }), new File(['x'], 'run.exe')])
+        assert.equal(t.$$('.dc-pending-item').length, 1)
+        await type(t, 'Summarize the file')
+        await until(() => !t.widget.busy)
+        const call = t.server.calls.find((c) => c.path.startsWith('/api/v1/prediction/'))
+        assert.ok(call.body instanceof FormData)
+        assert.deepEqual(
+            call.body.getAll('files').map((file) => file.name),
+            ['notes.txt']
+        )
+        assert.equal(call.body.get('question'), 'Summarize the file')
+    })
 })

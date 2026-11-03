@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   The shared chat link and the embedded chat widget now show the paperclip attach button when **File Upload** is on for a chatflow, agentflow or harness chatflow, and send the picked documents with the question. Before, the button showed only when the flow took images. The uploads config response (`GET /api/v1/chatflows-uploads/:id` and the `uploads` field of the public chatbot config) adds `isFullFileUploadAllowed` and `fullFileUploadTypes`. See [Share and embed](./docs/how-to/share-and-embed.md).
+
 ## [1.5.2] - 2026-11-03
 
 ### Added

@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { INodeParams } from '@cuttlely/components'
+import { INodeParams, fullFileUploadExtensions } from '@cuttlely/components'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { getRunningExpressApp } from '../utils/getRunningExpressApp'
 import { IUploadFileSizeAndTypes, IReactFlowNode, IReactFlowEdge } from '../Interface'
@@ -11,6 +11,10 @@ export type IUploadConfig = {
     isRAGFileUploadAllowed: boolean
     imgUploadSizeAndTypes: IUploadFileSizeAndTypes[]
     fileUploadSizeAndTypes: IUploadFileSizeAndTypes[]
+    /** Full File Upload (Chatbot settings, File upload) is on. */
+    isFullFileUploadAllowed: boolean
+    /** File extensions, with the dot, that Full File Upload takes. Empty when it is off. */
+    fullFileUploadTypes: string[]
 }
 
 /**
@@ -32,7 +36,9 @@ export const utilGetUploadsConfig = async (chatflowid: string): Promise<IUploadC
  * The uploads a chatflow accepts, from its saved flow and speech to text settings. The chat UI and the embed widget show
  * upload buttons from this, and the prediction API refuses uploads it does not allow (uploadPermissions).
  */
-export const computeUploadsConfig = (chatflow: Pick<ChatFlow, 'flowData' | 'speechToText'>): IUploadConfig => {
+export const computeUploadsConfig = (
+    chatflow: Pick<ChatFlow, 'flowData' | 'speechToText'> & Partial<Pick<ChatFlow, 'chatbotConfig'>>
+): IUploadConfig => {
     const flowObj = JSON.parse(chatflow.flowData || '{}')
     const nodes: IReactFlowNode[] = flowObj.nodes ?? []
     const edges: IReactFlowEdge[] = flowObj.edges ?? []
@@ -154,11 +160,15 @@ export const computeUploadsConfig = (chatflow: Pick<ChatFlow, 'flowData' | 'spee
         }
     }
 
+    const fullFileUploadTypes = fullFileUploadExtensions(chatflow.chatbotConfig)
+
     return {
         isSpeechToTextEnabled,
         isImageUploadAllowed,
         isRAGFileUploadAllowed,
         imgUploadSizeAndTypes,
-        fileUploadSizeAndTypes
+        fileUploadSizeAndTypes,
+        isFullFileUploadAllowed: fullFileUploadTypes.length > 0,
+        fullFileUploadTypes
     }
 }

@@ -62,6 +62,9 @@ export function normalizeConfig(raw, overrides = {}) {
     const input = cfg.textInput && typeof cfg.textInput === 'object' ? cfg.textInput : {}
     const uploads = cfg.uploads && typeof cfg.uploads === 'object' ? cfg.uploads : {}
     const images = uploadTypes(uploads.imgUploadSizeAndTypes)
+    const fileTypes = Array.isArray(uploads.fullFileUploadTypes)
+        ? uploads.fullFileUploadTypes.filter((type) => typeof type === 'string' && /^\.[a-z0-9]+$/.test(type))
+        : []
     const fontSize = Number(cfg.fontSize)
     const merged = {
         title: text(cfg.title, 80),
@@ -77,6 +80,8 @@ export function normalizeConfig(raw, overrides = {}) {
         // Optional playful lines on the run card during long steps. On unless the flow turned it off.
         enhancedStatus: cfg.enhancedStatusMessages?.status !== false,
         imageUpload: uploads.isImageUploadAllowed && images.types.length ? images : null,
+        // Documents the flow takes whole (Chatbot settings, File upload). Extensions with the dot; the server cap is 25 MB.
+        fileUpload: uploads.isFullFileUploadAllowed && fileTypes.length ? { types: fileTypes, maxMB: 25 } : null,
         fontSize: Number.isFinite(fontSize) && fontSize >= 12 && fontSize <= 22 ? fontSize : 0,
         colors: {
             headerBg: safeColor(cfg.titleBackgroundColor, 'titleBackgroundColor'),
