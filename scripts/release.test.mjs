@@ -186,6 +186,7 @@ test('CI image plans release, test-tag and dispatch modes from one label source'
     assert.deepEqual(stable.tags, ['ghcr.io/cuttlely/cuttlely:1.5.3', 'ghcr.io/cuttlely/cuttlely:latest'])
     assert.equal(stable.latest, true)
     assert.equal(stable.guard, true)
+    assert.equal(stable.platforms, 'linux/amd64')
     assert.deepEqual(stable.labels, imageLabels({ version: '1.5.3', sha: base.sha, slug: base.slug, created: base.created }))
 
     const prerelease = ciImagePlan({ ...base, packageVersion: '1.5.3-rc.0', event: 'push', ref: 'v1.5.3-rc.0' })
@@ -201,23 +202,70 @@ test('CI image plans release, test-tag and dispatch modes from one label source'
     assert.deepEqual(testTag.tags, ['ghcr.io/cuttlely/cuttlely:ci-dryrun-42'])
     assert.equal(testTag.latest, false)
     assert.equal(testTag.guard, false)
+    assert.equal(testTag.platforms, 'linux/amd64')
 
     for (const [tag, packageVersion] of [
         ['ci-manual-42', '0.0.0'],
         ['1.5.3-rc.7', '1.5.3-rc.7']
     ]) {
-        const dispatch = ciImagePlan({ ...base, packageVersion, event: 'workflow_dispatch', inputTag: tag })
+        const dispatch = ciImagePlan({
+            ...base,
+            packageVersion,
+            event: 'workflow_dispatch',
+            inputTag: tag,
+            inputPlatforms: 'linux/amd64'
+        })
         assert.deepEqual(dispatch.errors, [])
         assert.deepEqual(dispatch.tags, [`ghcr.io/cuttlely/cuttlely:${tag}`])
         assert.equal(dispatch.latest, false)
+        assert.equal(dispatch.platforms, 'linux/amd64')
     }
-    const dispatchMismatch = ciImagePlan({ ...base, packageVersion: '1.5.2', event: 'workflow_dispatch', inputTag: '1.5.3-rc.7' })
+    const dispatchOptIn = ciImagePlan({
+        ...base,
+        event: 'workflow_dispatch',
+        inputTag: 'ci-arm64',
+        inputPlatforms: 'linux/amd64,linux/arm64'
+    })
+    assert.deepEqual(dispatchOptIn.errors, [])
+    assert.equal(dispatchOptIn.platforms, 'linux/amd64,linux/arm64')
+    const dispatchReversed = ciImagePlan({
+        ...base,
+        event: 'workflow_dispatch',
+        inputTag: 'ci-arm64-reversed',
+        inputPlatforms: 'linux/arm64,linux/amd64'
+    })
+    assert.deepEqual(dispatchReversed.errors, [])
+    assert.equal(dispatchReversed.platforms, 'linux/amd64,linux/arm64')
+    for (const inputPlatforms of ['linux/arm64', 'linux/amd64,linux/386', 'linux/amd64, linux/arm64']) {
+        const plan = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: 'ci-bad-platforms', inputPlatforms })
+        assert.match(plan.errors.join('\n'), /Platforms must be linux\/amd64 or linux\/amd64,linux\/arm64/)
+    }
+    const dispatchEmpty = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: 'ci-empty-platforms', inputPlatforms: '' })
+    assert.deepEqual(dispatchEmpty.errors, [])
+    assert.equal(dispatchEmpty.platforms, 'linux/amd64')
+    const dispatchMismatch = ciImagePlan({
+        ...base,
+        packageVersion: '1.5.2',
+        event: 'workflow_dispatch',
+        inputTag: '1.5.3-rc.7',
+        inputPlatforms: 'linux/amd64'
+    })
     assert.match(dispatchMismatch.errors.join('\n'), /Tag 1\.5\.3-rc\.7 does not match the root package\.json version 1\.5\.2/)
-    const invalidDispatchTag = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: 'ci-feature/foo' })
+    const invalidDispatchTag = ciImagePlan({
+        ...base,
+        event: 'workflow_dispatch',
+        inputTag: 'ci-feature/foo',
+        inputPlatforms: 'linux/amd64'
+    })
     assert.match(invalidDispatchTag.errors.join('\n'), /does not match the Docker tag grammar/)
     const invalidTestTag = ciImagePlan({ ...base, event: 'push', ref: 'refs/tags/ci-dryrun-feature/foo' })
     assert.match(invalidTestTag.errors.join('\n'), /does not match the Docker tag grammar/)
-    const refused = ciImagePlan({ ...base, event: 'workflow_dispatch', inputTag: '1.5.3' })
+    const refused = ciImagePlan({
+        ...base,
+        event: 'workflow_dispatch',
+        inputTag: '1.5.3',
+        inputPlatforms: 'linux/amd64'
+    })
     assert.match(refused.errors.join('\n'), /must start with ci-/)
 })
 
@@ -606,6 +654,13 @@ test('the release image workflow has narrow permissions, pinned actions and env-
         assert.doesNotMatch(block, /\$\{\{\s*inputs\./)
         assert.doesNotMatch(block, /\$\{\{\s*github\.ref_name/)
     }
+    assert.match(
+        text,
+        /platforms:\n\s+description: Build linux\/amd64; linux\/amd64,linux\/arm64 is opt-in and slow under emulation\n\s+required: false\n\s+default: linux\/amd64\n\s+type: string/
+    )
+    assert.match(text, /INPUT_PLATFORMS: \$\{\{ inputs\.platforms \}\}/)
+    assert.match(text, /inputPlatforms: process\.env\.INPUT_PLATFORMS/)
+    assert.match(text, /output\('platforms', plan\.platforms\)/)
 
     const checkout = text.indexOf('- uses: actions/checkout@')
     const diskStep = text.indexOf('- name: Free runner disk space')
@@ -634,6 +689,9 @@ test('the release image workflow has narrow permissions, pinned actions and env-
     assert.match(checkBuild, /docker image rm "\$IMAGE_TAG" \|\| true/)
     assert.equal(checkBuild.match(/IMAGE_TAG: cuttlely-release-check:\$\{\{ github\.run_id \}\}/g)?.length, 2)
     assert.doesNotMatch(checkBuild, /docker image rm[^\n]*\$\{\{/)
+    assert.match(text, /if: contains\(steps\.plan\.outputs\.platforms, 'linux\/arm64'\)/)
+    const pushBuild = text.slice(text.indexOf('- name: Build and push'), text.indexOf('- name: Inspect pushed image'))
+    assert.match(pushBuild, /platforms: \$\{\{ steps\.plan\.outputs\.platforms \}\}/)
 })
 
 function manifestResponse(status, { wwwAuthenticate, body, ok } = {}) {

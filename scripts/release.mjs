@@ -56,7 +56,7 @@ export const CHANGELOG = 'CHANGELOG.md'
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
 const HEADING = /^## \[([^\]]+)\](?: - (.+))?\s*$/
 const PING_TIMEOUT_MS = 6 * 60 * 1000
-const REGISTRY_WAIT_TIMEOUT_MS = 45 * 60 * 1000
+const REGISTRY_WAIT_TIMEOUT_MS = 75 * 60 * 1000
 const REGISTRY_WAIT_POLL_MS = 15 * 1000
 export const RELEASE_IMAGE_WORKFLOW = '.github/workflows/release-image.yml'
 
@@ -320,7 +320,7 @@ export function imageLabels({ version, sha, slug, created }) {
     }
 }
 
-export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, created, image }) {
+export function ciImagePlan({ event, ref, inputTag, inputPlatforms, packageVersion, sha, slug, created, image }) {
     const errors = []
     const targetImage = image || defaultImage(slug)
     const refName = String(ref || '').replace(/^refs\/tags\//, '')
@@ -328,6 +328,7 @@ export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, c
     let version = null
     let tags = []
     let guard = false
+    let platforms = 'linux/amd64'
 
     if (event === 'push' && refName.startsWith('v')) {
         mode = 'release'
@@ -344,6 +345,10 @@ export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, c
     } else if (event === 'workflow_dispatch') {
         mode = 'dispatch'
         version = String(inputTag || '')
+        platforms = String(inputPlatforms || 'linux/amd64').trim()
+        if (platforms === 'linux/arm64,linux/amd64') platforms = 'linux/amd64,linux/arm64'
+        if (platforms !== 'linux/amd64' && platforms !== 'linux/amd64,linux/arm64')
+            errors.push('Platforms must be linux/amd64 or linux/amd64,linux/arm64.')
         const rcTag = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.(0|[1-9]\d*)$/.test(version)
         if (!version) errors.push('The dispatch image tag is required.')
         else if (!version.startsWith('ci-') && !rcTag)
@@ -370,6 +375,7 @@ export function ciImagePlan({ event, ref, inputTag, packageVersion, sha, slug, c
         labels: version ? imageLabels({ version, sha, slug, created }) : {},
         latest: tags.includes(`${targetImage}:latest`),
         guard,
+        platforms,
         errors
     }
 }

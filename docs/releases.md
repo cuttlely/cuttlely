@@ -12,7 +12,7 @@ Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MAJOR
 
 The product version is the `version` in the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog and `GET /api/v1/version` report the server package's version. The `cuttlely` launcher and `@cuttlely/chat` use that same version, because the launcher's default image tag is its own version. The other workspace packages keep their own internal version numbers, which are not the product version.
 
-Each release is an annotated Git tag `vX.Y.Z`, a GitHub release whose notes come from the changelog, and a Docker image tagged `X.Y.Z`. The tag push starts `.github/workflows/release-image.yml`, which builds `linux/amd64` and `linux/arm64`, records provenance and an SBOM, and adds `:latest` only for a stable release. [Cutting a release](#cutting-a-release) covers how a maintainer makes one.
+Each release is an annotated Git tag `vX.Y.Z`, a GitHub release whose notes come from the changelog, and a Docker image tagged `X.Y.Z`. The tag push starts `.github/workflows/release-image.yml`, which builds `linux/amd64`, records provenance and an SBOM, and adds `:latest` only for a stable release. `linux/arm64` is opt-in through a manual run's `platforms` input and is slow under emulation. Apple silicon runs the `linux/amd64` image under emulation. [Cutting a release](#cutting-a-release) covers how a maintainer makes one.
 
 ## What counts as a breaking change
 
@@ -88,7 +88,7 @@ It then runs these steps, in order:
 3. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
 4. Commit `Release vX.Y.Z` and create the annotated tag `vX.Y.Z`.
 5. Push the release commit and annotated tag. The tag starts `.github/workflows/release-image.yml`.
-6. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64` and `linux/arm64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
+6. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
 7. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
 The image flags are:
@@ -99,7 +99,7 @@ The image flags are:
 -   `--publish` publishes the GitHub release after the workflow registry wait or the completed local push instead of leaving a draft.
 -   `--local` implies `--local-image` and stops after the local build and check, so nothing leaves the machine.
 
-For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual rc tag must equal the version in the checked-out root `package.json`; manual `ci-` tags and pushed `ci-dryrun-*` tags do not use that comparison. Every planned image tag must match the Docker tag grammar `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`. A manual run can select another `ref`; an empty value uses the branch where the run starts.
+For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual rc tag must equal the version in the checked-out root `package.json`; manual `ci-` tags and pushed `ci-dryrun-*` tags do not use that comparison. Every planned image tag must match the Docker tag grammar `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`. A manual run can select another `ref`; an empty value uses the branch where the run starts. Its `platforms` input defaults to `linux/amd64`; choose `linux/amd64,linux/arm64` only when the slower emulated arm64 build is wanted.
 
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 

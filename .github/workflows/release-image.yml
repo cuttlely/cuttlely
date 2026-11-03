@@ -16,6 +16,11 @@ on:
                 description: Image tag beginning with ci- or an X.Y.Z-rc.N tag
                 required: true
                 type: string
+            platforms:
+                description: Build linux/amd64; linux/amd64,linux/arm64 is opt-in and slow under emulation
+                required: false
+                default: linux/amd64
+                type: string
 
 permissions:
     contents: read
@@ -47,6 +52,7 @@ jobs:
                   EVENT_NAME: ${{ github.event_name }}
                   REF_VALUE: ${{ github.ref }}
                   INPUT_TAG: ${{ inputs.tag }}
+                  INPUT_PLATFORMS: ${{ inputs.platforms }}
                   REPOSITORY: ${{ github.repository }}
               run: |
                   node --input-type=module <<'NODE'
@@ -59,6 +65,7 @@ jobs:
                       event: process.env.EVENT_NAME,
                       ref: process.env.REF_VALUE,
                       inputTag: process.env.INPUT_TAG,
+                      inputPlatforms: process.env.INPUT_PLATFORMS,
                       packageVersion: JSON.parse(readFileSync('package.json', 'utf8')).version,
                       sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
                       slug,
@@ -80,8 +87,10 @@ jobs:
                   output('latest', String(plan.latest))
                   output('mode', plan.mode)
                   output('version', plan.version)
+                  output('platforms', plan.platforms)
                   NODE
             - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+              if: contains(steps.plan.outputs.platforms, 'linux/arm64')
             - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
             - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
               with:
@@ -115,14 +124,14 @@ jobs:
                   IMAGE_TAG: cuttlely-release-check:${{ github.run_id }}
               run: |
                   docker image rm "$IMAGE_TAG" || true
-            # This runs on the same buildx builder, reusing the check's linux/amd64 layers so only linux/arm64 builds under QEMU.
+            # This reuses the check's linux/amd64 layers; an opted-in linux/arm64 build runs under QEMU.
             - name: Build and push
               id: build
               uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: .
                   file: ./Dockerfile
-                  platforms: linux/amd64,linux/arm64
+                  platforms: ${{ steps.plan.outputs.platforms }}
                   push: true
                   tags: ${{ steps.plan.outputs.tags }}
                   labels: ${{ steps.plan.outputs.labels }}
