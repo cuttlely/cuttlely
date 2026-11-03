@@ -28,15 +28,21 @@ On a phone the chat fills the screen.
 ### What the chat shows
 
 -   **Answers as they are written**, with a stop button while the model is writing.
--   **Formatting**: lists, tables, code blocks with a copy button, links and images.
+-   **Formatting**: lists, tables, code blocks with a copy button, links and images. Once an answer finishes, a simple table can be sorted by clicking a column header; see [Sort answer tables](./answer-tables.md).
 -   **Image downloads**: a download link under each PNG or JPEG image the chat stored, with its file name. The embed reads it with the chat's session token when it has one. Images from other sites get no download.
 -   **Sources** under the answer when the chatflow returns source documents.
 -   **Starter prompts** on the welcome screen and **follow-up prompts** under an answer, when the chatflow has them.
 -   **Thumbs up and down** under each answer when **Chat Feedback** is on for the chatflow, and a copy button on every answer.
 -   **Image uploads** (picker, paste or drag) when the chatflow accepts images.
--   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made. While the run works, the card shows a live status line and a timer, plus optional playful lines during long steps when the chatflow's **Enhanced Status Messages** setting is on (the default). See [Read the run card](./harnesses.md#read-the-run-card).
+-   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made. While the run works, the card shows a live status line and a timer, plus optional playful lines during long steps when the chatflow's **Enhanced Status Messages** setting is on (the default). See [While a run works](./harnesses.md#while-a-run-works).
 
 ![A chatflow that runs the bakery-demo harness, in dark mode. The question Compare sourdough and rye loaves: sourdough 120, rye 75 is answered under a Run complete card. The answer is a table titled Loaves compared, with Sourdough 120 and Rye 75.](../images/share-and-embed/harness-chart.png)
+
+In the widget, the run card's header reads **Specialists working** with the timer on the right, and the live status line sits above the specialist rows. A playful line, when the setting is on, shows in italics under the status and gives way to the next real step. It is display only: the widget never stores it in the conversation.
+
+![The embedded chat widget for Demo desk while a harness run works on Total orders by region last quarter. The card reads Specialists working with a timer at 0:00, the status line sql_analyst is running a SQL query…, then researcher Thinking about the results…, sql_analyst Running a SQL query… and writer waiting.](../images/share-and-embed/widget-live-status.png)
+
+![The same widget card at 0:05, with the italic line Cross-checking the numbers… under the status.](../images/share-and-embed/widget-live-status-playful.png)
 
 Model output is always shown as text: HTML in an answer is never run, even when **Render HTML on the chat** is on. Links and images only use `http`, `https`, `mailto` and your server's own paths.
 
@@ -92,7 +98,7 @@ The React tabs give a component that loads the same script. **Show Embed Chat Co
 npm install @cuttlely/chat
 ```
 
-The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.5.1` for a 1.5.1 server.
+The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.5.2` for a 1.5.2 server.
 
 ```js
 import { mount } from '@cuttlely/chat'

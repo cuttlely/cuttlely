@@ -63,6 +63,8 @@ In chatflows and agentflows, a request variable reaches only the cards that read
 
 For example, an agentflow has a variable `region` saved as `us`, switched on under **Variables**, and an LLM card whose prompt says `Answer for {{$vars.region}}`. A request with `"vars": { "region": "eu" }` still sends the model `Answer for us`. The same request to a Sequential Agent flow sends `Answer for eu`.
 
+In agentflows, the value is inserted exactly as it is, including any `$` characters, such as `$&` or `$1`. See [Template variables insert values exactly](../how-to/canvas.md#template-variables-insert-values-exactly).
+
 ## Request values in code inputs
 
 > **Note.** Request values never run as code. In a code input, read a variable as $vars.name, not {{$vars.name}}: in Multi-Agent and Sequential Agent flows a request value written as {{$vars.name}} in code is inserted as escaped text.

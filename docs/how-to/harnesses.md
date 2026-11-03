@@ -210,7 +210,7 @@ The same card shows in the canvas chat, in a chatflow chat, and on the harness p
 | `Handoff · OpenAI · gpt-4o-mini`          | The model call where Harness Prime wrote the answer from the specialists' results.                                                                                                                             |
 | `Context kept`                            | Nothing was shortened. `Context cut in N places` means some text was shortened. Select it to see where.                                                                                                        |
 
-While a run is in progress, a status line under the route says what the run is doing now, based only on the steps the run has reported: `Picking specialists…`, `researcher is working…`, `sql_analyst is running a SQL query…`, `sql_analyst is thinking about the results…`, and `Pulling it together and writing the answer…`. Each running specialist row shows its own status, and a timer counts the seconds until the run ends. Screen readers hear a new status at most once every few seconds, never the timer. When a step runs for a few seconds, the card can add a lighter, playful line such as `Cross-checking the numbers…`; these lines never name a specialist, tool or data source. Turn them off for a chatflow in **Configuration** > **Chat** > **Enhanced Status Messages**. They are on by default, and the embedded chat widget follows the same setting. The finished card is unchanged.
+While a run is in progress, the card also shows a live status line and a timer; see [While a run works](#while-a-run-works).
 
 Harness Prime reads up to 4,000 characters of each specialist's answer before it writes the reply. To change that for one specialist, set **Handoff limit** under **Additional Parameters** on its Harness Specialist, from 160 to 20,000 characters, or `-1` for no limit. Empty or `0` means the default of 4,000; a decimal is rounded down first. A long knowledge answer may need more. With `-1`, Harness Prime reads the whole answer, unless its context is full. When Harness Prime's context is full, these limits shrink first, and the card says `Context cut`.
 
@@ -235,6 +235,24 @@ Each chip names the tool, and says `running`, `retried`, or `failed` while that 
 For source-defined reports, monthly-utilization PNGs and exact table CSVs that must bypass model transcription, see [Trusted pinned-query outputs](../reference/trusted-outputs.md). This optional per-specialist setting consumes actual captured pin results; empty remains off.
 
 **Capacity wait (seconds)** is an optional specialist setting under **Additional Parameters**. It defaults to `0`, off. A positive value waits up to that many seconds, at most 60, if the agent runtime rejects a new run because its concurrent-run slots are busy. It honors `Retry-After` and backs off between admission attempts. The existing turn cancellation and time limits still apply. This setting affects only specialists where it is enabled: it does not raise the shared runtime limit. Accepted runs, tool calls, provider quotas, and ambiguous connection failures are never rerun by this setting. Capacity waits are recorded in the server log.
+
+### While a run works
+
+While a run is in progress, a status line under the route says what the run is doing now, based only on the steps the run has reported: `Picking specialists…`, `researcher is working…`, `sql_analyst is running a SQL query…`, `sql_analyst is thinking about the results…`, and `Pulling it together and writing the answer…`. Each running specialist row shows its own status, and a timer counts the seconds until the run ends. Screen readers hear a new status at most once every few seconds, never the timer.
+
+![A running harness card in the app chat for demo-desk. The status line reads sql_analyst is running a SQL query… with a timer at 0:01. The researcher row reads Thinking about the results… and the sql_analyst row reads Running a SQL query….](../images/harnesses/run-card-live-status.png)
+
+When a step runs for a few seconds, the card adds a lighter, playful line in italics next to the status, such as `Cross-checking the numbers…`, and swaps it every few seconds. Each kind of step has its own set of lines, shuffled, and no line repeats until the whole set has shown. These lines:
+
+-   never name a specialist, tool, table or data source;
+-   are display only: they are never saved in the run trace, the chat history or an export, and screen readers do not read them;
+-   give way at once to a real step: the next event the run reports replaces the playful line with the real status.
+
+![The same running card a few seconds later. Next to sql_analyst is running a SQL query… and the timer at 0:06, a lighter italic line reads Cross-checking the numbers….](../images/harnesses/run-card-live-status-playful.png)
+
+The playful lines are on by default for every chatflow. To turn them off for one chatflow, open **Configuration** (the settings button on the canvas), select **Enhanced Status Messages** under **Chat**, switch **Enhanced status messages** off and select **Save**. The live status line, the row status and the timer always show. The embedded chat widget follows the same setting; see [Share and embed a chat](./share-and-embed.md#what-the-chat-shows). The finished card is unchanged.
+
+![The Demo desk Configuration dialog with Enhanced Status Messages selected under Chat and marked ON. The page reads Playful lines during long run steps, with the Enhanced status messages switch on, a note that the live status itself always shows, and a Save button.](../images/harnesses/configuration-enhanced-status-messages.png)
 
 ### How long a turn should take
 

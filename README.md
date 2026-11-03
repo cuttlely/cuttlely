@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.5.1 is out.** **Admin** > **Agent runtime** > **Limits** has an **Evidence budget (bytes)** setting for how much protected source detail specialists get for analysis, with an optional per-specialist value; the default stays at 40000 bytes, and specialist runs use the selected context model so the cap matches it. Imported chatflows, and **Sync Nodes**, now keep chat model and memory connections whose saved handle lists a single class. No breaking changes. Pull image `1.5.1` or run `npm i cuttlely@1.5.1`. Upgrading from 1.4.10 or earlier? Read the [1.5.0 upgrade notes](./CHANGELOG.md#150---2026-11-01) first. [Changelog](./CHANGELOG.md#151---2026-11-02)
+**1.5.2 is out.** While a harness run works, the run card shows a live status line, a status on each running specialist and a ticking timer, in the app chat and the embedded widget, with optional playful lines you can turn off per chatflow under **Configuration** > **Chat** > **Enhanced Status Messages**. Tables in chat answers sort by column when you click a header, and agentflow template variables insert values exactly, including `$` characters. No breaking changes. Pull image `1.5.2` or run `npm i cuttlely@1.5.2`. Upgrading from 1.4.10 or earlier? Read the [1.5.0 upgrade notes](./CHANGELOG.md#150---2026-11-01) first. [Changelog](./CHANGELOG.md#152---2026-11-03)
 
 ## Contents
 
