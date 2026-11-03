@@ -524,6 +524,47 @@ describe('chat widget', () => {
         assert.match(read.search, /chatId=chat-d&fileName=harness_assets_1_0_memo\.docx&download=true$/)
     })
 
+    it('retries a public chat file without the signed-in cookie when the first download is forbidden', async () => {
+        const reads = []
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'artifacts', data: [{ type: 'pdf', data: 'FILE-STORAGE::harness_assets_1_0_summary.pdf' }] },
+                    { event: 'metadata', data: { chatId: 'public-chat', chatMessageId: 'm', sessionToken: 'public-token' } }
+                ]),
+            file: (_url, init) => {
+                reads.push(init)
+                return init.credentials === 'omit'
+                    ? new Response(new Blob(['%PDF-1.4']), { status: 200 })
+                    : json(403, { message: 'Forbidden' })
+            }
+        })
+        await type(t, 'Save as PDF')
+        await until(() => t.$('.dc-file') && !t.widget.busy)
+        const saved = []
+        const original = URL.createObjectURL
+        const click = window.HTMLAnchorElement.prototype.click
+        URL.createObjectURL = () => 'blob:summary'
+        window.HTMLAnchorElement.prototype.click = function () {
+            if (this.getAttribute('href') === 'blob:summary') return saved.push(this.getAttribute('download'))
+            return click.call(this)
+        }
+        try {
+            t.$('.dc-file').click()
+            await until(() => saved.length === 1)
+        } finally {
+            URL.createObjectURL = original
+            window.HTMLAnchorElement.prototype.click = click
+        }
+        assert.deepEqual(saved, ['summary.pdf'])
+        assert.deepEqual(
+            reads.map((init) => init.credentials),
+            [undefined, 'omit']
+        )
+        assert(reads.every((init) => init.headers['x-cuttlely-session-token'] === 'public-token'))
+        assert.equal(t.$('.dc-figure-missing'), null)
+    })
+
     it('handles a JSON answer from a flow that does not stream', async () => {
         const t = setup({ predict: () => json(200, { text: 'Closed on Mondays.', chatId: 'c2', sessionToken: 't2', chatMessageId: 'm2' }) })
         await type(t, 'Open Monday?')
