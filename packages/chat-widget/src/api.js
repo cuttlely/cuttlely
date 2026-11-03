@@ -115,7 +115,12 @@ export function createClient({ apiHost, flowId, fetchImpl }) {
 
         /** Reads a session file with the token in a header, for pages where the session cookie is not sent. */
         async fileBlob(url, sessionToken) {
-            const res = await doFetch(url, { headers: sessionToken ? { 'x-cuttlely-session-token': sessionToken } : {} })
+            const headers = sessionToken ? { 'x-cuttlely-session-token': sessionToken } : {}
+            let res = await doFetch(url, { headers })
+            // A public chat token belongs to the public caller. On a signed-in, same-origin page the browser also
+            // sends the user's cookie, which selects a different caller and makes this valid token return 403.
+            // Retry just that conflict without the cookie; private workspace sessions keep the first response.
+            if (res.status === 403 && sessionToken) res = await doFetch(url, { headers, credentials: 'omit' })
             if (!res.ok) throw await readError(res)
             return res.blob()
         }
