@@ -340,12 +340,14 @@ async function main() {
     }
     for (const transient of ['logs', 'hermes', 'etl', 'storage'])
         fs.rmSync(path.join(dataRoot, transient), { recursive: true, force: true })
-    // Fold the write-ahead log into the database file, as a backup of a stopped server would be.
-    const dbFile = path.join(dataRoot, 'data', 'database.sqlite')
-    const db = new DatabaseSync(dbFile)
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
-    db.close()
-    for (const side of ['-wal', '-shm']) fs.rmSync(`${dbFile}${side}`, { force: true })
+    // Fold the write-ahead logs into the database files, as a backup of a stopped server would be.
+    for (const dbFile of [path.join(dataRoot, 'data', 'database.sqlite'), path.join(dataRoot, 'harness-queue.sqlite')]) {
+        if (!fs.existsSync(dbFile)) continue
+        const db = new DatabaseSync(dbFile)
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+        db.close()
+        for (const side of ['-wal', '-shm']) fs.rmSync(`${dbFile}${side}`, { force: true })
+    }
     const hooks = path.join(dataRoot, 'versions', '.git', 'hooks')
     if (fs.existsSync(hooks))
         for (const sample of fs.readdirSync(hooks).filter((f) => f.endsWith('.sample'))) fs.rmSync(path.join(hooks, sample))
