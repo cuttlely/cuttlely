@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { analystServers, exportText, friendlyChipLabel, friendlyToolName, sqlCutNote, tableCsv, tableText } from '@/utils/traceChips'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
@@ -13,6 +13,7 @@ import {
     routeSummary,
     traceQuestionForCaption
 } from '../../../../../packages/harness/trace.mjs'
+import { enhancedLine, formatElapsed, liveStatus, nextAnnouncement } from '../../../../../packages/harness/live-status.mjs'
 
 const FILL_NOTE = {
     none: 'The tool took the question as its input.',
@@ -32,6 +33,78 @@ function specialistWord(status) {
     if (status === 'running') return 'running'
     if (status === 'failed') return 'failed'
     return 'done'
+}
+
+// Tools other than the known analyst ones are named by their chip label.
+const liveToolLabel = (tool) => friendlyToolName(tool?.name)
+
+export function liveStatusFor(trace) {
+    return liveStatus(trace, { toolLabel: liveToolLabel })
+}
+
+// The line under the header while a run is in progress: what the run is doing now, a ticking timer, and,
+// when the flow allows it, a lighter enhanced line once the same step has run for a few seconds.
+// Screen readers hear the status line at most once every few seconds; never the timer or the enhanced line.
+export function LiveStatusLine({ status, enhanced = true, startedAt }) {
+    const [now, setNow] = useState(() => Date.now())
+    const [since, setSince] = useState(() => ({ line: status?.line || '', at: Date.now() }))
+    const [announced, setAnnounced] = useState(() => nextAnnouncement(null, status?.line || '', Date.now()))
+    const line = status?.line || ''
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(timer)
+    }, [])
+    useEffect(() => {
+        setSince((current) => (current.line === line ? current : { line, at: Date.now() }))
+    }, [line])
+    useEffect(() => {
+        setAnnounced((current) => nextAnnouncement(current, line, Date.now()))
+    }, [line, now])
+    if (!status) return null
+    // A new real line replaces the enhanced one on the same render, before its own timer starts.
+    const extra = since.line === line ? enhancedLine(status.phase, now - since.at, enhanced) : ''
+    return (
+        <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ alignItems: 'baseline' }} data-testid='live-status'>
+            <Typography variant='body2' data-testid='live-status-line'>
+                {line}
+            </Typography>
+            <Typography variant='caption' color='text.secondary' aria-hidden='true' data-testid='live-status-elapsed'>
+                {formatElapsed(now - startedAt)}
+            </Typography>
+            {extra ? (
+                <Typography
+                    variant='caption'
+                    color='text.secondary'
+                    aria-hidden='true'
+                    sx={{ fontStyle: 'italic' }}
+                    data-testid='live-status-enhanced'
+                >
+                    {extra}
+                </Typography>
+            ) : null}
+            <Box component='span' role='status' aria-live='polite' sx={visuallyHidden} data-testid='live-status-announce'>
+                {announced.text}
+            </Box>
+        </Stack>
+    )
+}
+
+const visuallyHidden = {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    overflow: 'hidden',
+    clip: 'rect(0 0 0 0)',
+    whiteSpace: 'nowrap',
+    border: 0,
+    p: 0,
+    m: '-1px'
+}
+
+LiveStatusLine.propTypes = {
+    status: PropTypes.object,
+    enhanced: PropTypes.bool,
+    startedAt: PropTypes.number
 }
 
 function routeLine(trace) {
@@ -295,8 +368,10 @@ export function questionFromInputPreview(preview) {
     return preview
 }
 
-const HarnessRunTrace = ({ trace, question }) => {
+const HarnessRunTrace = ({ trace, question, enhancedStatus = true }) => {
     const asked = questionForTrace(trace, question)
+    // The timer counts from when this card first showed the run. It is display state, not part of the trace.
+    const [startedAt] = useState(() => Date.now())
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const [openName, setOpenName] = useState('')
@@ -305,6 +380,7 @@ const HarnessRunTrace = ({ trace, question }) => {
     if (!trace) return null
 
     const dark = Boolean(customization?.isDarkMode)
+    const live = liveStatusFor(trace)
     const wall = formatDuration(trace.wallMs)
     const tokens = formatTokens(trace.tokens)
     const phases = [
@@ -347,6 +423,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                     ) : null}
                 </Stack>
                 <Typography variant='body2'>{routeLine(trace)}</Typography>
+                {live ? <LiveStatusLine status={live} enhanced={enhancedStatus !== false} startedAt={startedAt} /> : null}
                 {phases.length ? (
                     <Typography variant='caption' color='text.secondary'>
                         {phases.join(' · ')}
@@ -387,7 +464,7 @@ const HarnessRunTrace = ({ trace, question }) => {
                                         {specialist.name}
                                     </Typography>
                                     <Typography variant='caption' color='text.secondary'>
-                                        {specialistWord(specialist.status)}
+                                        {live?.perSpecialist[specialist.name] || specialistWord(specialist.status)}
                                     </Typography>
                                     <Meta>{specialist.model}</Meta>
                                     <Meta>{formatDuration(specialist.ms)}</Meta>
@@ -551,7 +628,8 @@ const HarnessRunTrace = ({ trace, question }) => {
 
 HarnessRunTrace.propTypes = {
     trace: PropTypes.object,
-    question: PropTypes.string
+    question: PropTypes.string,
+    enhancedStatus: PropTypes.bool
 }
 
 export default HarnessRunTrace

@@ -4,7 +4,8 @@ import { createClient, describeError } from './api.js'
 import { colorVariables, normalizeConfig } from './config.js'
 import { icons, mark } from './icons.js'
 import { renderMarkdown, safeUrl } from './markdown.js'
-import { emptyRun, formatMs, reduceRun } from './run.js'
+import { enhancedLine, formatElapsed, nextAnnouncement } from './live-status.js'
+import { emptyRun, formatMs, reduceRun, runStatus } from './run.js'
 import { scrub } from './scrub.js'
 import { styles } from './styles.js'
 
@@ -581,9 +582,12 @@ export class ChatWidget {
                 done: 'Run complete',
                 failed: 'Run stopped'
             }[run.phase] || 'Working'
+        const status = live ? runStatus(run) : null
         const meta =
             done && run.totalMs
                 ? `${count ? `${count} specialist${count === 1 ? '' : 's'} \u00b7 ` : ''}${formatMs(run.totalMs)}`
+                : status
+                ? formatElapsed(Date.now() - run.startedAt)
                 : live
                 ? 'Working\u2026'
                 : ''
@@ -592,10 +596,25 @@ export class ChatWidget {
         const summary = h('summary', {}, [
             h('span', { class: 'dc-run-icon', html: icons.spark }),
             h('span', { class: 'dc-run-title', text: label }),
-            h('span', { class: 'dc-run-meta', text: meta }),
+            h('span', { class: status ? 'dc-run-meta dc-run-elapsed' : 'dc-run-meta', text: meta, 'aria-hidden': status ? 'true' : null }),
             h('span', { class: 'dc-run-chev', 'aria-hidden': 'true', text: '\u203a' })
         ])
         details.append(summary)
+        if (status) {
+            // The real status line, then the lighter enhanced line. Screen readers hear the status line through
+            // tickLive, at most once every few seconds; never the timer or the enhanced line.
+            const since = this.liveSinceFor(status.line, Date.now())
+            details.append(
+                h('div', { class: 'dc-run-live' }, [
+                    h('span', { class: 'dc-run-line', text: status.line }),
+                    h('span', {
+                        class: 'dc-run-enhanced',
+                        'aria-hidden': 'true',
+                        text: enhancedLine(status.phase, Date.now() - since.at, this.config.enhancedStatus)
+                    })
+                ])
+            )
+        }
         if (count) {
             details.append(
                 h(
@@ -605,7 +624,9 @@ export class ChatWidget {
                         h('li', { class: item.status }, [
                             h('span', { class: 'dc-step-dot', 'aria-hidden': 'true' }),
                             h('span', { text: item.name }),
-                            h('span', { class: 'sr-only', text: `, ${item.status}` }),
+                            status && status.perSpecialist[item.name]
+                                ? h('span', { class: 'dc-step-live', text: status.perSpecialist[item.name] })
+                                : h('span', { class: 'sr-only', text: `, ${item.status}` }),
                             item.ms ? h('em', { text: formatMs(item.ms) }) : null
                         ])
                     )
@@ -613,6 +634,29 @@ export class ChatWidget {
             )
         }
         return details
+    }
+
+    liveSinceFor(line, now) {
+        if (!this.liveSince || this.liveSince.line !== line) this.liveSince = { line, at: now }
+        return this.liveSince
+    }
+
+    // Once a second while a run streams: the timer, the enhanced line, and a throttled announcement.
+    tickLive(bot) {
+        const status = runStatus(bot.run)
+        const node = this.nodes.get(bot.id)
+        if (!status || !node || bot.status !== 'streaming') return
+        const now = Date.now()
+        const since = this.liveSinceFor(status.line, now)
+        const elapsed = node.querySelector('.dc-run-elapsed')
+        if (elapsed) elapsed.textContent = formatElapsed(now - bot.run.startedAt)
+        const extra = node.querySelector('.dc-run-enhanced')
+        if (extra) extra.textContent = enhancedLine(status.phase, now - since.at, this.config.enhancedStatus)
+        const spoken = nextAnnouncement(this.liveSpoken, status.line, now)
+        if (spoken !== this.liveSpoken) {
+            this.liveSpoken = spoken
+            this.announce(status.line)
+        }
     }
 
     renderArtifacts(list) {
@@ -1085,6 +1129,10 @@ export class ChatWidget {
             bot.rev++
             this.scheduleRender()
         }
+        this.liveSince = null
+        this.liveSpoken = null
+        clearInterval(this.liveTimer)
+        this.liveTimer = setInterval(() => this.tickLive(bot), 1000)
         try {
             await this.api.send(
                 body,
@@ -1111,6 +1159,8 @@ export class ChatWidget {
             }
         } finally {
             if (this.controller === controller) this.controller = null
+            clearInterval(this.liveTimer)
+            this.liveTimer = null
         }
         bot.status = 'done'
         if (bot.run && bot.run.phase !== 'done' && bot.run.phase !== 'failed')
@@ -1219,6 +1269,7 @@ export class ChatWidget {
     }
 
     destroy() {
+        clearInterval(this.liveTimer)
         this.abort()
         this.media?.removeEventListener?.('change', this.onMedia)
         this.root.innerHTML = ''

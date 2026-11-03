@@ -2128,6 +2128,13 @@ describe('public display fields', () => {
         })
         expect(result).toEqual({ welcomeMessage: 'Hi', starterPrompts: [{ prompt: 'A' }] })
     })
+
+    it('passes the enhanced status messages switch to the widget and nothing else from that object', () => {
+        expect(publicChatbotDisplayConfig({ enhancedStatusMessages: { status: false, note: 'x' } })).toEqual({
+            enhancedStatusMessages: { status: false }
+        })
+        expect(publicChatbotDisplayConfig({ enhancedStatusMessages: { status: 'off' } })).toEqual({})
+    })
 })
 
 describe('long crafted text', () => {

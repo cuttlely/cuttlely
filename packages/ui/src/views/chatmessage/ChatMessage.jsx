@@ -269,6 +269,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
 
     // follow-up prompts
     const [followUpPromptsStatus, setFollowUpPromptsStatus] = useState(false)
+    const [enhancedStatusMessages, setEnhancedStatusMessages] = useState(true)
     const [followUpPrompts, setFollowUpPrompts] = useState([])
 
     // thinking/reasoning state
@@ -1689,6 +1690,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     setFollowUpPromptsStatus(config.followUpPrompts.status)
                 }
 
+                setEnhancedStatusMessages(config.enhancedStatusMessages?.status !== false)
+
                 if (config.fullFileUpload) {
                     setFullFileUpload(config.fullFileUpload.status)
                     if (config.fullFileUpload?.allowedUploadFileTypes) {
@@ -2760,6 +2763,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                             <HarnessRunTrace
                                                 trace={message.harnessTrace}
                                                 question={previousUserQuestion(messages, index)}
+                                                enhancedStatus={enhancedStatusMessages}
                                             />
                                         ) : null}
                                         {message.agentReasoning && message.agentReasoning.length > 0 && !message.harnessTrace && (

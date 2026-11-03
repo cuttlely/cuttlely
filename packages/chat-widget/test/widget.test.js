@@ -195,6 +195,65 @@ describe('chat widget', () => {
         assert.match(img.getAttribute('src'), /\/api\/v1\/get-upload-file\?chatflowId=.*&chatId=chat-h&fileName=harness_chart\.png$/)
     })
 
+    it('shows a live status line, and an enhanced line that gives way to the next real event', async () => {
+        const encoder = new TextEncoder()
+        let stream
+        const send = (evt) => stream.enqueue(encoder.encode('message:\ndata:' + JSON.stringify(evt) + '\n\n'))
+        const t = setup({
+            predict: () =>
+                new Response(new ReadableStream({ start: (controller) => (stream = controller) }), {
+                    status: 200,
+                    headers: { 'content-type': 'text/event-stream' }
+                })
+        })
+        await type(t, 'Weekly totals')
+        await until(() => stream)
+        send({ event: 'harness.route', data: { phase: 'start', harness: 'desk' } })
+        await until(() => t.$('.dc-run-line')?.textContent === 'Picking specialists…')
+        send({ event: 'harness.route', data: { phase: 'done', steps: [{ specialist: 'sql_analyst' }] } })
+        send({ event: 'harness.specialist', data: { phase: 'start', name: 'sql_analyst' } })
+        send({ event: 'harness.tool', data: { phase: 'start', specialist: 'sql_analyst', name: 'mcp__sql_analyst__query' } })
+        await until(() => t.$('.dc-run-line')?.textContent === 'sql_analyst is running a SQL query…')
+        assert.equal(t.$('.dc-run li .dc-step-live').textContent, 'Running a SQL query…')
+        assert.match(t.$('.dc-run-elapsed').textContent, /^0:0\d$/)
+        const bot = t.widget.messages[1]
+        t.widget.liveSince.at -= 10000
+        t.widget.tickLive(bot)
+        assert.equal(t.$('.dc-run-enhanced').textContent, 'Lining up the joins…')
+        assert.equal(t.$('.dc-run-enhanced').getAttribute('aria-hidden'), 'true')
+        send({ event: 'harness.tool', data: { phase: 'done', specialist: 'sql_analyst', name: 'mcp__sql_analyst__query' } })
+        await until(() => t.$('.dc-run-line')?.textContent === 'sql_analyst is thinking about the results…')
+        assert.equal(t.$('.dc-run-enhanced').textContent, '')
+        send({ event: 'token', data: 'Done.' })
+        send({ event: 'end', data: '[DONE]' })
+        stream.close()
+        await until(() => !t.widget.busy)
+        assert.equal(t.$('.dc-run-live'), null, 'the finished card has no live line')
+    })
+
+    it('keeps the enhanced line off when the flow turns it off', async () => {
+        const encoder = new TextEncoder()
+        let stream
+        const t = setup({
+            config: () => json(200, { enhancedStatusMessages: { status: false } }),
+            predict: () =>
+                new Response(new ReadableStream({ start: (controller) => (stream = controller) }), {
+                    status: 200,
+                    headers: { 'content-type': 'text/event-stream' }
+                })
+        })
+        await until(() => t.widget.config && t.widget.config.enhancedStatus === false)
+        await type(t, 'Weekly totals')
+        await until(() => stream)
+        stream.enqueue(encoder.encode('message:\ndata:' + JSON.stringify({ event: 'harness.handoff', data: { phase: 'start' } }) + '\n\n'))
+        await until(() => t.$('.dc-run-line')?.textContent === 'Pulling it together and writing the answer…')
+        t.widget.liveSince.at -= 60000
+        t.widget.tickLive(t.widget.messages[1])
+        assert.equal(t.$('.dc-run-enhanced').textContent, '')
+        stream.close()
+        await until(() => !t.widget.busy)
+    })
+
     it('reads a chart the plain image request could not load with the session token, for the current chat', async () => {
         const t = setup({
             predict: () =>

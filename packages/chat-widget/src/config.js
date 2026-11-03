@@ -74,6 +74,8 @@ export function normalizeConfig(raw, overrides = {}) {
         feedback: Boolean(cfg.chatFeedback?.status),
         followUps: Boolean(cfg.followUpPrompts?.status),
         newSessionEachVisit: Boolean(cfg.generateNewSession),
+        // Optional playful lines on the run card during long steps. On unless the flow turned it off.
+        enhancedStatus: cfg.enhancedStatusMessages?.status !== false,
         imageUpload: uploads.isImageUploadAllowed && images.types.length ? images : null,
         fontSize: Number.isFinite(fontSize) && fontSize >= 12 && fontSize <= 22 ? fontSize : 0,
         colors: {

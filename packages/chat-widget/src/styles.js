@@ -213,6 +213,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .dc-run li.done .dc-step-dot { background: #2f9e6b; }
 .dc-run li.failed .dc-step-dot { background: var(--dc-danger); }
 .dc-run li em { font-style: normal; color: var(--dc-muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+.dc-run-live { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 0 12px 8px 48px; font-size: 0.86em; }
+.dc-run-enhanced { color: var(--dc-muted); font-style: italic; }
+.dc-run-enhanced:empty { display: none; }
+.dc-run li .dc-step-live { color: var(--dc-muted); }
 
 /* ---------- typing, errors */
 .dc-typing { display: inline-flex; gap: 4px; padding: 10px 2px; }
