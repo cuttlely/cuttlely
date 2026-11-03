@@ -29,6 +29,43 @@ async function type(t, text) {
 }
 
 describe('chat widget', () => {
+    it('sorts completed answer tables locally and keeps links, original answer and independent tables intact', async () => {
+        const answer =
+            '| Account | ACV | Risk score |\n| --- | ---: | ---: |\n| [Alpha](https://example.com/alpha) | $10,000.00 | 0.19 |\n| Bravo | $900.00 | 0.58 |\n| Charlie | Unknown | Unknown |\n\n| Other | Value |\n| --- | --- |\n| First | 2 |\n| Second | 1 |'
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: answer },
+                    { event: 'end', data: '[DONE]' }
+                ])
+        })
+        await type(t, 'Show accounts')
+        await until(() => t.$('.md-table-sort') && !t.widget.busy)
+        const requests = t.server.calls.length
+        const table = t.$('table')
+        const names = () => Array.from(table.tBodies[0].rows, (row) => row.cells[0].textContent)
+        assert.deepEqual(names(), ['Alpha', 'Bravo', 'Charlie'])
+        table.tHead.rows[0].cells[1].querySelector('button').click()
+        assert.deepEqual(names(), ['Bravo', 'Alpha', 'Charlie'])
+        assert.equal(table.tHead.rows[0].cells[1].getAttribute('aria-sort'), 'ascending')
+        table.tHead.rows[0].cells[1].querySelector('button').click()
+        assert.deepEqual(names(), ['Alpha', 'Bravo', 'Charlie'])
+        assert.equal(table.tHead.rows[0].cells[1].getAttribute('aria-sort'), 'descending')
+        table.tHead.rows[0].cells[2].querySelector('button').click()
+        table.tHead.rows[0].cells[2].querySelector('button').click()
+        assert.deepEqual(names(), ['Bravo', 'Alpha', 'Charlie'])
+        assert.equal(table.querySelector('a').getAttribute('href'), 'https://example.com/alpha')
+        assert.equal(t.$$('table')[1].tBodies[0].rows[0].cells[0].textContent, 'First')
+        assert.equal(t.server.calls.length, requests)
+        assert.equal(t.widget.messages.find((message) => message.role === 'assistant')?.text || t.widget.messages[1].text, answer)
+        // Rendering a new last-message state must not reset a previous table's chosen order.
+        const bot = t.widget.messages[1]
+        bot.rev++
+        t.widget.renderThread()
+        assert.equal(t.$('table').tBodies[0].rows[0].cells[0].textContent, 'Bravo')
+        t.widget.destroy()
+    })
+
     it('shows the flow title, welcome text and starter prompts from the share settings', async () => {
         const t = setup({
             config: () =>

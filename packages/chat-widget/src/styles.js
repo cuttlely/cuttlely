@@ -161,6 +161,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .md-table table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
 .md-table th, .md-table td { padding: 8px 12px; border-bottom: 1px solid var(--dc-border); text-align: left; vertical-align: top; }
 .md-table th { background: var(--dc-surface); font-weight: 600; white-space: nowrap; }
+.md-table-sort { display: inline-flex; align-items: center; gap: 0.5em; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.md-table-sort:hover { text-decoration: underline; }
+.md-table-sort:focus-visible { outline: 2px solid var(--dc-accent); outline-offset: 4px; }
+.md-table-sort-icon { opacity: 0.65; font-size: 0.85em; }
 .md-table tr:last-child td { border-bottom: 0; }
 .md-task { color: var(--dc-muted); }
 

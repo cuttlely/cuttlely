@@ -8,6 +8,7 @@ import { enhancedLine, formatElapsed, nextAnnouncement } from './live-status.js'
 import { emptyRun, formatMs, reduceRun, runStatus } from './run.js'
 import { scrub } from './scrub.js'
 import { styles } from './styles.js'
+import { makeTablesSortable } from './tables.js'
 
 const STORAGE_PREFIX = 'cuttlely-chat:v1:'
 const MAX_SAVED_MESSAGES = 60
@@ -145,6 +146,7 @@ export class ChatWidget {
         this.blocked = null
         this.isOpen = this.mode === 'page' || Boolean(this.options.open)
         this.nodes = new Map()
+        this.tableSorts = new WeakMap()
         this.frame = 0
         this.root = host.shadowRoot || host.attachShadow({ mode: 'open' })
         this.panelId = nextId('dc-panel')
@@ -544,6 +546,10 @@ export class ChatWidget {
         const bubble = h('div', { class: 'dc-bot-bubble' })
         if (msg.text) {
             const md = markdownNode(msg.text, this.base)
+            if (msg.status !== 'streaming') {
+                if (!this.tableSorts.has(msg)) this.tableSorts.set(msg, new Map())
+                makeTablesSortable(md, this.tableSorts.get(msg))
+            }
             if (msg.status === 'streaming') md.classList.add('dc-caret')
             bubble.append(md)
         } else if (msg.status === 'streaming') {

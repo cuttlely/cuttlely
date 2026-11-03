@@ -42,3 +42,10 @@ export function renderMarkdown(source: string, options?: { base?: string }): str
 export function escapeHtml(value: unknown): string
 export function safeUrl(raw: unknown, options?: { image?: boolean; base?: string }): string
 export function normalizeConfig(raw: unknown, overrides?: Record<string, unknown>): Record<string, unknown>
+/** Sort displayed table rows without changing their values. Unknowns remain last in either direction. */
+export function tableRowOrder(
+    rows: readonly (readonly string[])[],
+    column: number,
+    direction?: 'ascending' | 'descending',
+    header?: string
+): number[]
