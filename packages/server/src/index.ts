@@ -43,7 +43,7 @@ import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
 import { fileSizeLimit } from './settings/settingAlias'
 import { API_KEY_BLACKLIST_URLS, READ_ONLY_WHITELIST_URLS, WHITELIST_URLS } from './utils/constants'
 import logger, { expressRequestLogger } from './utils/logger'
-import { RateLimiterManager, uiAssetMiddleware, uiPageRateLimiter } from './utils/rateLimit'
+import { RateLimiterManager, sendUiPage, uiAssetMiddleware, uiPageRateLimiter } from './utils/rateLimit'
 import { chatWidgetScript } from './utils/chatWidget'
 import { resolveUiBuild } from './utils/uiBuild'
 import { SSEStreamer } from './utils/SSEStreamer'
@@ -356,7 +356,7 @@ export class App {
                         logger.warn(`[server]: Setup code check failed: ${error instanceof Error ? error.message : error}`)
                     )
                 }
-                res.sendFile(uiBuild.indexHtml)
+                sendUiPage(res, uiBuild.indexHtml)
             })
         } else {
             logger.error('❌ [server]: UI build was not found. Build the UI, then build the server.')

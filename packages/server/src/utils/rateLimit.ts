@@ -1,6 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express'
 import { rateLimit, RateLimitRequestHandler } from 'express-rate-limit'
 import { isIP } from 'net'
+import path from 'path'
 import { IChatFlow, MODE } from '../Interface'
 import { Mutex } from 'async-mutex'
 import type Redis from 'ioredis'
@@ -293,15 +294,47 @@ export function uiIconRateLimiter(catalogSize: () => number) {
     })
 }
 
+/** Vite names every file in the build's assets folder after its content, so a name never changes meaning. */
+export const UI_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+/** The UI page names the current asset files, so a browser checks it with the server on every load. */
+export const UI_PAGE_CACHE_CONTROL = 'no-cache'
+
+const isAssetPath = (urlPath: string) => urlPath.startsWith('/assets/')
+const isAssetFile = (directory: string, filePath: string) => path.relative(directory, filePath).split(path.sep)[0] === 'assets'
+
 /**
  * Hashed UI files. `index: false` stops a directory request from reading index.html.
  * A request for the file itself would still match, so `/` and `/index.html` skip this
  * handler and fall through to the page limiter. Directories are not redirected.
+ * Files under /assets/ are cached for a year. A GET or HEAD for a missing file under /assets/
+ * answers 404 instead of the UI page: a page left open across a deploy then gets a clear
+ * failure for a removed chunk, not HTML served as a script.
  */
 export function uiAssetMiddleware(directory: string) {
-    const files = express.static(directory, { index: false, redirect: false })
+    const files = express.static(directory, {
+        index: false,
+        redirect: false,
+        setHeaders: (res, filePath) => {
+            if (isAssetFile(directory, filePath)) res.setHeader('Cache-Control', UI_ASSET_CACHE_CONTROL)
+        }
+    })
     return (req: Request, res: Response, next: NextFunction) => {
-        if ((req.method === 'GET' || req.method === 'HEAD') && (req.path === '/' || req.path === '/index.html')) return next()
-        return files(req, res, next)
+        const readOnly = req.method === 'GET' || req.method === 'HEAD'
+        if (readOnly && (req.path === '/' || req.path === '/index.html')) return next()
+        return files(req, res, (error?: unknown) => {
+            if (error) return next(error)
+            if (readOnly && isAssetPath(req.path)) {
+                res.status(404).setHeader('Cache-Control', 'no-store')
+                res.type('text/plain').send('Not found')
+                return
+            }
+            next()
+        })
     }
+}
+
+/** Sends the UI page. A Cache-Control set earlier (the setup page's no-store) is kept. */
+export function sendUiPage(res: Response, indexHtml: string): void {
+    if (!res.getHeader('Cache-Control')) res.setHeader('Cache-Control', UI_PAGE_CACHE_CONTROL)
+    res.sendFile(indexHtml)
 }

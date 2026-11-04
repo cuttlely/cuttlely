@@ -12,7 +12,10 @@ import {
     uiPageLimitMax,
     UI_PAGE_LIMIT_WINDOW_MS,
     rateLimitClientKey,
+    sendUiPage,
     uiAssetMiddleware,
+    UI_ASSET_CACHE_CONTROL,
+    UI_PAGE_CACHE_CONTROL,
     uiIconLimitMax,
     uiIconRateLimiter,
     uiPageRateLimiter,
@@ -126,9 +129,9 @@ describe('UI page fallback limiter', () => {
         const limiter = fs.readFileSync(path.join(__dirname, 'rateLimit.ts'), 'utf8')
         expect(source).toMatch(/this\.app\.use\(uiAssetMiddleware\(uiBuild\.directory\)\)/)
         expect(source).toMatch(
-            /this\.app\.use\(uiPageRateLimiter\(\), \(req: Request, res: Response\) => \{\s*if \(isMcpEndpointPath\(`\$\{req\.baseUrl\}\$\{req\.path\}`\)\) \{\s*sendMcpMethodNotAllowed\(res\)\s*return\s*\}\s*if \(isSetupDocumentPath\(req\.path\)\) \{\s*applySetupHeaders\(res\)\s*void reissueExpiredSetupIfOpen\(\(\) => identityStore\(\)\.countUsers\(\), localAdminEnabled\(\)\)\.catch\(\(error\) =>\s*logger\.warn\(`\[server\]: Setup code check failed: \$\{error instanceof Error \? error\.message : error\}`\)\s*\)\s*\}\s*res\.sendFile\(uiBuild\.indexHtml\)/
+            /this\.app\.use\(uiPageRateLimiter\(\), \(req: Request, res: Response\) => \{\s*if \(isMcpEndpointPath\(`\$\{req\.baseUrl\}\$\{req\.path\}`\)\) \{\s*sendMcpMethodNotAllowed\(res\)\s*return\s*\}\s*if \(isSetupDocumentPath\(req\.path\)\) \{\s*applySetupHeaders\(res\)\s*void reissueExpiredSetupIfOpen\(\(\) => identityStore\(\)\.countUsers\(\), localAdminEnabled\(\)\)\.catch\(\(error\) =>\s*logger\.warn\(`\[server\]: Setup code check failed: \$\{error instanceof Error \? error\.message : error\}`\)\s*\)\s*\}\s*sendUiPage\(res, uiBuild\.indexHtml\)/
         )
-        expect(limiter).toMatch(/express\.static\(directory, \{ index: false, redirect: false \}\)/)
+        expect(limiter).toMatch(/express\.static\(directory, \{\s*index: false,\s*redirect: false,/)
         expect(limiter).toMatch(/req\.path === '\/' \|\| req\.path === '\/index\.html'/)
         expect(source).not.toMatch(/embed\/chat\.js[\s\S]{0,400}uiPageRateLimiter/)
     })
@@ -198,6 +201,59 @@ describe('UI page fallback limiter', () => {
         expect(ping.status).toBe(200)
         expect(ping.text).toBe('pong')
 
+        fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('answers 404 for a missing file under /assets/ and caches hashed files for a year', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-ui-assets-'))
+        fs.mkdirSync(path.join(dir, 'assets'))
+        fs.writeFileSync(path.join(dir, 'assets', 'page-abc123.js'), 'export default 1')
+        fs.writeFileSync(path.join(dir, 'favicon.ico'), 'icon')
+        fs.writeFileSync(path.join(dir, 'index.html'), '<html>ui</html>')
+        const app = express()
+        app.use(uiAssetMiddleware(dir))
+        app.use((_req, res) => sendUiPage(res, path.join(dir, 'index.html')))
+
+        const asset = await hangGuard(request(app).get('/assets/page-abc123.js'))
+        expect(asset.status).toBe(200)
+        expect(asset.type).toMatch(/javascript/)
+        expect(asset.headers['cache-control']).toBe(UI_ASSET_CACHE_CONTROL)
+        const revalidated = await hangGuard(request(app).get('/assets/page-abc123.js').set('If-None-Match', asset.headers.etag))
+        expect(revalidated.status).toBe(304)
+        expect(revalidated.headers['cache-control']).toBe(UI_ASSET_CACHE_CONTROL)
+
+        for (const method of ['get', 'head'] as const) {
+            const missing = await hangGuard(request(app)[method]('/assets/page-gone99.js'))
+            expect(missing.status).toBe(404)
+            expect(missing.type).toMatch(/text\/plain/)
+            expect(missing.headers['cache-control']).toBe('no-store')
+        }
+        expect((await hangGuard(request(app).get('/assets/page-gone99.js'))).text).toBe('Not found')
+
+        const icon = await hangGuard(request(app).get('/favicon.ico'))
+        expect(icon.status).toBe(200)
+        expect(icon.headers['cache-control']).not.toBe(UI_ASSET_CACHE_CONTROL)
+
+        for (const url of ['/', '/index.html', '/server-settings', '/assets']) {
+            const page = await hangGuard(request(app).get(url))
+            expect(page.status).toBe(200)
+            expect(page.text).toBe('<html>ui</html>')
+            expect(page.headers['cache-control']).toBe(UI_PAGE_CACHE_CONTROL)
+        }
+        fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('keeps a Cache-Control set before the UI page is sent', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-ui-page-'))
+        fs.writeFileSync(path.join(dir, 'index.html'), '<html>ui</html>')
+        const app = express()
+        app.use((_req, res) => {
+            res.setHeader('Cache-Control', 'no-store')
+            sendUiPage(res, path.join(dir, 'index.html'))
+        })
+        const page = await hangGuard(request(app).get('/setup'))
+        expect(page.status).toBe(200)
+        expect(page.headers['cache-control']).toBe('no-store')
         fs.rmSync(dir, { recursive: true, force: true })
     })
 })

@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom'
 
 import RouteErrorPage from './RouteErrorPage'
+import { CHUNK_RELOAD_KEY, resetChunkReloadForTests } from '@/utils/chunkReload'
 
 // jsdom has no fetch Request, which the router builds for each route change. These routes have no loaders,
 // so a stand-in with the URL, method and signal is enough.
@@ -27,6 +28,10 @@ const Broken = () => {
     throw new Error('Sample render failure')
 }
 
+const ChunkMissing = () => {
+    throw new TypeError('Failed to fetch dynamically imported module: https://app.example.test/assets/index-AbC123.js')
+}
+
 const buttonNamed = (container, name) => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === name)
 
 describe('RouteErrorPage', () => {
@@ -38,6 +43,8 @@ describe('RouteErrorPage', () => {
         // React and the router log the thrown error; the test expects it.
         jest.spyOn(console, 'error').mockImplementation(() => {})
         jest.spyOn(console, 'warn').mockImplementation(() => {})
+        window.sessionStorage.clear()
+        resetChunkReloadForTests()
     })
 
     afterEach(async () => {
@@ -62,7 +69,8 @@ describe('RouteErrorPage', () => {
                     errorElement: createElement(RouteErrorPage),
                     children: [
                         { index: true, element: createElement(Home) },
-                        { path: 'broken', element: createElement(Broken) }
+                        { path: 'broken', element: createElement(Broken) },
+                        { path: 'chunk', element: createElement(ChunkMissing) }
                     ]
                 }
             ],
@@ -106,6 +114,31 @@ describe('RouteErrorPage', () => {
         expect(reload).toHaveBeenCalledTimes(1)
     })
 
+    it('reloads once by itself when a code chunk failed to load', async () => {
+        const reload = jest.fn()
+        delete window.location
+        window.location = { reload }
+        const container = await renderAt('/chunk')
+        window.location = originalLocation
+        expect(reload).toHaveBeenCalledTimes(1)
+        expect(window.sessionStorage.getItem(CHUNK_RELOAD_KEY)).not.toBeNull()
+        expect(container.textContent).toContain('Loading the latest version of this page')
+        expect(container.querySelector('[role="alert"]')).toBeNull()
+    })
+
+    it('shows the error with a Reload button when the chunk still fails right after a reload', async () => {
+        window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
+        const reload = jest.fn()
+        delete window.location
+        window.location = { reload }
+        const container = await renderAt('/chunk')
+        window.location = originalLocation
+        expect(reload).not.toHaveBeenCalled()
+        expect(container.querySelector('[role="alert"]')).not.toBeNull()
+        expect(container.textContent).toContain('The server may have just restarted or been updated')
+        expect(buttonNamed(container, 'Reload')).toBeDefined()
+    })
+
     it('goes to the home route from Go home and shows it', async () => {
         const container = await renderAt('/broken')
         await act(async () => {
@@ -125,6 +158,7 @@ describe('RouteErrorPage', () => {
     it('is the error element of the root route in the app entry', () => {
         const entry = fs.readFileSync(path.join(__dirname, '../index.jsx'), 'utf8')
         expect(entry).toContain("import RouteErrorPage from '@/routes/RouteErrorPage'")
+        expect(entry).toMatch(/window\.addEventListener\('vite:preloadError', \(event\) => \{\s*reloadOnceForChunkError\(event\.payload\)/)
         expect(entry).toMatch(/createBrowserRouter\(\[\{ element: <AppShell \/>, errorElement: <RouteErrorPage \/>, children: routes \}\]/)
     })
 })
