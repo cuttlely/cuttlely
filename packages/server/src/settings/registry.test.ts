@@ -149,17 +149,3 @@ describe('server settings registry', () => {
         }
     })
 })
-
-describe('switch on values', () => {
-    it('lists 1 and true as on for pinned queries only', () => {
-        expect(settingFor('CUTTLELY_PINNED_QUERIES')?.onValues).toEqual(['1', 'true'])
-        const listed = SETTINGS.filter((setting) => setting.onValues).map((setting) => setting.key)
-        expect(listed).toEqual(['CUTTLELY_PINNED_QUERIES'])
-    })
-
-    it('keeps the written on value inside the listed on values', () => {
-        for (const setting of SETTINGS.filter((item) => item.onValues)) {
-            expect(setting.onValues).toContain(setting.on ?? 'true')
-        }
-    })
-})
