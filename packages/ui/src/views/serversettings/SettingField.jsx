@@ -5,7 +5,7 @@ import { alpha, useTheme } from '@mui/material/styles'
 import { Alert, Box, Button, Chip, InputAdornment, MenuItem, Select, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
 import { IconArrowBackUp, IconKey, IconLock, IconPointFilled } from '@tabler/icons-react'
 
-import { UNIT_LABELS, currentValue, describeValue, fromDisplay, limitedByLabel, toDisplay, numberWarning } from './model'
+import { UNIT_LABELS, currentValue, describeValue, fromDisplay, isSwitchOn, limitedByLabel, toDisplay, numberWarning } from './model'
 
 const CUSTOM = '__custom__'
 
@@ -208,7 +208,7 @@ const SwitchControl = ({ setting, value, disabled, onDraft }) => {
     const on = setting.on ?? 'true'
     const off = setting.off ?? 'false'
     const effective = value === '' ? setting.defaultValue ?? off : value
-    const checked = effective === on
+    const checked = isSwitchOn(setting, effective)
     return (
         <Stack direction='row' alignItems='center' justifyContent={{ xs: 'flex-start', md: 'flex-end' }} gap={1}>
             <Typography variant='body2' color={checked ? 'text.primary' : 'text.secondary'} sx={{ fontWeight: 500 }}>

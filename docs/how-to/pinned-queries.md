@@ -10,7 +10,7 @@ The worked example below uses a made-up `demo_sales` table. It is not a migratio
 
 ## Turn the flag on
 
-Set `CUTTLELY_PINNED_QUERIES` to exactly `1` or `true`. Those two values are the only ones that turn it on. Unset, empty, `yes`, `on`, `TRUE`, `false`, `0`, and every other value leave it off.
+Set `CUTTLELY_PINNED_QUERIES` to exactly `1` or `true`. Those two values are the only ones that turn it on. Unset, empty, `yes`, `on`, `TRUE`, `false`, `0`, and every other value leave it off. **Pinned queries** in [Server settings](./server-settings.md) shows **On** for `1` and for `true`, and **Off** for every other value.
 
 The key is registered with the analyst server settings, next to `CUTTLELY_ANALYST_TRACE_PREVIEW`. You can also set it in the server environment.
 

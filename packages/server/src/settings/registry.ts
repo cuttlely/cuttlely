@@ -50,6 +50,8 @@ export interface SettingDef {
     /** Switch values. on/off are the raw strings written when the switch is flipped. */
     on?: string
     off?: string
+    /** Switch raw values the server treats as on, when more than `on` counts. Display only: flipping still writes `on` or `off`. */
+    onValues?: string[]
     options?: SettingOption[]
     /** A select that also accepts a typed value (for example a file path or URL). */
     custom?: { label: string; placeholder: string }
@@ -735,6 +737,7 @@ export const SETTINGS: SettingDef[] = [
         help: 'Pinned query tools are on only when this value is exactly 1 or true. false, yes, on, TRUE, and an empty value leave them off. Turning this off removes those tools at the next start.',
         type: 'switch',
         ...TRUE_FALSE,
+        onValues: ['1', 'true'],
         defaultLabel: 'Off',
         defaultValue: '',
         risk: 'medium'
