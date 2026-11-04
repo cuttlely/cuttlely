@@ -1,6 +1,7 @@
 import {
     cleanDrafts,
     describeValue,
+    isSwitchOn,
     effectiveValues,
     fromDisplay,
     groupSettings,
@@ -242,5 +243,38 @@ describe('number warnings and the zero label', () => {
         expect(describeValue(runs, '0')).toBe('Unlimited')
         expect(describeValue(runs, '26')).toBe('26')
         expect(numberWarning({ ...runs, warnings: undefined }, { [runs.key]: '0' })).toBeNull()
+    })
+
+    describe('pinned queries switch', () => {
+        const pinned = {
+            key: 'CUTTLELY_PINNED_QUERIES',
+            type: 'switch',
+            on: 'true',
+            off: 'false',
+            onValues: ['1', 'true'],
+            defaultLabel: 'Off',
+            defaultValue: ''
+        }
+        const plain = { key: 'CUTTLELY_EXAMPLE_SWITCH', type: 'switch', on: 'true', off: 'false', defaultLabel: 'Off' }
+
+        it('shows 1 and true as On', () => {
+            expect(describeValue(pinned, '1')).toBe('On')
+            expect(describeValue(pinned, 'true')).toBe('On')
+        })
+
+        it('shows 0, false and other values as Off, and unset as the default', () => {
+            expect(describeValue(pinned, '0')).toBe('Off')
+            expect(describeValue(pinned, 'false')).toBe('Off')
+            expect(describeValue(pinned, 'TRUE')).toBe('Off')
+            expect(describeValue(pinned, '')).toBe('Default (Off)')
+            expect(isSwitchOn(pinned, '')).toBe(false)
+        })
+
+        it('leaves other true/false switches matching only true', () => {
+            expect(describeValue(plain, 'true')).toBe('On')
+            expect(describeValue(plain, 'false')).toBe('Off')
+            expect(describeValue(plain, '1')).toBe('1')
+            expect(isSwitchOn(plain, '1')).toBe(false)
+        })
     })
 })

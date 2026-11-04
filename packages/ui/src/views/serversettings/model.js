@@ -107,11 +107,19 @@ export function cleanDrafts(settings, drafts) {
     return out
 }
 
+/** True when a switch's raw value counts as on: `onValues` when the setting lists them, else exactly `on`. */
+export function isSwitchOn(setting, raw) {
+    if (Array.isArray(setting.onValues)) return setting.onValues.includes(raw)
+    return raw === (setting.on ?? 'true')
+}
+
 /** Words for a raw value: On or Off, the option label, or the default in words. */
 export function describeValue(setting, raw) {
     if (raw === undefined || raw === null || raw === '') return `Default (${setting.defaultLabel})`
     if (setting.type === 'switch') {
-        if (raw === (setting.on ?? 'true')) return 'On'
+        if (isSwitchOn(setting, raw)) return 'On'
+        // A listed on set means the server reads every other value as off.
+        if (Array.isArray(setting.onValues)) return 'Off'
         if (raw === (setting.off ?? 'false')) return 'Off'
     }
     if (setting.type === 'select') {
