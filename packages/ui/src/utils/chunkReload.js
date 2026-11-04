@@ -10,6 +10,8 @@ export const CHUNK_RELOAD_WINDOW_MS = 60_000
 export const SERVER_WAIT_MS = 60_000
 /** Waits between pings, the last one repeated. */
 export const PING_BACKOFF_MS = [500, 1000, 2000, 3000, 5000]
+/** The longest one ping may take before it counts as no answer. */
+export const PING_TIMEOUT_MS = 5000
 
 // Chrome and Edge, Firefox, Safari, and Vite's CSS preload.
 const CHUNK_ERROR_PATTERNS = [
@@ -52,13 +54,31 @@ export const chunkReloadAllowed = ({ storage = browserStorage(), now = Date.now(
     }
 }
 
-/** One ping, as the restart screen does it: only a 200 means the server is up. */
-export const pingServer = async (fetchImpl = globalThis.fetch) => {
+/**
+ * One ping, as the restart screen does it: only a 200 means the server is up. A ping with no answer
+ * within timeoutMs is cancelled and counts as down, so a stalled request cannot hold up the wait.
+ */
+export const pingServer = async ({ fetchImpl = globalThis.fetch, timeoutMs = PING_TIMEOUT_MS } = {}) => {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null
+    let timer
+    const timedOut = new Promise((resolve) => {
+        timer = setTimeout(() => {
+            controller?.abort()
+            resolve(false)
+        }, timeoutMs)
+    })
+    const answered = (async () => {
+        try {
+            const res = await fetchImpl('/api/v1/ping', { cache: 'no-store', credentials: 'same-origin', signal: controller?.signal })
+            return res.status === 200
+        } catch {
+            return false
+        }
+    })()
     try {
-        const res = await fetchImpl('/api/v1/ping', { cache: 'no-store', credentials: 'same-origin' })
-        return res.status === 200
-    } catch {
-        return false
+        return await Promise.race([answered, timedOut])
+    } finally {
+        clearTimeout(timer)
     }
 }
 
@@ -67,7 +87,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 let pendingWait = null
 
 /**
- * For a chunk-load error, pings the server with backoff for up to SERVER_WAIT_MS and reloads the page once
+ * For a chunk-load error, pings the server with backoff for up to SERVER_WAIT_MS, each ping bounded by the time left, and reloads the page once
  * after a ping succeeds. Resolves true when it started a reload, and false when the error is not a chunk-load
  * error, a reload ran in the last minute, or the server did not answer in time. Calls made while a wait is
  * running share it, so the Vite event and the error page start one wait between them.
@@ -78,10 +98,11 @@ export const waitForServerThenReload = (error, options = {}) => {
     const { ping = pingServer, clock = () => Date.now(), waitMs = SERVER_WAIT_MS } = options
     if (!chunkReloadAllowed({ storage: options.storage, now: clock() })) return Promise.resolve(false)
     const run = async () => {
-        const started = clock()
+        const deadline = clock() + waitMs
         for (let attempt = 0; ; attempt += 1) {
-            if (await ping()) return reloadOnceForChunkError(error, { ...options, now: clock() })
-            const left = waitMs - (clock() - started)
+            const timeoutMs = Math.max(1, Math.min(PING_TIMEOUT_MS, deadline - clock()))
+            if (await ping({ timeoutMs })) return reloadOnceForChunkError(error, { ...options, now: clock() })
+            const left = deadline - clock()
             if (left <= 0) return false
             await sleep(Math.min(PING_BACKOFF_MS[Math.min(attempt, PING_BACKOFF_MS.length - 1)], left))
         }

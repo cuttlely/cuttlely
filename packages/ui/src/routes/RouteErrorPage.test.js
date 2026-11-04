@@ -178,6 +178,18 @@ describe('RouteErrorPage', () => {
             expect(globalThis.fetch.mock.calls.length).toBe(pings)
         })
 
+        it('shows the error with a Reload button within a minute when pings never get an answer', async () => {
+            globalThis.fetch = jest.fn(() => new Promise(() => {}))
+            const container = await renderAt('/chunk')
+            await advance(59_000)
+            expect(container.textContent).toContain('Loading the latest version of this page')
+
+            await advance(2_000)
+            expect(reload).not.toHaveBeenCalled()
+            expect(container.querySelector('[role="alert"]')).not.toBeNull()
+            expect(buttonNamed(container, 'Reload')).toBeDefined()
+        })
+
         it('shows the error with a Reload button at once when the page already reloaded in the last minute', async () => {
             window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
             globalThis.fetch = jest.fn().mockResolvedValue({ status: 200 })

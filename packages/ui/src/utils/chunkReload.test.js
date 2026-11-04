@@ -134,15 +134,42 @@ describe('chunk reload', () => {
 
         it('counts only a 200 from /api/v1/ping, asked without the HTTP cache', async () => {
             const fetchImpl = jest.fn(async () => ({ status: 200 }))
-            await expect(pingServer(fetchImpl)).resolves.toBe(true)
-            expect(fetchImpl).toHaveBeenCalledWith('/api/v1/ping', { cache: 'no-store', credentials: 'same-origin' })
-            await expect(pingServer(async () => ({ status: 503 }))).resolves.toBe(false)
-            await expect(pingServer(async () => ({ status: 502 }))).resolves.toBe(false)
+            await expect(pingServer({ fetchImpl })).resolves.toBe(true)
+            expect(fetchImpl).toHaveBeenCalledWith(
+                '/api/v1/ping',
+                expect.objectContaining({ cache: 'no-store', credentials: 'same-origin' })
+            )
+            await expect(pingServer({ fetchImpl: async () => ({ status: 503 }) })).resolves.toBe(false)
+            await expect(pingServer({ fetchImpl: async () => ({ status: 502 }) })).resolves.toBe(false)
             await expect(
-                pingServer(async () => {
-                    throw new TypeError('Failed to fetch')
+                pingServer({
+                    fetchImpl: async () => {
+                        throw new TypeError('Failed to fetch')
+                    }
                 })
             ).resolves.toBe(false)
+        })
+
+        it('cancels a ping that gets no answer and counts it as down', async () => {
+            let signal
+            const fetchImpl = jest.fn((url, init) => {
+                signal = init.signal
+                return new Promise(() => {})
+            })
+            const result = pingServer({ fetchImpl, timeoutMs: 2000 })
+            await jest.advanceTimersByTimeAsync(2000)
+            await expect(result).resolves.toBe(false)
+            expect(signal.aborted).toBe(true)
+        })
+
+        it('still gives up after about a minute when pings never answer', async () => {
+            const reload = jest.fn()
+            const fetchImpl = jest.fn(() => new Promise(() => {}))
+            const ping = (options) => pingServer({ ...options, fetchImpl })
+            const result = waitForServerThenReload(chromeError, { storage: memoryStorage(), reload, ping, clock })
+            await jest.advanceTimersByTimeAsync(SERVER_WAIT_MS)
+            await expect(result).resolves.toBe(false)
+            expect(reload).not.toHaveBeenCalled()
         })
     })
 })
