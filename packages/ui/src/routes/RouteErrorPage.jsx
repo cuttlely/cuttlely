@@ -3,7 +3,7 @@ import { isRouteErrorResponse, useNavigate, useRouteError } from 'react-router-d
 
 import { Box, Button, Collapse, Stack, Typography } from '@mui/material'
 
-import { chunkReloadStarted, isChunkLoadError, reloadOnceForChunkError } from '@/utils/chunkReload'
+import { chunkReloadStarted, isChunkLoadError, waitForServerThenReload } from '@/utils/chunkReload'
 
 // Kept to plain MUI with the default theme: this page shows when part of the app failed to render,
 // so it should not depend on the store, the theme, or the providers in the app shell.
@@ -33,12 +33,19 @@ const RouteErrorPage = () => {
     const [showDetails, setShowDetails] = useState(false)
     const notFound = isRouteErrorResponse(error) && error.status === 404
     const chunkError = isChunkLoadError(error)
-    // A chunk that failed to load is usually fixed by one reload, so try that before showing the error.
+    // A chunk that failed to load is usually fixed by one reload once the server answers again,
+    // so wait for that before showing the error.
     const [reloading, setReloading] = useState(chunkError)
 
     useEffect(() => {
-        if (!chunkError) return
-        setReloading(reloadOnceForChunkError(error) || chunkReloadStarted())
+        if (!chunkError) return undefined
+        let active = true
+        waitForServerThenReload(error).then((started) => {
+            if (active && !started && !chunkReloadStarted()) setReloading(false)
+        })
+        return () => {
+            active = false
+        }
     }, [chunkError, error])
 
     if (reloading) {

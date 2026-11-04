@@ -114,29 +114,80 @@ describe('RouteErrorPage', () => {
         expect(reload).toHaveBeenCalledTimes(1)
     })
 
-    it('reloads once by itself when a code chunk failed to load', async () => {
-        const reload = jest.fn()
-        delete window.location
-        window.location = { reload }
-        const container = await renderAt('/chunk')
-        window.location = originalLocation
-        expect(reload).toHaveBeenCalledTimes(1)
-        expect(window.sessionStorage.getItem(CHUNK_RELOAD_KEY)).not.toBeNull()
-        expect(container.textContent).toContain('Loading the latest version of this page')
-        expect(container.querySelector('[role="alert"]')).toBeNull()
-    })
+    describe('when a code chunk failed to load', () => {
+        const originalFetch = globalThis.fetch
+        let reload
 
-    it('shows the error with a Reload button when the chunk still fails right after a reload', async () => {
-        window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
-        const reload = jest.fn()
-        delete window.location
-        window.location = { reload }
-        const container = await renderAt('/chunk')
-        window.location = originalLocation
-        expect(reload).not.toHaveBeenCalled()
-        expect(container.querySelector('[role="alert"]')).not.toBeNull()
-        expect(container.textContent).toContain('The server may have just restarted or been updated')
-        expect(buttonNamed(container, 'Reload')).toBeDefined()
+        beforeEach(() => {
+            jest.useFakeTimers()
+            reload = jest.fn()
+            delete window.location
+            window.location = { reload }
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+            globalThis.fetch = originalFetch
+        })
+
+        const advance = async (ms) => {
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(ms)
+            })
+        }
+
+        it('waits for the server to answer, then reloads once', async () => {
+            // Down, then the start-up page, then up.
+            globalThis.fetch = jest
+                .fn()
+                .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                .mockResolvedValueOnce({ status: 503 })
+                .mockResolvedValue({ status: 200 })
+            const container = await renderAt('/chunk')
+            expect(container.textContent).toContain('Loading the latest version of this page')
+            expect(reload).not.toHaveBeenCalled()
+
+            await advance(500)
+            expect(reload).not.toHaveBeenCalled()
+            expect(container.textContent).toContain('Loading the latest version of this page')
+
+            await advance(1000)
+            expect(reload).toHaveBeenCalledTimes(1)
+            expect(globalThis.fetch).toHaveBeenCalledWith('/api/v1/ping', expect.objectContaining({ cache: 'no-store' }))
+            expect(window.sessionStorage.getItem(CHUNK_RELOAD_KEY)).not.toBeNull()
+            expect(container.querySelector('[role="alert"]')).toBeNull()
+
+            await advance(120_000)
+            expect(reload).toHaveBeenCalledTimes(1)
+        })
+
+        it('shows the error with a Reload button when the server does not answer within a minute', async () => {
+            globalThis.fetch = jest.fn().mockResolvedValue({ status: 502 })
+            const container = await renderAt('/chunk')
+            await advance(59_000)
+            expect(container.textContent).toContain('Loading the latest version of this page')
+            expect(container.querySelector('[role="alert"]')).toBeNull()
+
+            await advance(2_000)
+            expect(reload).not.toHaveBeenCalled()
+            expect(container.querySelector('[role="alert"]')).not.toBeNull()
+            expect(container.textContent).toContain('The server may have just restarted or been updated')
+            expect(buttonNamed(container, 'Reload')).toBeDefined()
+            const pings = globalThis.fetch.mock.calls.length
+            await advance(120_000)
+            expect(globalThis.fetch.mock.calls.length).toBe(pings)
+        })
+
+        it('shows the error with a Reload button at once when the page already reloaded in the last minute', async () => {
+            window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
+            globalThis.fetch = jest.fn().mockResolvedValue({ status: 200 })
+            const container = await renderAt('/chunk')
+            await advance(0)
+            expect(globalThis.fetch).not.toHaveBeenCalled()
+            expect(reload).not.toHaveBeenCalled()
+            expect(container.querySelector('[role="alert"]')).not.toBeNull()
+            expect(buttonNamed(container, 'Reload')).toBeDefined()
+        })
     })
 
     it('goes to the home route from Go home and shows it', async () => {
@@ -158,7 +209,7 @@ describe('RouteErrorPage', () => {
     it('is the error element of the root route in the app entry', () => {
         const entry = fs.readFileSync(path.join(__dirname, '../index.jsx'), 'utf8')
         expect(entry).toContain("import RouteErrorPage from '@/routes/RouteErrorPage'")
-        expect(entry).toMatch(/window\.addEventListener\('vite:preloadError', \(event\) => \{\s*reloadOnceForChunkError\(event\.payload\)/)
+        expect(entry).toMatch(/window\.addEventListener\('vite:preloadError', \(event\) => \{\s*waitForServerThenReload\(event\.payload\)/)
         expect(entry).toMatch(/createBrowserRouter\(\[\{ element: <AppShell \/>, errorElement: <RouteErrorPage \/>, children: routes \}\]/)
     })
 })
