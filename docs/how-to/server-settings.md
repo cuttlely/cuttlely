@@ -226,6 +226,8 @@ When Cuttlely restarts in place, a full-screen view follows it: the settings it 
 
 If chats or agent team runs are still answering when you select **Restart now**, Cuttlely asks first. **Let them finish** waits for them, for up to the turn time limit (45 seconds unless `CUTTLELY_HARNESS_TURN_BUDGET_MS` says otherwise), and new runs get a short "restarting" answer meanwhile. **Restart now** stops them.
 
+Other tabs open on Cuttlely during a restart may ask for part of a page while the server is not answering. Such a tab shows **Loading the latest version of this page…**, waits until Cuttlely answers again (for up to about a minute), then reloads once to recover. If Cuttlely does not answer in that time, or the part still fails right after that reload, the tab shows **Reload**; select it once Cuttlely is back.
+
 When Cuttlely cannot restart itself, **How to restart** opens the steps with **Copy steps**, so you can paste them where you keep notes.
 
 ## When a setting stops Cuttlely from starting

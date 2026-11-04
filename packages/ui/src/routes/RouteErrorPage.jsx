@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isRouteErrorResponse, useNavigate, useRouteError } from 'react-router-dom'
 
 import { Box, Button, Collapse, Stack, Typography } from '@mui/material'
+
+import { chunkReloadStarted, isChunkLoadError, waitForServerThenReload } from '@/utils/chunkReload'
 
 // Kept to plain MUI with the default theme: this page shows when part of the app failed to render,
 // so it should not depend on the store, the theme, or the providers in the app shell.
@@ -30,6 +32,35 @@ const RouteErrorPage = () => {
     const navigate = useNavigate()
     const [showDetails, setShowDetails] = useState(false)
     const notFound = isRouteErrorResponse(error) && error.status === 404
+    const chunkError = isChunkLoadError(error)
+    // A chunk that failed to load is usually fixed by one reload once the server answers again,
+    // so wait for that before showing the error.
+    const [reloading, setReloading] = useState(chunkError)
+
+    useEffect(() => {
+        if (!chunkError) return undefined
+        let active = true
+        waitForServerThenReload(error).then((started) => {
+            if (active && !started && !chunkReloadStarted()) setReloading(false)
+        })
+        return () => {
+            active = false
+        }
+    }, [chunkError, error])
+
+    if (reloading) {
+        return (
+            <Box role='status' sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', p: 3 }}>
+                <Typography variant='body1'>Loading the latest version of this page…</Typography>
+            </Box>
+        )
+    }
+
+    const message = notFound
+        ? 'This page does not exist.'
+        : chunkError
+        ? 'Part of this page could not be loaded. The server may have just restarted or been updated. Reload to try again.'
+        : 'This page could not be shown. Reload to try again, or go back to the home page.'
 
     return (
         <Box role='alert' sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', p: 3 }}>
@@ -37,11 +68,7 @@ const RouteErrorPage = () => {
                 <Typography variant='h4' component='h1'>
                     {notFound ? 'Page not found' : 'Something went wrong'}
                 </Typography>
-                <Typography variant='body1'>
-                    {notFound
-                        ? 'This page does not exist.'
-                        : 'This page could not be shown. Reload to try again, or go back to the home page.'}
-                </Typography>
+                <Typography variant='body1'>{message}</Typography>
                 <Stack direction='row' sx={{ gap: 1 }}>
                     <Button variant='contained' onClick={() => window.location.reload()}>
                         Reload

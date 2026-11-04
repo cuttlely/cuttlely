@@ -4,6 +4,7 @@ import config from '@/config'
 import routes from '@/routes'
 import RouteErrorPage from '@/routes/RouteErrorPage'
 import { store } from '@/store'
+import { waitForServerThenReload } from '@/utils/chunkReload'
 import { createRoot } from 'react-dom/client'
 
 // style + assets
@@ -38,6 +39,12 @@ const AppShell = () => (
 // errorElement replaces the default router crash screen when a page throws while it renders or loads.
 const router = createBrowserRouter([{ element: <AppShell />, errorElement: <RouteErrorPage />, children: routes }], {
     basename: config.basename || '/'
+})
+
+// Vite reports a chunk it could not preload here. The route's error page handles the same failure
+// when it reaches React; both share one wait for the server, then the page reloads once.
+window.addEventListener('vite:preloadError', (event) => {
+    waitForServerThenReload(event.payload)
 })
 
 const container = document.getElementById('root')
