@@ -1,4 +1,4 @@
-import { addressBlocked, githubEndpoint, GITHUB_COM } from './githubHost'
+import { addressBlocked, enterpriseApiRequest, githubEndpoint, GITHUB_COM, pinnedRequest } from './githubHost'
 
 describe('github host', () => {
     test('blank and github.com are the public default', () => {
@@ -56,6 +56,35 @@ describe('github host', () => {
         expect(addressBlocked('::1')).toBe(true)
         expect(addressBlocked('::ffff:127.0.0.1')).toBe(true)
         expect(addressBlocked('203.0.113.10')).toBe(false)
+    })
+
+    test('an enterprise API URL is the encoded host plus a fixed path', () => {
+        const repos = '/user/repos?per_page=100&page=1&sort=pushed&affiliation=owner,collaborator,organization_member'
+        expect(enterpriseApiRequest(githubEndpoint('github.example.com'), '/user').url).toBe('https://github.example.com/api/v3/user')
+        expect(enterpriseApiRequest(githubEndpoint('https://GitHub.Example.com:8443'), repos).url).toBe(
+            `https://github.example.com:8443/api/v3${repos}`
+        )
+        expect(enterpriseApiRequest(githubEndpoint('octo.ghe.com'), '/user')).toMatchObject({
+            url: 'https://api.octo.ghe.com/user',
+            hostname: 'api.octo.ghe.com',
+            port: '',
+            path: '/user'
+        })
+        // ibm.github.com is only an example hostname. Nothing here contacts it.
+        expect(enterpriseApiRequest(githubEndpoint('ibm.github.com'), '/user').url).toBe('https://ibm.github.com/api/v3/user')
+        expect(() => enterpriseApiRequest(GITHUB_COM, '/user')).toThrow()
+        expect(() => enterpriseApiRequest(githubEndpoint('github.example.com'), 'https://evil.example/user')).toThrow()
+        expect(() => enterpriseApiRequest(githubEndpoint('github.example.com'), '/user/../../etc')).toThrow()
+        expect(() =>
+            pinnedRequest(
+                'github.example.com',
+                '',
+                '/api/v3/user',
+                { address: '10.1.2.3', family: 4 },
+                { method: 'GET', headers: {} },
+                1000
+            )
+        ).toThrow(/outbound policy/)
     })
 
     test('HTTP_DENY_LIST blocks a public address and a host name', () => {

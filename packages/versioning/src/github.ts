@@ -41,9 +41,11 @@ import {
     GithubEndpoint,
     GithubError,
     endpointAllows,
+    enterpriseApiRequest,
     githubEndpoint,
     pinnedRequest,
     resolveGithubHost,
+    safeApiRoute,
     type ResolvedAddress
 } from './githubHost'
 
@@ -1100,12 +1102,7 @@ export class GithubSync {
         endpoint: GithubEndpoint,
         body?: unknown
     ): Promise<{ status: number; data: any }> {
-        if (!route.startsWith('/') || route.includes('://') || route.includes('..')) {
-            throw new GithubError(400, 'That GitHub request is not valid.')
-        }
-        const base = endpoint.kind === 'github.com' ? apiBase() : endpoint.apiBase
-        const url = `${base}${route}`
-        const pin = await this.pinDestination(url, endpoint)
+        const path = safeApiRoute(route)
         const headers: Record<string, string> = {
             Accept: 'application/vnd.github+json',
             Authorization: `Bearer ${token}`,
@@ -1114,15 +1111,15 @@ export class GithubSync {
             ...(body ? { 'Content-Type': 'application/json' } : {})
         }
         const payload = body ? JSON.stringify(body) : undefined
-        const doFetch = this.deps.fetch
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
         try {
-            const res = doFetch
-                ? await doFetch(url, { method, headers, body: payload, signal: controller.signal, redirect: 'manual' })
-                : pin
-                ? await pinnedRequest(url, { method, headers, body: payload }, pin, API_TIMEOUT_MS)
-                : await fetch(url, { method, headers, body: payload, signal: controller.signal, redirect: 'manual' })
+            // github.com never uses the owner-typed host. A custom host is a separate URL built from
+            // encoded labels, and its connection is pinned to the address that passed the outbound check.
+            const res =
+                endpoint.kind === 'github.com'
+                    ? await this.githubApiFetch(`${apiBase()}${path}`, method, headers, payload, controller.signal)
+                    : await this.enterpriseApiFetch(endpoint, path, method, headers, payload, controller.signal)
             if (res.status >= 300 && res.status < 400) {
                 throw new GithubError(400, 'GitHub asked to redirect this token, so Cuttlely stopped. Nothing was sent to another host.')
             }
@@ -1139,6 +1136,38 @@ export class GithubSync {
         } finally {
             clearTimeout(timer)
         }
+    }
+
+    // The public API. `url` is https://api.github.com plus one of our routes, or the test stand-in for that base.
+    private async githubApiFetch(
+        url: string,
+        method: 'GET' | 'POST',
+        headers: Record<string, string>,
+        payload: string | undefined,
+        signal: AbortSignal
+    ): Promise<{ status: number; json: () => Promise<unknown> }> {
+        const init = { method, headers, body: payload, signal, redirect: 'manual' as const }
+        return this.deps.fetch ? this.deps.fetch(url, init) : fetch(url, init)
+    }
+
+    // A GitHub Enterprise API. The URL's host is the encoded name, and the socket is the checked address.
+    private async enterpriseApiFetch(
+        endpoint: GithubEndpoint,
+        route: string,
+        method: 'GET' | 'POST',
+        headers: Record<string, string>,
+        payload: string | undefined,
+        signal: AbortSignal
+    ): Promise<{ status: number; json: () => Promise<unknown> }> {
+        const target = enterpriseApiRequest(endpoint, route)
+        if (!endpointAllows(target.url, endpoint)) {
+            throw new GithubError(400, `That address is not on ${endpoint.host}, so the token was not sent.`)
+        }
+        const pin = await resolveGithubHost(target.hostname, this.deps.lookup)
+        if (this.deps.fetch) {
+            return this.deps.fetch(target.url, { method, headers, body: payload, signal, redirect: 'manual' })
+        }
+        return pinnedRequest(target.hostname, target.port, target.path, pin, { method, headers, body: payload }, API_TIMEOUT_MS)
     }
 
     // The repositories this token can write to, most recently changed first. Nothing is saved.

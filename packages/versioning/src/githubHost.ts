@@ -252,28 +252,105 @@ export async function resolveGithubHost(hostname: string, lookup?: HostLookup): 
     return chosen
 }
 
+// The host placed in a request. encodeURIComponent leaves letters, digits, dots, and hyphens as they
+// are and escapes a slash, at-sign, question mark, or space. The name must already be that encoding,
+// so the value the request uses is the encoded string and nothing else.
+export function safeDnsName(hostname: string): string {
+    const name = normalizeName(hostname)
+    if (!name || blockedName(name) || !validHostname(name)) reject(HOST_MESSAGE)
+    const safe = encodeURIComponent(name)
+    if (safe !== name) reject(HOST_MESSAGE)
+    return safe
+}
+
+function safePort(port: string): string {
+    const safe = encodeURIComponent(port)
+    if (safe !== port || !/^[1-9][0-9]{0,4}$/.test(safe) || Number(safe) > 65535) reject(HOST_MESSAGE)
+    return safe
+}
+
+// The path and query Cuttlely adds itself. It is not a host, and it cannot climb out of the API path.
+const API_ROUTE = /^\/(?:[A-Za-z0-9._~-]+\/)*[A-Za-z0-9._~-]*(?:\?[A-Za-z0-9._~%,=&-]*)?$/
+
+export function safeApiRoute(route: string): string {
+    if (!API_ROUTE.test(route) || route.includes('..') || route.includes('//') || route.includes('@') || route.includes('\\')) {
+        reject('That GitHub request is not valid.')
+    }
+    return route
+}
+
+// /api/v3 is only the Enterprise Server prefix. The remainder has to be one of our own routes.
+function safeRequestPath(path: string): string {
+    const prefix = '/api/v3/'
+    const route = path.startsWith(prefix) ? path.slice(prefix.length - 1) : path
+    const checked = `${path.startsWith(prefix) ? '/api/v3' : ''}${safeApiRoute(route)}`
+    if (checked !== path) reject('That GitHub request is not valid.')
+    return checked
+}
+
+export interface ApiRequest {
+    url: string
+    hostname: string
+    port: string
+    path: string
+}
+
+// The URL for a custom host. github.com is not built here: that call uses https://api.github.com only.
+// The host placed in the URL is the encoded label form, never the raw string the owner typed.
+export function enterpriseApiRequest(endpoint: GithubEndpoint, route: string): ApiRequest {
+    const pathQuery = safeApiRoute(route)
+    if (endpoint.kind === 'github.com') reject('That GitHub request is not valid.')
+    let hostname = ''
+    let port = ''
+    let prefix = ''
+    if (endpoint.kind === 'ghe.com') {
+        hostname = safeDnsName(`api.${endpoint.host}`)
+    } else {
+        const colon = endpoint.host.lastIndexOf(':')
+        const name = colon === -1 ? endpoint.host : endpoint.host.slice(0, colon)
+        const rawPort = colon === -1 ? '' : endpoint.host.slice(colon + 1)
+        hostname = safeDnsName(name)
+        port = rawPort ? safePort(rawPort) : ''
+        prefix = '/api/v3'
+    }
+    const path = `${prefix}${pathQuery}`
+    const url = port ? `https://${hostname}:${port}${path}` : `https://${hostname}${path}`
+    return { url, hostname, port, path }
+}
+
 export interface PinnedResponse {
     status: number
     json: () => Promise<unknown>
 }
 
-// One HTTPS request to the address that was just checked. TLS hostname verification stays on.
-// Redirects are not followed: a 3xx is returned to the caller, which refuses it.
+// One HTTPS request. The connection address is the IP that was just checked, and only that IP.
+// The hostname is the encoded label form, used for SNI and the Host header. TLS verification stays on.
+// Node does not follow a redirect for this request; a 3xx is returned to the caller, which refuses it.
 export function pinnedRequest(
-    url: string,
-    init: { method: string; headers: Record<string, string>; body?: string },
+    hostname: string,
+    port: string,
+    path: string,
     pin: ResolvedAddress,
+    init: { method: string; headers: Record<string, string>; body?: string },
     timeoutMs: number
 ): Promise<PinnedResponse> {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'https:') reject('A GitHub host has to use https.')
+    const host = safeDnsName(hostname)
+    const safe = port ? safePort(port) : ''
+    const requestPath = safeRequestPath(path)
+    if (addressBlocked(pin.address) || (pin.family !== 4 && pin.family !== 6)) {
+        reject('That GitHub host is blocked by the outbound policy.')
+    }
+    const hostHeader = safe ? `${host}:${safe}` : host
     return new Promise((resolve, rejectPromise) => {
         const req = https.request(
-            parsed,
             {
+                protocol: 'https:',
+                hostname: host,
+                port: safe || '443',
                 method: init.method,
-                headers: { ...init.headers, Host: parsed.host },
-                servername: parsed.hostname,
+                path: requestPath,
+                headers: { ...init.headers, Host: hostHeader },
+                servername: host,
                 rejectUnauthorized: true,
                 timeout: timeoutMs,
                 lookup: (_hostname, _options, callback) => {
