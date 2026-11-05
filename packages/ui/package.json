@@ -37,7 +37,7 @@
         "tmp": ">=0.2.4",
         "@elastic/transport": ">=8.9.3",
         "@modelcontextprotocol/sdk": ">=1.25.2",
-        "multer": "2.4.0"
+        "multer": "2.5.0"
     },
     "scripts": {
         "dev": "vite",

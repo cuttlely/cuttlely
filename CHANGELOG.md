@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Dependency updates for open Dependabot alerts: undici 6.29.1 and 7.30.1, follow-redirects 1.16.2, multer 2.5.0, body-parser 2.4.0, zod 4.6.6, and fast-uri 3.1.9 (through ajv).
+
 ### Fixed
 
 -   **Pinned queries** in Server settings now shows **On** when `CUTTLELY_PINNED_QUERIES` is `1`, the same as `true`, to match what the server runs. Other values still show **Off**, and other switches are unchanged.
