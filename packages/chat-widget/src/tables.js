@@ -11,16 +11,34 @@ const riskLevels = {
     'critical risk': 4
 }
 
+const currencyCode = /^(?:USD|EUR|GBP|CAD|AUD|JPY|CHF|HKD|SGD|INR)$/i
+const currencySymbol = /^\p{Sc}$/u
+const space = /\s/
+
+// Remove a suffix and the whitespace before it with one backward scan, so long cells stay linear-time.
+function removeSuffix(value, length) {
+    let start = value.length - length
+    while (start > 0 && space.test(value[start - 1])) start--
+    return value.slice(0, start)
+}
+
+function removeCurrencyCodeSuffix(value) {
+    return value.length >= 3 && currencyCode.test(value.slice(-3)) ? removeSuffix(value, 3) : value
+}
+
+function removeCurrencySymbolSuffix(value) {
+    const end = value.length
+    const pair = end >= 2 && /[\uD800-\uDBFF]/.test(value[end - 2]) && /[\uDC00-\uDFFF]/.test(value[end - 1])
+    const length = pair ? 2 : 1
+    return end >= 1 && currencySymbol.test(value.slice(end - length)) ? removeSuffix(value, length) : value
+}
+
 function numberValue(text) {
     let value = text.replace(/\u2212/g, '-').trim()
     const negative = value.startsWith('(') && value.endsWith(')')
     if (negative) value = value.slice(1, -1).trim()
-    value = value
-        .replace(/^(?:USD|EUR|GBP|CAD|AUD|JPY|CHF|HKD|SGD|INR)\s*/i, '')
-        .replace(/\s*(?:USD|EUR|GBP|CAD|AUD|JPY|CHF|HKD|SGD|INR)$/i, '')
-        .replace(/^([+-]?)\p{Sc}\s*/u, '$1')
-        .replace(/\s*\p{Sc}$/u, '')
-        .trim()
+    value = removeCurrencyCodeSuffix(value.replace(/^(?:USD|EUR|GBP|CAD|AUD|JPY|CHF|HKD|SGD|INR)\s*/i, ''))
+    value = removeCurrencySymbolSuffix(value.replace(/^([+-]?)\p{Sc}\s*/u, '$1')).trim()
     if (!/^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)%?$/.test(value)) return null
     const parsed = Number(value.replace(/[,%]/g, '')) * (negative ? -1 : 1)
     return Number.isFinite(parsed) && Math.abs(parsed) <= Number.MAX_SAFE_INTEGER ? parsed : null

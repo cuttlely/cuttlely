@@ -480,3 +480,45 @@ describe('checkDenyList default deny list - carrier-grade NAT (100.64.0.0/10)', 
         expect(lookup).not.toHaveBeenCalled()
     })
 })
+
+describe('checkDenyList host name matching', () => {
+    const originalSecurityCheck = process.env.HTTP_SECURITY_CHECK
+    const originalDenyList = process.env.HTTP_DENY_LIST
+    const originalAllowLocalhost = process.env.HTTP_ALLOW_LOCALHOST
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        if (originalSecurityCheck === undefined) delete process.env.HTTP_SECURITY_CHECK
+        else process.env.HTTP_SECURITY_CHECK = originalSecurityCheck
+        if (originalDenyList === undefined) delete process.env.HTTP_DENY_LIST
+        else process.env.HTTP_DENY_LIST = originalDenyList
+        if (originalAllowLocalhost === undefined) delete process.env.HTTP_ALLOW_LOCALHOST
+        else process.env.HTTP_ALLOW_LOCALHOST = originalAllowLocalhost
+    })
+
+    const blockDns = () => jest.spyOn(dns, 'lookup').mockRejectedValue(new Error('dns lookup is not allowed in this test'))
+
+    it('ignores case and trailing dots on both the requested name and the deny-list entry', async () => {
+        delete process.env.HTTP_SECURITY_CHECK
+        delete process.env.HTTP_ALLOW_LOCALHOST
+        process.env.HTTP_DENY_LIST = 'Internal.Example..'
+        const lookup = blockDns()
+
+        for (const url of ['http://LOCALHOST../', 'http://localhost./', 'http://internal.example./', 'http://INTERNAL.example/']) {
+            await expect(checkDenyList(url)).rejects.toThrow('Access to this host is denied by policy.')
+        }
+        // Dots inside the name are kept, so a different name is not denied.
+        await expect(checkDenyList('http://internal..example/')).rejects.toThrow('dns lookup is not allowed in this test')
+        expect(lookup).toHaveBeenCalledTimes(1)
+    })
+
+    it('checks a long host name full of dots in linear time', async () => {
+        delete process.env.HTTP_SECURITY_CHECK
+        process.env.HTTP_DENY_LIST = 'internal.example'
+        blockDns()
+
+        const started = performance.now()
+        await expect(checkDenyList(`http://a${'.'.repeat(50000)}b/`)).rejects.toThrow('dns lookup is not allowed in this test')
+        expect(performance.now() - started).toBeLessThan(250)
+    })
+})
