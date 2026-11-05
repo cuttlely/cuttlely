@@ -341,10 +341,10 @@ or `{ "credentialId": "<credential id>", "host": "github.com" }`. `host` default
 `POST /api/v1/flow-versions/github/repos/new`
 
 ```json
-{ "token": "<token>", "name": "cuttlely-flows" }
+{ "token": "<token>", "name": "cuttlely-flows", "host": "github.example.com" }
 ```
 
-`credentialId` works here too.
+`host` is required for a GitHub Enterprise host. Omit it, or send `github.com`, only for the public service. Leaving it out sends the request to github.com. `credentialId` works here too.
 
 Creates a private, empty repository with that name in the token's account and answers with it, in the list format. Connect it next. A fine-grained token can create repositories only with **Administration** set to **Read and write** for all repositories, so most fine-grained tokens get 400 `This token cannot create repositories…`; create the repository on GitHub instead. A name that is taken is 409.
 
