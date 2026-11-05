@@ -50,6 +50,17 @@ export const backPathFor = (chatflowId, ...types) => {
     return type ? canvasPathFor(type, chatflowId) : null
 }
 
+// Leaving the version page. The history drawer pushes this page on top of the canvas.
+// Pop back to that canvas when the browser still has a previous page. Pushing the canvas
+// again stacks it on top of this page, and the canvas Back button then returns here.
+// A page opened on its own (no previous entry) replaces this page with the canvas, or
+// with the main menu when the canvas is not known yet, so Back cannot return here.
+export const versionExit = (historyIndex, canvasPath) => {
+    if (typeof historyIndex === 'number' && historyIndex > 0) return { pop: true }
+    if (typeof canvasPath === 'string' && canvasPath) return { path: canvasPath, replace: true }
+    return { path: '/', replace: true }
+}
+
 export const canvasPathFor = (type, chatflowId) => {
     const id = encodeURIComponent(chatflowId)
     switch (type) {
