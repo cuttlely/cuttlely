@@ -95,7 +95,7 @@
         "@tootallnate/once": ">=3.0.1",
         "tmp": ">=0.2.4",
         "@elastic/transport": ">=8.9.3",
-        "multer": "2.4.0"
+        "multer": "2.5.0"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1014.0",
@@ -147,7 +147,7 @@
         "http-status-codes": "^2.3.0",
         "langchainhub": "^0.0.11",
         "lodash": "^4.17.21",
-        "multer": "2.4.0",
+        "multer": "2.5.0",
         "multer-cloud-storage": "^4.0.0",
         "multer-s3": "^3.0.1",
         "mysql2": "^3.11.3",
