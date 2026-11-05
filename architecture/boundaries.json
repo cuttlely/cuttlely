@@ -533,6 +533,7 @@
                 "packages/ui/src/utils/tidyHarnessLayout.js",
                 "packages/ui/src/views/canvas/TidyLayoutButton.jsx",
                 "packages/ui/src/utils/harnessChatReady.js",
+                "packages/ui/src/utils/harnessSave.js",
                 "packages/ui/src/utils/harnessStream.js",
                 "packages/ui/src/views/chatmessage/HarnessChatNotice.jsx",
                 "packages/ui/src/views/chatmessage/HarnessRunTrace.jsx",
