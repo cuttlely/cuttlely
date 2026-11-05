@@ -747,7 +747,7 @@ async function runRoster(context, input) {
                 context.handoffSkipped = 'answerDirect'
             } else {
                 if (direct) context.answerDirectIneligible = direct.reason
-                text = await chiefHandoff(context, question, history, results)
+                text = await chiefHandoff(context, question, history, results, steps)
             }
         }
     }
@@ -3648,7 +3648,7 @@ function preserveAnalystRows(answer, results, question) {
     return stripTrailingAnalystStatus(next)
 }
 
-async function chiefHandoff(context, input, history, results) {
+async function chiefHandoff(context, input, history, results, steps) {
     if ((results || []).some((result) => result.ungrounded)) {
         const parts = results
             .map((result) => {
@@ -3680,7 +3680,7 @@ async function chiefHandoff(context, input, history, results) {
     })
     noteTruncated(context, fitted.truncated)
     throwIfClient(context)
-    if (overBudget(context)) return budgetReply(results)
+    if (overBudget(context)) return budgetReply(results, steps)
     const handoffStarted = Date.now()
     emit(context, 'handoff', { phase: 'start', model: configuredModel(context, null) })
     try {
@@ -3709,16 +3709,19 @@ async function chiefHandoff(context, input, history, results) {
         return keepClosingLines(preserveAnalystRows(reply.content, results, input), results)
     } catch (error) {
         throwIfClient(context)
-        if (overBudget(context)) return budgetReply(results)
+        if (overBudget(context)) return budgetReply(results, steps)
         throw error
     }
 }
 
-function budgetReply(results) {
+function budgetReply(results, steps) {
+    // A completed prerequisite is input to later work, not a substitute for its
+    // unfinished deliverable. Independent successful steps remain usable.
+    const prerequisites = new Set((steps || []).map((step) => step.after).filter(Boolean))
     const lines = (results || [])
-        .filter((result) => result.status === 'completed' && String(result.text || '').trim())
+        .filter((result) => result.status === 'completed' && !prerequisites.has(result.name) && String(result.text || '').trim())
         .map((result) => result.text)
-    if (!lines.length) return 'The harness turn exceeded its time budget before a specialist finished.'
+    if (!lines.length) return 'The harness turn exceeded its time budget before the requested final work finished.'
     return lines.join('\n\n')
 }
 

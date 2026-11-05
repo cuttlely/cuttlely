@@ -78,3 +78,5 @@ Source-backed follow-ups: `packages/harness/answer-context.mjs` extracts bounded
 The optional Web Browser source-text reader is `packages/components/nodes/tools/WebBrowser/sourcePage.ts`, with source/protocol/size checks in `sourcePage.test.ts`. It belongs to Harnesses and the Analyst; the inherited node wrapper supplies the existing secure HTTP fetcher through this entry point.
 
 Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-index comparator and sanitized-DOM controls; `packages/ui/src/ui-component/markdown/SortableTable.jsx` applies it to React Markdown rows. Focused checks live in the adjacent UI test and `packages/chat-widget/test/tables.test.js` and `widget.test.js`. Sorting changes presentation only; model context, exports and original answer text retain source order.
+
+-   `packages/harness/run-budget.test.mjs`: dependency-aware timeout replies, independent successes, and completed deliverables surviving handoff timeout.

@@ -12,6 +12,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   When a harness turn times out, completed research prerequisites no longer substitute for an unfinished deliverable. Independent completed work and completed final results remain available.
+
 -   Harnesses stop admitted specialist runs when their status connection fails, including nested specialist calls. Stop requests retry transient failures and briefly check that the run ended instead of treating a stopping acknowledgment as completion. Shutdown-interrupted runs also finish polling immediately rather than waiting for the run timeout.
 
 -   Table-row parsing is now linear-time on long input. Sorting a chat answer table no longer slows down on a very long cell with a long run of spaces or tabs before the last character; currency codes and symbols before or after an amount sort as before. Host-name checks for outgoing HTTP requests also trim trailing dots in linear time.
