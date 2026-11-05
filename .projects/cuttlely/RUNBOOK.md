@@ -177,6 +177,8 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 
 ## Gotchas
 
+-   **A failed chat is not proof its runtime worker stopped.** Cleanup targets the admitted run id and waits at most two seconds for a terminal runtime status. `Runtime stop was not confirmed` means the worker may still be active; inspect runtime health and worker state rather than deleting history or raising the concurrency cap. The client does not forcibly kill a worker that ignores interruption.
+
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).
 -   **Restart after runtime code changes.** The server loads `packages/harness/*.mjs` and `packages/etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
