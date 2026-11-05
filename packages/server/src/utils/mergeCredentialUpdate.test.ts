@@ -113,6 +113,21 @@ describe('redactCredentialWithPasswordType for URLs', () => {
         expect(redactCredentialWithPasswordType('mongo', { mongoUrl: plain }, components).mongoUrl).toBe(plain)
     })
 
+    it('keeps the GitHub host binding and hides it from the credential form', () => {
+        const stored = { accessToken: 'stored-token', githubHost: 'github.example.com' }
+        expect(mergeCredentialUpdate(stored, { accessToken: 'stored-token', githubHost: 'github.com' }).githubHost).toBe(
+            'github.example.com'
+        )
+        expect(mergeCredentialUpdate(stored, { githubHost: 'evil.example' }).githubHost).toBe('github.example.com')
+        const components = {
+            githubApi: { inputs: [{ name: 'accessToken', type: 'password' }] }
+        } as any
+        const shown = redactCredentialWithPasswordType('githubApi', stored, components)
+        expect(shown.githubHost).toBeUndefined()
+        expect(shown.accessToken).toBe(REDACTED_CREDENTIAL_VALUE)
+        expect(mergeCredentialUpdate(stored, shown).githubHost).toBe('github.example.com')
+    })
+
     it('replaces the password, not a username that looks like the internal marker', () => {
         const shown = redactCredentialWithPasswordType('mongo', { mongoUrl: 'redis://CUTTLELY_MASKED:secret-pw@h:6379/0' }, components)
         expect(shown.mongoUrl).toBe(`redis://CUTTLELY_MASKED:${M}@h:6379/0`)

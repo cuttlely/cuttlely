@@ -299,12 +299,16 @@ const connectGithub = async (req: Request, res: Response, next: NextFunction) =>
     try {
         const body = req.body || {}
         return res.json(
-            await flowVersionsService
-                .getGithub()
-                .connect(
-                    { repo: body.repo, token: body.token, credentialId: body.credentialId, credentialName: body.credentialName },
-                    req.user?.activeWorkspaceId
-                )
+            await flowVersionsService.getGithub().connect(
+                {
+                    repo: body.repo,
+                    token: body.token,
+                    credentialId: body.credentialId,
+                    credentialName: body.credentialName,
+                    host: body.host
+                },
+                req.user?.activeWorkspaceId
+            )
         )
     } catch (error) {
         next(githubError(error))
@@ -332,7 +336,10 @@ const listGithubRepos = async (req: Request, res: Response, next: NextFunction) 
         return res.json(
             await flowVersionsService
                 .getGithub()
-                .listRepos({ token: req.body?.token, credentialId: req.body?.credentialId }, req.user?.activeWorkspaceId)
+                .listRepos(
+                    { token: req.body?.token, credentialId: req.body?.credentialId, host: req.body?.host },
+                    req.user?.activeWorkspaceId
+                )
         )
     } catch (error) {
         next(githubError(error))
@@ -345,7 +352,7 @@ const createGithubRepo = async (req: Request, res: Response, next: NextFunction)
             await flowVersionsService
                 .getGithub()
                 .createRepo(
-                    { token: req.body?.token, credentialId: req.body?.credentialId, name: req.body?.name },
+                    { token: req.body?.token, credentialId: req.body?.credentialId, name: req.body?.name, host: req.body?.host },
                     req.user?.activeWorkspaceId
                 )
         )

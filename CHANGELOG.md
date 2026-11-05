@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Version history can copy to a GitHub Enterprise host. On **Admin** > **Version History**, **GitHub host** stays `github.com` unless you set the host you open in a browser. GitHub Enterprise Cloud with data residency (`example.ghe.com`) uses `https://api.example.ghe.com`. Any other host, including GitHub Enterprise Server, uses `https://<host>/api/v3`. The token is a personal access token from that host. A saved sign-in is not sent to a different host, redirects are not followed, and private-network addresses stay blocked by the outbound check. See [Which GitHub host](./docs/how-to/versioning.md#which-github-host).
+
 ### Changed
 
 -   Dependency updates for open Dependabot alerts: undici 6.29.1 and 7.30.1, follow-redirects 1.16.2, multer 2.5.0, body-parser 2.4.0, zod 4.6.6, and fast-uri 3.1.9 (through ajv).

@@ -36,6 +36,16 @@ import {
 } from './environments'
 import { gitEnv, runGit, VersionStore } from './store'
 import { scanForSecrets } from './secrets'
+import {
+    GITHUB_COM,
+    GithubEndpoint,
+    GithubError,
+    endpointAllows,
+    githubEndpoint,
+    pinnedRequest,
+    resolveGithubHost,
+    type ResolvedAddress
+} from './githubHost'
 
 export type ServerRole = 'dev' | 'prod' | null
 export type { NamedEnvironment }
@@ -76,6 +86,8 @@ export interface GithubStatus {
     // Prod: when it last read the repository, and the newest version it found there. Null on Dev.
     lastCheckedAt: string | null
     incomingVersion: string | null
+    // The GitHub host this connection uses. Null when nothing is connected. Absent on older files means github.com.
+    host: string | null
 }
 
 // A repository the token can write to, for the picker.
@@ -92,13 +104,8 @@ export interface GithubRepoList {
     repos: GithubRepoChoice[]
 }
 
-export class GithubError extends Error {
-    readonly status: number
-    constructor(status: number, message: string) {
-        super(message)
-        this.status = status
-    }
-}
+export { GithubError }
+export type { GithubEndpoint }
 
 interface SavedConfig {
     version: 1
@@ -107,8 +114,11 @@ interface SavedConfig {
     credential: { id: string; name: string; workspaceId: string }
     connectedAt: string
     // The address copies go to, as resolved when connecting. If the settings now resolve the repository
-    // somewhere else (the test stand-in was turned on or off), copying stops instead of retargeting.
+    // somewhere else (the test stand-in was turned on or off, or the host no longer matches), copying stops
+    // instead of retargeting.
     remote?: string
+    // The host this connection was saved for. Absent on a connection saved before custom hosts: github.com.
+    host?: string
 }
 
 interface ActiveConfig {
@@ -117,11 +127,14 @@ interface ActiveConfig {
     token: string
     credential: { id: string; name: string; workspaceId: string }
     connectedAt: string | null
+    endpoint: GithubEndpoint
 }
 
 export interface GithubCredentialStore {
-    get(id: string, workspaceId: string): Promise<{ id: string; name: string; token: string } | null>
-    create(input: { name: string; token: string; workspaceId: string }): Promise<{ id: string; name: string }>
+    // `host` is the GitHub host this token was saved for. Null on a credential saved before custom hosts,
+    // which is github.com. The token is not sent to any other host.
+    get(id: string, workspaceId: string): Promise<{ id: string; name: string; token: string; host?: string | null } | null>
+    create(input: { name: string; token: string; workspaceId: string; host?: string }): Promise<{ id: string; name: string }>
 }
 
 export interface GithubDeps {
@@ -141,6 +154,10 @@ export interface GithubDeps {
     fetch?: typeof fetch
     // Prod: how often to look for new versions from Dev.
     checkEveryMs?: number
+    // Test hook: replaces git for network commands. Production uses git on PATH.
+    command?: (args: string[], env: Record<string, string>, timeoutMs: number) => Promise<NetResult>
+    // Test hook: resolves a custom GitHub host. Production uses DNS.
+    lookup?: (hostname: string) => Promise<ResolvedAddress[]>
 }
 
 // The Github API credential type that already exists in Credentials.
@@ -282,9 +299,10 @@ function rejectedThenMain(text: string): boolean {
     return false
 }
 
-// "owner/repo", "https://github.com/owner/repo" or ".../repo.git" becomes owner/repo and its HTTPS URL.
-// A local bare repo (file:///path) is accepted only with CUTTLELY_GITHUB_ALLOW_FILE_REMOTES=on, for tests.
-export function parseRepo(input: string): { repo: string; url: string } {
+// "owner/repo", "https://<host>/owner/repo" or ".../repo.git" becomes owner/repo and its HTTPS URL.
+// The host defaults to github.com. A local bare repo (file:///path) is accepted only with
+// CUTTLELY_GITHUB_ALLOW_FILE_REMOTES=on, for tests. The test stand-in rewrites owner/name only for github.com.
+export function parseRepo(input: string, endpoint: GithubEndpoint = GITHUB_COM): { repo: string; url: string } {
     const text = String(input ?? '').trim()
     if (!text) throw new GithubError(400, 'Enter the repository as owner/name, for example acme/cuttlely-flows.')
     if (text.startsWith('file://')) {
@@ -296,10 +314,18 @@ export function parseRepo(input: string): { repo: string; url: string } {
         return { repo: text, url: text }
     }
     let rest = text
-    const match = /^https:\/\/(?:www\.)?github\.com\/(.+)$/i.exec(text)
-    if (match) rest = match[1]
-    else if (/^[a-z]+:\/\//i.test(text) || text.includes('@')) {
-        throw new GithubError(400, 'Enter a github.com repository as owner/name or as its https://github.com address.')
+    if (/^[a-z]+:\/\//i.test(text) || text.includes('@')) {
+        let parsed: URL
+        try {
+            const href = endpoint.kind === 'github.com' ? text.replace(/^https:\/\/www\.github\.com(?=\/)/i, 'https://github.com') : text
+            parsed = new URL(href)
+        } catch {
+            throw new GithubError(400, repoAddressMessage(endpoint))
+        }
+        if (parsed.search || parsed.hash || parsed.username || parsed.password || !endpointAllows(parsed.toString(), endpoint)) {
+            throw new GithubError(400, repoAddressMessage(endpoint))
+        }
+        rest = trimTrailingSlashes(parsed.pathname).replace(/^\/+/, '')
     }
     rest = withoutGitSuffix(trimTrailingSlashes(rest))
     const parts = rest.split('/')
@@ -308,9 +334,29 @@ export function parseRepo(input: string): { repo: string; url: string } {
     if (!OWNER.test(owner) || !NAME.test(name) || name === '.' || name === '..') {
         throw new GithubError(400, 'That is not a valid GitHub owner/name.')
     }
-    const root = testRoot()
+    const root = endpoint.kind === 'github.com' ? testRoot() : null
     if (root) return { repo: `${owner}/${name}`, url: `file://${path.join(root, owner, `${name}.git`)}` }
-    return { repo: `${owner}/${name}`, url: `https://github.com/${owner}/${name}.git` }
+    return { repo: `${owner}/${name}`, url: `${endpoint.gitOrigin}/${owner}/${name}.git` }
+}
+
+function repoAddressMessage(endpoint: GithubEndpoint): string {
+    if (endpoint.kind === 'github.com') {
+        return 'Enter a github.com repository as owner/name or as its https://github.com address.'
+    }
+    return `Enter the repository as owner/name or as its ${endpoint.gitOrigin}/owner/name address.`
+}
+
+function scopedRemote(env: Record<string, string>): string {
+    const key = env.GIT_CONFIG_KEY_0 || ''
+    const prefix = 'http.'
+    const suffix = '.extraHeader'
+    if (!key.startsWith(prefix) || !key.endsWith(suffix)) return ''
+    return key.slice(prefix.length, key.length - suffix.length)
+}
+
+function endpointForUrl(url: string): GithubEndpoint {
+    if (endpointAllows(url, GITHUB_COM)) return GITHUB_COM
+    return githubEndpoint(new URL(url).host)
 }
 
 // The name for a credential made from a pasted token: what the owner typed, or "GitHub: owner/name".
@@ -420,13 +466,24 @@ export function classifyReadFailure(stderr: string, repo: string, timedOut = fal
 }
 
 // Basic auth as an HTTP header, scoped to the repository URL, passed only in the child's environment.
+// Redirects are off, so the header cannot follow a 3xx to another host. TLS verification stays on.
 export function authEnv(url: string, token: string): Record<string, string> {
     if (!/^https:\/\//i.test(url)) return {}
+    let origin = ''
+    try {
+        origin = new URL(url).origin
+    } catch {
+        return {}
+    }
     const header = Buffer.from(`x-access-token:${token}`).toString('base64')
     return {
-        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_COUNT: '3',
         GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
         GIT_CONFIG_VALUE_0: `Authorization: Basic ${header}`,
+        GIT_CONFIG_KEY_1: 'http.followRedirects',
+        GIT_CONFIG_VALUE_1: 'false',
+        GIT_CONFIG_KEY_2: `http.${origin}.sslVerify`,
+        GIT_CONFIG_VALUE_2: 'true',
         GIT_ASKPASS: '',
         SSH_ASKPASS: '',
         GIT_HTTP_LOW_SPEED_LIMIT: '1000',
@@ -487,6 +544,8 @@ export class GithubSync {
         try {
             const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
             if (typeof saved?.repo !== 'string' || typeof saved?.credential?.id !== 'string') throw new Error('bad file')
+            if (saved.host !== undefined && typeof saved.host !== 'string') throw new Error('bad file')
+            if (typeof saved.host === 'string') githubEndpoint(saved.host)
             return saved
         } catch {
             throw new GithubError(409, CONNECTION_UNREADABLE)
@@ -502,7 +561,8 @@ export class GithubSync {
     async config(): Promise<ActiveConfig | null> {
         const saved = this.readSaved()
         if (!saved) return null
-        const parsed = parseRepo(saved.repo)
+        const endpoint = this.savedEndpoint(saved)
+        const parsed = parseRepo(saved.repo, endpoint)
         if (saved.remote && saved.remote !== parsed.url) {
             throw new GithubError(
                 409,
@@ -522,28 +582,87 @@ export class GithubSync {
                 `The GitHub credential "${found.name}" has no access token. Add one on the Credentials page, then select Try again.`
             )
         }
+        this.credentialHost(found, endpoint)
         return {
             ...parsed,
             token: found.token,
             credential: { ...saved.credential, name: found.name },
-            connectedAt: saved.connectedAt || null
+            connectedAt: saved.connectedAt || null,
+            endpoint
         }
     }
 
     // A token pasted now, or the one in a saved Github API credential of this workspace.
-    private async tokenFrom(input: { token?: string; credentialId?: string }, workspaceId?: string) {
+    private async tokenFrom(input: { token?: string; credentialId?: string }, workspaceId: string | undefined, endpoint: GithubEndpoint) {
         if (input?.credentialId) {
             if (!workspaceId) throw new GithubError(400, 'No active workspace.')
             const found = await this.deps.credentials.get(String(input.credentialId), workspaceId)
             if (!found) throw new GithubError(404, 'That GitHub credential is not in this workspace.')
             if (!found.token) throw new GithubError(400, `The GitHub credential "${found.name}" has no access token.`)
+            this.credentialHost(found, endpoint)
             return { token: found.token, credential: { id: found.id, name: found.name } }
         }
         return { token: checkToken(String(input?.token ?? '')), credential: null }
     }
 
+    private savedEndpoint(saved: SavedConfig): GithubEndpoint {
+        try {
+            return githubEndpoint(saved.host ?? '')
+        } catch {
+            throw new GithubError(409, CONNECTION_UNREADABLE)
+        }
+    }
+
+    // The host a saved token may be sent to. A credential with no host was saved for github.com.
+    // A mismatch throws before the caller puts the token on a request.
+    private credentialHost(found: { host?: string | null }, endpoint: GithubEndpoint): void {
+        let bound: GithubEndpoint
+        try {
+            bound = githubEndpoint(found.host ?? '')
+        } catch {
+            throw new GithubError(
+                400,
+                'That saved sign-in does not name a usable GitHub host. Paste a new token. The saved token was not sent.'
+            )
+        }
+        if (!found.host) bound = GITHUB_COM
+        if (bound.host !== endpoint.host) {
+            throw new GithubError(
+                400,
+                `That saved sign-in is for ${bound.host}. Paste a token issued by ${endpoint.host}. The saved token was not sent.`
+            )
+        }
+    }
+
+    private reachMessage(endpoint: GithubEndpoint): string {
+        return endpoint.kind === 'github.com'
+            ? 'Could not reach GitHub. Check that this server can reach github.com, then try again.'
+            : `Could not reach ${endpoint.host}. Check the host name and that this server can reach it, then try again.`
+    }
+
+    // Confirms an https URL belongs to this host, then resolves a custom host and refuses a blocked address.
+    // github.com and the local test stand-in skip the lookup, so the default path stays as it was.
+    private async pinDestination(url: string, endpoint: GithubEndpoint): Promise<ResolvedAddress | null> {
+        if (!endpointAllows(url, endpoint)) {
+            throw new GithubError(400, `That address is not on ${endpoint.host}, so the token was not sent.`)
+        }
+        if (endpoint.kind === 'github.com') return null
+        const hostname = new URL(url).hostname
+        return resolveGithubHost(hostname, this.deps.lookup)
+    }
+
     private async git(args: string[], env: Record<string, string> = {}, timeoutMs = NETWORK_TIMEOUT_MS): Promise<NetResult> {
+        const scoped = scopedRemote(env)
+        for (const arg of args) {
+            if (!/^https?:\/\//i.test(arg)) continue
+            if (scoped && arg !== scoped) {
+                throw new GithubError(400, 'The Git remote does not match the host this token is for, so the token was not sent.')
+            }
+            const endpoint = endpointForUrl(arg)
+            await this.pinDestination(arg, endpoint)
+        }
         if (this.deps.onGit) this.deps.onGit(args, env)
+        if (this.deps.command) return this.deps.command(args, env, timeoutMs)
         const cwd = this.deps.store().dir
         return new Promise((resolve) => {
             execFile(
@@ -655,7 +774,8 @@ export class GithubSync {
             promotes: false,
             role: 'copy',
             lastCheckedAt: null,
-            incomingVersion: null
+            incomingVersion: null,
+            host: null
         }
         if (!blank.enabled) {
             return { ...blank, state: 'off', message: 'Version history is off on this server, so there is nothing to copy.' }
@@ -713,6 +833,7 @@ export class GithubSync {
                 ...blank,
                 connected: Boolean(saved),
                 repo: saved ? saved.repo : null,
+                host: saved ? this.savedEndpoint(saved).host : null,
                 credential: saved ? { id: saved.credential.id, name: saved.credential.name } : null,
                 state: 'stopped',
                 message: (error as Error).message,
@@ -739,6 +860,7 @@ export class GithubSync {
             connected: true,
             credential: { id: config.credential.id, name: config.credential.name },
             repo: config.repo,
+            host: config.endpoint.host,
             url: /^https:\/\//.test(config.url)
                 ? config.url.replace(/\.git$/, '')
                 : testRoot() && !config.repo.startsWith('file://')
@@ -782,6 +904,7 @@ export class GithubSync {
             connected: true,
             credential: { id: config.credential.id, name: config.credential.name },
             repo: config.repo,
+            host: config.endpoint.host,
             url: /^https:\/\//.test(config.url)
                 ? config.url.replace(/\.git$/, '')
                 : testRoot() && !config.repo.startsWith('file://')
@@ -846,13 +969,23 @@ export class GithubSync {
         }
     }
 
-    private savedConnection(): { connected: boolean; repo: string | null; credential: { id: string; name: string } | null } {
+    private savedConnection(): {
+        connected: boolean
+        repo: string | null
+        host: string | null
+        credential: { id: string; name: string } | null
+    } {
         try {
             const saved = this.readSaved()
-            if (!saved) return { connected: false, repo: null, credential: null }
-            return { connected: true, repo: saved.repo, credential: { id: saved.credential.id, name: saved.credential.name } }
+            if (!saved) return { connected: false, repo: null, host: null, credential: null }
+            return {
+                connected: true,
+                repo: saved.repo,
+                host: this.savedEndpoint(saved).host,
+                credential: { id: saved.credential.id, name: saved.credential.name }
+            }
         } catch {
-            return { connected: true, repo: null, credential: null }
+            return { connected: true, repo: null, host: null, credential: null }
         }
     }
 
@@ -960,23 +1093,39 @@ export class GithubSync {
         return this.status()
     }
 
-    private async api(token: string, method: 'GET' | 'POST', route: string, body?: unknown): Promise<{ status: number; data: any }> {
-        const doFetch = this.deps.fetch || fetch
+    private async api(
+        token: string,
+        method: 'GET' | 'POST',
+        route: string,
+        endpoint: GithubEndpoint,
+        body?: unknown
+    ): Promise<{ status: number; data: any }> {
+        if (!route.startsWith('/') || route.includes('://') || route.includes('..')) {
+            throw new GithubError(400, 'That GitHub request is not valid.')
+        }
+        const base = endpoint.kind === 'github.com' ? apiBase() : endpoint.apiBase
+        const url = `${base}${route}`
+        const pin = await this.pinDestination(url, endpoint)
+        const headers: Record<string, string> = {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${token}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'cuttlely',
+            ...(body ? { 'Content-Type': 'application/json' } : {})
+        }
+        const payload = body ? JSON.stringify(body) : undefined
+        const doFetch = this.deps.fetch
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
         try {
-            const res = await doFetch(`${apiBase()}${route}`, {
-                method,
-                headers: {
-                    Accept: 'application/vnd.github+json',
-                    Authorization: `Bearer ${token}`,
-                    'X-GitHub-Api-Version': '2022-11-28',
-                    'User-Agent': 'cuttlely',
-                    ...(body ? { 'Content-Type': 'application/json' } : {})
-                },
-                body: body ? JSON.stringify(body) : undefined,
-                signal: controller.signal
-            })
+            const res = doFetch
+                ? await doFetch(url, { method, headers, body: payload, signal: controller.signal, redirect: 'manual' })
+                : pin
+                ? await pinnedRequest(url, { method, headers, body: payload }, pin, API_TIMEOUT_MS)
+                : await fetch(url, { method, headers, body: payload, signal: controller.signal, redirect: 'manual' })
+            if (res.status >= 300 && res.status < 400) {
+                throw new GithubError(400, 'GitHub asked to redirect this token, so Cuttlely stopped. Nothing was sent to another host.')
+            }
             let data: any = null
             try {
                 data = await res.json()
@@ -984,18 +1133,20 @@ export class GithubSync {
                 data = null
             }
             return { status: res.status, data }
-        } catch {
-            throw new GithubError(400, 'Could not reach GitHub. Check that this server can reach github.com, then try again.')
+        } catch (error) {
+            if (error instanceof GithubError) throw error
+            throw new GithubError(400, this.reachMessage(endpoint))
         } finally {
             clearTimeout(timer)
         }
     }
 
     // The repositories this token can write to, most recently changed first. Nothing is saved.
-    async listRepos(input: { token?: string; credentialId?: string }, workspaceId?: string): Promise<GithubRepoList> {
-        const { token } = await this.tokenFrom(input, workspaceId)
+    async listRepos(input: { token?: string; credentialId?: string; host?: string }, workspaceId?: string): Promise<GithubRepoList> {
+        const endpoint = githubEndpoint(input?.host ?? '')
+        const { token } = await this.tokenFrom(input, workspaceId, endpoint)
         const reading = this.readOnly()
-        const user = await this.api(token, 'GET', '/user')
+        const user = await this.api(token, 'GET', '/user', endpoint)
         if (user.status === 401 || user.status === 403)
             throw new GithubError(400, 'GitHub did not accept this token. Check it and paste it again.')
         if (user.status !== 200 || typeof user.data?.login !== 'string')
@@ -1006,7 +1157,8 @@ export class GithubSync {
             const list = await this.api(
                 token,
                 'GET',
-                `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`
+                `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`,
+                endpoint
             )
             if (list.status !== 200 || !Array.isArray(list.data))
                 throw new GithubError(400, 'GitHub did not list the repositories for this token.')
@@ -1026,7 +1178,10 @@ export class GithubSync {
     }
 
     // Makes a new private, empty repository for this history. Then connect it.
-    async createRepo(input: { token?: string; credentialId?: string; name?: string }, workspaceId?: string): Promise<GithubRepoChoice> {
+    async createRepo(
+        input: { token?: string; credentialId?: string; name?: string; host?: string },
+        workspaceId?: string
+    ): Promise<GithubRepoChoice> {
         // A server that reads uses the repository the previous environment already uses. A new one has nothing to read.
         if (this.plan().reads) {
             throw new GithubError(
@@ -1034,12 +1189,13 @@ export class GithubSync {
                 `Pick the repository your ${this.fromLabel()} server copies to. A new one has nothing for this server to read.`
             )
         }
-        const { token } = await this.tokenFrom(input, workspaceId)
+        const endpoint = githubEndpoint(input?.host ?? '')
+        const { token } = await this.tokenFrom(input, workspaceId, endpoint)
         const name = String(input?.name ?? '').trim()
         if (!NAME.test(name) || name === '.' || name === '..') {
             throw new GithubError(400, 'Use letters, numbers, dots, dashes or underscores for the name, for example cuttlely-flows.')
         }
-        const res = await this.api(token, 'POST', '/user/repos', {
+        const res = await this.api(token, 'POST', '/user/repos', endpoint, {
             name,
             private: true,
             auto_init: false,
@@ -1158,7 +1314,14 @@ export class GithubSync {
         await runGit(dir, ['update-ref', '-d', CONNECT_SOURCE_REF]).catch(() => undefined)
         if (!fetched.ok || tip !== sourceSha) throw refused
         const note = await this.environmentNoteCheck(
-            { repo, url, token, credential: { id: '', name: '', workspaceId: '' }, connectedAt: null },
+            {
+                repo,
+                url,
+                token,
+                credential: { id: '', name: '', workspaceId: '' },
+                connectedAt: null,
+                endpoint: endpointForUrl(url)
+            },
             sourceSha,
             plan,
             this.generation
@@ -1170,7 +1333,7 @@ export class GithubSync {
     // Checks the repository and token, then saves the connection and starts the first copy.
     // A pasted token is saved as a new Github API credential in this workspace, after the check passes.
     async connect(
-        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string },
+        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string; host?: string },
         workspaceId?: string
     ): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
@@ -1179,11 +1342,12 @@ export class GithubSync {
     }
 
     private async connectBody(
-        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string },
+        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string; host?: string },
         workspaceId: string
     ): Promise<GithubStatus> {
-        const { repo, url } = parseRepo(String(input?.repo ?? ''))
-        const picked = await this.tokenFrom(input, workspaceId)
+        const endpoint = githubEndpoint(input?.host ?? '')
+        const { repo, url } = parseRepo(String(input?.repo ?? ''), endpoint)
+        const picked = await this.tokenFrom(input, workspaceId, endpoint)
         const token = picked.token
         const store = this.deps.store()
         await store.ensure()
@@ -1203,7 +1367,9 @@ export class GithubSync {
                           reading ? 'read' : 'read and write'
                       } Contents on that repository.`
                     : failure.kind === 'network'
-                    ? `Could not reach GitHub to check ${repo}. Nothing was saved. Try again in a moment.`
+                    ? endpoint.kind === 'github.com'
+                        ? `Could not reach GitHub to check ${repo}. Nothing was saved. Try again in a moment.`
+                        : `Could not reach ${endpoint.host} to check ${repo}. Nothing was saved. Try again in a moment.`
                     : `GitHub did not answer the check for ${repo}. Nothing was saved.`
             throw new GithubError(400, message)
         }
@@ -1228,14 +1394,16 @@ export class GithubSync {
             (await this.deps.credentials.create({
                 name: credentialLabel(input?.credentialName, repo),
                 token,
-                workspaceId
+                workspaceId,
+                host: endpoint.host
             }))
         const saved: SavedConfig = {
             version: 1,
             repo,
             credential: { id: credential.id, name: credential.name, workspaceId },
             connectedAt: new Date(this.now()).toISOString(),
-            remote: url
+            remote: url,
+            host: endpoint.host
         }
         const file = this.configPath()
         const temp = `${file}.${process.pid}.tmp`

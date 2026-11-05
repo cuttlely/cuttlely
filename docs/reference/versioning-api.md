@@ -230,6 +230,7 @@ The connect, disconnect, copy and label routes answer with the status. It never 
     "credential": { "id": "<credential id>", "name": "GitHub: acme/cuttlely-flows" },
     "repo": "acme/cuttlely-flows",
     "url": "https://github.com/acme/cuttlely-flows",
+    "host": "github.com",
     "state": "up-to-date",
     "message": "Up to date. Every version on this server is on GitHub.",
     "code": null,
@@ -267,6 +268,7 @@ The connect, disconnect, copy and label routes answer with the status. It never 
 | `role`              | `copy` when this server publishes versions. `read` on the last environment: it only reads the repository.                                                |
 | `lastCheckedAt`     | When this server last looked for new versions from the previous environment. `null` on the first environment. On the saved pair that environment is Dev. |
 | `incomingVersion`   | The short id of the newest version it found there. `null` on the first environment or when empty.                                                        |
+| `host`              | The GitHub host this connection uses. `github.com` when the saved connection has no host. `null` when nothing is connected.                              |
 
 | `state`         | Meaning                                                                                                                                                                                                                                                        |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -283,8 +285,10 @@ The connect, disconnect, copy and label routes answer with the status. It never 
 `PUT /api/v1/flow-versions/github`
 
 ```json
-{ "repo": "acme/cuttlely-flows", "token": "<fine-grained token>", "credentialName": "GitHub: acme/cuttlely-flows" }
+{ "repo": "acme/cuttlely-flows", "token": "<fine-grained token>", "credentialName": "GitHub: acme/cuttlely-flows", "host": "github.com" }
 ```
+
+`host` is optional. Omit it, or send `github.com`, for the public service. A GitHub Enterprise host is the name you open in a browser, such as `github.example.com` or `example.ghe.com`. The repository address has to be on that same host. See [Which GitHub host](../how-to/versioning.md#which-github-host).
 
 The token needs only **Contents** set to **Read and write** on that one repository (**Read-only** on a Prod server). GitHub adds **Metadata** read-only on its own. See [Which GitHub token to use](../how-to/versioning.md#which-github-token-to-use).
 
@@ -294,7 +298,7 @@ Or use a **Github API** credential already in the caller's workspace instead of 
 { "repo": "acme/cuttlely-flows", "credentialId": "<credential id>" }
 ```
 
-`repo` is `owner/name` or the repository's `https://github.com/owner/name` address. Cuttlely first asks GitHub for the repository's branches and tags with that token. Nothing is saved unless that works. With the saved Dev and Prod pair, the repository must be empty (no branches or tags at all), or have a `main` that is already part of this server's history (for example, one this server copied to before). A repository with a `master` or any other branch, or a tag, but no `main` is refused. With a named list, the check is this server's own publish branch: that branch must be absent, or already part of this server's history. Other environments' branches may already be in the repository. The list is read again after that listing and again immediately before the connection is saved, and the first copy uses that same list. A server that is not first needs the previous environment's branch in the listing, and the recorded list on that branch's tip has to be this server's list. A branch by itself (including one created with only a README), a note on another commit, or a different list is refused, and nothing is saved. That read checks the same tip again, so a missing record does not install it and does not copy. A read-only server (the last in the list) does not need `main` and does not need its own publish branch. Then a pasted token is saved as a new **Github API** credential in the caller's workspace, named `credentialName` or `GitHub: <owner/name>`, and Cuttlely saves the connection and copies every version. A token that fails the check is never saved.
+`repo` is `owner/name` or that repository's `https://<host>/owner/name` address. On github.com the address is `https://github.com/owner/name`. Cuttlely first asks that host for the repository's branches and tags with that token. Nothing is saved unless that works. The saved connection records the host. If the host and the saved remote no longer agree, copying stops and the token is not sent. A credential is bound to the host it was created for. A credential saved before custom hosts is treated as github.com. Using it with another host is refused before any request. With the saved Dev and Prod pair, the repository must be empty (no branches or tags at all), or have a `main` that is already part of this server's history (for example, one this server copied to before). A repository with a `master` or any other branch, or a tag, but no `main` is refused. With a named list, the check is this server's own publish branch: that branch must be absent, or already part of this server's history. Other environments' branches may already be in the repository. The list is read again after that listing and again immediately before the connection is saved, and the first copy uses that same list. A server that is not first needs the previous environment's branch in the listing, and the recorded list on that branch's tip has to be this server's list. A branch by itself (including one created with only a README), a note on another commit, or a different list is refused, and nothing is saved. That read checks the same tip again, so a missing record does not install it and does not copy. A read-only server (the last in the list) does not need `main` and does not need its own publish branch. Then a pasted token is saved as a new **Github API** credential in the caller's workspace, named `credentialName` or `GitHub: <owner/name>`, and Cuttlely saves the connection and copies every version. A token that fails the check is never saved.
 
 | Status | When                                                                                                                                                                                                                                                                                    |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -318,10 +322,10 @@ No body. Copies at once, and answers when the copy is done or has failed. 409 `G
 `POST /api/v1/flow-versions/github/repos`
 
 ```json
-{ "token": "<token>" }
+{ "token": "<token>", "host": "github.example.com" }
 ```
 
-or `{ "credentialId": "<credential id>" }`. Asks GitHub which repositories the token can write to, most recently changed first, so the app can offer a list instead of a typed address. It reads up to 1,000 repositories. Archived repositories are left out. Nothing is saved.
+or `{ "credentialId": "<credential id>", "host": "github.com" }`. `host` defaults to github.com. Asks that host which repositories the token can write to, most recently changed first, so the app can offer a list instead of a typed address. It reads up to 1,000 repositories. Archived repositories are left out. Nothing is saved. A saved credential for a different host is refused and the token is not sent.
 
 ```json
 {
