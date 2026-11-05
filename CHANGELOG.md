@@ -8,6 +8,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Dependency updates for open Dependabot alerts: undici 6.29.1 and 7.30.1, follow-redirects 1.16.2, multer 2.5.0, body-parser 2.4.0, zod 4.6.6, and fast-uri 3.1.9 (through ajv).
 
+-   Dependency update for an open Dependabot alert (#255) in the bundled agent runtime: `hermes/uv.lock` moves opentelemetry-api to 1.45.1. The optional `otlp` extra now pins opentelemetry-sdk and opentelemetry-exporter-otlp-proto-http 1.45.1, and the optional `mistral` extra pins mistralai 2.10.1, because 2.4.8 does not allow the newer OpenTelemetry packages.
+
 ### Fixed
 
 -   **Pinned queries** in Server settings now shows **On** when `CUTTLELY_PINNED_QUERIES` is `1`, the same as `true`, to match what the server runs. Other values still show **Off**, and other switches are unchanged.
