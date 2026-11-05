@@ -92,7 +92,11 @@ function getHttpDenyList(): string[] {
 }
 
 function normalizeHostname(name: string): string {
-    return name.toLowerCase().replace(/\.+$/, '')
+    const lower = name.toLowerCase()
+    // Trim trailing dots with a backward scan, so long host names stay linear-time.
+    let end = lower.length
+    while (end > 0 && lower.charCodeAt(end - 1) === 0x2e) end--
+    return lower.slice(0, end)
 }
 
 /**

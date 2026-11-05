@@ -22,3 +22,19 @@ it('sorts percentages, dates, risk categories and names by their displayed meani
 it('retains exact identifier ordering instead of rounding long numeric IDs', () => {
     assert.deepEqual(tableRowOrder([['9007199254740993'], ['9007199254740992']], 0, 'ascending', 'Account ID'), [1, 0])
 })
+
+it('reads currency codes and symbols before or after the amount, with any spacing', () => {
+    const rows = [['300 usd'], ['USD 20'], ['10\u00a0€'], ['€ 5'], ['\u2212$1'], ['40\t\tINR'], ['7\u{11FDD}']]
+    assert.deepEqual(tableRowOrder(rows, 0, 'ascending', 'Amount'), [4, 3, 6, 2, 1, 5, 0])
+    // A partial or non-ASCII code is not a currency code, so the column falls back to text order.
+    assert.deepEqual(tableRowOrder([['1.5 US'], ['1.25 USD']], 0, 'ascending', 'Amount'), [0, 1])
+    assert.deepEqual(tableRowOrder([['1.5 \u0131nr'], ['1.25 INR']], 0, 'ascending', 'Amount'), [0, 1])
+    assert.deepEqual(tableRowOrder([['1.5 inr'], ['1.25 INR']], 0, 'ascending', 'Amount'), [1, 0])
+})
+
+it('parses long cells in linear time', () => {
+    const long = `1${'\t'.repeat(50000)}x`
+    const started = performance.now()
+    assert.deepEqual(tableRowOrder([[long], ['2'], [`3${' '.repeat(50000)}€`]], 0, 'descending', 'Amount'), [2, 1, 0])
+    assert.ok(performance.now() - started < 250)
+})
