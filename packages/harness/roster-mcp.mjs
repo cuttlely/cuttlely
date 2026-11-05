@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
+import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
 import { profileDir } from './paths.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
@@ -60,7 +60,7 @@ if (isMain) {
     process.stdin.on('data', (chunk) => {
         if (shuttingDown) return
         buffer = Buffer.concat([buffer, chunk])
-        while (true) {
+        for (;;) {
             const headerEnd = buffer.indexOf('\r\n\r\n')
             if (headerEnd === -1) return
             const header = buffer.slice(0, headerEnd).toString('utf8')
@@ -146,10 +146,15 @@ async function runSpecialist(args, signal) {
     const startedAt = capacityWaitSeconds ? Date.now() : 0
     const baseUrl = hermesBaseUrl()
     let runId
+    let remoteFinished = false
     let stopping
     const stop = () => {
         if (!runId || stopping) return
-        stopping = stopRun({ harnessName: specialist.profileName, runId, baseUrl }).catch(() => {})
+        stopping = stopRun({ harnessName: specialist.profileName, runId, baseUrl })
+            .then((confirmed) => {
+                if (!confirmed) console.error(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
+            })
+            .catch(() => {})
     }
     signal.addEventListener('abort', stop, { once: true })
     try {
@@ -181,14 +186,15 @@ async function runSpecialist(args, signal) {
                       timeoutMs: capacityWaitSeconds && timeoutMs > 0 ? Math.max(1, timeoutMs - (Date.now() - startedAt)) : timeoutMs,
                       signal
                   })
-        if (['failed', 'error', 'cancelled'].includes(status.status)) {
+        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
+        if (hermesRunFailed(status.status)) {
             throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
         }
         const text = status.output || status.text || ''
         if (!text) throw new Error(`Specialist "${name}" returned an empty answer.`)
         return text
     } catch (error) {
-        if (error.code === 'run_timeout') stop()
+        if (runId && !remoteFinished) stop()
         throw error
     } finally {
         signal.removeEventListener('abort', stop)

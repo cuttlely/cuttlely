@@ -58,7 +58,7 @@ import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-ou
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
-import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
+import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -3177,6 +3177,7 @@ async function runHermesSpecialist(context, specialist, task) {
         signal: context.workSignal
     }
     let runId
+    let remoteFinished = false
     const stops = []
     let stopping = false
     const stopCurrentRun = () => {
@@ -3188,7 +3189,11 @@ async function runHermesSpecialist(context, specialist, task) {
                 runId,
                 baseUrl: context.baseUrl,
                 fetchImpl: context.fetchImpl
-            }).catch(() => {})
+            })
+                .then((confirmed) => {
+                    if (!confirmed) console.warn(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
+                })
+                .catch(() => {})
         )
     }
     const cancel = () => {
@@ -3239,9 +3244,10 @@ async function runHermesSpecialist(context, specialist, task) {
                       runId: created.run_id,
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
+        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
         noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
         forwardDelta(context, specialist, '', true)
-        if (['failed', 'error', 'cancelled'].includes(status.status)) {
+        if (hermesRunFailed(status.status)) {
             const failure = status.error || status.message
             throw new HarnessError(
                 'specialist_failed',
@@ -3255,8 +3261,8 @@ async function runHermesSpecialist(context, specialist, task) {
         const sources = takeRetrievedSources(retrievalScope)
         return { text, ...(sources.length ? { sources } : {}) }
     } catch (error) {
-        // The wait's own deadline stops only this remote run, leaving other chats on the same profile alone.
-        if (error.code === 'run_timeout') stopCurrentRun()
+        // Losing status transport does not mean the admitted worker stopped.
+        if (runId && !remoteFinished) stopCurrentRun()
         throw error
     } finally {
         startCapture.flush()
