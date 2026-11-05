@@ -935,9 +935,28 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
+    const engine = await loadHarnessSync()
+    // An empty canvas is how a new harness is stored before it can run (an import with no credential yet,
+    // or a name that had to be kept off the file). The id is still checked, and no harness file is written.
+    // Publish sends the real canvas through the roster checks below, including a required credential.
+    if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
+        try {
+            engine.assertSavedHarnessName(chatflow.name)
+        } catch (error) {
+            throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+        }
+        await harnessesService.withNameLock(chatflow.name, () =>
+            harnessesService.withProfileLock(() =>
+                harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
+                    claiming: true,
+                    readOnly: true
+                })
+            )
+        )
+        return
+    }
     // The roster is read first so a new name is checked for leftovers under every profile name it compiles into;
     // a bad flow still answers only after the name check.
-    const engine = await loadHarnessSync()
     let roster: { specialists?: Array<{ name?: unknown }> } | null = null
     let rosterError: unknown = null
     try {
@@ -969,6 +988,8 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
 export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     const engine = await loadHarnessSync()
+    // The placeholder row has no roster. Writing it would fail the credential and name checks and delete the canvas.
+    if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) return
     const appServer = getRunningExpressApp()
     const componentNodes = appServer.nodesPool.componentNodes
     let orgId: string | undefined

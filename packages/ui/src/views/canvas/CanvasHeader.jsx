@@ -52,6 +52,7 @@ import {
     showDraftChrome
 } from '@/utils/flowDrafts'
 import { reservedHarnessNameMessage } from '@/utils/harnessChatReady'
+import { harnessNameError, harnessSaveNameNote } from '@/utils/harnessSave'
 
 // Hooks
 import useApi from '@/hooks/useApi'
@@ -322,7 +323,7 @@ const CanvasHeader = ({
         if (chatflow.id) {
             const next = flowNameRef.current.value
             if (isHarnessCanvas) {
-                const message = reservedHarnessNameMessage(next)
+                const message = harnessNameError(next)
                 if (message) {
                     enqueueSnackbar({
                         message,
@@ -995,7 +996,8 @@ const CanvasHeader = ({
                     defaultName: chatflow?.id ? '' : chatflow?.name || '',
                     confirmButtonName: 'Save',
                     cancelButtonName: 'Cancel',
-                    nameError: isHarnessCanvas ? reservedHarnessNameMessage : undefined
+                    nameError: isHarnessCanvas ? reservedHarnessNameMessage : undefined,
+                    nameNote: isHarnessCanvas ? harnessSaveNameNote : undefined
                 }}
                 onCancel={() => setFlowDialogOpen(false)}
                 onConfirm={onConfirmSaveName}

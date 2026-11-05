@@ -79,6 +79,57 @@ const instanceFor = (flow) => {
 
 const missingNode = (flow) => flow.nodes.find((node) => node.id === 'pack')
 
+describe('saving a credential the person selected', () => {
+    test('an empty credential input does not wipe a credential already on the node', () => {
+        const instance = instanceFor({
+            nodes: [
+                {
+                    id: 'model',
+                    type: 'customNode',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        id: 'model',
+                        name: 'chatOpenAI',
+                        label: 'ChatOpenAI',
+                        credential: 'cred-openai-1',
+                        inputs: { modelName: 'gpt-test', FLOWISE_CREDENTIAL_ID: '' },
+                        inputParams: [],
+                        inputAnchors: [],
+                        outputAnchors: []
+                    }
+                }
+            ],
+            edges: []
+        })
+        const saved = canvasSaveDocument(instance)
+        expect(saved.nodes[0].data.credential).toBe('cred-openai-1')
+        expect(saved.nodes[0].data.inputs.FLOWISE_CREDENTIAL_ID).toBeUndefined()
+    })
+
+    test('a chosen credential input is what gets saved', () => {
+        const instance = instanceFor({
+            nodes: [
+                {
+                    id: 'model',
+                    type: 'customNode',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        id: 'model',
+                        name: 'chatOpenAI',
+                        credential: '',
+                        inputs: { FLOWISE_CREDENTIAL_ID: 'cred-openai-2' },
+                        inputParams: [],
+                        inputAnchors: [],
+                        outputAnchors: []
+                    }
+                }
+            ],
+            edges: []
+        })
+        expect(canvasSaveDocument(instance).nodes[0].data.credential).toBe('cred-openai-2')
+    })
+})
+
 describe('saving a canvas that has a node which is not installed', () => {
     const loaded = normalizeCanvasFlow(JSON.parse(JSON.stringify(original)), catalog)
 

@@ -7,6 +7,8 @@ import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
 import { compileProfileCached, profileDestinationConflicts } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
+
+export { assertSavedHarnessName }
 import { toolCallingWarnings } from './tool-fallback.mjs'
 import { SPECIALIST_PRESETS, presetName } from './presets.mjs'
 import { assertPinnedQueryRoster } from './pinned-names.mjs'
@@ -140,6 +142,22 @@ function parseMaybeJson(value) {
     } catch {
         return []
     }
+}
+
+// A new harness can be stored before it has a Harness Prime. That canvas is not a roster and
+// must not be written to a harness file. Unreadable JSON is not a placeholder: the roster read reports it.
+export function harnessCanvasIsPlaceholder(flowData) {
+    let flow
+    try {
+        flow = parseFlow(flowData)
+    } catch {
+        return false
+    }
+    const nodes = Array.isArray(flow?.nodes) ? flow.nodes : []
+    return !nodes.some((node) => {
+        const name = node?.data?.name
+        return name === 'harnessChief' || name === 'harnessSpecialist'
+    })
 }
 
 export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, workspaceId }) {

@@ -12,7 +12,7 @@ import {
     enqueueSnackbar as enqueueSnackbarAction,
     closeSnackbar as closeSnackbarAction
 } from '@/store/actions'
-import { omit, cloneDeep } from 'lodash'
+import { cloneDeep } from 'lodash'
 
 // material-ui
 import { Toolbar, Box, AppBar, Button, Fab } from '@mui/material'
@@ -88,7 +88,8 @@ import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
 import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
-import { canvasSaveDocument } from '@/utils/canvasSave'
+import { applyCredentialInput, canvasSaveDocument } from '@/utils/canvasSave'
+import { planNewHarnessSave } from '@/utils/harnessSave'
 import {
     asSavedCards,
     canvasIsEmpty,
@@ -105,7 +106,7 @@ import {
 } from '@/utils/buildWithAI'
 
 // const
-import { FLOWISE_CREDENTIAL_ID, uiBaseURL } from '@/store/constant'
+import { uiBaseURL } from '@/store/constant'
 
 const nodeTypes = { customNode: CanvasNode, stickyNote: StickyNote }
 const edgeTypes = { buttonedge: ButtonEdge }
@@ -172,6 +173,7 @@ const Canvas = () => {
     const builderStartersRef = useRef([])
     const firstSaveAsDraftRef = useRef(false)
     const pendingDraftRef = useRef(null)
+    const pendingHarnessNoteRef = useRef('')
     const [builtResult, setBuiltResult] = useState(null)
     const pendingLangflow = useRef(null)
     const pendingMigration = useRef(null)
@@ -472,6 +474,23 @@ const Canvas = () => {
                         newChatflowBody.flowData = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } })
                     }
                 }
+                if (isHarnessCanvas) {
+                    // A new harness that is not runnable yet is stored as a draft. The live row stays empty,
+                    // so the credential and name checks still gate the harness file and Publish.
+                    const planned = planNewHarnessSave({
+                        name: chatflowName,
+                        flowData,
+                        nodeDefinitions: canvas.componentNodes
+                    })
+                    if (planned.error) {
+                        errorFailed(planned.error)
+                        return
+                    }
+                    newChatflowBody.name = planned.name
+                    newChatflowBody.flowData = planned.liveFlowData
+                    if (planned.draftFlowData) pendingDraftRef.current = planned.draftFlowData
+                    pendingHarnessNoteRef.current = planned.notice || ''
+                }
                 createNewChatflowApi.request(newChatflowBody)
             } else {
                 const plan = planCanvasSave({
@@ -679,10 +698,7 @@ const Canvas = () => {
         flow.nodes = flow.nodes.map((node) => {
             const data = cloneDeep(node.data)
             stripRawCanvasMarker(data)
-            if (data.inputs && Object.prototype.hasOwnProperty.call(data.inputs, FLOWISE_CREDENTIAL_ID)) {
-                data.credential = data.inputs[FLOWISE_CREDENTIAL_ID]
-                data.inputs = omit(data.inputs, [FLOWISE_CREDENTIAL_ID])
-            }
+            applyCredentialInput(data)
             return { ...node, data }
         })
         return JSON.stringify(flow)
@@ -749,12 +765,12 @@ const Canvas = () => {
 
     // The first save of a built chatflow: Live stays empty and the built cards become the draft, so the test chat
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
-    const saveFirstDraft = async (created, draft) => {
+    const saveFirstDraft = async (created, draft, notice) => {
         try {
             const res = await draftSave.save(created.id, draft)
             if (res?.conflict) return
             setDraftStatus(res.data)
-            saveChatflowSuccess('Saved as a draft. Live stays empty until you publish.')
+            saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.')
         } catch {
             try {
                 const res = await chatflowsApi.updateChatflow(created.id, { flowData: draft })
@@ -965,10 +981,12 @@ const Canvas = () => {
             firstSaveAsDraftRef.current = false
             const draft = pendingDraftRef.current
             pendingDraftRef.current = null
+            const harnessNote = pendingHarnessNoteRef.current
+            pendingHarnessNoteRef.current = ''
             if (draft) {
-                saveFirstDraft(chatflow, draft)
+                saveFirstDraft(chatflow, draft, harnessNote)
             } else {
-                saveChatflowSuccess()
+                saveChatflowSuccess(harnessNote || undefined)
             }
             if (!draft) {
                 flowDraftsApi
