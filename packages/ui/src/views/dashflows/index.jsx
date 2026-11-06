@@ -17,6 +17,7 @@ import EvidencePanel from './EvidencePanel'
 import ExecutiveTooltip from './ExecutiveTooltip'
 import { RANGE_OPTIONS, rangeDates } from './ranges'
 import { selectPipelineView } from './cachedViews'
+import RefreshStatus from './RefreshStatus'
 export { default as SourceTable } from './SourceTable'
 import Chart from './Charts'
 
@@ -40,12 +41,18 @@ export const REFRESH_OPTIONS = [
     { value: 604800, label: 'Every week' }
 ]
 
-export async function pollDashboard(fetchRecord, pause = () => new Promise((resolve) => setTimeout(resolve, 1000)), signal) {
+export async function pollDashboard(
+    fetchRecord,
+    pause = () => new Promise((resolve) => setTimeout(resolve, 1000)),
+    signal,
+    onUpdate = () => {}
+) {
     for (;;) {
         if (signal?.aborted) throw new DOMException('Refresh polling stopped.', 'AbortError')
         await pause()
         if (signal?.aborted) throw new DOMException('Refresh polling stopped.', 'AbortError')
         const { data } = await fetchRecord()
+        onUpdate(data)
         if (!data.refreshing) return data
     }
 }
@@ -332,6 +339,11 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         adopt(data)
         if (!id) changeRoute(`/dashflows/${data.id}`)
     }
+    const fetchRefreshStatus = useCallback(async () => {
+        const status = await client.get(`${path(id)}/refresh-status`)
+        return status.data.refreshing ? status : client.get(path(id))
+    }, [id])
+    const updateRefresh = (data) => setRecord((current) => ({ ...current, ...data }))
     const refresh = async (preferCache = false) => {
         refreshAbort.current?.abort()
         const controller = new AbortController()
@@ -339,12 +351,25 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         try {
             const { data } = await client.post(`${path(id)}/refresh`, { preferCache })
             setRecord((current) => (current ? { ...current, ...data } : current))
-            adopt(await pollDashboard(() => client.get(path(id)), undefined, controller.signal))
+            const result = await pollDashboard(fetchRefreshStatus, undefined, controller.signal, updateRefresh)
+            adopt(result)
+            return result
         } catch (error) {
             if (error?.name === 'AbortError') return
             throw error
         }
     }
+    useEffect(() => {
+        if (!id || published || busy || !record?.refreshing) return
+        const controller = new AbortController()
+        pollDashboard(fetchRefreshStatus, undefined, controller.signal, updateRefresh)
+            .then(adopt)
+            .catch((error) => {
+                if (error?.name !== 'AbortError')
+                    setError('Progress connection interrupted. Reload to reconnect; the server refresh continues.')
+            })
+        return () => controller.abort()
+    }, [id, workspaceId, published, busy, record?.refreshing, fetchRefreshStatus])
     const source = sources.find((s) => s.key === editor?.source)
     const supremeReady =
         definition.harness === 'honeybadger-supreme' && sources.some((s) => s.name === dashSourceName('quarter_account_risk_patterns'))
@@ -373,8 +398,9 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         setDirty(true)
         const { data } = await client.put(path(id), { definition: next, revision: record.revision })
         adopt(data)
-        await refresh(true)
-        setNotice('Pipeline range updated. Cached source results are reused for up to six hours; missing ranges refresh automatically.')
+        const refreshed = await refresh(true)
+        if (!refreshed?.error)
+            setNotice('Pipeline range updated. Cached source results are reused for up to six hours; missing ranges refresh automatically.')
     }
     const choosePreset = (key, region) => {
         const cached = record?.snapshot?.pipelineViews
@@ -413,11 +439,11 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     {editable && <Button onClick={() => setBuilding(!building)}>{building ? 'View dashboard' : 'Edit canvas'}</Button>}
                     {!published && (
                         <Button
-                            disabled={!id || dirty || busy || !definition.cards.length}
+                            disabled={!id || dirty || busy || record?.refreshing || !definition.cards.length}
                             onClick={() => run(refresh)}
                             startIcon={<IconRefresh size={17} />}
                         >
-                            Refresh
+                            {record?.refreshing ? 'Refreshing…' : 'Refresh'}
                         </Button>
                     )}
                     {editable && (
@@ -427,7 +453,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                             </Button>
                             <Button
                                 variant='contained'
-                                disabled={busy || (!record?.published && (dirty || !record?.snapshot))}
+                                disabled={busy || record?.refreshing || (!record?.published && (dirty || !record?.snapshot))}
                                 onClick={() => setPublishDialog(true)}
                             >
                                 Publish & share <IconArrowUpRight size={17} />
@@ -446,7 +472,8 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     {notice}
                 </Alert>
             )}
-            {record?.error && <Alert severity='warning'>{record.error}</Alert>}
+            {!published && <RefreshStatus record={record} disabled={busy || dirty || !id} onRetry={() => run(refresh)} />}
+            {record?.error && !record.refreshProgress && <Alert severity='warning'>{record.error}</Alert>}
             {record?.snapshot &&
                 !record.snapshot.pipelineViews &&
                 definition.cards.some((card) => card.source.endsWith(':pq_pipeline_window')) && (
@@ -757,7 +784,15 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
             <footer className='df-footer'>
                 <span>
                     <span className='df-dot' />{' '}
-                    {busy ? 'Working…' : dirty ? 'Unsaved draft' : record?.snapshot ? 'Materialized snapshot' : 'Awaiting first refresh'}
+                    {record?.refreshing
+                        ? 'Preparing dashboard…'
+                        : busy
+                        ? 'Working…'
+                        : dirty
+                        ? 'Unsaved draft'
+                        : record?.snapshot
+                        ? 'Materialized snapshot'
+                        : 'Awaiting first refresh'}
                 </span>
                 <span>
                     {definition.cards.length} cards · {date(record?.snapshot?.refreshedAt)}
@@ -984,7 +1019,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     <Button onClick={() => setPublishDialog(false)}>Cancel</Button>
                     <Button
                         variant='contained'
-                        disabled={busy || dirty || !record?.snapshot}
+                        disabled={busy || record?.refreshing || dirty || !record?.snapshot}
                         onClick={() =>
                             run(async () => {
                                 const { data } = await client.post(`${path(id)}/publish`, {

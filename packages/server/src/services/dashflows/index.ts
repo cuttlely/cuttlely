@@ -45,7 +45,8 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
                     ...context
                 }),
             store.queryCache(id, workspace),
-            preferCache
+            preferCache,
+            (progress: unknown) => store.progress(id, workspace, claim, progress)
         )
         return store.settle(id, workspace, claim, snapshot, null)
     } catch (error) {
@@ -64,7 +65,7 @@ export async function startDashboardRefresh(id: string, workspace: string, prefe
     void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim }, preferCache)).catch(() => {
         /* The durable error is returned by later reads. */
     })
-    return { id, refreshing: true }
+    return { id, refreshing: true, refreshProgress: store.status(id, workspace).refreshProgress }
 }
 
 let timer: NodeJS.Timeout | undefined

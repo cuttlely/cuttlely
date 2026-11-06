@@ -261,10 +261,11 @@ export function validateSnapshot(raw, pin, card) {
         fetchedAt: new Date().toISOString()
     }
 }
-export async function materialize(definition, record, execute, sourceTime = () => null) {
+export async function materialize(definition, record, execute, sourceTime = () => null, onProgress = () => {}) {
     const snapshots = []
     const executed = new Map()
     for (const card of definition.cards) {
+        onProgress({ phase: 'sources', completed: snapshots.length, total: definition.cards.length, active: [card.title] })
         const { item, pin } = sourceFor(record, card.source)
         if (item.hash !== card.hash) fail('The pinned source changed. Re-select it before refreshing.', 409)
         validateArgs(pin, card.params)
@@ -276,6 +277,7 @@ export async function materialize(definition, record, execute, sourceTime = () =
         snapshot.source.harness = definition.harness
         snapshots.push(snapshot)
     }
+    onProgress({ phase: 'sources', completed: snapshots.length, total: definition.cards.length, active: [] })
     if (!snapshots.length) fail('Add a card before refreshing.')
     return { id: randomUUID(), refreshedAt: new Date().toISOString(), cards: snapshots }
 }
@@ -293,7 +295,7 @@ export function pipelinePeriods(now = new Date()) {
             { start_date: iso(new Date(Date.UTC(year, quarter + 3, 1))), end_date: iso(new Date(Date.UTC(year, quarter + 6, 1))) }
         ])
 }
-export async function materializeCached(definition, record, execute, cache, preferCache = false) {
+export async function materializeCached(definition, record, execute, cache, preferCache = false, onProgress = () => {}) {
     const pending = new Map()
     const inflight = new Map()
     const keyFor = (item, args) =>
@@ -315,7 +317,7 @@ export async function materializeCached(definition, record, execute, cache, pref
         return pending.get(key).raw
     }
     const time = (item, args) => pending.get(keyFor(item, args))?.fetchedAt
-    const snapshot = await materialize(definition, record, run, time)
+    const snapshot = await materialize(definition, record, run, time, onProgress)
     // The active result must validate before anything enters the durable cache.
     const persist = (cards) => {
         for (const card of cards) {
@@ -342,26 +344,52 @@ export async function materializeCached(definition, record, execute, cache, pref
         const regions = ['ALL', 'AMER', 'EMEA', 'APJ']
         const jobs = regions.flatMap((region) => periods.map((period) => ({ region, period })))
         const views = {}
+        const active = new Set()
+        const failedViews = []
+        const report = () =>
+            onProgress({
+                phase: 'views',
+                completed: Object.keys(views).length,
+                total: jobs.length,
+                active: [...active],
+                failedViews: [...failedViews]
+            })
+        report()
         let index = 0
         const worker = async () => {
             while (index < jobs.length) {
                 const { region, period } = jobs[index++]
                 const { key, ...dates } = period
-                const rangedCards = cards.map((card) => ({
-                    ...card,
-                    params: { ...card.params, ...dates, region },
-                    scope: `${region} · ${dates.start_date} to ${dates.end_date} excluded · open/non-omitted close-date cohort; unweighted source values`
-                }))
-                const view = await materialize({ ...definition, cards: rangedCards }, record, run, time)
-                const evidenceRows = view.cards[0].evidenceRows || view.cards[0].rows
-                views[`${region}:${key}`] = {
-                    evidenceRows,
-                    cards: view.cards.map((item, i) => {
-                        const { evidenceRows: _evidence, rows, ...rest } = item
-                        return { ...rest, ...(rangedCards[i].rowsPath ? { rows } : { rowsFromEvidence: true }) }
-                    })
+                const label = `${region} · ${
+                    { 30: 'Next 30 days', 60: 'Next 60 days', 90: 'Next 90 days', quarter: 'This quarter', 'next-quarter': 'Next quarter' }[
+                        key
+                    ]
+                }`
+                active.add(label)
+                report()
+                try {
+                    const rangedCards = cards.map((card) => ({
+                        ...card,
+                        params: { ...card.params, ...dates, region },
+                        scope: `${region} · ${dates.start_date} to ${dates.end_date} excluded · open/non-omitted close-date cohort; unweighted source values`
+                    }))
+                    const view = await materialize({ ...definition, cards: rangedCards }, record, run, time)
+                    const evidenceRows = view.cards[0].evidenceRows || view.cards[0].rows
+                    views[`${region}:${key}`] = {
+                        evidenceRows,
+                        cards: view.cards.map((item, i) => {
+                            const { evidenceRows: _evidence, rows, ...rest } = item
+                            return { ...rest, ...(rangedCards[i].rowsPath ? { rows } : { rowsFromEvidence: true }) }
+                        })
+                    }
+                    persist(rangedCards)
+                } catch (error) {
+                    failedViews.push(label)
+                    throw error
+                } finally {
+                    active.delete(label)
+                    report()
                 }
-                persist(rangedCards)
             }
         }
         // Await every worker even on failure: do not release the refresh lease
@@ -371,6 +399,7 @@ export async function materializeCached(definition, record, execute, cache, pref
             fail('The period/region snapshot is incomplete. Last good data was kept; retry Refresh.', 422)
         snapshot.pipelineViews = { periods, regions, views }
     }
+    onProgress({ phase: 'saving', completed: 1, total: 1, active: [] })
     return snapshot
 }
 
@@ -390,7 +419,11 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             dashboard TEXT NOT NULL, workspace TEXT NOT NULL, cache_key TEXT NOT NULL, value TEXT NOT NULL, expires INTEGER NOT NULL,
             PRIMARY KEY(dashboard, workspace, cache_key)
         );
-        CREATE TABLE IF NOT EXISTS dash_flow_public_report (slot TEXT PRIMARY KEY, token TEXT NOT NULL, run_id TEXT, started INTEGER NOT NULL);`)
+        CREATE TABLE IF NOT EXISTS dash_flow_public_report (slot TEXT PRIMARY KEY, token TEXT NOT NULL, run_id TEXT, started INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS dash_flow_refresh_status (
+            dashboard TEXT NOT NULL, workspace TEXT NOT NULL, token TEXT NOT NULL, progress TEXT NOT NULL,
+            PRIMARY KEY(dashboard, workspace)
+        );`)
     const rowFor = (id, workspace) => {
         if (!workspace) fail('Workspace required.', 403)
         const row = db.prepare('SELECT * FROM dash_flow WHERE id=? AND workspace=?').get(id, workspace)
@@ -410,6 +443,14 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             throw error
         }
     }
+    const progressFor = (row) => {
+        const stored = db
+            .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=?')
+            .get(row.id, row.workspace)
+        if (!stored) return null
+        const progress = JSON.parse(stored.progress)
+        return progress.status === 'running' && row.lease_until <= Date.now() ? { ...progress, status: 'interrupted' } : progress
+    }
     const decode = (row) => ({
         id: row.id,
         revision: row.revision,
@@ -419,7 +460,8 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         publicToken: row.published ? JSON.parse(row.published).publicToken || null : null,
         error: row.error,
         nextRefresh: row.next_refresh || null,
-        refreshing: row.lease_until > Date.now()
+        refreshing: row.lease_until > Date.now(),
+        refreshProgress: progressFor(row)
     })
     return {
         close: () => db.close(),
@@ -467,6 +509,12 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
                 })
         },
         get: (id, workspace) => decode(rowFor(id, workspace)),
+        status(id, workspace) {
+            if (!workspace) fail('Workspace required.', 403)
+            const row = db.prepare('SELECT id,workspace,lease_until,error FROM dash_flow WHERE id=? AND workspace=?').get(id, workspace)
+            if (!row) fail('Dashboard not found.', 404)
+            return { id, refreshing: row.lease_until > Date.now(), refreshProgress: progressFor(row), error: row.error }
+        },
         published(id, workspace) {
             const row = rowFor(id, workspace)
             if (!row.published) fail('This dashboard is not published.', 404)
@@ -498,24 +546,30 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         save(id, workspace, owner, input, revision) {
             if (!workspace || !owner) fail('Sign in to save a dashboard.', 403)
             const definition = validateDefinition(input)
-            if (!id) {
-                id = randomUUID()
-                db.prepare('INSERT INTO dash_flow(id,workspace,owner,revision,definition) VALUES(?,?,?,1,?)').run(
-                    id,
-                    workspace,
-                    owner,
-                    JSON.stringify(definition)
-                )
-            } else {
-                rowFor(id, workspace)
-                const changed = db
-                    .prepare(
-                        'UPDATE dash_flow SET definition=?,owner=?,revision=revision+1,snapshot=NULL,error=NULL,next_refresh=0 WHERE id=? AND workspace=? AND revision=? AND lease_until<=?'
+            return writeTransaction(() => {
+                if (!id) {
+                    id = randomUUID()
+                    db.prepare('INSERT INTO dash_flow(id,workspace,owner,revision,definition) VALUES(?,?,?,1,?)').run(
+                        id,
+                        workspace,
+                        owner,
+                        JSON.stringify(definition)
                     )
-                    .run(JSON.stringify(definition), owner, id, workspace, revision, Date.now())
-                if (!changed.changes) fail('The dashboard changed or is refreshing. Reload before saving.', 409)
-            }
-            return decode(rowFor(id, workspace))
+                } else {
+                    rowFor(id, workspace)
+                    const changed = db
+                        .prepare(
+                            'UPDATE dash_flow SET definition=?,owner=?,revision=revision+1,snapshot=NULL,error=NULL,next_refresh=0 WHERE id=? AND workspace=? AND revision=? AND lease_until<=?'
+                        )
+                        .run(JSON.stringify(definition), owner, id, workspace, revision, Date.now())
+                    if (!changed.changes) fail('The dashboard changed or is refreshing. Reload before saving.', 409)
+                    db.prepare(
+                        `DELETE FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=?
+                    AND EXISTS (SELECT 1 FROM dash_flow WHERE id=? AND workspace=? AND revision=? AND lease IS NULL)`
+                    ).run(id, workspace, id, workspace, Number(revision) + 1)
+                }
+                return decode(rowFor(id, workspace))
+            })
         },
         publish(id, workspace, revision, makePublic = false) {
             return writeTransaction(() => {
@@ -542,6 +596,13 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             rowFor(id, workspace)
             db.prepare('UPDATE dash_flow SET published=NULL WHERE id=? AND workspace=?').run(id, workspace)
         },
+        progress(id, workspace, claim, detail) {
+            const progress = { ...detail, status: 'running', startedAt: claim.startedAt, updatedAt: new Date().toISOString() }
+            db.prepare(
+                `UPDATE dash_flow_refresh_status SET progress=? WHERE dashboard=? AND workspace=? AND token=?
+                AND EXISTS (SELECT 1 FROM dash_flow WHERE id=? AND workspace=? AND lease=? AND revision=?)`
+            ).run(JSON.stringify(progress), id, workspace, claim.token, id, workspace, claim.token, claim.revision)
+        },
         claim(id, workspace) {
             return writeTransaction(() => {
                 const row = rowFor(id, workspace)
@@ -552,16 +613,58 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
                     .prepare('UPDATE dash_flow SET lease=?,lease_until=? WHERE id=? AND workspace=? AND lease_until<=?')
                     .run(token, Date.now() + 2700000, id, workspace, Date.now())
                 if (!changed.changes) fail('A refresh is already running.', 409)
-                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner }
+                const startedAt = new Date().toISOString()
+                db.prepare('INSERT OR REPLACE INTO dash_flow_refresh_status VALUES(?,?,?,?)').run(
+                    id,
+                    workspace,
+                    token,
+                    JSON.stringify({
+                        status: 'running',
+                        phase: 'starting',
+                        completed: 0,
+                        total: 0,
+                        active: [],
+                        startedAt,
+                        updatedAt: startedAt
+                    })
+                )
+                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner, startedAt }
             })
         },
         settle(id, workspace, claim, snapshot, error) {
-            const next = claim.definition.intervalSeconds === 604800 ? Date.now() + 604800 * 1000 : 0
-            // Refresh updates the draft. Published snapshots change only on explicit Publish.
-            db.prepare(
-                'UPDATE dash_flow SET snapshot=COALESCE(?,snapshot),error=?,next_refresh=?,lease=NULL,lease_until=0 WHERE id=? AND workspace=? AND lease=? AND revision=?'
-            ).run(snapshot ? JSON.stringify(snapshot) : null, error || null, next, id, workspace, claim.token, claim.revision)
-            return decode(rowFor(id, workspace))
+            return writeTransaction(() => {
+                const next = claim.definition.intervalSeconds === 604800 ? Date.now() + 604800 * 1000 : 0
+                // Refresh updates the draft. Published snapshots change only on explicit Publish.
+                const changed = db
+                    .prepare(
+                        'UPDATE dash_flow SET snapshot=COALESCE(?,snapshot),error=?,next_refresh=?,lease=NULL,lease_until=0 WHERE id=? AND workspace=? AND lease=? AND revision=?'
+                    )
+                    .run(snapshot ? JSON.stringify(snapshot) : null, error || null, next, id, workspace, claim.token, claim.revision)
+                if (changed.changes) {
+                    const prior = db
+                        .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=? AND token=?')
+                        .get(id, workspace, claim.token)
+                    if (prior) {
+                        const finishedAt = new Date().toISOString()
+                        const previous = JSON.parse(prior.progress)
+                        const progress = {
+                            ...previous,
+                            failedItems: error ? (previous.failedViews?.length ? previous.failedViews : previous.active || []) : [],
+                            status: error ? 'failed' : 'completed',
+                            active: [],
+                            finishedAt,
+                            updatedAt: finishedAt
+                        }
+                        db.prepare('UPDATE dash_flow_refresh_status SET progress=? WHERE dashboard=? AND workspace=? AND token=?').run(
+                            JSON.stringify(progress),
+                            id,
+                            workspace,
+                            claim.token
+                        )
+                    }
+                }
+                return decode(rowFor(id, workspace))
+            })
         },
         due(now = Date.now()) {
             return db

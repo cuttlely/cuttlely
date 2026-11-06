@@ -23,6 +23,8 @@ The fingerprint identifies the executed statement, not the business meaning of a
 
 ## Refresh and publish
 
+The refresh status panel shows the current stage, validated-card or prepared-view count, active period/region jobs, elapsed time and the last successful snapshot. Progress is stored with the refresh lease and survives page reloads; the builder automatically reconnects using a small status endpoint. A completed refresh shows the number of cached views ready to publish. Failures show affected combinations and a Retry action without replacing successful data. An expired lease is labeled interrupted. After a minute without progress, the panel says it is waiting for source results rather than inventing an ETA. Published viewers continue reading their frozen snapshot.
+
 Choose **On demand** or **Every week** under **Refresh draft**. Save and run the first refresh to arm a weekly interval. The server polls once a minute, rechecks the saving author's current team update permission, and claims a durable lease before execution. Missed times produce one refresh, not a backlog. A restart retains the schedule and snapshots. Each dashboard is refreshed atomically; a partial failure never replaces some cards while leaving others from another run.
 
 Definitions saved before the BETA that use an hourly or daily interval are not changed automatically and do not run on a schedule. The next save refuses those values and asks the builder to choose on demand or weekly.

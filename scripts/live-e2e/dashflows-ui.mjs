@@ -177,6 +177,7 @@ let reports = 0
 let refreshes = 0
 let publicPublishes = 0
 let dashboardRequests = 0
+let statusPolls = 0
 await page.addInitScript(() => {
     if (location.pathname.startsWith('/public/dashboards')) {
         localStorage.clear()
@@ -210,8 +211,33 @@ await page.route('**/api/v1/**', async (route) => {
         record.definition = route.request().postDataJSON().definition
         record.revision++
         data = record
-    } else if (p.endsWith('/refresh')) data = { id: 'demo', refreshing: true }
-    else if (p.endsWith('/dashflows/demo/publish') && route.request().method() === 'POST') {
+    } else if (p.endsWith('/refresh')) {
+        statusPolls = 0
+        record.refreshing = true
+        record.refreshProgress = {
+            status: 'running',
+            phase: 'starting',
+            completed: 0,
+            total: 0,
+            startedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        }
+        data = { id: 'demo', refreshing: true, refreshProgress: record.refreshProgress }
+    } else if (p.endsWith('/refresh-status')) {
+        statusPolls++
+        record.refreshing = statusPolls < 3
+        record.refreshProgress = {
+            ...record.refreshProgress,
+            phase: 'views',
+            completed: statusPolls === 1 ? 5 : statusPolls === 2 ? 12 : 20,
+            total: 20,
+            status: record.refreshing ? 'running' : 'completed',
+            active: record.refreshing ? ['EMEA · Next 90 days'] : [],
+            updatedAt: new Date().toISOString(),
+            ...(record.refreshing ? {} : { finishedAt: new Date().toISOString() })
+        }
+        data = { id: 'demo', refreshing: record.refreshing, refreshProgress: record.refreshProgress }
+    } else if (p.endsWith('/dashflows/demo/publish') && route.request().method() === 'POST') {
         const isPublic = route.request().postDataJSON().public === true
         if (isPublic) publicPublishes++
         data = { ...record, publicToken: isPublic ? 'synthetic-public-token' : null }
@@ -262,7 +288,10 @@ try {
     if (refreshes !== 0) throw new Error('Preset selection ran a refresh')
     await page.getByLabel('Date range', { exact: true }).selectOption('custom')
     await page.getByLabel('From', { exact: true }).fill('2026-10-01')
-    await page.getByText('Pipeline range updated.', { exact: false }).waitFor()
+    await page.getByText('12 / 20 period/region views ready', { exact: true }).waitFor()
+    await page.getByRole('region', { name: 'Refresh status' }).screenshot({ path: path.join(output, 'supreme-refresh-status.png') })
+    await page.reload()
+    await page.getByText('Refresh complete', { exact: true }).waitFor()
     if (refreshes !== 1) throw new Error('Custom date change did not automatically refresh')
     await page.goto(`${base}/dashflows/demo`)
     await page.getByRole('heading', { name: 'Supreme · GTM command center' }).waitFor()
@@ -324,6 +353,7 @@ try {
                 'account evidence search',
                 'twenty instant published period/region combinations',
                 'custom date source refresh',
+                'live progress and reload reconnection',
                 'zero passive query executions',
                 'range changes saved before refresh',
                 'published read-only',

@@ -1,5 +1,7 @@
 const claim = { token: 'lease', revision: 1, definition: { harness: 'synthetic-contract' } }
 const store = {
+    status: jest.fn(() => ({ refreshProgress: undefined })),
+    progress: jest.fn(),
     queryCache: jest.fn(() => ({ get: jest.fn(), put: jest.fn() })),
     claim: jest.fn(() => claim),
     settle: jest.fn((..._args: unknown[]) => ({ snapshot: { id: 'new' } })),
@@ -7,7 +9,8 @@ const store = {
 }
 const execute = jest.fn(async () => 'typed-source-result')
 const queryName = (slug: string) => ['pq', slug].join('_')
-const materialize = jest.fn(async (_definition, _record, invoke) => {
+const materialize = jest.fn(async (_definition, _record, invoke, _cache, _preferCache, progress) => {
+    progress({ phase: 'views', completed: 12, total: 20, active: [] })
     await invoke({ specialist: 'analyst', name: queryName('test'), bindingIndex: 2 }, { month: '2026-10-01' })
     return { id: 'new' }
 })
@@ -51,6 +54,7 @@ afterAll(() => {
 })
 it('routes a refresh through the exact harness specialist binding and preserves the workspace context', async () => {
     await refreshDashboard('dashboard', 'team-a')
+    expect(store.progress).toHaveBeenCalledWith('dashboard', 'team-a', claim, { phase: 'views', completed: 12, total: 20, active: [] })
     expect(execute).toHaveBeenCalledWith(
         'synthetic-contract',
         'analyst',

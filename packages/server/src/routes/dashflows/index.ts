@@ -60,6 +60,11 @@ router.get(
         return res.json((await runtime()).dashStore().get(req.params.id, ws))
     })
 )
+router.get(
+    '/:id/refresh-status',
+    edit,
+    action(async (req, res, ws) => res.json((await runtime()).dashStore().status(req.params.id, ws)))
+)
 router.put(
     '/:id',
     edit,
