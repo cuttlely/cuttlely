@@ -80,6 +80,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'langflow-import.test.mjs'),
             path.join(ROOT, 'scripts', 'flowise-migration.test.mjs'),
             path.join(ROOT, 'scripts', 'api-key-hash.test.cjs'),
+            path.join(ROOT, 'scripts', 'access-keys.test.cjs'),
             path.join(ROOT, 'scripts', 'usage-storage.test.cjs'),
             path.join(ROOT, 'scripts', 'model-prices.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-callback-usage.test.mjs'),
