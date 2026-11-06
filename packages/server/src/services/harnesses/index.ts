@@ -285,7 +285,9 @@ export async function assertNameAvailable(
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     // A roster that would compile into another harness's profile is refused before anything is claimed or cleared.
-    if (opts.record) assertNoProfileConflicts(await loadHarness('profile.mjs'), opts.record as Record<string, unknown>, name)
+    // Read-only checks may carry only a canvas id, not a runnable roster. They claim or write no profiles.
+    if (opts.record && !opts.readOnly)
+        assertNoProfileConflicts(await loadHarness('profile.mjs'), opts.record as Record<string, unknown>, name)
     let existing
     try {
         existing = store.getHarness(name)
