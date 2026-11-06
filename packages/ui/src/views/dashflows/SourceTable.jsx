@@ -36,7 +36,7 @@ export default function SourceTable({ rows, selectedColumns, onAccount, limit = 
                             {columns.map((key) => (
                                 <td
                                     key={key}
-                                    title={typeof row[key] === 'object' ? '' : String(row[key] ?? '')}
+                                    title={typeof row[key] === 'object' ? '' : formatValue(row[key], key)}
                                     className={key.endsWith('_id') ? 'df-secondary-id' : undefined}
                                 >
                                     {onAccount && key === 'account_name' && accountIdentity(row) ? (

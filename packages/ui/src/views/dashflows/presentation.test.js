@@ -12,7 +12,7 @@ it('uses account and opportunity names for ID-based chart bindings without guess
     ).toEqual(['account_name', 'opportunity_name'])
 })
 it('formats exact decimal strings, dates and familiar labels without inventing currency or zeroes', () => {
-    expect(formatValue('9007199254740993.12345', 'renewal_acv')).toBe('9,007,199,254,740,993.12345')
+    expect(formatValue('9007199254740993.12345', 'renewal_acv')).toBe('9,007,199,254,740,993.12')
     expect(formatValue('2026-12-15', 'renewal_date')).toBe('Dec 15, 2026')
     expect(formatValue('77.96', 'retention_pct')).toBe('77.96%')
     expect(formatValue(null, 'renewal_acv')).toBe('Not provided')
@@ -41,4 +41,16 @@ it('opens typed renewal envelopes and does not invent account records for aggreg
         }).rows
     ).toEqual(rows)
     expect(sourceRecords({ rows: [{ retention_pct: '77.9' }] }).rows).toEqual([])
+})
+
+it('rounds monetary ACV to cents without rounding counts or percentages', () => {
+    for (const field of ['renewal_acv', 'total_acv', 'current_account_acv', 'gross_racv', 'total_nacv']) {
+        expect(formatValue('12345.6789', field)).toBe('12,345.68')
+        expect(formatValue('1.005', field)).toBe('1.01')
+        expect(formatValue('-999.995', field)).toBe('-1,000.00')
+        expect(formatValue('-0.004', field)).toBe('0.00')
+        expect(formatValue('42', field)).toBe('42.00')
+    }
+    expect(formatValue('18', 'unknown_acv_count')).toBe('18')
+    expect(formatValue('12.345', 'acv_change_pct')).toBe('12.345%')
 })

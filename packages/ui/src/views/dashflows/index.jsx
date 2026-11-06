@@ -18,6 +18,7 @@ import ExecutiveTooltip from './ExecutiveTooltip'
 import { RANGE_OPTIONS, rangeDates } from './ranges'
 import { selectPipelineView } from './cachedViews'
 import RefreshStatus from './RefreshStatus'
+import { formatValue, isAcvAmount } from './presentation'
 export { default as SourceTable } from './SourceTable'
 import Chart from './Charts'
 
@@ -107,10 +108,13 @@ export function DashboardCard({ data }) {
                     >
                         <span data-exact-value={cell(rows[0][card.valueField])}>
                             {Number.isFinite(Number(rows[0][card.valueField])) && rows[0][card.valueField] !== null
-                                ? new Intl.NumberFormat('en-US', {
-                                      notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
-                                      maximumFractionDigits: 2
-                                  }).format(Number(rows[0][card.valueField]))
+                                ? isAcvAmount(card.valueField) && Math.abs(Number(rows[0][card.valueField])) < 1000000
+                                    ? formatValue(rows[0][card.valueField], card.valueField)
+                                    : new Intl.NumberFormat('en-US', {
+                                          minimumFractionDigits: isAcvAmount(card.valueField) ? 2 : 0,
+                                          notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
+                                          maximumFractionDigits: 2
+                                      }).format(Number(rows[0][card.valueField]))
                                 : cell(rows[0][card.valueField])}
                         </span>
                     </button>
