@@ -1,5 +1,5 @@
 import dashboard from '@/menu-items/dashboard'
-import { isGroupActive, isItemActive, menuItemAllowed } from './activeRoute'
+import { isGroupActive, isItemActive, menuConfigAllowed, menuItemAllowed } from './activeRoute'
 
 const items = (group) => (group.children || []).flatMap((child) => (child.children ? items(child) : [child]))
 const allItems = items(dashboard).filter((item) => item.type === 'item' && item.url)
@@ -87,5 +87,13 @@ describe('Sidebar active item', () => {
         expect(activeOn('/promote/1')).toEqual([])
         expect(isItemActive({ url: '/' }, '/agentflows')).toBe(false)
         expect(isItemActive({ url: '' }, '/agentflows')).toBe(false)
+    })
+
+    it('shows the Dashflows BETA item only when its public setting is on', () => {
+        const item = allItems.find((entry) => entry.id === 'dashflows')
+        expect(item).toMatchObject({ configFlag: 'DASH_FLOWS', isBeta: true })
+        expect(menuConfigAllowed(item, {})).toBe(false)
+        expect(menuConfigAllowed(item, { DASH_FLOWS: false })).toBe(false)
+        expect(menuConfigAllowed(item, { DASH_FLOWS: true })).toBe(true)
     })
 })

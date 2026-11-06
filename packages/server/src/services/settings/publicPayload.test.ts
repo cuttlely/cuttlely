@@ -18,6 +18,7 @@ describe('public settings payload', () => {
             expect(listed).not.toHaveProperty('readOnly')
             expect(listed).not.toHaveProperty('LANGSMITH_API_KEY')
             expect(listed.PINNED_QUERIES).toBe(false)
+            expect(listed.DASH_FLOWS).toBe(false)
         } finally {
             if (previous === undefined) delete process.env.LANGSMITH_API_KEY
             else process.env.LANGSMITH_API_KEY = previous
@@ -40,6 +41,24 @@ describe('public settings payload', () => {
         } finally {
             if (previous === undefined) delete process.env.CUTTLELY_PINNED_QUERIES
             else process.env.CUTTLELY_PINNED_QUERIES = previous
+        }
+    })
+
+    it('enables Dashflows only for 1 and true', async () => {
+        const previous = process.env.CUTTLELY_DASH_FLOWS
+        try {
+            for (const value of [undefined, '', '0', 'false', 'TRUE', 'yes', 'on']) {
+                if (value === undefined) delete process.env.CUTTLELY_DASH_FLOWS
+                else process.env.CUTTLELY_DASH_FLOWS = value
+                expect((await settingsService.getSettings()).DASH_FLOWS).toBe(false)
+            }
+            for (const value of ['1', 'true']) {
+                process.env.CUTTLELY_DASH_FLOWS = value
+                expect((await settingsService.getSettings()).DASH_FLOWS).toBe(true)
+            }
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_DASH_FLOWS
+            else process.env.CUTTLELY_DASH_FLOWS = previous
         }
     })
 })

@@ -1,3 +1,4 @@
+import dashflowsRouter, { publicDashflowsRouter } from './dashflows'
 import express from 'express'
 import agentflowv2GeneratorRouter from './agentflowv2-generator'
 import apikeyRouter from './apikey'
@@ -115,6 +116,8 @@ router.use('/assistants', assistantsRouter)
 router.use('/attachments', attachmentsRouter)
 router.use('/chatflows', chatflowsRouter)
 router.use('/demo', demoRouter)
+router.use('/dashflows', dashflowsRouter)
+router.use('/public-dashflows', publicDashflowsRouter)
 router.use('/harnesses', harnessesRouter)
 router.use('/flow-versions', flowVersionsRouter)
 router.use('/flow-drafts', flowDraftsRouter)

@@ -1,4 +1,5 @@
 export const WHITELIST_URLS = [
+    '/api/v1/public-dashflows/',
     '/api/v1/verify/apikey/',
     '/api/v1/chatflows/apikey/',
     '/api/v1/public-chatflows',

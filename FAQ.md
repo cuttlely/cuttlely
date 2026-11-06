@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.5.2)
+# Cuttlely FAQ (1.6.1)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,24 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.6.1?
+
+-   **Dashflows BETA** evidence inspection now leads with account names, executive hover summaries, and searchable risk-filtered source lists (up to 100 records). Pipeline period and region changes automatically save and refresh, with a six-hour workspace-scoped durable cache for date-range presets. Optional public snapshot links expose frozen published data and account-scoped health reports; team-only remains the default. Still Experimental and off by default. See [Dashflows BETA](./docs/how-to/dashflows.md).
+-   No breaking changes; read the [1.6.1 changelog](./CHANGELOG.md#161---2026-11-06). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.6.1`, or run `npm i cuttlely@1.6.1`.
+
+Full notes: [v1.6.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.6.1).
+
+### What's new in 1.6.0?
+
+-   **Dashflows BETA** is an Experimental, default-off dashboard builder backed by tested PostgreSQL queries and saved typed snapshots. Draft refreshes run weekly or on demand. See [Dashflows BETA](./docs/how-to/dashflows.md).
+-   **Experimental restart** confirms and applies startup-setting changes through the existing in-place restart or manual steps path. Agent runtime warm-up now offers Off, Probe periodically (the default), and Timed full warmup. See [Runtime warm-up](./docs/how-to/harnesses.md#runtime-warm-up).
+-   **Version History** connects to a GitHub Enterprise host. **Back** from an open version returns to history or the page that opened it. See [Keep a copy in GitHub](./docs/how-to/versioning.md#keep-a-copy-in-github).
+-   Shared and embedded chats show the paperclip when File Upload is on. Public PDF downloads work in a signed-in browser session that also holds the public chat token. See [Share and embed](./docs/how-to/share-and-embed.md).
+-   File-capable specialists receive complete recent answers within the documented limit for follow-up report exports, including long tables and final sections.
+-   No breaking changes; read the [1.6.0 changelog](./CHANGELOG.md#160---2026-11-06). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.6.0`, or run `npm i cuttlely@1.6.0`.
+
+Full notes: [v1.6.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.6.0).
 
 ### What's new in 1.5.2?
 

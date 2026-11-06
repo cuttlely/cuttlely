@@ -9,8 +9,9 @@ import { Divider, List, Typography } from '@mui/material'
 import NavItem from '../NavItem'
 import NavCollapse from '../NavCollapse'
 import AdminSection from '../AdminSection'
-import { menuItemAllowed } from '../activeRoute'
+import { menuConfigAllowed, menuItemAllowed } from '../activeRoute'
 import { useAuth } from '@/hooks/useAuth'
+import { useConfig } from '@/store/context/ConfigContext'
 import { Available } from '@/ui-component/rbac/available'
 
 // ==============================|| SIDEBAR MENU LIST GROUP ||============================== //
@@ -18,6 +19,7 @@ import { Available } from '@/ui-component/rbac/available'
 const NavGroup = ({ item }) => {
     const theme = useTheme()
     const { hasDisplay } = useAuth()
+    const { config } = useConfig() || {}
     const permissions = useSelector((state) => state.auth.permissions)
     const isGlobal = useSelector((state) => state.auth.isGlobal)
 
@@ -42,6 +44,7 @@ const NavGroup = ({ item }) => {
 
     const shouldDisplayMenu = (menu) => {
         if (!menuItemAllowed(menu, permissions, isGlobal)) return false
+        if (!menuConfigAllowed(menu, config)) return false
 
         // If `display` is defined, check against cloud/enterprise conditions
         if (menu.display) {

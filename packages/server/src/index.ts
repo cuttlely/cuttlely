@@ -1,3 +1,4 @@
+import { startDashflowScheduler } from './services/dashflows'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import express, { Request, Response } from 'express'
@@ -491,6 +492,7 @@ export async function start(): Promise<void> {
         harnessesService.warmHarnesses()
         etlService.resumeEtlRuns()
         startHarnessSchedulerIfReady(serverApp?.initError)
+        startDashflowScheduler(serverApp?.initError)
         flowVersionsService.startGithubSync()
         const keepWarmMinutes = Number(process.env.CUTTLELY_HERMES_KEEP_WARM_MINUTES || 5)
         if (keepWarmMinutes > 0) setInterval(() => harnessesService.warmHarnesses(), keepWarmMinutes * 60000).unref()

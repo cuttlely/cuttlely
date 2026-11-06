@@ -61,6 +61,7 @@ const STEPS = [
         args: [
             '--test',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
+            path.join(ROOT, 'packages', 'harness', 'dashflows.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
             path.join(ROOT, 'scripts', 'check-boundaries.test.mjs'),
             path.join(ROOT, 'scripts', 'health-report.test.mjs'),

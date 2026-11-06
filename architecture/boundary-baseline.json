@@ -784,6 +784,26 @@
             "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
         },
         {
+            "from": "packages/server/src/routes/dashflows/index.test.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/server/src/routes/dashflows/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/server/src/routes/dashflows/public-gate.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "Dashflows public route uses the existing AppError contract; its auth-gate regression reads the existing public route constants."
+        },
+        {
+            "from": "packages/server/src/routes/dashflows/public.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Dashflows public route uses the existing AppError contract; its auth-gate regression reads the existing public route constants."
+        },
+        {
             "from": "packages/server/src/routes/export-import/index.test.ts",
             "to": "packages/server/src/routes/export-import/index.ts",
             "reason": "The closed-route test mounts the real export-import router"
@@ -979,6 +999,16 @@
         {
             "from": "packages/server/src/services/builder/recipes/workflow.ts",
             "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/dashflows/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/server/src/services/dashflows/index.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/server/src/services/dataset/index.test.ts",
@@ -2202,6 +2232,36 @@
             "to": "packages/ui/src/store/actions.js"
         },
         {
+            "from": "packages/ui/src/views/dashflows/AccountReport.jsx",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/ui/src/views/dashflows/AccountReport.jsx",
+            "to": "packages/ui/src/ui-component/markdown/MemoizedReactMarkdown.jsx",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/ui/src/views/dashflows/AccountReport.test.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/ui/src/views/dashflows/index.jsx",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/ui/src/views/dashflows/index.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+        },
+        {
+            "from": "packages/ui/src/views/dashflows/index.jsx",
+            "to": "packages/ui/src/store/context/ConfigContext.jsx",
+            "reason": "Dashflows BETA reads the public DASH_FLOWS config flag; public settings reuses dashFlowsEnabled."
+        },
+        {
             "from": "packages/ui/src/views/etl/index.jsx",
             "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
         },
@@ -2609,6 +2669,11 @@
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        },
+        {
+            "from": "packages/server/src/services/settings/index.ts",
+            "to": "packages/server/src/services/dashflows/enabled.ts",
+            "reason": "Dashflows BETA reads the public DASH_FLOWS config flag; public settings reuses dashFlowsEnabled."
         },
         {
             "from": "packages/ui/src/utils/migrationScan.test.js",

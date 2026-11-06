@@ -4,25 +4,53 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Dependency update for an open Dependabot alert in the bundled agent runtime: `hermes/uv.lock` moves oauthlib to 4.0.1.
+
+## [1.6.1] - 2026-11-06
+
+### Fixed
+
+-   Dashflows BETA (Experimental, default off): evidence inspection with searchable account lists and executive hover summaries, a six-hour durable cache for pipeline date-range presets, and optional public snapshot links with account-scoped health reports.
+
+### Upgrade notes / breaking changes
+
+-   No breaking changes. Dashflows BETA stays off and hidden until an administrator turns it on under **Admin** > **Server Settings** > **Experimental**.
+
+## [1.6.0] - 2026-11-06
+
 ### Added
+
+-   Dashflows is available as a BETA under **Admin** > **Server Settings** > **Experimental**. It is off by default and hidden until an administrator turns it on.
+
+-   **Experimental** has a restart control for startup settings such as Dashflows BETA, with a warning and confirmation before the existing in-place restart or manual steps path.
 
 -   Version history can copy to a GitHub Enterprise host. On **Admin** > **Version History**, **GitHub host** stays `github.com` unless you set the host you open in a browser. GitHub Enterprise Cloud with data residency (`example.ghe.com`) uses `https://api.example.ghe.com`. Any other host, including GitHub Enterprise Server, uses `https://<host>/api/v3`. The token is a personal access token from that host. A saved sign-in is not sent to a different host, redirects are not followed, and private-network addresses stay blocked by the outbound check. See [Which GitHub host](./docs/how-to/versioning.md#which-github-host).
 
 ### Changed
 
+-   Dashflows schedules are weekly or on demand, and manual refresh returns immediately while the dashboard updates in the background.
+
 -   Admin runtime settings offer Off, Probe periodically (default), and Timed full warmup. Both active modes use a configurable interval, defaulting to five minutes. Existing explicit false and true settings select Off and full warmup respectively. Save and restart to apply.
 
 -   Agent runtime warm-up checks health, skips model calls during active work or after recent successful requests, and probes one specialist on idle cycles. Cold or changed profiles warm with at most two calls at once. Concurrent warm-up requests are serialized.
+
+-   Release images are built and pushed by GitHub Actions from the release tag, with provenance and an SBOM, instead of being built on a maintainer machine by default.
 
 -   Dependency updates for open Dependabot alerts: undici 6.29.1 and 7.30.1, follow-redirects 1.16.2, multer 2.5.0, body-parser 2.4.0, zod 4.6.6, and fast-uri 3.1.9 (through ajv).
 
 -   Dependency update for an open Dependabot alert (#255) in the bundled agent runtime: `hermes/uv.lock` moves opentelemetry-api to 1.45.1. The optional `otlp` extra now pins opentelemetry-sdk and opentelemetry-exporter-otlp-proto-http 1.45.1, and the optional `mistral` extra pins mistralai 2.10.1, because 2.4.8 does not allow the newer OpenTelemetry packages.
 
--   Dependency update for an open Dependabot alert in the bundled agent runtime: `hermes/uv.lock` moves oauthlib to 4.0.1.
-
 ### Fixed
 
--   Publishing or saving an emptied live agent team now refuses the change and keeps the live canvas and roster together. New teams can still save an initial placeholder before their roster is ready.
+-   Incomplete imported agent teams save as drafts only. When drafts are off, an incomplete first save is refused clearly. Publishing or saving an emptied live team is also refused, and every refusal leaves the prior Live canvas and roster unchanged.
+
+-   **Back** on an open version now returns to version history or the page that opened it instead of trapping you between the chromeless version page and its canvas.
+
+-   A public chat PDF download now works in a signed-in browser session that also holds the public chat token.
+
+-   File-capable specialists receive complete recent answers for report exports within the documented two-answer, 1 MiB limit, so long tables and final sections are not cut to the ordinary conversation preview.
 
 -   When a harness turn times out, completed research prerequisites no longer substitute for an unfinished deliverable. Independent completed work and completed final results remain available.
 
@@ -35,6 +63,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A page left open across a deploy or a server restart no longer stays on **Something went wrong** with `Failed to fetch dynamically imported module` when it opens another part of the app. The browser keeps a failed page chunk for the life of the tab, so every visit failed again until a full reload. Now the page waits until the server answers `/api/v1/ping` (for up to about a minute) and then reloads once. If the server does not answer in that time, or the chunk still fails right after that reload, the error says the server may have just restarted or been updated. The server answers 404 for a missing file under `/assets/` instead of the app page, sends files under `/assets/` with `Cache-Control: public, max-age=31536000, immutable`, and sends the app page with `Cache-Control: no-cache`. See [Render](./docs/how-to/render.md#deploys-and-data) and [Server settings](./docs/how-to/server-settings.md#restart).
 
 -   The shared chat link and the embedded chat widget now show the paperclip attach button when **File Upload** is on for a chatflow, agentflow or harness chatflow, and send the picked documents with the question. Before, the button showed only when the flow took images. The uploads config response (`GET /api/v1/chatflows-uploads/:id` and the `uploads` field of the public chatbot config) adds `isFullFileUploadAllowed` and `fullFileUploadTypes`. See [Share and embed](./docs/how-to/share-and-embed.md).
+
+### Upgrade notes / breaking changes
+
+-   No breaking changes. Dashflows BETA stays off and hidden until an administrator turns it on under **Admin** > **Server Settings** > **Experimental**.
 
 ## [1.5.2] - 2026-11-03
 
@@ -802,7 +834,9 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/cuttlely/cuttlely/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/cuttlely/cuttlely/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/cuttlely/cuttlely/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/cuttlely/cuttlely/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/cuttlely/cuttlely/compare/v1.4.10...v1.5.0
