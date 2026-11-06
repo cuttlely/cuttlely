@@ -1,3 +1,4 @@
+import { keyHarnessNames } from '../services/accessKeys/resources'
 import type { IHarnessCaller } from '../Interface'
 import apikeyService from '../services/apikey'
 
@@ -11,6 +12,6 @@ export async function flowHarnessCaller(
 ): Promise<IHarnessCaller> {
     if (!apiKeyId) return { via: 'flow' }
     const key = await apikeyService.getApiKeyById(apiKeyId)
-    const stored = key && workspaceId && key.workspaceId === workspaceId && Array.isArray(key.harnesses) ? key.harnesses : []
+    const stored = key && workspaceId && key.workspaceId === workspaceId ? await keyHarnessNames(key) : []
     return { via: 'api_key', apiKeyId, harnesses: stored.filter((name): name is string => typeof name === 'string') }
 }

@@ -4,6 +4,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Access Keys unifies inbound API and SDK authorization as workspace principals with multiple rotatable credentials, explicit resource/operation grants, expiry, revoke/rotation grace, origin/IP policies, RPM and UTC quotas, usage counters and audit events. Multiple keys can access the same published flow, Harness or Dashflows report. New keys grant no resources.
+
+### Upgrade notes / breaking changes
+
+-   Existing bearer values migrate without forced rotation, and public embeds and share links remain available. Review the [Access keys rollout guide](./docs/reference/access-keys.md), run the migration dry-run, and use `INBOUND_ACCESS_V2=shadow` before enabling `on`. The default is `off`. Scoped key management requires an interactive session, and new keys cannot reach unregistered API endpoints or change public-access settings. Strict global limiting across replicas awaits the shared Redis limiter.
+
 ## [1.6.1] - 2026-11-06
 
 ### Fixed

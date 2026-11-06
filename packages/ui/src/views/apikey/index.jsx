@@ -84,7 +84,19 @@ function APIKeyRow(props) {
             <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                 <StyledTableCell scope='row' style={{ width: '15%' }}>
                     <Stack>
-                        <Typography>{props.apiKey.keyName}</Typography>
+                        <Typography>
+                            {props.apiKey.keyName}
+                            {props.apiKey.disabledAt ? ' · Revoked' : ''}
+                        </Typography>
+                        <Typography variant='caption'>
+                            {props.apiKey.accessPolicy?.allResources
+                                ? 'All workspace resources'
+                                : `${props.apiKey.resources?.length || 0} resource grants`}{' '}
+                            ·{' '}
+                            {props.apiKey.expiresAt
+                                ? `Expires ${moment(props.apiKey.expiresAt).utc().format('YYYY-MM-DD HH:mm')} UTC`
+                                : 'No expiry'}
+                        </Typography>
                         {apiKeyOwnerNotice(props.apiKey.ownerUserId) && (
                             <Typography variant='caption' color='warning.main'>
                                 {apiKeyOwnerNotice(props.apiKey.ownerUserId)}
@@ -169,7 +181,7 @@ function APIKeyRow(props) {
                 </Available>
                 <Available permission={'apikeys:delete'}>
                     <StyledTableCell>
-                        <IconButton title='Delete' color='error' onClick={props.onDeleteClick}>
+                        <IconButton title='Revoke' color='error' onClick={props.onDeleteClick}>
                             <IconTrash />
                         </IconButton>
                     </StyledTableCell>
@@ -325,8 +337,8 @@ const APIKey = () => {
             title: `Delete`,
             description:
                 key.chatFlows.length === 0
-                    ? `Delete key [${key.keyName}] ? `
-                    : `Delete key [${key.keyName}] ?\n There are ${key.chatFlows.length} chatflows using this key.`,
+                    ? `Revoke key [${key.keyName}] ? `
+                    : `Revoke key [${key.keyName}] ?\n There are ${key.chatFlows.length} chatflows using this key.`,
             confirmButtonName: 'Delete',
             cancelButtonName: 'Cancel',
             customBtnId: 'btn_initiateDeleteApiKey'
@@ -403,9 +415,9 @@ const APIKey = () => {
                         <ViewHeader
                             onSearchChange={onSearchChange}
                             search={true}
-                            searchPlaceholder='Search API Keys'
-                            title='API Keys'
-                            description='Cuttlely API and SDK authentication keys'
+                            searchPlaceholder='Search access keys'
+                            title='Access Keys'
+                            description='Inbound API and app access. Provider credentials and public share links are managed separately.'
                         >
                             <StyledPermissionButton
                                 permissionId={'apikeys:create'}

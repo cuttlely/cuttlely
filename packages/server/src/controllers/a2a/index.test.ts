@@ -24,7 +24,10 @@ jest.mock('../../utils/logger', () => ({ __esModule: true, default: mockLogger }
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('../../utils/accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>() }
@@ -897,8 +900,8 @@ describe('A2A auth matrix', () => {
 
     it('keyless flow is 403 except header syntax, even with a key', async () => {
         expectIbmError(await post(F, sendBody('Hi')), 403, 'keyless_flow')
-        expectIbmError(await post(F, sendBody('Hi'), withKey()), 403, 'keyless_flow')
-        expectIbmError(await getCard(F, withKey()), 403, 'keyless_flow')
+        expectIbmError(await post(F, sendBody('Hi'), withKey()), 403, 'access_denied')
+        expectIbmError(await getCard(F, withKey()), 403, 'access_denied')
         expectIbmError(await post(F, sendBody('Hi'), { Authorization: KEY_K }), 401, 'unauthorized')
         expectIbmError(
             await post(F, sendBody('Hi'), { Authorization: `Bearer ${KEY_K}`, 'X-API-Key': 'other' }),
@@ -925,7 +928,7 @@ describe('A2A auth matrix', () => {
             403,
             'origin_not_allowed'
         )
-        ;(apikeyService.getApiKeyById as jest.Mock).mockImplementationOnce(async () => {
+        ;(apikeyService.getApiKey as jest.Mock).mockImplementationOnce(async () => {
             throw new Error('lookup failed')
         })
         expectIbmError(await post(K, sendBody('Hi'), withKey()), 401, 'unauthorized')
@@ -1062,4 +1065,15 @@ describe('A2A SDK client and leak scan', () => {
         expect(dumped).not.toContain(QUESTION)
         expect(dumped).not.toContain(RAW_ERROR)
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../../services/accessKeys/data', () => ({
+    accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

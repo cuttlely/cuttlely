@@ -83,6 +83,7 @@ const mockStored = new Map<string, { id: string; workspaceId: string; apiSecret:
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
     default: {
+        getApiKey: jest.fn(async (token: string) => require('../../utils/accessKeyTestFixtures').migratedKeyForToken(mockStored, token)),
         getApiKeyById: async (id: string) => mockStored.get(id) ?? null
     }
 }))
@@ -318,4 +319,15 @@ describe('POST /api/v1/prediction/:id', () => {
         expect(res.text).not.toContain('harness.partial')
         expect(res.text).not.toContain('harness.final')
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../../services/accessKeys/data', () => ({
+    accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

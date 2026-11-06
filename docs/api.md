@@ -35,37 +35,13 @@ Keep the API key on your server. Never put it in a web page, a mobile app or a p
 
 ## Create an API key
 
-1. In the sidebar, open **API Keys** and select **Create Key**.
-2. Give the key a name, such as `Bakery website`, and choose at least one permission. Permissions decide what the key can do on Cuttlely's management API (for example `chatflows:view`). Asking a flow does not need a permission; see the next step.
-3. Copy the key when it is shown. Cuttlely stores only a hash, so it cannot show the key again.
+1. Enable `INBOUND_ACCESS_V2=on` after reviewing the [migration and rollout guide](./reference/access-keys.md#rollout-and-migration).
+2. Open **Access Keys**, create a principal, and choose workspace permissions plus operation scopes. New keys start with no resources and no operations.
+3. Select the Chatflows, Agentflows, Harnesses or Dashflows it may access. Prediction needs `predict` and the exact flow grant; streaming also needs `stream`. A flow that calls a Harness also needs that Harness grant and `harness:run`.
+4. Choose expiry, caller restrictions and limits. Copy the bearer once and keep it on your server.
+5. On the flow's **API Endpoint** panel, select **Private (selected access keys)** if it must require a key. Many principals may grant the same flow; the panel no longer binds security to one key.
 
-A new API credential records the signed-in user as its owner. One created by another API credential inherits that credential's recorded owner. Disabling that user refuses both on their next request. Those created before 1.4.9 have no recorded owner; they remain usable and are not tied to a user, and the page marks them so you can review or rotate them.
-
-![The API Keys page with one key, Bakery website. The API Key column says Hidden, Permissions is chatflows:view, Usage is 3, and Updated shows the day the key was last changed, with edit and delete buttons at the end of the row.](./images/api/api-keys-page.png)
-
-Then choose which flows the key can call. On each flow's canvas, open **API Endpoint** (`</>`), and pick the key in the drop-down at the top right.
-
--   **A flow with a key** answers only requests that send that key as `Authorization: Bearer <key>`.
--   **A flow with "No Authorization"** answers anyone who knows its id. Use that only for flows you mean to be public, such as one behind the chat widget.
-
-A request without the key, or with the wrong one, gets 401:
-
-```bash
-curl -s "$CUTTLELY_URL/api/v1/prediction/$FLOW_ID" \
-  -H 'Authorization: Bearer not-a-real-key' \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"hi"}'
-```
-
-```json
-{ "statusCode": 401, "success": false, "message": "Unauthorized", "stack": {} }
-```
-
-To check a key without asking a flow, send it in the same header to `GET /api/v1/verify/apikey`. `GET /api/v1/chatflows/apikey` lists the flows the key can call. Both read the key only from `Authorization: Bearer`. The older form with the key in the URL path (`/api/v1/verify/apikey/<key>`, `/api/v1/chatflows/apikey/<key>`) answers 400 and does not check the key, because proxies, browser history and access logs keep URLs.
-
-```bash
-curl -s "$CUTTLELY_URL/api/v1/verify/apikey" -H "Authorization: Bearer $CUTTLELY_API_KEY"
-```
+Existing key values and public embeds survive migration without forced rotation. Rotation, revocation, caller policies, quotas and the full operation/route matrix are in [Access keys](./reference/access-keys.md).
 
 ## Create a key from a script
 
@@ -100,9 +76,9 @@ On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=tru
     unset CUTTLELY_PASSWORD
     ```
 
-    The answer is a JSON array of your keys. The new one includes its `apiKey` in plain text, and `GET /api/v1/apikey` lists keys without it, so this is the only time you get it. The command above stores it in `$CUTTLELY_API_KEY` without printing it, so it stays out of CI logs. It needs [`jq`](https://jqlang.org/). To let the key run harnesses, add `"harnesses": ["<harness name>"]` (see [Let the key run the harness](#let-the-key-run-the-harness)).
+    The answer is a JSON array of your keys. The new one includes its `apiKey` in plain text, and `GET /api/v1/apikey` lists keys without it, so this is the only time you get it. The command above stores it in `$CUTTLELY_API_KEY` without printing it, so it stays out of CI logs. It needs [`jq`](https://jqlang.org/). To let the key run Harnesses, grant stable Harness resource IDs and `harness:run` (see [Let the key run the harness](#let-the-key-run-the-harness)).
 
-Send it as `Authorization: Bearer $CUTTLELY_API_KEY`. `GET /api/v1/verify/apikey` answers `"OK"` for a good key. Then bind the key to a flow in **API Endpoint**, as in [Create an API key](#create-an-api-key). Delete `cookies.txt` when you're done.
+Send it as `Authorization: Bearer $CUTTLELY_API_KEY`. `GET /api/v1/verify/apikey` answers `"OK"` for a good key. Then grant its resources and operations and choose private flow access, as in [Create an API key](#create-an-api-key). Delete `cookies.txt` when you're done.
 
 ## Ask a chatflow
 
@@ -132,9 +108,9 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$FLOW_ID" \
 
 ## Call a chatflow from Orchestrate
 
-IBM watsonx Orchestrate can call a published chatflow as an `external_chat` collaborator. Bind an API key to the chatflow, then set the agent's `api_url` to `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`. Both `POST /api/v1/orchestrate/<flow id>` and `POST /api/v1/orchestrate/<flow id>/chat/completions` run the same handler. The body is OpenAI-style chat completions. This route does not accept `overrideConfig`, uploads, or a client session token.
+IBM watsonx Orchestrate can call a published chatflow as an `external_chat` collaborator. Set the chatflow private and grant an access key prediction access, then set the agent's `api_url` to `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`. Both `POST /api/v1/orchestrate/<flow id>` and `POST /api/v1/orchestrate/<flow id>/chat/completions` run the same handler. The body is OpenAI-style chat completions. This route does not accept `overrideConfig`, uploads, or a client session token.
 
-**Auth.** Send the flow's API key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. If both headers are present they must match. A flow with no bound key is refused (`403` `keyless_flow`). A missing or wrong key is `401` `unauthorized`.
+**Auth.** Send the flow's API key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. If both headers are present they must match. An explicitly public flow is refused (`403` `keyless_flow`). A missing or wrong key is `401` `unauthorized`.
 
 **Threads.** Optional `X-IBM-THREAD-ID` continues one conversation on that flow and key. Omit it and each call is a new chat; earlier `user` and `assistant` turns in `messages` become history. A second stream on the same thread while the first is still open is `409` `thread_busy`. In queue mode with more than one API replica, that busy check is per replica: two streams routed to different replicas are both accepted.
 
@@ -206,7 +182,7 @@ Orchestrate users who want a remote toolkit instead of an `external_chat` collab
 
 A2A 0.3.0 is shipped, not yet tested live with Orchestrate.
 
-Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborator (`external_chat/A2A/0.3.0`). Bind an API key to the chatflow. The RPC URL, which is also the card `url`, is `$CUTTLELY_URL/api/v1/a2a/<flow id>`. The agent card is `GET /api/v1/a2a/<flow id>/.well-known/agent-card.json`. Do not point `api_url` at the card path. How Orchestrate registers an A2A 0.3.0 agent (the **AI Gateway** → **Agent directory** → **Add agent** path, IBM's `orchestrate agents discover` CLI, or another IBM flow) is an open item; do not treat any registration path as fact. Auth is the same as the Orchestrate chat-completions route: `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborator (`external_chat/A2A/0.3.0`). Set the chatflow private and grant an access key prediction access. The RPC URL, which is also the card `url`, is `$CUTTLELY_URL/api/v1/a2a/<flow id>`. The agent card is `GET /api/v1/a2a/<flow id>/.well-known/agent-card.json`. Do not point `api_url` at the card path. How Orchestrate registers an A2A 0.3.0 agent (the **AI Gateway** → **Agent directory** → **Add agent** path, IBM's `orchestrate agents discover` CLI, or another IBM flow) is an open item; do not treat any registration path as fact. Auth is the same as the Orchestrate chat-completions route: `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 
 `A2A_PUBLIC_BASE_URL` sets the origin used in the card `url` (for example `https://tunnel.example`). It must be an origin with no path and no trailing slash; anything else refuses to start. When it is unset, the card uses the request `Host` and `X-Forwarded-Proto` (with `TRUST_PROXY`).
 
@@ -248,7 +224,7 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$AGENTFLOW_ID" \
 "agentFlowExecutedData": [{"nodeId":"startAgentflow_0","nodeLabel":"Start", ...}, {"nodeId":"llmAgentflow_0", ...}]
 ```
 
-**A harness** (an agent team) is called through a chatflow that holds one **Harness** card set to the harness's name. Build it as in [Call the harness from a chatflow](./how-to/harnesses.md#call-the-harness-from-a-chatflow), bind your key to that chatflow, tick the harness under **Harnesses this key may run** on that key, and call its id. A Harness card, or an Agent's harness tool, naming a harness that is not on the flow key's list fails with `This API key may not run harness "<name>".` The same list applies when that flow runs from a webhook, its MCP endpoint, or its schedule. The in-app chat and Try it run the card for the signed-in person instead. A flow with no key runs its Harness cards for anyone who has its id, with no list. An API key can read or change that flow's MCP settings, including its token, set or clear its webhook secret, or switch its schedule, only when the flow is bound to that key or to no key and every harness the flow names is on the key's list; otherwise it gets `403`. To call the harness by name with an API key instead, and get a run id back at once, see [Run a harness in the background](#run-a-harness-in-the-background).
+**A harness** (an agent team) can be called through a chatflow that holds one **Harness** card. Grant the principal both the chatflow and the referenced Harness, with `predict` and `harness:run`, then call the flow's id. The presenting principal supplies its own Harness grants; it cannot borrow another flow key's authority. The in-app chat and Try it use the signed-in person's permissions. To start a long turn asynchronously, use [Run a harness in the background](#run-a-harness-in-the-background).
 
 You can also call a HARNESS canvas id on `/api/v1/prediction/:id`. It runs the Live (published) canvas, and the response includes a `sessionToken` to send with the same `chatId` on the next turn. The API key bound to the canvas must list the harness. File uploads there are refused with `400`; send uploads to a chatflow that holds a Harness card instead, such as `samples/chatflows/upload.chatflow.json`.
 
@@ -295,17 +271,11 @@ The responses in this section are examples with made-up data.
 
 ### Let the key run the harness
 
-An API key runs no harness until the harness is on that key's list. In **API Keys**, create or edit the key:
+In **Access Keys**, grant the Harness by its stable canvas ID and choose `harness:run` to start runs or `harness:read` to read them. The principal also needs the corresponding workspace permissions: chatflow create/update or agentflow create for starts, and view for reads. New keys run no Harness until granted. Referenced Harnesses also need grants when prediction invokes them through another flow.
 
-1. Under **Permissions**, tick **Create** or **Update** under **CHATFLOWS** to start runs. **View** is ticked with it and lets the key read runs.
-2. Under **Harnesses this key may run**, tick each harness the key may call, for example `bakery-team`.
-3. Save.
+A key sees only the runs it started. Another caller's run is `404`, and a conversation belonging to another key or person cannot be continued. Removing a grant or revoking a key takes effect on the next request. Names remain in the API URL for compatibility, but authorization resolves them to stable IDs; recreating a deleted name inherits no grant.
 
-The list is checked on every request, so removing a harness stops the key at its next call. The harness has to be in the key's team. The same list also applies to `POST /api/v1/harnesses/<name>/runs` (the call that waits for the answer), to the run history routes, to `GET`, `POST` and `DELETE` of a harness by name, and to a Harness card on a chatflow or agentflow bound to the key. `GET /api/v1/harnesses` lists only the harnesses on the key's list. With a key, a harness canvas whose name is not on the list is `403` on `/api/v1/chatflows/:id`, on every `/api/v1/flow-drafts/:id` route (draft save, Publish, Roll back, and the publish check, including reading one), and on Restore, and `GET /api/v1/chatflows` leaves it out. A key cannot save a canvas that names a harness off its list anywhere in it, including an Agent's harness tool, or change a flow's key while that flow names one (`403`). A signed-in person is checked by role only.
-
-A key sees only the runs it started: the run list, a run, and a result return the key's own runs, and another caller's run is `404`. A `chatId` that already has runs from another key, or from a person, is refused with `403`, so one caller cannot continue another's conversation.
-
-`POST /api/v1/apikey` and `PUT /api/v1/apikey/<id>` take the list as `harnesses`, an array of harness names. Leaving `harnesses` out of an update keeps the list as it is. A name whose harness was deleted is dropped from the list. When the caller is itself an API key, it may only grant harnesses on its own list.
+The management body uses `resources: [{"resourceType":"HARNESS","resourceId":"<canvas-id>"}]` and `accessPolicy.scopes`. The old `harnesses` name array is migration input only. Management writes require an interactive session. See the [complete policy and route reference](./reference/access-keys.md).
 
 ### Start a run
 

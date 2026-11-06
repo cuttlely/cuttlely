@@ -21,7 +21,10 @@ jest.mock('../../utils/logger', () => ({ __esModule: true, default: mockLogger }
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('../../utils/accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>() }
@@ -284,8 +287,8 @@ describe('Orchestrate auth matrix', () => {
 
     it('keyless flow is 403 except header syntax, even with a key', async () => {
         expectIbmError(await post(F, hi), 403, 'keyless_flow')
-        expectIbmError(await post(F, hi, withKey()), 403, 'keyless_flow')
-        expectIbmError(await post(F, hi, { Authorization: 'Bearer other' }), 403, 'keyless_flow')
+        expectIbmError(await post(F, hi, withKey()), 403, 'access_denied')
+        expectIbmError(await post(F, hi, { Authorization: 'Bearer other' }), 401, 'unauthorized')
         expectIbmError(await post(F, hi, { Authorization: KEY_K }), 401, 'unauthorized')
         expectIbmError(await post(F, hi, { Authorization: `Bearer ${KEY_K}`, 'X-API-Key': 'other' }), 400, 'credentials_conflict')
     })
@@ -294,8 +297,8 @@ describe('Orchestrate auth matrix', () => {
         process.env.CUTTLELY_ORCHESTRATE_ALLOW_KEYLESS = 'true'
         process.env.NODE_ENV = 'test'
         expect((await post(F, hi)).status).toBe(200)
-        expect((await post(F, hi, withKey())).status).toBe(200)
-        expect((await post(F, hi, { Authorization: 'Bearer other' })).status).toBe(200)
+        expectIbmError(await post(F, hi, withKey()), 403, 'access_denied')
+        expectIbmError(await post(F, hi, { Authorization: 'Bearer other' }), 401, 'unauthorized')
         process.env.NODE_ENV = 'production'
         expectIbmError(await post(F, hi), 403, 'keyless_flow')
         process.env.NODE_ENV = 'test'
@@ -310,7 +313,7 @@ describe('Orchestrate auth matrix', () => {
             403,
             'origin_not_allowed'
         )
-        ;(apikeyService.getApiKeyById as jest.Mock).mockImplementationOnce(async () => {
+        ;(apikeyService.getApiKey as jest.Mock).mockImplementationOnce(async () => {
             throw new Error('lookup failed')
         })
         expectIbmError(await post(K, hi, withKey()), 401, 'unauthorized')
@@ -844,4 +847,15 @@ describe('Orchestrate file links', () => {
             else delete process.env.SECRETKEY_PATH
         }
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../../services/accessKeys/data', () => ({
+    accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

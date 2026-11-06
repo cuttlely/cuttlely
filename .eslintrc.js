@@ -20,6 +20,9 @@ module.exports = {
         '**/build',
         '**/coverage',
         '**/package-lock.json',
+        // Local review logs and approved-plan scratch extracts are not application sources.
+        '.agent-run/**',
+        'API-KEYS-PLAN*',
         // Vendored NousResearch Hermes. It has its own Prettier config and is not Cuttlely application code.
         'hermes/**',
         // Written by website/scripts/sync-docs.mjs and Astro at build time (copies of docs/).

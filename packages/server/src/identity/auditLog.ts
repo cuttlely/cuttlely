@@ -40,7 +40,9 @@ export const AUDIT_TYPES = [
     'scim_user',
     'scim_group',
     'scim_mapping',
-    'scim_auth_failure'
+    'scim_auth_failure',
+    'api_key_change',
+    'api_key_use'
 ] as const
 
 export type AuditType = (typeof AUDIT_TYPES)[number]

@@ -6,7 +6,7 @@ import { validate as isValidUUID } from 'uuid'
 import { ChatflowType, IHarnessCaller, IReactFlowObject, ScheduleInputMode, StartInputType } from '../../Interface'
 import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface.Metrics'
 import { UsageCacheManager } from '../../UsageCacheManager'
-import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
+import { ChatFlow, EnumChatflowType, EXPLICIT_LEGACY_PUBLIC } from '../../database/entities/ChatFlow'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { Lead } from '../../database/entities/Lead'
 import { ChatMessage } from '../../database/entities/ChatMessage'
@@ -436,6 +436,9 @@ const saveChatflow = async (
     // `caller` is who saves: a HARNESS canvas, or a canvas that names a harness, is refused without one.
     record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller' | 'draftFlowData'>
 ): Promise<any> => {
+    if (newChatFlow.apiAccessMode !== undefined && !['public', 'private'].includes(newChatFlow.apiAccessMode || ''))
+        throw new AppError(400, 'Invalid API access mode.')
+    newChatFlow.apiAccessMode ??= newChatFlow.apikeyid ? 'private' : EXPLICIT_LEGACY_PUBLIC
     const initialDraft = newChatFlow.type === EnumChatflowType.HARNESS ? record?.draftFlowData : undefined
     if (typeof initialDraft === 'string' && !flowDraftsService.isDraftsEnabled()) {
         throw new AppError(
@@ -615,6 +618,7 @@ const ROW_KEYS = [
     'deployed',
     'isPublic',
     'apikeyid',
+    'apiAccessMode',
     'chatbotConfig',
     'apiConfig',
     'analytic',
@@ -743,6 +747,10 @@ const updateChatflow = async (
     options: UpdateChatflowOptions = {}
 ): Promise<any> => {
     const appServer = getRunningExpressApp()
+    if (updateChatFlow.apiAccessMode !== undefined && !['public', 'private'].includes(updateChatFlow.apiAccessMode || ''))
+        throw new AppError(400, 'Invalid API access mode.')
+    if (updateChatFlow.apikeyid && updateChatFlow.apikeyid !== chatflow.apikeyid && updateChatFlow.apiAccessMode === undefined)
+        updateChatFlow.apiAccessMode = 'private'
     if (typeof updateChatFlow.flowData === 'string') updateChatFlow.flowData = stampNodePack(updateChatFlow.flowData)
     if (updateChatFlow.flowData && containsBase64File(updateChatFlow)) {
         updateChatFlow.flowData = stampNodePack(

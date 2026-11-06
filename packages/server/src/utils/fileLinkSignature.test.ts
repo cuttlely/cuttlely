@@ -34,7 +34,10 @@ jest.mock('@cuttlely/components', () => {
 
 jest.mock('../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('./accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 jest.mock('./getRunningExpressApp', () => ({
@@ -285,4 +288,15 @@ describe('GET /api/v1/get-upload-file with a signed link on a key-protected flow
             else process.env.SECRETKEY_PATH = priorPath
         }
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../services/accessKeys/data', () => ({
+    accessData: async () => require('./accessKeyTestFixtures').fixtureAccessData(mockFlows)
+}))
+jest.mock('../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockFlows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

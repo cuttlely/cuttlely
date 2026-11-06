@@ -20,7 +20,9 @@ export const AUDIT_TYPES = [
     { value: 'scim_user', label: 'SCIM user changed' },
     { value: 'scim_group', label: 'SCIM group changed' },
     { value: 'scim_mapping', label: 'SCIM mapping changed' },
-    { value: 'scim_auth_failure', label: 'SCIM authentication failed' }
+    { value: 'scim_auth_failure', label: 'SCIM authentication failed' },
+    { value: 'api_key_change', label: 'Access key lifecycle or policy changed' },
+    { value: 'api_key_use', label: 'Access key use or refusal (aggregated)' }
 ]
 
 export function auditParams({ type, user, cursor } = {}) {

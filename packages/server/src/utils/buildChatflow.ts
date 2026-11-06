@@ -1,3 +1,4 @@
+import { accessContext } from '../services/accessKeys/authorization'
 import { Request } from 'express'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
@@ -1306,7 +1307,8 @@ export const utilBuildChatflow = async (
 
         // The in-app chat passes the signed-in person. Every other call, internal or not (MCP, webhook, prediction),
         // runs for the flow's own API key and that key's list, or as a keyless flow.
-        const harnessCaller = options.harnessCaller ?? (await flowHarnessCaller(chatflow.apikeyid, workspaceId))
+        const harnessCaller =
+            options.harnessCaller ?? (await flowHarnessCaller(accessContext(req)?.key.id || chatflow.apikeyid, workspaceId))
 
         const executeData: IExecuteFlowParams = {
             harnessCaller,

@@ -119,7 +119,7 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 
 ## Use a team from your app
 
-Put the team behind a chatflow with one **Harness** card, publish it, and give it a key from **API Keys**. On that key, tick the harness under **Harnesses this key may run**: a new key runs no harness, and the call answers `403` until it is ticked. Your app sends a question and gets the team's answer back. Here is a real call to a small bakery team with two specialists, `baker` and `orders`:
+Put the team behind a chatflow with one **Harness** card and publish it. With [access-key enforcement enabled](./docs/reference/access-keys.md), create a principal in **Access Keys** and grant that chatflow plus its referenced Harness, with `predict` and `harness:run` scopes. Set the flow private in **API Endpoint**. New keys start with no resource grants. Your app sends a question and gets the team's answer back. Here is a real call to a small bakery team with two specialists, `baker` and `orders`:
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \

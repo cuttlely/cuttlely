@@ -1,7 +1,9 @@
+import { accessContext } from '../../services/accessKeys/authorization'
+import { bearerDashboardReport, bearerDashboardResult } from '../../services/accessKeys/dashflowReports'
 import express, { Request, Response, NextFunction } from 'express'
 import { requireAnyPermission } from '../../identity/rbac'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
-import { isApiKeyCaller, harnessRunRateLimit } from '../../services/harnesses/apiAccess'
+import { harnessRunRateLimit } from '../../services/harnesses/apiAccess'
 import { runtime, saveDashboard, sources, startDashboardRefresh } from '../../services/dashflows'
 import { dashFlowsEnabled } from '../../services/dashflows/enabled'
 import harnessesService from '../../services/harnesses'
@@ -12,7 +14,8 @@ const router = express.Router()
 router.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store')
     if (!dashFlowsEnabled()) return next(new AppError(403, 'Dashflows BETA is off. Turn it on in Admin > Server Settings > Experimental.'))
-    if (isApiKeyCaller(req) || !req.user?.id) return next(new AppError(403, 'Sign in to your team to use Dashflows.'))
+    if (!req.user?.id && (!req.user?.apiKeyId || !accessContext(req)))
+        return next(new AppError(403, 'Sign in to your team to use Dashflows.'))
     next()
 })
 const view = requireAnyPermission('chatflows:view')
@@ -42,6 +45,8 @@ router.post(
     edit,
     action(async (req, res, ws) => res.json(await saveDashboard(req, ws)))
 )
+router.post('/:id/accounts/:accountId/report', edit, harnessRunRateLimit('start', 3), bearerDashboardReport)
+router.get('/:id/reports/:runId', view, harnessRunRateLimit('read'), bearerDashboardResult)
 router.get(
     '/:id/published',
     view,

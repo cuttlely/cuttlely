@@ -184,6 +184,8 @@ export async function callerKeyHarnesses(req: Request): Promise<string[] | null>
     if (!keyId) return []
     const key = await storedKey(keyId)
     if (!key || key.workspaceId !== callerOf(req).activeWorkspaceId) return []
+    const { keyHarnessNames } = await import('../accessKeys/resources')
+    if ('accessPolicy' in key) return keyHarnessNames(key as import('../../database/entities/ApiKey').ApiKey)
     return harnessAllowlist(key.harnesses)
 }
 

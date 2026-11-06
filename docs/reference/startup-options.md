@@ -154,6 +154,8 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUSTOM_MCP_TOOL_NAME_MAX_LENGTH`            | 128                                         | 8 to 1024         | —             | Host, then Server settings     | Yes     |
 | `CUSTOM_MCP_TOOL_DESCRIPTION_MAX_LENGTH`     | 1024                                        | 64 to 65536       | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_EAGER_NODES`                       | false                                       | —                 | —             | Host, then Server settings     | Yes     |
+| `INBOUND_ACCESS_V2`                          | not shown                                   | —                 | —             | Host only                      | Yes     |
+| `CUTTLELY_API_KEY_INSTANCES`                 | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `PORT`                                       | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `HOST`                                       | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `CUTTLELY_DATA_DIR`                          | not shown                                   | —                 | —             | Host only                      | Yes     |

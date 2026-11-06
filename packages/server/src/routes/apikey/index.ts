@@ -1,18 +1,30 @@
+import {
+    accessKeyOptions,
+    createAccessKey,
+    updateAccessKey,
+    rotateAccessKey,
+    revokeAccessKey,
+    revokeAccessCredential
+} from '../../services/accessKeys/management'
 import express from 'express'
 import apikeyController from '../../controllers/apikey'
 import { requireAnyPermission, requirePermission } from '../../identity/rbac'
 const router = express.Router()
 
+router.get('/options', requirePermission('apikeys:view'), accessKeyOptions)
+router.post('/:id/rotate', requirePermission('apikeys:update'), rotateAccessKey)
+router.post('/:id/credentials/:credentialId/revoke', requirePermission('apikeys:update'), revokeAccessCredential)
+
 // CREATE
-router.post('/', requirePermission('apikeys:create'), apikeyController.createApiKey)
+router.post('/', requirePermission('apikeys:create'), createAccessKey)
 
 // READ
 router.get('/', requirePermission('apikeys:view'), apikeyController.getAllApiKeys)
 
 // UPDATE
-router.put(['/', '/:id'], requireAnyPermission('apikeys:create,apikeys:update'), apikeyController.updateApiKey)
+router.put(['/', '/:id'], requireAnyPermission('apikeys:create,apikeys:update'), updateAccessKey)
 
 // DELETE
-router.delete(['/', '/:id'], requirePermission('apikeys:delete'), apikeyController.deleteApiKey)
+router.delete(['/', '/:id'], requirePermission('apikeys:delete'), revokeAccessKey)
 
 export default router

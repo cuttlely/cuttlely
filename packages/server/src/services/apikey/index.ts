@@ -1,13 +1,16 @@
+import { findCredential, principalActive } from '../accessKeys/credentials'
 import { StatusCodes } from 'http-status-codes'
-import { v4 as uuidv4 } from 'uuid'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { User } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { Platform } from '../../Interface'
 import { addChatflowsCount } from '../../utils/addChatflowsCount'
-import { decideStoredApiKeyAuth, generateAPIKey, generateSecretHash, MAX_API_KEY_LENGTH, storedApiKeyLookup } from '../../utils/apiKey'
-import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { decideStoredApiKeyAuth, MAX_API_KEY_LENGTH, storedApiKeyLookup } from '../../utils/apiKey'
+// Key routes load while the application is being assembled; resolve its instance at request time.
+function getRunningExpressApp(): ReturnType<typeof import('../../utils/getRunningExpressApp').getRunningExpressApp> {
+    return require('../../utils/getRunningExpressApp').getRunningExpressApp()
+}
 import logger from '../../utils/logger'
 
 /** Fields this service reads off the signed-in user or an API-key session. */
@@ -35,7 +38,7 @@ export function ownerForCreatedApiKey(user: Pick<ApiKeyActor, 'id' | 'apiKeyOwne
  * @param operation - The operation being performed (for error message)
  * @throws AppError if validation fails
  */
-function validatePermissions(user: ApiKeyActor, requestedPermissions: string[], operation: string) {
+export function validatePermissions(user: ApiKeyActor, requestedPermissions: string[], operation: string) {
     // API keys should not have workspace, admin, server-log, audit, or authentication-settings permissions.
     // This applies to ALL users, including admins (platform constraint).
     const hasRestrictedPermissions = requestedPermissions.some(
@@ -153,7 +156,10 @@ const getAllApiKeys = async (user: ApiKeyActor, page: number = -1, limit: number
         }
 
         const keysWithChatflows = await addChatflowsCount(filteredKeys)
-        const presented = presentApiKeys(keysWithChatflows)
+        const { presentAccessKey } = await import('../accessKeys/management')
+        const presented = await Promise.all(
+            presentApiKeys(keysWithChatflows).map(async (row) => ({ ...row, ...(await presentAccessKey(row as unknown as ApiKey)) }))
+        )
 
         if (page > 0 && limit > 0) {
             return { total: filteredKeys.length, data: presented }
@@ -166,10 +172,8 @@ const getAllApiKeys = async (user: ApiKeyActor, page: number = -1, limit: number
 }
 
 const presentApiKeyRow = (key: ApiKey & { chatFlows?: unknown }) => {
-    const presented: Record<string, unknown> = { ...key, harnesses: Array.isArray(key.harnesses) ? key.harnesses : [] }
-    delete presented.apiKey
-    delete presented.apiSecret
-    return presented
+    const { apiKey: _lookup, apiSecret: _secret, ...safe } = key
+    return { ...safe, harnesses: Array.isArray(key.harnesses) ? key.harnesses : [] }
 }
 
 const presentApiKeys = (keys: Array<ApiKey & { chatFlows?: unknown }>) => keys.map((key) => presentApiKeyRow(key))
@@ -183,11 +187,14 @@ const presentApiKeys = (keys: Array<ApiKey & { chatFlows?: unknown }>) => keys.m
 const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefined> => {
     if (!suppliedKey || suppliedKey.length > MAX_API_KEY_LENGTH) return undefined
     const appServer = getRunningExpressApp()
+    const modern = await findCredential(appServer.AppDataSource, suppliedKey)
+    if (modern) return (await apiKeyOwnerActive(modern.key)) ? modern.key : undefined
+    if (/^ctu_(live|test)_[0-9a-f]{16}_/.test(suppliedKey)) return undefined
     const repo = appServer.AppDataSource.getRepository(ApiKey)
     const lookup = storedApiKeyLookup(suppliedKey)
     const hashed = await repo.findOneBy({ apiKey: lookup })
     const hashedDecision = decideStoredApiKeyAuth(hashed ?? undefined, suppliedKey, 'lookup')
-    if (hashedDecision.status === 'accept') return hashed && !hashed.disabledAt && (await apiKeyOwnerActive(hashed)) ? hashed : undefined
+    if (hashedDecision.status === 'accept') return hashed && legacyActive(hashed) && (await apiKeyOwnerActive(hashed)) ? hashed : undefined
     if (hashedDecision.status !== 'absent') return undefined
 
     const legacy = await repo.findOneBy({ apiKey: suppliedKey })
@@ -197,22 +204,27 @@ const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefine
         legacy.apiKey = legacyDecision.lookup
     }
     if (legacyDecision.status === 'accept-rewrite')
-        return legacy && !legacy.disabledAt && (await apiKeyOwnerActive(legacy)) ? legacy : undefined
+        return legacy && legacyActive(legacy) && (await apiKeyOwnerActive(legacy)) ? legacy : undefined
     return undefined
+}
+
+function legacyActive(key: ApiKey): boolean {
+    return principalActive(key) && (!key.legacyRevokedAt || new Date(key.legacyRevokedAt).getTime() > Date.now())
 }
 
 async function apiKeyOwnerActive(row: ApiKey): Promise<boolean> {
     if (!row.ownerUserId) return true
     const appServer = getRunningExpressApp()
     const user = await appServer.AppDataSource.getRepository(User).findOneBy({ id: row.ownerUserId })
-    return Boolean(user && user.status.toLowerCase() === 'active')
+    return Boolean(user && typeof user.status === 'string' && user.status.toLowerCase() === 'active')
 }
 
 const getApiKey = async (apiKey: string) => {
     try {
         return await findBySuppliedKey(apiKey)
     } catch (error) {
-        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: apikeyService.getApiKey - ${getErrorMessage(error)}`)
+        if (error instanceof AppError && error.statusCode < 500) throw error
+        throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, 'Access key verification is unavailable.')
     }
 }
 
@@ -225,67 +237,10 @@ const getApiKeyById = async (apiKeyId: string) => {
         if (!currentKey) {
             return undefined
         }
-        return !currentKey.disabledAt && (await apiKeyOwnerActive(currentKey)) ? currentKey : undefined
+        return principalActive(currentKey) && (await apiKeyOwnerActive(currentKey)) ? currentKey : undefined
     } catch (error) {
-        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: apikeyService.getApiKeyById - ${getErrorMessage(error)}`)
-    }
-}
-
-const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: string[], harnesses: string[] = []) => {
-    // Validate permissions before creating the key
-    validatePermissions(user, permissions, 'create')
-
-    const plaintext = generateAPIKey()
-    const apiSecret = generateSecretHash(plaintext)
-    const appServer = getRunningExpressApp()
-    const newKey = new ApiKey()
-    newKey.id = uuidv4()
-    newKey.apiKey = storedApiKeyLookup(plaintext)
-    newKey.apiSecret = apiSecret
-    newKey.keyName = keyName
-    newKey.permissions = permissions
-    newKey.harnesses = harnesses
-    newKey.workspaceId = user.activeWorkspaceId
-    newKey.ownerUserId = ownerForCreatedApiKey(user)
-    const key = appServer.AppDataSource.getRepository(ApiKey).create(newKey)
-    await appServer.AppDataSource.getRepository(ApiKey).save(key)
-    const listed = await getAllApiKeys(user)
-    const reveal = (row: { id?: string }) => (row.id === newKey.id ? { ...row, apiKey: plaintext } : row)
-    if (Array.isArray(listed)) return listed.map(reveal)
-    return listed
-}
-
-// Update api key
-// harnesses left undefined keeps the stored list.
-const updateApiKey = async (user: ApiKeyActor, id: string, keyName: string, permissions: string[], harnesses?: string[]) => {
-    // Validate permissions before updating the key
-    validatePermissions(user, permissions, 'update')
-
-    const appServer = getRunningExpressApp()
-    const currentKey = await appServer.AppDataSource.getRepository(ApiKey).findOneBy({
-        id: id,
-        workspaceId: user.activeWorkspaceId
-    })
-    if (!currentKey) {
-        throw new AppError(StatusCodes.NOT_FOUND, `ApiKey ${currentKey} not found`)
-    }
-    currentKey.keyName = keyName
-    currentKey.permissions = permissions
-    if (harnesses !== undefined) currentKey.harnesses = harnesses
-    await appServer.AppDataSource.getRepository(ApiKey).save(currentKey)
-    return await getAllApiKeys(user)
-}
-
-const deleteApiKey = async (id: string, workspaceId: string) => {
-    try {
-        const appServer = getRunningExpressApp()
-        const dbResponse = await appServer.AppDataSource.getRepository(ApiKey).delete({ id, workspaceId })
-        if (!dbResponse) {
-            throw new AppError(StatusCodes.NOT_FOUND, `ApiKey ${id} not found`)
-        }
-        return dbResponse
-    } catch (error) {
-        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: apikeyService.deleteApiKey - ${getErrorMessage(error)}`)
+        if (error instanceof AppError && error.statusCode < 500) throw error
+        throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, 'Access key verification is unavailable.')
     }
 }
 
@@ -306,11 +261,8 @@ const verifyApiKey = async (paramApiKey: string): Promise<string> => {
 }
 
 export default {
-    createApiKey,
-    deleteApiKey,
     getAllApiKeys,
     getAllApiKeysByOrganization,
-    updateApiKey,
     verifyApiKey,
     getApiKey,
     getApiKeyById

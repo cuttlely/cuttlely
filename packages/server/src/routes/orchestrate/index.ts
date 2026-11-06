@@ -1,3 +1,4 @@
+import { AccessKeyPolicyError } from '../../services/accessKeys/errors'
 import express, { NextFunction, Request, RequestHandler, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import orchestrateController from '../../controllers/orchestrate'
@@ -63,6 +64,11 @@ const mapAppError = (err: AppError): ExternalAgentError => {
     if (err.statusCode === StatusCodes.UNAUTHORIZED) {
         return new ExternalAgentError(err.statusCode, 'unauthorized', 'authentication_error', 'Unauthorized')
     }
+    if (err instanceof AccessKeyPolicyError) return new ExternalAgentError(403, 'access_denied', 'permission_error', err.message)
+    if (err.statusCode === StatusCodes.TOO_MANY_REQUESTS)
+        return new ExternalAgentError(429, 'rate_limit', 'rate_limit_error', 'Access key request limit reached.')
+    if (err.statusCode === StatusCodes.SERVICE_UNAVAILABLE)
+        return new ExternalAgentError(503, 'unavailable', 'server_error', 'Authorization is temporarily unavailable.')
     if (err.statusCode === StatusCodes.FORBIDDEN) {
         return new ExternalAgentError(err.statusCode, 'origin_not_allowed', 'permission_error', err.message)
     }

@@ -1,8 +1,9 @@
+import type { AccessPolicy } from '../../services/accessKeys/policy'
 import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm'
 
 @Entity('apikey')
 export class ApiKey {
-    @PrimaryColumn({ type: 'varchar', length: 20 })
+    @PrimaryColumn({ type: 'varchar', length: 36 })
     id: string
 
     @Column({ type: 'text' })
@@ -31,6 +32,16 @@ export class ApiKey {
     /** Set when account deactivation permanently disables this credential. */
     @Column({ nullable: true, type: Date })
     disabledAt?: Date | null
+
+    /** Null is an unavailable policy; only the migration may mark a principal as legacy. */
+    @Column({ nullable: true, type: 'simple-json' })
+    accessPolicy?: AccessPolicy | null
+
+    @Column({ nullable: true, type: Date })
+    expiresAt?: Date | null
+
+    @Column({ nullable: true, type: Date })
+    legacyRevokedAt?: Date | null
 
     // Harness names this key may run. Null or empty runs none.
     @Column({ nullable: true, type: 'simple-json' })

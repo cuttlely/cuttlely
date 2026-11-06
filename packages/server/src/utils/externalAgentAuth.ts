@@ -89,9 +89,9 @@ const allowKeyless = (): boolean => process.env.CUTTLELY_ORCHESTRATE_ALLOW_KEYLE
 
 export const refuseKeylessFlow: RequestHandler = (_req: Request, res: Response, next: NextFunction) => {
     try {
-        const flow = res.locals.chatflow as { apikeyid?: string | null } | undefined
+        const flow = res.locals.chatflow as { apikeyid?: string | null; apiAccessMode?: string | null } | undefined
         const keyed = typeof flow?.apikeyid === 'string' && flow.apikeyid.length > 0
-        if (keyed || allowKeyless()) return next()
+        if (keyed || flow?.apiAccessMode === 'private' || allowKeyless()) return next()
         throw new ExternalAgentError(
             StatusCodes.FORBIDDEN,
             'keyless_flow',

@@ -1,3 +1,4 @@
+import { accessContext } from '../../services/accessKeys/authorization'
 import { Request, Response, NextFunction } from 'express'
 import { RateLimiterManager } from '../../utils/rateLimit'
 import chatflowsService from '../../services/chatflows'
@@ -45,10 +46,16 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             // Rate limit, origin and flow authorization above stay as they are.
             if (chatflow.type === 'HARNESS') {
                 const { sessionToken } = bindRequestSession(req, { chatflow, isInternal: false })
-                await runHarnessCanvasChat(req, res, chatflow, await flowHarnessCaller(chatflow.apikeyid, chatflow.workspaceId), {
-                    canvas: 'live',
-                    sessionToken
-                })
+                await runHarnessCanvasChat(
+                    req,
+                    res,
+                    chatflow,
+                    await flowHarnessCaller(accessContext(req)?.key.id || chatflow.apikeyid, chatflow.workspaceId),
+                    {
+                        canvas: 'live',
+                        sessionToken
+                    }
+                )
                 return
             }
             const streamable = await chatflowsService.checkIfChatflowIsValidForStreaming(req.params.id)

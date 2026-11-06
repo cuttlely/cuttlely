@@ -62,7 +62,7 @@ export const hasFlowAccess = async (req: Request, chatflow: ChatFlow, check: Flo
     const sessionUsable =
         !check.keyOnly &&
         (!check.sessionNeedsHeader || cookieMutationAllowed(req.method || '', req.headers['x-request-from'] === 'internal'))
-    if (sessionUsable && chatflow.workspaceId && req.user?.activeWorkspaceId === chatflow.workspaceId) return true
+    if (sessionUsable && !req.user?.apiKeyId && chatflow.workspaceId && req.user?.activeWorkspaceId === chatflow.workspaceId) return true
     return validateFlowAPIKey(req, chatflow)
 }
 

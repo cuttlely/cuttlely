@@ -65,6 +65,7 @@ export interface IChatFlow {
     deployed?: boolean
     isPublic?: boolean
     apikeyid?: string
+    apiAccessMode?: string | null
     analytic?: string
     speechToText?: string
     textToSpeech?: string
