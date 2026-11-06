@@ -53,8 +53,8 @@ jobs:
                     echo "code=false" >> "$GITHUB_OUTPUT"
                   fi
 
-    # Ready (non-draft) PRs and the daily run only. Check name "docker-build" (required), whether it runs or is skipped;
-    # the name no longer collides with Node CI's build check.
+    # Ready (non-draft) PRs, including pull requests into main, and the daily run only. Check name "docker-build",
+    # whether it runs or is skipped; the name no longer collides with Node CI's build check.
     docker-build:
         name: docker-build
         needs: changes
@@ -62,6 +62,20 @@ jobs:
         runs-on: ubuntu-latest
         env:
             PUPPETEER_SKIP_DOWNLOAD: true
+        # Throwaway database for the boot check below. It lives only for this job and holds no real data.
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: cuttlely
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U postgres"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
         steps:
             - uses: actions/checkout@v7
             - run: docker build --no-cache -t cuttlely .
@@ -71,6 +85,32 @@ jobs:
               run: docker run --rm --entrypoint bash cuttlely -c 'hermes/.venv/bin/python packages/harness/presets/assets/test_cuttlely_assets.py'
             - name: Analyst chat scope and schema refresh through the runtime's MCP handler
               run: docker run --rm --entrypoint bash -e CUTTLELY_REQUIRE_HERMES_RUNTIME=1 cuttlely -c 'node --test scripts/hermes-analyst-scope.test.mjs scripts/hermes-mcp-schema-refresh.test.mjs'
+            # Start the built image the way a deploy runs it, on Postgres instead of the default SQLite file, and wait
+            # until /api/v1/ping answers pong. Host networking lets the container reach the service on 127.0.0.1:5432.
+            - name: Boot the image on Postgres and wait for ping
+              run: |
+                  docker run -d --name cuttlely-boot --network host \
+                    -e CUTTLELY_LOCAL_ADMIN=false \
+                    -e DATABASE_TYPE=postgres -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 \
+                    -e DATABASE_NAME=cuttlely -e DATABASE_USER=postgres -e DATABASE_PASSWORD=postgres \
+                    cuttlely
+                  for _ in $(seq 120); do
+                    if out=$(curl -fsS http://127.0.0.1:43117/api/v1/ping 2>/dev/null) && [[ "$out" == *pong* ]]; then
+                      echo "$out"
+                      exit 0
+                    fi
+                    if [ "$(docker inspect -f '{{.State.Running}}' cuttlely-boot)" != "true" ]; then
+                      echo "The container stopped before it answered ping."
+                      break
+                    fi
+                    sleep 3
+                  done
+                  echo "The image did not answer /api/v1/ping on Postgres within 6 minutes."
+                  docker logs --tail 80 cuttlely-boot
+                  exit 1
+            - name: Remove the boot check container
+              if: always()
+              run: docker rm -f cuttlely-boot || true
             - name: Use Node.js 24.15.0
               id: node
               continue-on-error: true
