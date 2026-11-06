@@ -786,12 +786,12 @@
         {
             "from": "packages/server/src/routes/dashflows/index.test.ts",
             "to": "packages/server/src/errors/appError/index.ts",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/server/src/routes/dashflows/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/server/src/routes/export-import/index.test.ts",
@@ -993,12 +993,12 @@
         {
             "from": "packages/server/src/services/dashflows/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/server/src/services/dashflows/index.ts",
             "to": "packages/server/src/utils/logger.ts",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/server/src/services/dataset/index.test.ts",
@@ -2224,27 +2224,27 @@
         {
             "from": "packages/ui/src/views/dashflows/AccountReport.jsx",
             "to": "packages/ui/src/api/client.js",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/ui/src/views/dashflows/AccountReport.jsx",
             "to": "packages/ui/src/ui-component/markdown/MemoizedReactMarkdown.jsx",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/ui/src/views/dashflows/AccountReport.test.js",
             "to": "packages/ui/src/api/client.js",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/ui/src/views/dashflows/index.jsx",
             "to": "packages/ui/src/api/client.js",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/ui/src/views/dashflows/index.jsx",
             "to": "packages/ui/src/hooks/useAuth.jsx",
-            "reason": "Dash Flows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
+            "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
             "from": "packages/ui/src/views/etl/index.jsx",

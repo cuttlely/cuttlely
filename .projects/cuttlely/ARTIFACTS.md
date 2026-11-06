@@ -83,7 +83,7 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 -   `packages/harness/run-budget.test.mjs`: dependency-aware timeout replies, independent successes, and completed deliverables surviving handoff timeout.
 
-## Dash Flows MVP
+## Dashflows BETA
 
 -   `docs/how-to/dashflows.md`: builder, source contracts, refresh, team publication and operating limits.
 -   `packages/harness/dashflows.mjs` and its co-located tests: typed materialization and SQLite snapshot storage.

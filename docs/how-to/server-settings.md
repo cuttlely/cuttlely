@@ -230,6 +230,8 @@ Other tabs open on Cuttlely during a restart may ask for part of a page while th
 
 When Cuttlely cannot restart itself, **How to restart** opens the steps with **Copy steps**, so you can paste them where you keep notes.
 
+The owner can also start this path from **Experimental**. Its card explains that Dashflows BETA is a startup setting and asks for confirmation before continuing. It uses the same run choice and supervised in-place restart described above. Without supervision, it shows the same manual steps and does not stop the process.
+
 ## When a setting stops Cuttlely from starting
 
 If two starts in a row don't finish after a change, safe boot puts back the last settings that started and shows a banner. A start that can't open the database with changed settings stops right away instead of running half-started, and the start script tries again, so this takes a few seconds, not a page that never loads. Settings that didn't start never count as the last settings that worked. If you were on the restart screen, it says **The new settings did not start** and **See what changed** opens History. **Try it again** puts the set-aside settings back for the next restart.

@@ -2,7 +2,7 @@
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react-dom/test-utils'
-import { DashboardCard } from './index'
+import { DASH_FLOWS_BADGE, DashboardCard, DashFlowsOff, pollDashboard, REFRESH_OPTIONS } from './index'
 
 jest.mock('@/ui-component/markdown/MemoizedReactMarkdown', () => ({ MemoizedReactMarkdown: ({ children }) => children }))
 
@@ -73,4 +73,30 @@ it('clicking an account in a sorted source table retains the original evidence r
     act(() => container.querySelector('.df-sort-header').click())
     act(() => container.querySelector('.df-account-link').click())
     expect(inspect).toHaveBeenCalledWith(table, snapshot, 1)
+})
+
+it('labels the UI as BETA and offers only on-demand or weekly refresh', () => {
+    expect(DASH_FLOWS_BADGE).toBe('BETA')
+    expect(REFRESH_OPTIONS).toEqual([
+        { value: 0, label: 'On demand' },
+        { value: 604800, label: 'Every week' }
+    ])
+})
+
+it('shows how to turn on the BETA when a deep link is off', () => {
+    act(() => root.render(createElement(DashFlowsOff)))
+    expect(container.textContent).toContain('Dashflows BETA is off')
+    expect(container.textContent).toContain('Server Settings > Experimental')
+    expect(container.textContent).toContain('BETA')
+})
+
+it('polls an accepted refresh until the stored result is ready', async () => {
+    const fetchRecord = jest
+        .fn()
+        .mockResolvedValueOnce({ data: { id: 'demo', refreshing: true } })
+        .mockResolvedValueOnce({ data: { id: 'demo', refreshing: false, snapshot: { id: 'new' } } })
+    const pause = jest.fn(async () => {})
+    await expect(pollDashboard(fetchRecord, pause)).resolves.toMatchObject({ refreshing: false, snapshot: { id: 'new' } })
+    expect(fetchRecord).toHaveBeenCalledTimes(2)
+    expect(pause).toHaveBeenCalledTimes(2)
 })

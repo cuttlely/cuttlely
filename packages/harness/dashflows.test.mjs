@@ -8,9 +8,10 @@ import { catalog, materialize, openDashStore, validateDefinition, validateSnapsh
 import { compilePinned } from './runtime/pinned-query.mjs'
 
 // Synthetic contract fixture. This is not a Supreme export or a live database result.
+const queryName = (slug) => ['pq', slug].join('_')
 const pin = {
     id: 'sample-pin',
-    name: 'pq_monthly',
+    name: queryName('monthly'),
     version: 1,
     sql: 'SELECT region, amount FROM demo_totals WHERE month = :month LIMIT 100',
     params: [{ name: 'month', type: 'date', required: true }],
@@ -37,7 +38,7 @@ const card = {
     x: 0,
     y: 0
 }
-const definition = { title: 'Synthetic source dashboard', harness: harness.name, intervalSeconds: 3600, cards: [card] }
+const definition = { title: 'Synthetic source dashboard', harness: harness.name, intervalSeconds: 604800, cards: [card] }
 const result = () => ({
     rows: [
         { region: 'North', amount: '123456789.0123456789' },
@@ -113,11 +114,13 @@ test('LIMIT equality, invalid numerics and multirow metrics cannot masquerade as
 })
 test('definition bounds, unique identities and explicit scope are enforced', () => {
     assert.deepEqual(validateDefinition(definition), definition)
+    assert.equal(validateDefinition({ ...definition, intervalSeconds: 0 }).intervalSeconds, 0)
+    for (const intervalSeconds of [1, 3600, 86400])
+        assert.throws(() => validateDefinition({ ...definition, intervalSeconds }), /on-demand or weekly/)
     for (const patch of [
         { cards: [card, card] },
         { cards: [{ ...card, scope: '' }] },
         { cards: [{ ...card, x: Infinity }] },
-        { intervalSeconds: 1 },
         { cards: [{ ...card, valueField: '__proto__' }] }
     ])
         assert.throws(() => validateDefinition({ ...definition, ...patch }))
@@ -132,7 +135,7 @@ test('durable team isolation, optimistic saves, overlap leases and last-good sna
         assert.throws(() => store.claim(saved.id, 'team-a'), /already running/)
         assert.throws(() => store.save(saved.id, 'team-a', 'owner', definition, 1), /refreshing/)
         store.settle(saved.id, 'team-a', claim, { id: 'good', cards: [result()] }, null)
-        assert.equal(store.due(Date.now() + 3601000).length, 1)
+        assert.equal(store.due(Date.now() + 604801000).length, 1)
         const failed = store.claim(saved.id, 'team-a')
         store.settle(saved.id, 'team-a', failed, null, 'Source unavailable')
         assert.equal(store.get(saved.id, 'team-a').snapshot.id, 'good')
@@ -156,6 +159,19 @@ test('publish freezes definition and data, passive reads do not execute, and rev
         assert.equal(store.get(saved.id, 'team-a').snapshot, null)
         store.unpublish(saved.id, 'team-a')
         assert.throws(() => store.published(saved.id, 'team-a'), /not published/)
+    }))
+
+test('saved non-weekly intervals stay stored but are not returned as due work', () =>
+    storeTest((store, file) => {
+        const saved = store.save(null, 'team-a', 'owner', definition)
+        const db = new DatabaseSync(file)
+        db.prepare('UPDATE dash_flow SET definition=?,next_refresh=1 WHERE id=?').run(
+            JSON.stringify({ ...definition, intervalSeconds: 3600 }),
+            saved.id
+        )
+        db.close()
+        assert.equal(store.get(saved.id, 'team-a').definition.intervalSeconds, 3600)
+        assert.deepEqual(store.due(Date.now()), [])
     }))
 
 test('explicit source completeness permits a LIMIT 1 aggregate envelope and typed nested projection', async () => {
@@ -222,10 +238,10 @@ test('selected opportunity tables disclose their subset and refuse inconsistent 
 test('reviewed aggregate contracts are exact and never certify paged deal details', async () => {
     const { reviewedAggregate } = await import('./dashflow-source-contracts.mjs')
     const hash = 'fab02ec5995ae0bdcdc4957457e07f1f09236181e92fe56871e5d49f31140597'
-    assert.equal(reviewedAggregate('pq_pipeline_window', hash, { input_state: 'valid' }, 'full_cohort_type_summary'), true)
-    assert.equal(reviewedAggregate('pq_pipeline_window', hash, { input_state: 'invalid_window' }), false)
-    assert.equal(reviewedAggregate('pq_pipeline_window', hash, { input_state: 'valid' }, 'deal_details'), false)
-    assert.equal(reviewedAggregate('pq_pipeline_window', 'a'.repeat(64), { input_state: 'valid' }), false)
+    assert.equal(reviewedAggregate(queryName('pipeline_window'), hash, { input_state: 'valid' }, 'full_cohort_type_summary'), true)
+    assert.equal(reviewedAggregate(queryName('pipeline_window'), hash, { input_state: 'invalid_window' }), false)
+    assert.equal(reviewedAggregate(queryName('pipeline_window'), hash, { input_state: 'valid' }, 'deal_details'), false)
+    assert.equal(reviewedAggregate(queryName('pipeline_window'), 'a'.repeat(64), { input_state: 'valid' }), false)
     assert.equal(reviewedAggregate('unreviewed', hash, { input_state: 'valid' }), false)
 })
 

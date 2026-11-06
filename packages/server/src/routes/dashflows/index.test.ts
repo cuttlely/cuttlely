@@ -9,11 +9,11 @@ const published = jest.fn((_id: string, workspace: string) => {
     if (workspace !== 'team-a') throw new AppError(404, 'Dashboard not found.')
     return { definition: { harness: 'synthetic-contract' }, snapshot: { id: 'stored-data' } }
 })
-const refresh = jest.fn()
+const startRefresh = jest.fn(async (id: string, _workspace: string) => ({ id, refreshing: true }))
 const store = { published, get: jest.fn(), list: jest.fn(() => []), publish: jest.fn(), unpublish: jest.fn() }
 jest.mock('../../services/dashflows', () => ({
     runtime: async () => ({ dashStore: () => store, DashFlowError: class extends Error {} }),
-    refreshDashboard: (...args: unknown[]) => refresh(...args),
+    startDashboardRefresh: (id: string, workspace: string) => startRefresh(id, workspace),
     saveDashboard: jest.fn(),
     sources: jest.fn()
 }))
@@ -35,8 +35,10 @@ function app(user?: object) {
 }
 const viewer = { id: 'viewer', activeWorkspaceId: 'team-a', activeOrganizationId: 'org' }
 const editor = { ...viewer, id: 'editor' }
+const previousDashFlows = process.env.CUTTLELY_DASH_FLOWS
 beforeEach(() => {
     jest.clearAllMocks()
+    process.env.CUTTLELY_DASH_FLOWS = 'true'
     setTeamPermissionLookup({
         accessFor: async (id) => ({
             owner: false,
@@ -45,6 +47,23 @@ beforeEach(() => {
     })
 })
 afterEach(() => setTeamPermissionLookup(null))
+afterAll(() => {
+    if (previousDashFlows === undefined) delete process.env.CUTTLELY_DASH_FLOWS
+    else process.env.CUTTLELY_DASH_FLOWS = previousDashFlows
+})
+it('refuses every Dashflows route while the Experimental setting is off', async () => {
+    process.env.CUTTLELY_DASH_FLOWS = 'false'
+    for (const response of [
+        await request(app(editor)).get('/dashflows'),
+        await request(app(viewer)).get('/dashflows/demo/published'),
+        await request(app(editor)).post('/dashflows/demo/refresh')
+    ]) {
+        expect(response.status).toBe(403)
+        expect(response.body.message).toContain('Experimental')
+    }
+    expect(store.list).not.toHaveBeenCalled()
+    expect(startRefresh).not.toHaveBeenCalled()
+})
 it('requires a signed-in session even for published snapshots', async () => {
     expect((await request(app()).get('/dashflows/demo/published')).status).toBe(403)
     expect(
@@ -61,7 +80,7 @@ it('serves only stored published data to viewers without executing the source', 
     expect(res.status).toBe(200)
     expect(res.body.snapshot.id).toBe('stored-data')
     expect(res.headers['cache-control']).toBe('no-store')
-    expect(refresh).not.toHaveBeenCalled()
+    expect(startRefresh).not.toHaveBeenCalled()
 })
 it('keeps drafts, source catalog and writes unavailable to viewers', async () => {
     for (const endpoint of ['/dashflows', '/dashflows/demo', '/dashflows/sources/synthetic-contract'])
@@ -69,7 +88,7 @@ it('keeps drafts, source catalog and writes unavailable to viewers', async () =>
     for (const endpoint of ['/dashflows/demo/refresh', '/dashflows/demo/publish'])
         expect((await request(app(viewer)).post(endpoint).send({})).status).toBe(403)
     expect((await request(app(viewer)).delete('/dashflows/demo/publish')).status).toBe(403)
-    expect(refresh).not.toHaveBeenCalled()
+    expect(startRefresh).not.toHaveBeenCalled()
     expect(store.get).not.toHaveBeenCalled()
 })
 it('scopes published access to the current team', async () => {
@@ -79,4 +98,10 @@ it('scopes published access to the current team', async () => {
 it('allows a builder to revoke publication with the workspace scope', async () => {
     expect((await request(app(editor)).delete('/dashflows/demo/publish')).status).toBe(204)
     expect(store.unpublish).toHaveBeenCalledWith('demo', 'team-a')
+})
+it('accepts a refresh without waiting for its background materialization', async () => {
+    const res = await request(app(editor)).post('/dashflows/demo/refresh')
+    expect(res.status).toBe(202)
+    expect(res.body).toEqual({ id: 'demo', refreshing: true })
+    expect(startRefresh).toHaveBeenCalledWith('demo', 'team-a')
 })

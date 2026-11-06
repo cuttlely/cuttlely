@@ -4,6 +4,7 @@ import { resolveTeamAccess } from '../../identity/rbac'
 import { isDraining, isShuttingDown, onDrainStart, trackBackgroundRun } from '../../settings/runs'
 import { AppError } from '../../errors/appError'
 import logger from '../../utils/logger'
+import { dashFlowsEnabled } from './enabled'
 
 export const runtime = () => loadHarness('dashflows.mjs')
 
@@ -24,10 +25,12 @@ export async function saveDashboard(req: Request, workspace: string) {
     return mod.dashStore().save(req.params.id || null, workspace, req.user!.id, definition, req.body.revision)
 }
 
-export async function refreshDashboard(id: string, workspace: string) {
-    const mod = await runtime()
-    const store = mod.dashStore()
-    const claim = store.claim(id, workspace)
+type StartedRefresh = { mod: any; store: any; claim: any }
+
+export async function refreshDashboard(id: string, workspace: string, started?: StartedRefresh) {
+    const mod = started?.mod ?? (await runtime())
+    const store = started?.store ?? mod.dashStore()
+    const claim = started?.claim ?? store.claim(id, workspace)
     try {
         const record = await harnessesService.getHarness(claim.definition.harness, workspace)
         const bridge = await loadHarness('bridge.mjs')
@@ -48,10 +51,20 @@ export async function refreshDashboard(id: string, workspace: string) {
     }
 }
 
+export async function startDashboardRefresh(id: string, workspace: string) {
+    const mod = await runtime()
+    const store = mod.dashStore()
+    const claim = store.claim(id, workspace)
+    void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim })).catch(() => {
+        /* The durable error is returned by later reads. */
+    })
+    return { id, refreshing: true }
+}
+
 let timer: NodeJS.Timeout | undefined
 let ticking = false
 export async function tickDashflows() {
-    if (ticking || isDraining() || isShuttingDown()) return
+    if (!dashFlowsEnabled() || ticking || isDraining() || isShuttingDown()) return
     ticking = true
     try {
         const mod = await runtime()
@@ -74,7 +87,7 @@ export async function tickDashflows() {
     }
 }
 export function startDashflowScheduler(initError: unknown) {
-    if (initError || timer) return
+    if (!dashFlowsEnabled() || initError || timer) return
     const tick = () => void tickDashflows().catch(() => logger.warn('[dashflows] refresh tick failed'))
     timer = setInterval(tick, 60000)
     timer.unref()

@@ -2,7 +2,8 @@ import express, { Request, Response, NextFunction } from 'express'
 import { requireAnyPermission } from '../../identity/rbac'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
 import { isApiKeyCaller, harnessRunRateLimit } from '../../services/harnesses/apiAccess'
-import { refreshDashboard, runtime, saveDashboard, sources } from '../../services/dashflows'
+import { runtime, saveDashboard, sources, startDashboardRefresh } from '../../services/dashflows'
+import { dashFlowsEnabled } from '../../services/dashflows/enabled'
 import harnessesService from '../../services/harnesses'
 import { AppError } from '../../errors/appError'
 
@@ -10,7 +11,8 @@ const router = express.Router()
 // Team links require an interactive session; a harness API key cannot enumerate snapshots.
 router.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store')
-    if (isApiKeyCaller(req) || !req.user?.id) return next(new AppError(403, 'Sign in to your team to use Dash Flows.'))
+    if (!dashFlowsEnabled()) return next(new AppError(403, 'Dashflows BETA is off. Turn it on in Admin > Server Settings > Experimental.'))
+    if (isApiKeyCaller(req) || !req.user?.id) return next(new AppError(403, 'Sign in to your team to use Dashflows.'))
     next()
 })
 const view = requireAnyPermission('chatflows:view')
@@ -67,7 +69,7 @@ router.post(
     '/:id/refresh',
     edit,
     harnessRunRateLimit('start'),
-    action(async (req, res, ws) => res.json(await refreshDashboard(req.params.id, ws)))
+    action(async (req, res, ws) => res.status(202).json(await startDashboardRefresh(req.params.id, ws)))
 )
 router.post(
     '/:id/publish',

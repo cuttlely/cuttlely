@@ -10,6 +10,7 @@ import {
     IconRobot,
     IconShieldLock,
     IconSparkles,
+    IconTestPipe2,
     IconUserShield
 } from '@tabler/icons-react'
 
@@ -23,6 +24,7 @@ export const SECTION_ICONS = {
     security: IconShieldLock,
     integrations: IconPlugConnected,
     testing: IconListCheck,
+    experimental: IconTestPipe2,
     advanced: IconAdjustmentsHorizontal,
     all: IconListDetails,
     history: IconHistory

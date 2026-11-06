@@ -19,6 +19,7 @@ import AllSettingsPanel from './AllSettingsPanel'
 import AuthKitCard from './AuthKitCard'
 import AuthKitWizard from './AuthKitWizard'
 import DatabaseCard from './DatabaseCard'
+import ExperimentalRestartCard from './ExperimentalRestartCard'
 import GetStarted from './GetStarted'
 import SwitchDatabase from './SwitchDatabase'
 import HistoryPanel from './HistoryPanel'
@@ -442,6 +443,9 @@ const ServerSettings = () => {
                         onSwitch={() => setDatabaseDialog('switch')}
                         onRestore={() => setDatabaseDialog('restore')}
                     />
+                )}
+                {!searching && section.id === 'experimental' && (
+                    <ExperimentalRestartCard inPlace={Boolean(data?.restart?.inPlace)} onRestart={restart} />
                 )}
                 <Stack gap={2.5}>
                     {groupSettings(visible).map((group) => (

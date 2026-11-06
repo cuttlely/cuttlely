@@ -3,7 +3,7 @@
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
-import { supremeCommandTemplate } from '../../packages/ui/src/views/dashflows/supreme.js'
+import { dashSourceName, supremeCommandTemplate } from '../../packages/ui/src/views/dashflows/supreme.js'
 const output = process.env.DASHFLOWS_SHOTS || '/tmp/dashflows-showcase'
 fs.mkdirSync(output, { recursive: true })
 const browser = await chromium.launch({
@@ -18,7 +18,7 @@ const sources = [
     {
         key: 'risk',
         hash: 'ab'.repeat(32),
-        name: 'pq_quarter_account_risk_patterns',
+        name: dashSourceName('quarter_account_risk_patterns'),
         specialist: 'warehouse_sql_r25',
         params: [],
         columns: []
@@ -26,7 +26,7 @@ const sources = [
     {
         key: 'watchlist',
         hash: 'cd'.repeat(32),
-        name: 'pq_renewals_at_risk_quarter',
+        name: dashSourceName('renewals_at_risk_quarter'),
         specialist: 'warehouse_sql_r25',
         columns: [],
         params: [
@@ -37,7 +37,13 @@ const sources = [
         ]
     }
 ]
-for (const name of ['pq_pipeline_window', 'pq_sales_ytd', 'pq_realized_retention', 'pq_forecast_churn_year', 'pq_acv_quarter_series'])
+for (const name of [
+    dashSourceName('pipeline_window'),
+    dashSourceName('sales_ytd'),
+    dashSourceName('realized_retention'),
+    dashSourceName('forecast_churn_year'),
+    dashSourceName('acv_quarter_series')
+])
     sources.push({
         key: name,
         name,
@@ -49,7 +55,7 @@ for (const name of ['pq_pipeline_window', 'pq_sales_ytd', 'pq_realized_retention
             { name: 'end_date', type: 'date' }
         ]
     })
-const definition = { ...supremeCommandTemplate(sources), harness: 'honeybadger-supreme', intervalSeconds: 3600 }
+const definition = { ...supremeCommandTemplate(sources), harness: 'honeybadger-supreme', intervalSeconds: 604800 }
 const labels = [
     'Low consumption mentioned',
     'RACV composite flagged red',
@@ -181,7 +187,7 @@ try {
     await page.locator('.df-value').filter({ hasText: '48.62M' }).waitFor()
     await page.evaluate(() => {
         const badge = document.querySelector('.df-beta')
-        if (badge) badge.textContent = 'SYNTHETIC DEMO DATA / MVP'
+        if (badge) badge.textContent = 'SYNTHETIC DEMO DATA / BETA'
     })
     await page.screenshot({ path: path.join(output, 'supreme-builder.png'), fullPage: true })
     if (reports !== 0 || refreshes !== 0) throw new Error('Passive dashboard view executed a report or refresh')

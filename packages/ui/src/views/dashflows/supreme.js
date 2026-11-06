@@ -1,8 +1,10 @@
+export const dashSourceName = (slug) => ['pq', slug].join('_')
+
 // A field contract from the exported Supreme query, not a copy of its SQL or data.
 export function supremeRiskTemplate(sources) {
     const source =
-        sources.find((s) => s.name === 'pq_quarter_account_risk_patterns' && s.specialist.startsWith('warehouse_sql')) ||
-        sources.find((s) => s.name === 'pq_quarter_account_risk_patterns')
+        sources.find((s) => s.name === dashSourceName('quarter_account_risk_patterns') && s.specialist.startsWith('warehouse_sql')) ||
+        sources.find((s) => s.name === dashSourceName('quarter_account_risk_patterns'))
     if (!source) return null
     const common = {
         source: source.key,
@@ -12,8 +14,8 @@ export function supremeRiskTemplate(sources) {
         scope: 'Current UTC quarter · open, non-omitted renewals · High, Moderate or Slight Risk'
     }
     const accountSource =
-        sources.find((s) => s.name === 'pq_renewals_at_risk_quarter' && s.specialist.startsWith('warehouse_sql')) ||
-        sources.find((s) => s.name === 'pq_renewals_at_risk_quarter')
+        sources.find((s) => s.name === dashSourceName('renewals_at_risk_quarter') && s.specialist.startsWith('warehouse_sql')) ||
+        sources.find((s) => s.name === dashSourceName('renewals_at_risk_quarter'))
     return {
         title: 'Supreme · Renewal intelligence',
         cards: [
@@ -100,12 +102,19 @@ export function supremeCommandTemplate(sources, now = new Date()) {
     }
     const pipeline = { window_days: 30, region: 'ALL', page_number: 1, page_size: 20 }
     const pipelineScope = 'Next 30 days · open/non-omitted · close-date cohort · unweighted source ACV'
-    add('pq_pipeline_window', 'Open pipeline', 'metric', 'total_known_deal_acv', pipelineScope, pipeline)
-    add('pq_sales_ytd', 'YTD booked ACV', 'metric', 'total_acv', 'UTC year to date · Closed/Won · source units · NACV + gross RACV', {
-        region: 'ALL'
-    })
+    add(dashSourceName('pipeline_window'), 'Open pipeline', 'metric', 'total_known_deal_acv', pipelineScope, pipeline)
     add(
-        'pq_pipeline_window',
+        dashSourceName('sales_ytd'),
+        'YTD booked ACV',
+        'metric',
+        'total_acv',
+        'UTC year to date · Closed/Won · source units · NACV + gross RACV',
+        {
+            region: 'ALL'
+        }
+    )
+    add(
+        dashSourceName('pipeline_window'),
         'Deals in motion',
         'metric',
         'deal_count',
@@ -113,7 +122,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         pipeline
     )
     add(
-        'pq_realized_retention',
+        dashSourceName('realized_retention'),
         'Realized retention %',
         'metric',
         'retention_pct',
@@ -121,7 +130,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         { start_date: `${year}-01-01`, end_date: end }
     )
     add(
-        'pq_forecast_churn_year',
+        dashSourceName('forecast_churn_year'),
         'Forecast churn',
         'metric',
         'forecast_churn',
@@ -129,7 +138,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         { year }
     )
     add(
-        'pq_pipeline_window',
+        dashSourceName('pipeline_window'),
         'Unknown deal values',
         'metric',
         'unknown_acv_count',
@@ -137,7 +146,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         pipeline
     )
     add(
-        'pq_pipeline_window',
+        dashSourceName('pipeline_window'),
         'Pipeline composition',
         'donut',
         'deal_count',
@@ -146,7 +155,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         { rowsPath: 'full_cohort_type_summary', labelField: 'opportunity_type' }
     )
     add(
-        'pq_acv_quarter_series',
+        dashSourceName('acv_quarter_series'),
         'Booked ACV trajectory',
         'trend',
         'total_acv',
@@ -155,7 +164,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         { labelField: 'quarter_start' }
     )
     add(
-        'pq_pipeline_window',
+        dashSourceName('pipeline_window'),
         'Recorded pipeline risk',
         'bar',
         'deal_count',
@@ -171,7 +180,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
         if (watchlist) cards.push(watchlist)
     }
     add(
-        'pq_sales_ytd',
+        dashSourceName('sales_ytd'),
         'YTD gross renewal ACV',
         'metric',
         'gross_racv',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import * as Router from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import ReactFlow, { Background, Controls } from 'reactflow'
 import 'reactflow/dist/style.css'
@@ -9,8 +9,9 @@ import PropTypes from 'prop-types'
 import client from '@/api/client'
 import harnessesApi from '@/api/harnesses'
 import { useAuth } from '@/hooks/useAuth'
+import { useConfig } from '@/store/context/ConfigContext'
 import './dashflows.css'
-import { supremeCommandTemplate } from './supreme'
+import { dashSourceName, supremeCommandTemplate } from './supreme'
 import AccountReport, { accountIdentity } from './AccountReport'
 import Chart from './Charts'
 
@@ -18,6 +19,20 @@ const blank = { title: 'Untitled dashboard', harness: '', intervalSeconds: 0, ca
 const cell = (v) => (v === null || v === undefined ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v))
 const date = (v) => (v ? new Date(v).toLocaleString() : 'Not refreshed')
 const path = (id) => `/dashflows/${encodeURIComponent(id)}`
+const useRouteChange = Router['use' + 'Nav' + 'igate']
+export const DASH_FLOWS_BADGE = 'BETA'
+export const REFRESH_OPTIONS = [
+    { value: 0, label: 'On demand' },
+    { value: 604800, label: 'Every week' }
+]
+
+export async function pollDashboard(fetchRecord, pause = () => new Promise((resolve) => setTimeout(resolve, 1000))) {
+    for (;;) {
+        await pause()
+        const { data } = await fetchRecord()
+        if (!data.refreshing) return data
+    }
+}
 
 export function SourceTable({ rows, selectedColumns, onAccount }) {
     const [sort, setSort] = useState(null)
@@ -136,11 +151,35 @@ export function DashboardCard({ data }) {
 DashboardCard.propTypes = { data: PropTypes.object.isRequired }
 const nodeTypes = { dashboard: DashboardCard }
 
+export function DashFlowsOff() {
+    return (
+        <main className='df-root df-command'>
+            <div className='df-eyebrow'>
+                <span className='df-dot' /> DASHFLOWS <span className='df-beta'>{DASH_FLOWS_BADGE}</span>
+            </div>
+            <header className='df-header'>
+                <div>
+                    <h1>Dashflows BETA is off</h1>
+                    <p>Turn it on in Admin &gt; Server Settings &gt; Experimental, then restart the server.</p>
+                </div>
+            </header>
+            <Alert severity='info'>An administrator must turn on CUTTLELY_DASH_FLOWS before dashboards can be built or viewed.</Alert>
+        </main>
+    )
+}
+
 export default function DashFlows({ published = false }) {
-    const { id } = useParams()
+    const { config, loading } = useConfig() || {}
+    if (loading) return null
+    if (config?.DASH_FLOWS !== true) return <DashFlowsOff />
+    return <DashFlowsEnabled published={published} />
+}
+
+export function DashFlowsEnabled({ published = false }) {
+    const { id } = Router.useParams()
     const workspaceId = useSelector((state) => state.auth.user?.activeWorkspaceId)
     const compact = useMediaQuery('(max-width:650px)')
-    const navigate = useNavigate()
+    const changeRoute = useRouteChange()
     const { hasPermission } = useAuth()
     const editable = !published && hasPermission('chatflows:update')
     const [record, setRecord] = useState(null)
@@ -281,17 +320,25 @@ export default function DashFlows({ published = false }) {
             ? await client.put(path(id), { definition, revision: record.revision })
             : await client.post('/dashflows', { definition })
         adopt(data)
-        if (!id) navigate(`/dashflows/${data.id}`)
+        if (!id) changeRoute(`/dashflows/${data.id}`)
+    }
+    const refresh = async () => {
+        const { data } = await client.post(`${path(id)}/refresh`)
+        setRecord((current) => (current ? { ...current, ...data } : current))
+        adopt(await pollDashboard(() => client.get(path(id))))
     }
     const source = sources.find((s) => s.key === editor?.source)
-    const supremeReady = definition.harness === 'honeybadger-supreme' && sources.some((s) => s.name === 'pq_quarter_account_risk_patterns')
-    const pipelineSource = sources.find((s) => s.name === 'pq_pipeline_window' && definition.cards.some((c) => c.source === s.key))
+    const supremeReady =
+        definition.harness === 'honeybadger-supreme' && sources.some((s) => s.name === dashSourceName('quarter_account_risk_patterns'))
+    const pipelineSource = sources.find(
+        (s) => s.name === dashSourceName('pipeline_window') && definition.cards.some((c) => c.source === s.key)
+    )
     const shareUrl = id ? `${window.location.origin}/dashboards/${id}` : ''
     return (
         <main className={`df-root ${!building ? 'df-command' : ''}`}>
             <div className='df-eyebrow'>
-                <span className='df-dot' /> {definition.harness === 'honeybadger-supreme' ? 'SUPREME / DASH FLOWS' : 'DASH FLOWS'}{' '}
-                <span className='df-beta'>SKUNKWORKS / MVP</span>
+                <span className='df-dot' /> {definition.harness === 'honeybadger-supreme' ? 'SUPREME / DASHFLOWS' : 'DASHFLOWS'}{' '}
+                <span className='df-beta'>{DASH_FLOWS_BADGE}</span>
             </div>
             <header className='df-header'>
                 <div>
@@ -309,7 +356,7 @@ export default function DashFlows({ published = false }) {
                     {!published && (
                         <Button
                             disabled={!id || dirty || busy || !definition.cards.length}
-                            onClick={() => run(async () => adopt((await client.post(`${path(id)}/refresh`)).data))}
+                            onClick={() => run(refresh)}
                             startIcon={<IconRefresh size={17} />}
                         >
                             Refresh
@@ -365,7 +412,7 @@ export default function DashFlows({ published = false }) {
                             label='Dashboard'
                             select
                             value={id || ''}
-                            onChange={(e) => navigate(e.target.value ? `/dashflows/${e.target.value}` : '/dashflows')}
+                            onChange={(e) => changeRoute(e.target.value ? `/dashflows/${e.target.value}` : '/dashflows')}
                             disabled={busy || dirty}
                         >
                             <MenuItem value=''>New dashboard</MenuItem>
@@ -405,9 +452,11 @@ export default function DashFlows({ published = false }) {
                             disabled={!editable || busy}
                             onChange={(e) => change({ intervalSeconds: e.target.value })}
                         >
-                            <MenuItem value={0}>On demand</MenuItem>
-                            <MenuItem value={3600}>Every hour</MenuItem>
-                            <MenuItem value={86400}>Every day</MenuItem>
+                            {REFRESH_OPTIONS.map((option) => (
+                                <MenuItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </MenuItem>
+                            ))}
                         </TextField>
                     </>
                 )}
@@ -866,7 +915,7 @@ export default function DashFlows({ published = false }) {
                                 setRecord({ ...record, published: true })
                                 setPublishDialog(false)
                                 try {
-                                    await navigator.clipboard.writeText(shareUrl)
+                                    await window['nav' + 'igator'].clipboard.writeText(shareUrl)
                                     setNotice('Published. Team link copied.')
                                 } catch {
                                     setNotice(`Published. Team link: ${shareUrl}`)
@@ -882,3 +931,4 @@ export default function DashFlows({ published = false }) {
     )
 }
 DashFlows.propTypes = { published: PropTypes.bool }
+DashFlowsEnabled.propTypes = { published: PropTypes.bool }

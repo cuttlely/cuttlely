@@ -1,9 +1,14 @@
-import { supremeRiskTemplate, supremeCommandTemplate } from './supreme'
+import { dashSourceName, supremeRiskTemplate, supremeCommandTemplate } from './supreme'
 
 it('binds three risk cards to the actual catalog hash with explicit source completeness and no fabricated values', () => {
     global.crypto = { randomUUID: jest.fn().mockReturnValueOnce('one').mockReturnValueOnce('two').mockReturnValueOnce('three') }
     const template = supremeRiskTemplate([
-        { name: 'pq_quarter_account_risk_patterns', specialist: 'warehouse_sql_r25', key: 'actual-source', hash: 'a'.repeat(64) }
+        {
+            name: dashSourceName('quarter_account_risk_patterns'),
+            specialist: 'warehouse_sql_r25',
+            key: 'actual-source',
+            hash: 'a'.repeat(64)
+        }
     ])
     expect(template.cards).toHaveLength(3)
     expect(template.cards.every((card) => card.hash === 'a'.repeat(64) && card.source === 'actual-source')).toBe(true)
@@ -17,8 +22,8 @@ it('does not invent a source when the required pin is missing', () => expect(sup
 it('adds the exact selected opportunity watchlist when its source is available', () => {
     global.crypto = { randomUUID: jest.fn(() => 'synthetic-id') }
     const template = supremeRiskTemplate([
-        { name: 'pq_quarter_account_risk_patterns', specialist: 'warehouse_sql_r25', key: 'risk', hash: 'a'.repeat(64) },
-        { name: 'pq_renewals_at_risk_quarter', specialist: 'warehouse_sql_r25', key: 'list', hash: 'b'.repeat(64) }
+        { name: dashSourceName('quarter_account_risk_patterns'), specialist: 'warehouse_sql_r25', key: 'risk', hash: 'a'.repeat(64) },
+        { name: dashSourceName('renewals_at_risk_quarter'), specialist: 'warehouse_sql_r25', key: 'list', hash: 'b'.repeat(64) }
     ])
     expect(template.cards).toHaveLength(4)
     expect(template.cards[3].source).toBe('list')
@@ -29,13 +34,13 @@ it('adds the exact selected opportunity watchlist when its source is available',
 it('builds a bounded command center from real source names and preserves separate period grains', () => {
     global.crypto = { randomUUID: jest.fn(() => String(Math.random())) }
     const names = [
-        'pq_pipeline_window',
-        'pq_sales_ytd',
-        'pq_realized_retention',
-        'pq_forecast_churn_year',
-        'pq_acv_quarter_series',
-        'pq_quarter_account_risk_patterns',
-        'pq_renewals_at_risk_quarter'
+        dashSourceName('pipeline_window'),
+        dashSourceName('sales_ytd'),
+        dashSourceName('realized_retention'),
+        dashSourceName('forecast_churn_year'),
+        dashSourceName('acv_quarter_series'),
+        dashSourceName('quarter_account_risk_patterns'),
+        dashSourceName('renewals_at_risk_quarter')
     ]
     const result = supremeCommandTemplate(
         names.map((name) => ({ name, key: name, hash: 'a'.repeat(64), specialist: 'warehouse_sql' })),

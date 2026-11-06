@@ -59,6 +59,16 @@ describe('server settings registry', () => {
         for (const section of SECTIONS) expect(SETTINGS.some((setting) => setting.section === section.id)).toBe(true)
     })
 
+    it('keeps Dashflows in the default-off Experimental section', () => {
+        expect(settingFor('CUTTLELY_DASH_FLOWS')).toMatchObject({
+            section: 'experimental',
+            type: 'switch',
+            onValues: ['1', 'true'],
+            defaultValue: '',
+            defaultLabel: 'Off'
+        })
+    })
+
     it('never lists a setting as both editable and kept out', () => {
         for (const setting of SETTINGS) expect(isKeptOut(setting.key)).toBe(false)
         for (const group of KEPT_OUT) expect(group.why.length).toBeGreaterThan(10)

@@ -77,12 +77,14 @@ const dashboard = {
                 },
                 {
                     id: 'dashflows',
-                    title: 'Dash Flows',
+                    title: 'Dashflows',
                     type: 'item',
                     url: '/dashflows',
                     icon: icons.IconChartBar,
                     breadcrumbs: true,
-                    permission: 'chatflows:update'
+                    permission: 'chatflows:update',
+                    configFlag: 'DASH_FLOWS',
+                    isBeta: true
                 },
                 {
                     id: 'chatflows',

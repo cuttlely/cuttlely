@@ -1,5 +1,5 @@
-// Dash Flows store typed source rows, never generated prose. Like the harness queue,
-// this MVP uses a local SQLite database shared by processes on the same data volume.
+// Dashflows store typed source rows, never generated prose. Like the harness queue,
+// this BETA uses a local SQLite database shared by processes on the same data volume.
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
@@ -90,7 +90,7 @@ export function sourcePath(row, fieldPath) {
 export function validateDefinition(value) {
     if (!object(value) || !text(value.title) || !text(value.harness) || !Array.isArray(value.cards) || value.cards.length > 12)
         fail('Choose a title, harness and up to 12 cards.')
-    if (![0, 3600, 86400].includes(value.intervalSeconds)) fail('Choose manual, hourly or daily refresh.')
+    if (![0, 604800].includes(value.intervalSeconds)) fail('Choose on-demand or weekly refresh.')
     const ids = new Set()
     const cards = value.cards.map((c) => {
         if (
@@ -396,7 +396,7 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             })
         },
         settle(id, workspace, claim, snapshot, error) {
-            const next = claim.definition.intervalSeconds ? Date.now() + claim.definition.intervalSeconds * 1000 : 0
+            const next = claim.definition.intervalSeconds === 604800 ? Date.now() + 604800 * 1000 : 0
             // Refresh updates the draft. Published snapshots change only on explicit Publish.
             db.prepare(
                 'UPDATE dash_flow SET snapshot=COALESCE(?,snapshot),error=?,next_refresh=?,lease=NULL,lease_until=0 WHERE id=? AND workspace=? AND lease=? AND revision=?'
@@ -405,7 +405,9 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         },
         due(now = Date.now()) {
             return db
-                .prepare('SELECT id,workspace,owner FROM dash_flow WHERE next_refresh>0 AND next_refresh<=? AND lease_until<=? LIMIT 10')
+                .prepare(
+                    "SELECT id,workspace,owner FROM dash_flow WHERE next_refresh>0 AND next_refresh<=? AND lease_until<=? AND json_extract(definition,'$.intervalSeconds')=604800 LIMIT 10"
+                )
                 .all(now, now)
         }
     }
