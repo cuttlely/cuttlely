@@ -178,6 +178,7 @@ let refreshes = 0
 let publicPublishes = 0
 let dashboardRequests = 0
 let statusPolls = 0
+let cancels = 0
 await page.addInitScript(() => {
     if (location.pathname.startsWith('/public/dashboards')) {
         localStorage.clear()
@@ -215,6 +216,7 @@ await page.route('**/api/v1/**', async (route) => {
         statusPolls = 0
         record.refreshing = true
         record.refreshProgress = {
+            runId: `run-${refreshes}`,
             status: 'running',
             phase: 'starting',
             completed: 0,
@@ -223,6 +225,12 @@ await page.route('**/api/v1/**', async (route) => {
             updatedAt: new Date().toISOString()
         }
         data = { id: 'demo', refreshing: true, refreshProgress: record.refreshProgress }
+    } else if (p.endsWith('/cancel-refresh')) {
+        if (route.request().postDataJSON().runId !== record.refreshProgress.runId) throw new Error('Cancel targeted the wrong run')
+        cancels++
+        record.refreshing = false
+        record.refreshProgress = { ...record.refreshProgress, status: 'cancelled', active: [], finishedAt: new Date().toISOString() }
+        data = { id: 'demo', refreshing: false, refreshProgress: record.refreshProgress }
     } else if (p.endsWith('/refresh-status')) {
         statusPolls++
         record.refreshing = statusPolls < 3
@@ -293,6 +301,11 @@ try {
     await page.reload()
     await page.getByText('Refresh complete', { exact: true }).waitFor()
     if (refreshes !== 1) throw new Error('Custom date change did not automatically refresh')
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await page.getByText('5 / 20 period/region views ready', { exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Cancel & restart', exact: true }).click()
+    await page.getByText('Refresh complete', { exact: true }).waitFor()
+    if (cancels !== 1 || refreshes !== 3) throw new Error('Cancel and restart did not replace the running refresh exactly once')
     await page.goto(`${base}/dashflows/demo`)
     await page.getByRole('heading', { name: 'Supreme · GTM command center' }).waitFor()
     await page.getByRole('button', { name: 'Demo account 01 ↗' }).click()
@@ -354,6 +367,7 @@ try {
                 'twenty instant published period/region combinations',
                 'custom date source refresh',
                 'live progress and reload reconnection',
+                'force cancel and immediate restart',
                 'zero passive query executions',
                 'range changes saved before refresh',
                 'published read-only',
