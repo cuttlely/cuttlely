@@ -1,4 +1,11 @@
-import { HARNESS_PLACEHOLDER_FLOW, harnessNameError, harnessSaveNameNote, planNewHarnessSave } from './harnessSave'
+import {
+    HARNESS_PLACEHOLDER_FLOW,
+    harnessNameError,
+    harnessSaveNameNote,
+    planHarnessDraftFallback,
+    planNewHarnessSave,
+    draftSaveWasTurnedOff
+} from './harnessSave'
 
 const openAI = { name: 'chatOpenAI', category: 'Chat Models', credential: { optional: false } }
 const ollama = { name: 'chatOllama', category: 'Chat Models', credential: { optional: true } }
@@ -26,6 +33,15 @@ const flow = ({
         edges.push({ source: 'model', target: 'chief', targetHandle: 'chief-input-chatModel-ChatModel' })
     }
     return JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } })
+}
+
+const withSecondSpecialist = (flowData, specialistName) => {
+    const saved = JSON.parse(flowData)
+    saved.nodes.push({
+        id: 'spec-2',
+        data: { name: 'harnessSpecialist', inputs: { specialistName, instructions: 'Help too.' } }
+    })
+    return JSON.stringify(saved)
 }
 
 const modelCredential = (plan) => {
@@ -63,12 +79,40 @@ describe('planNewHarnessSave', () => {
 
     test('a specialist name with spaces is kept on the draft with the credential, and is not written live', () => {
         const flowData = flow({ credential: 'cred-openai-1', specialistName: 'SQL Analyst' })
-        const plan = planNewHarnessSave({ name: 'Imported Flowise chatflow', flowData, nodeDefinitions: [openAI] })
-        expect(plan.name).toBe('Imported-Flowise-chatflow')
+        const plan = planNewHarnessSave({ name: 'Imported sales desk', flowData, nodeDefinitions: [openAI] })
+        expect(plan.name).toBe('Imported-sales-desk')
         expect(plan.liveFlowData).toBe(HARNESS_PLACEHOLDER_FLOW)
         expect(modelCredential(plan)).toBe('cred-openai-1')
         expect(JSON.parse(plan.draftFlowData).nodes.find((node) => node.id === 'spec').data.inputs.specialistName).toBe('SQL Analyst')
         expect(plan.notice).toContain('Specialist names')
+    })
+
+    test('duplicate specialist names keep the canvas off the harness file until they are unique', () => {
+        const flowData = withSecondSpecialist(flow({ credential: 'cred-openai-1', specialistName: 'researcher' }), 'researcher')
+        const plan = planNewHarnessSave({ name: 'sales-desk', flowData, nodeDefinitions: [openAI] })
+        expect(plan.liveFlowData).toBe(HARNESS_PLACEHOLDER_FLOW)
+        expect(plan.draftFlowData).toBe(flowData)
+        expect(plan.notice).toContain('unique')
+    })
+
+    test('duplicate specialist names and a missing credential report both readiness steps', () => {
+        const flowData = withSecondSpecialist(flow({ credential: '', specialistName: 'researcher' }), 'researcher')
+        const plan = planNewHarnessSave({ name: 'sales-desk', flowData, nodeDefinitions: [openAI] })
+        expect(plan.notice).toContain('credential')
+        expect(plan.notice).toContain('unique')
+    })
+
+    test('drafts off retains an incomplete canvas without planning an ordinary roster write', () => {
+        const flowData = flow({ credential: '' })
+        const plan = planHarnessDraftFallback({ flowData, nodeDefinitions: [openAI], draftsOff: true })
+        expect(plan.body).toEqual({ flowData, retainIncompleteHarness: true })
+        expect(plan.notice).toContain('Canvas saved')
+        expect(plan.notice).toContain('not written until the canvas can run')
+    })
+
+    test('the retained-canvas path is limited to the drafts-off refusal', () => {
+        expect(draftSaveWasTurnedOff({ response: { status: 409, data: { message: 'Drafts are off on this server.' } } })).toBe(true)
+        expect(draftSaveWasTurnedOff({ response: { status: 409, data: { message: 'Someone else saved this draft.' } } })).toBe(false)
     })
 
     test('a complete harness still goes live on the first save', () => {

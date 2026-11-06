@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { harnessCanvasIsPlaceholder } from './sync-from-flow.mjs'
+import { harnessCanvasCanWaitForRoster, harnessCanvasIsPlaceholder } from './sync-from-flow.mjs'
 
 const chief = { id: 'chief', data: { name: 'harnessChief' } }
 
@@ -17,4 +17,10 @@ test('a canvas with a Harness Prime or a specialist is not a placeholder', () =>
 
 test('unreadable canvas JSON is not treated as a placeholder', () => {
     assert.equal(harnessCanvasIsPlaceholder('{'), false)
+})
+
+test('a readable canvas can wait for its roster before a harness file exists', () => {
+    const name = `ZZ-TEST-waiting-${process.pid}`
+    assert.equal(harnessCanvasCanWaitForRoster({ name, flowData: { nodes: [chief], edges: [] } }), true)
+    assert.equal(harnessCanvasCanWaitForRoster({ name, flowData: '{' }), false)
 })

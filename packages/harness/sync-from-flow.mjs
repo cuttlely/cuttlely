@@ -160,6 +160,23 @@ export function harnessCanvasIsPlaceholder(flowData) {
     })
 }
 
+// An incomplete canvas can wait in its database row only while no runnable harness file exists.
+// The graph still has to be readable so this path cannot retain arbitrary text as a canvas.
+export function harnessCanvasCanWaitForRoster({ name, flowData }) {
+    let flow
+    try {
+        flow = parseFlow(flowData)
+    } catch {
+        return false
+    }
+    if (!flow || !Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) return false
+    try {
+        return !getHarness(name)
+    } catch {
+        return false
+    }
+}
+
 export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, workspaceId }) {
     assertSavedHarnessName(name)
     const flow = parseFlow(flowData)

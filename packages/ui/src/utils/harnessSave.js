@@ -104,7 +104,15 @@ export function harnessLiveBlock(flowData, nodeDefinitions) {
         if (credentialRequired(source, nodeDefinitions) && !credentialIdOf(source)) credentialGap = true
     }
     if (!chiefHasModel) return 'roster'
-    const badName = specialists.some((node) => !HARNESS_NAME.test(specialistId(node)))
+    const specialistIds = specialists.map(specialistId)
+    const seenIds = new Set()
+    const duplicateName = specialistIds.some((id) => {
+        if (!id) return false
+        if (seenIds.has(id)) return true
+        seenIds.add(id)
+        return false
+    })
+    const badName = duplicateName || specialistIds.some((id) => !HARNESS_NAME.test(id))
     if (badName && credentialGap) return 'both'
     if (badName) return 'name'
     if (credentialGap) return 'credential'
@@ -113,9 +121,35 @@ export function harnessLiveBlock(flowData, nodeDefinitions) {
 
 const DRAFT_WHY = {
     credential: 'Select a credential on each chat model that needs one, then Publish. Credentials you already chose stay on this draft.',
-    name: 'Specialist names need to be a letter, then letters, numbers, "_" or "-". Then Publish.',
-    both: 'Select a credential on each chat model that needs one, and use a letter, then letters, numbers, "_" or "-" for each specialist name. Then Publish. Credentials you already chose stay on this draft.',
+    name: 'Specialist names must be unique ids: a letter, then letters, numbers, "_" or "-". Then Publish.',
+    both: 'Select a credential on each chat model that needs one, and give every specialist a unique id: a letter, then letters, numbers, "_" or "-". Then Publish. Credentials you already chose stay on this draft.',
     roster: 'Add one Harness Prime, at least one specialist, and a chat model on Harness Prime, then Publish.'
+}
+
+const RETAIN_WHY = {
+    credential: 'Select a credential on each chat model that needs one, then save again.',
+    name: 'Give every specialist a unique id using a letter, then letters, numbers, "_" or "-", then save again.',
+    both: 'Select each required chat-model credential, give every specialist a unique id, then save again.',
+    roster: 'Add one Harness Prime, at least one specialist, and a chat model on Harness Prime, then save again.'
+}
+
+export function draftSaveWasTurnedOff(error) {
+    if (error?.response?.status !== 409) return false
+    const data = error.response.data
+    const message = typeof data === 'string' ? data : data?.message
+    return message === 'Drafts are off on this server.'
+}
+
+// With drafts off, an incomplete harness uses a server path that keeps its cards without writing
+// a harness file. A ready roster does not need that path and every other draft error stays an error.
+export function planHarnessDraftFallback({ flowData, nodeDefinitions, draftsOff }) {
+    if (!draftsOff) return null
+    const block = harnessLiveBlock(flowData, nodeDefinitions)
+    if (!block) return null
+    return {
+        body: { flowData, retainIncompleteHarness: true },
+        notice: `Canvas saved. ${RETAIN_WHY[block] || RETAIN_WHY.roster} The harness file is not written until the canvas can run.`
+    }
 }
 
 // Where the first save of a new harness goes.

@@ -216,7 +216,7 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
             throw new AppError(StatusCodes.NOT_FOUND, `Error: chatflowsController.saveChatflow - organization ${orgId} not found!`)
         }
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''
-        const body = req.body
+        const { retainIncompleteHarness, ...body } = req.body
         const updateChatFlow = new ChatFlow()
         Object.assign(updateChatFlow, stripProtectedFields(body))
 
@@ -226,7 +226,8 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
 
         const apiResponse = await chatflowsService.updateChatflow(chatflow, updateChatFlow, orgId, workspaceId, subscriptionId, {
             actor: actorFromUser(req.user),
-            caller: await harnessCallerFor(req)
+            caller: await harnessCallerFor(req),
+            retainIncompleteHarness: retainIncompleteHarness === true
         })
         return res.json(apiResponse)
     } catch (error) {

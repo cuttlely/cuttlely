@@ -89,7 +89,7 @@ import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/util
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
 import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
 import { applyCredentialInput, canvasSaveDocument } from '@/utils/canvasSave'
-import { planNewHarnessSave } from '@/utils/harnessSave'
+import { draftSaveWasTurnedOff, planHarnessDraftFallback, planNewHarnessSave } from '@/utils/harnessSave'
 import {
     asSavedCards,
     canvasIsEmpty,
@@ -174,6 +174,7 @@ const Canvas = () => {
     const firstSaveAsDraftRef = useRef(false)
     const pendingDraftRef = useRef(null)
     const pendingHarnessNoteRef = useRef('')
+    const pendingHarnessLiveSaveRef = useRef(null)
     const [builtResult, setBuiltResult] = useState(null)
     const pendingLangflow = useRef(null)
     const pendingMigration = useRef(null)
@@ -511,6 +512,13 @@ const Canvas = () => {
                     }
                 }
                 if (plan.live?.flowData) {
+                    pendingHarnessLiveSaveRef.current = isHarnessCanvas
+                        ? planHarnessDraftFallback({
+                              flowData: plan.live.flowData,
+                              nodeDefinitions: canvas.componentNodes,
+                              draftsOff: draftStatusRef.current?.reason === 'off'
+                          })
+                        : null
                     setChatflowName(plan.live.name)
                     setFlowData(plan.live.flowData)
                     getHasChatflowChangedApi.request(chatflow.id, lastUpdatedDateTime)
@@ -771,11 +779,25 @@ const Canvas = () => {
             if (res?.conflict) return
             setDraftStatus(res.data)
             saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.')
-        } catch {
+        } catch (draftError) {
+            const retained = isHarnessCanvas
+                ? planHarnessDraftFallback({
+                      flowData: draft,
+                      nodeDefinitions: canvas.componentNodes,
+                      draftsOff: draftSaveWasTurnedOff(draftError)
+                  })
+                : null
+            if (isHarnessCanvas && !retained) {
+                errorFailed(apiErrorMessage(draftError, 'Save failed'))
+                return
+            }
             try {
-                const res = await chatflowsApi.updateChatflow(created.id, { flowData: draft })
+                const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
                 dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                saveChatflowSuccess()
+                if (retained) {
+                    setDraftStatus({ enabled: false, mode: 'live', reason: 'off', publishInstantly: false, draft: null })
+                }
+                saveChatflowSuccess(retained?.notice)
             } catch (error) {
                 errorFailed(apiErrorMessage(error, 'Save failed'))
             }
@@ -1014,10 +1036,13 @@ const Canvas = () => {
     // Update chatflow successful
     useEffect(() => {
         if (updateChatflowApi.data) {
+            const retained = pendingHarnessLiveSaveRef.current
+            pendingHarnessLiveSaveRef.current = null
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
             setLasUpdatedDateTime(updateChatflowApi.data.updatedDate)
-            saveChatflowSuccess()
+            saveChatflowSuccess(retained?.notice)
         } else if (updateChatflowApi.error) {
+            pendingHarnessLiveSaveRef.current = null
             errorFailed(apiErrorText(updateChatflowApi.error))
         }
 
@@ -1044,6 +1069,7 @@ const Canvas = () => {
                 name: chatflowName,
                 flowData
             }
+            if (pendingHarnessLiveSaveRef.current?.body?.retainIncompleteHarness) updateBody.retainIncompleteHarness = true
             updateChatflowApi.request(chatflow.id, updateBody)
         }
 

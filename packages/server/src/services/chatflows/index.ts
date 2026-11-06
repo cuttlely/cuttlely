@@ -1,7 +1,4 @@
 import { randomBytes } from 'crypto'
-import fs from 'fs'
-import path from 'path'
-import { pathToFileURL } from 'url'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { In, IsNull, QueryRunner, type DataSource, type EntityManager } from 'typeorm'
@@ -25,7 +22,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
-import harnessesService from '../../services/harnesses'
+import harnessesService, { loadHarness } from '../../services/harnesses'
 import { harnessCanvasDelete } from '../../services/harnesses/canvasDelete'
 import {
     assertCallerMayUseHarnesses,
@@ -441,7 +438,7 @@ const saveChatflow = async (
 ): Promise<any> => {
     if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
-    await validateHarnessCanvas(newChatFlow, record?.caller)
+    const skipHarnessSync = await validateHarnessCanvas(newChatFlow, record?.caller)
     await validateReferencedHarnesses(newChatFlow, record?.caller)
     await validateEtlCanvas(newChatFlow)
     const appServer = getRunningExpressApp()
@@ -469,7 +466,7 @@ const saveChatflow = async (
     }
     // A taken harness name is refused before this insert. If the sync still fails, the new row is removed
     // before history or telemetry, so the caller does not keep a canvas for another team's harness.
-    await keepHarnessCanvas(dbResponse, record?.caller, () => deleteChatflowRow(dbResponse.id))
+    await keepHarnessCanvas(dbResponse, record?.caller, () => deleteChatflowRow(dbResponse.id), skipHarnessSync)
     // Queued at the save so history keeps database save order.
     const recorded = flowVersionsService.recordFlowVersion(dbResponse, {
         ...(record?.versionRecord || {}),
@@ -572,6 +569,8 @@ export interface UpdateChatflowOptions {
     // the save returns 409 instead of overwriting it. Publish writes only flowData. A version put Live
     // writes the whole row, still only while this canvas is the one stored.
     expectedFlowData?: string
+    // Keeps an incomplete harness canvas when drafts are off. It is allowed only before a harness file exists.
+    retainIncompleteHarness?: boolean
 }
 
 // Test seam. A race test updates Live or inserts a draft after the check and before the conditional write.
@@ -765,7 +764,7 @@ const updateChatflow = async (
     const previousRow = Object.assign(new ChatFlow(), chatflow)
     const newDbChatflow = appServer.AppDataSource.getRepository(ChatFlow).merge(chatflow, updateChatFlow)
     newDbChatflow.workspaceId = workspaceId // defense-in-depth: use trusted param, not chatflow.workspaceId (merge mutates in-place)
-    await validateHarnessCanvas(newDbChatflow, options.caller)
+    const skipHarnessSync = await validateHarnessCanvas(newDbChatflow, options.caller, options.retainIncompleteHarness === true)
     // The caller's list applies when the canvas changes or the flow is rebound to another key (or to none), because the
     // stored cards then run under a different key. Another field alone, such as the category, does not need it.
     const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (previousRow.apikeyid ?? null)
@@ -800,12 +799,17 @@ const updateChatflow = async (
         throw error
     }
     // The name was checked before the write. If the sync still fails, this puts the stored row back.
-    await keepHarnessCanvas(dbResponse, options.caller, async () => {
-        await inTransaction(async (manager) => {
-            await manager.getRepository(ChatFlow).save(previousRow)
-        })
-        await restoreDocumentStoreUsage(chatflow.id, workspaceId)
-    })
+    await keepHarnessCanvas(
+        dbResponse,
+        options.caller,
+        async () => {
+            await inTransaction(async (manager) => {
+                await manager.getRepository(ChatFlow).save(previousRow)
+            })
+            await restoreDocumentStoreUsage(chatflow.id, workspaceId)
+        },
+        skipHarnessSync
+    )
     // Queued at the save so history keeps database save order.
     const recorded = flowVersionsService.recordFlowVersion(dbResponse, {
         ...(options.versionRecord || {}),
@@ -889,7 +893,13 @@ async function deleteChatflowRow(id: string) {
 }
 
 // Sync after the row is written. A failure removes a new row, or puts an updated row back, before the error returns.
-async function keepHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined, undo: () => Promise<void>) {
+async function keepHarnessCanvas(
+    chatflow: ChatFlow,
+    caller: IHarnessCaller | undefined,
+    undo: () => Promise<void>,
+    skipHarnessSync = false
+) {
+    if (skipHarnessSync) return
     try {
         await syncHarnessCanvas(chatflow, caller)
     } catch (error) {
@@ -931,8 +941,8 @@ export async function validateReferencedHarnesses(
     }
 }
 
-async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
-    if (chatflow.type !== EnumChatflowType.HARNESS) return
+async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined, retainIncomplete = false): Promise<boolean> {
+    if (chatflow.type !== EnumChatflowType.HARNESS) return false
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
     const engine = await loadHarnessSync()
@@ -941,7 +951,17 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     // Publish sends the real canvas through the roster checks below, including a required credential.
     if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
         await assertPlaceholderHarnessName(chatflow, engine)
-        return
+        return true
+    }
+    // This mode follows a readiness check that found an incomplete roster. The server additionally
+    // requires drafts to be off, a readable graph, and no existing harness file.
+    if (
+        retainIncomplete &&
+        !flowDraftsService.isDraftsEnabled() &&
+        engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })
+    ) {
+        await assertPlaceholderHarnessName(chatflow, engine)
+        return true
     }
     // The roster is read first so a new name is checked for leftovers under every profile name it compiles into;
     // a bad flow still answers only after the name check.
@@ -971,6 +991,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
         )
     )
     if (rosterError) throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(rosterError))
+    return false
 }
 
 // An empty canvas is stored before it can run. The name is still checked, including a file that has no team,
@@ -1058,23 +1079,7 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
 }
 
 async function loadHarnessSync() {
-    let dir = __dirname
-    let moduleUrl = ''
-    for (let i = 0; i < 8; i += 1) {
-        const candidates = [path.join(dir, 'packages', 'harness', 'sync-from-flow.mjs'), path.join(dir, 'harness', 'sync-from-flow.mjs')]
-        const candidate = candidates.find((file) => fs.existsSync(file))
-        if (candidate) {
-            moduleUrl = pathToFileURL(candidate).href
-            break
-        }
-        dir = path.dirname(dir)
-    }
-    if (!moduleUrl) {
-        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness canvas sync could not find the harness engine.')
-    }
-    // tsc rewrites import() into require(), which cannot load the ESM harness package.
-    const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
-    return importEsm(moduleUrl)
+    return loadHarness('sync-from-flow.mjs')
 }
 
 // Get specific chatflow chatbotConfig via id (PUBLIC endpoint, used to retrieve config for embedded chat).

@@ -147,7 +147,7 @@ jest.mock('http-status-codes', () => ({
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import chatflowsService, { liveWriteHooks, validateReferencedHarnesses } from './index'
-import harnessesService from '../../services/harnesses'
+import harnessesService, { setHarnessModuleLoader } from '../../services/harnesses'
 import scheduleService from '../../services/schedule'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import { containsBase64File } from '../../utils/fileRepository'
@@ -1333,8 +1333,22 @@ describe('harnesses a saved canvas names', () => {
 
     beforeEach(() => {
         assertNameAvailable = jest.spyOn(harnessesService, 'assertNameAvailable').mockResolvedValue(undefined)
+        setHarnessModuleLoader(async (file) => {
+            if (file !== 'sync-from-flow.mjs') throw new Error(`Unexpected harness module: ${file}`)
+            return {
+                assertSavedHarnessName: jest.fn(),
+                harnessCanvasIsPlaceholder: (flowData: string) => JSON.parse(flowData).nodes.length === 0,
+                harnessCanvasCanWaitForRoster: jest.fn().mockReturnValue(true),
+                rosterFromFlow: jest.fn().mockImplementation(() => {
+                    throw new Error('The roster is incomplete.')
+                })
+            }
+        })
     })
-    afterEach(() => assertNameAvailable.mockRestore())
+    afterEach(() => {
+        setHarnessModuleLoader(null)
+        assertNameAvailable.mockRestore()
+    })
 
     it('collects a nested Agent harness tool and checks it against the key list and the team', async () => {
         await expect(validateReferencedHarnesses({ flowData: agentTool('payroll'), workspaceId: 'ws-1' }, keyCaller)).rejects.toMatchObject(
@@ -1446,6 +1460,37 @@ describe('harnesses a saved canvas names', () => {
             )
         ).rejects.toMatchObject({ statusCode: 403 })
         expect(mockRepo.save).not.toHaveBeenCalled()
+    })
+
+    it('keeps an incomplete harness canvas without syncing a file when drafts are off', async () => {
+        const previous = process.env.CUTTLELY_DRAFTS
+        process.env.CUTTLELY_DRAFTS = 'off'
+        const flowData = JSON.stringify({
+            nodes: [
+                { id: 'chief', data: { name: 'harnessChief', inputs: {} } },
+                { id: 'spec', data: { name: 'harnessSpecialist', inputs: { specialistName: 'researcher' } } }
+            ],
+            edges: []
+        })
+        const stored = makeChatflow({
+            type: EnumChatflowType.HARNESS,
+            name: `ZZ-TEST-waiting-${process.pid}`,
+            flowData: makePlainFlowData()
+        })
+        const saved = { ...stored, flowData }
+        mockRepo.merge.mockReturnValue(saved)
+        mockRepo.save.mockResolvedValue(saved)
+        try {
+            const result = await chatflowsService.updateChatflow(stored as any, { flowData } as any, 'org-1', 'ws-1', 'sub-1', {
+                caller: { via: 'session' },
+                retainIncompleteHarness: true
+            })
+            expect(result.flowData).toBe(flowData)
+            expect(mockRepo.save).toHaveBeenCalledWith(saved)
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_DRAFTS
+            else process.env.CUTTLELY_DRAFTS = previous
+        }
     })
 })
 

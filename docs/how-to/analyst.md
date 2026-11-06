@@ -672,7 +672,7 @@ Encode the password, restart, and select **QUERY** again.
 
 ## Troubleshooting
 
-**Harness name is not valid.** The first save of the template title is stored as `Chief-of-Staff-Harness`. A later rename still needs an id: a letter, then letters, numbers, `_`, or `-`, such as `chief-of-staff`.
+**Harness name is not valid.** The first save of the template title is stored as `Chief-of-Staff-Harness`. A later name change still needs an id: a letter, then letters, numbers, `_`, or `-`, such as `chief-of-staff`.
 
 **The node runs nothing.** Select **QUERY** under **Tools it can use** and save. An empty action list means the `query` tool is filtered out.
 
