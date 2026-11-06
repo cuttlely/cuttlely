@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.5.2가 나왔습니다.** 하네스 실행 중에는 실행 카드에 실시간 상태 줄, 실행 중인 각 스페셜리스트의 상태, 흐르는 타이머가 표시됩니다(앱 채팅과 임베드 위젯 모두). 재미있는 보조 문구는 선택 사항이며 챗플로마다 **Configuration** > **Chat** > **Enhanced Status Messages**에서 끌 수 있습니다. 채팅 답변의 표는 머리글을 클릭하면 열 기준으로 정렬됩니다. 에이전트플로 템플릿 변수는 `$`가 들어간 값도 그대로 삽입합니다. 호환성을 깨는 변경은 없습니다. 이미지 `1.5.2`를 pull하거나 `npm i cuttlely@1.5.2`를 실행하세요. 1.4.10 이하에서 업그레이드한다면 먼저 [1.5.0 업그레이드 노트](./CHANGELOG.md#150---2026-11-01)를 읽으세요. [변경 기록](./CHANGELOG.md#152---2026-11-03)
+**1.6.0이 나왔습니다.** Dashflows는 관리자가 켜기 전까지 숨겨지고 꺼져 있는 Experimental BETA이며 주간 또는 온디맨드 대시보드를 제공합니다. **Experimental**에는 확인 후 다시 시작하는 제어가 추가되었고, Version History는 GitHub Enterprise 호스트에 연결할 수 있으며 열린 버전에서 **Back**으로 돌아갈 수 있습니다. 에이전트 런타임 준비 모드는 Off, Probe periodically, Timed full warmup 중에서 고를 수 있습니다. 호환성을 깨는 변경은 없습니다. 이미지 `1.6.0`을 pull하거나 `npm i cuttlely@1.6.0`을 실행하세요. 1.4.10 이하에서 업그레이드한다면 먼저 [1.5.0 업그레이드 노트](./CHANGELOG.md#150---2026-11-01)를 읽으세요. [변경 기록](./CHANGELOG.md#160---2026-11-06)
 
 ## 목차
 
