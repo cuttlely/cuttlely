@@ -73,7 +73,7 @@ describe('planNewHarnessSave', () => {
         expect(plan.liveFlowData).toBe(HARNESS_PLACEHOLDER_FLOW)
         expect(JSON.parse(plan.liveFlowData).nodes).toEqual([])
         expect(plan.draftFlowData).toBe(flowData)
-        expect(plan.retainIncompleteHarness).toBe(true)
+        expect(plan.retainIncompleteHarness).toBeUndefined()
         expect(plan.notice).toContain('Saved as a draft')
         expect(plan.notice).toContain('credential')
     })
@@ -103,16 +103,31 @@ describe('planNewHarnessSave', () => {
         expect(plan.notice).toContain('unique')
     })
 
-    test('drafts off retains an incomplete canvas without planning an ordinary roster write', () => {
+    test('drafts off refuses an incomplete canvas with a clear message so cards are not silently lost', () => {
         const flowData = flow({ credential: '' })
         const plan = planHarnessDraftFallback({ flowData, nodeDefinitions: [openAI], draftsOff: true })
-        expect(plan.body).toEqual({ flowData, retainIncompleteHarness: true })
-        expect(plan.notice).toContain('Canvas saved')
-        expect(plan.notice).toContain('not written until the canvas can run')
+        expect(plan.error).toContain('drafts are off')
+        expect(plan.error).toContain('not ready to go Live')
+        expect(plan.body).toBeUndefined()
+        const createPlan = planNewHarnessSave({ name: 'sales-desk', flowData, nodeDefinitions: [openAI], draftsOff: true })
+        expect(createPlan.error).toContain('drafts are off')
+        expect(createPlan.liveFlowData).toBeUndefined()
+        expect(createPlan.draftFlowData).toBeUndefined()
     })
 
-    test('the retained-canvas path is limited to the drafts-off refusal', () => {
+    test('the drafts-off refuse message is recognized the same way as the drafts-off server reply', () => {
         expect(draftSaveWasTurnedOff({ response: { status: 409, data: { message: 'Drafts are off on this server.' } } })).toBe(true)
+        expect(
+            draftSaveWasTurnedOff({
+                response: {
+                    status: 409,
+                    data: {
+                        message:
+                            'This harness is not ready to go Live, and drafts are off on this server. Finish the roster (credentials and unique specialist ids), then save again.'
+                    }
+                }
+            })
+        ).toBe(true)
         expect(draftSaveWasTurnedOff({ response: { status: 409, data: { message: 'Someone else saved this draft.' } } })).toBe(false)
     })
 
@@ -120,7 +135,7 @@ describe('planNewHarnessSave', () => {
         const flowData = flow({ credential: 'cred-openai-1' })
         const plan = planNewHarnessSave({ name: 'sales-desk', flowData, nodeDefinitions: [openAI] })
         expect(plan.draftFlowData).toBeNull()
-        expect(plan.retainIncompleteHarness).toBe(false)
+        expect(plan.retainIncompleteHarness).toBeUndefined()
         expect(plan.liveFlowData).toBe(flowData)
         expect(plan.notice).toBe('')
     })

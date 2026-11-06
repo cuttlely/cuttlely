@@ -126,38 +126,30 @@ const DRAFT_WHY = {
     roster: 'Add one Harness Prime, at least one specialist, and a chat model on Harness Prime, then Publish.'
 }
 
-const RETAIN_WHY = {
-    credential: 'Select a credential on each chat model that needs one, then save again.',
-    name: 'Give every specialist a unique id using a letter, then letters, numbers, "_" or "-", then save again.',
-    both: 'Select each required chat-model credential, give every specialist a unique id, then save again.',
-    roster: 'Add one Harness Prime, at least one specialist, and a chat model on Harness Prime, then save again.'
-}
+export const INCOMPLETE_DRAFTS_OFF_MESSAGE =
+    'This harness is not ready to go Live, and drafts are off on this server. Finish the roster (credentials and unique specialist ids), then save again.'
 
 export function draftSaveWasTurnedOff(error) {
     if (error?.response?.status !== 409) return false
     const data = error.response.data
     const message = typeof data === 'string' ? data : data?.message
-    return message === 'Drafts are off on this server.'
+    return message === 'Drafts are off on this server.' || message === INCOMPLETE_DRAFTS_OFF_MESSAGE
 }
 
-// With drafts off, an incomplete harness uses a server path that keeps its cards without writing
-// a harness file. A ready roster does not need that path and every other draft error stays an error.
+// With drafts off, an incomplete harness cannot be kept as Live. Refuse with a clear message so the cards stay on the canvas.
 export function planHarnessDraftFallback({ flowData, nodeDefinitions, draftsOff }) {
     if (!draftsOff) return null
     const block = harnessLiveBlock(flowData, nodeDefinitions)
     if (!block) return null
-    return {
-        body: { flowData, retainIncompleteHarness: true },
-        notice: `Canvas saved. ${RETAIN_WHY[block] || RETAIN_WHY.roster} The harness file is not written until the canvas can run.`
-    }
+    return { error: INCOMPLETE_DRAFTS_OFF_MESSAGE }
 }
 
 // Where the first save of a new harness goes.
 // A reserved try name is refused. Any other name is stored as a safe id.
-// A roster that is not runnable yet is stored as a draft on an empty live canvas, so a selected
-// credential is kept. A complete roster still goes live. Publish and the harness file write
-// keep the credential and name checks.
-export function planNewHarnessSave({ name, flowData, nodeDefinitions }) {
+// A roster that is not runnable yet is stored as a draft only on an empty live canvas, so a selected
+// credential is kept and nothing goes Live yet. A complete roster still goes live. Publish and the
+// harness file write keep the credential and name checks. When drafts are off, an incomplete roster is refused.
+export function planNewHarnessSave({ name, flowData, nodeDefinitions, draftsOff = false }) {
     const typed = String(name || '').trim()
     const reserved = reservedHarnessNameMessage(typed)
     if (reserved) return { error: reserved }
@@ -171,7 +163,10 @@ export function planNewHarnessSave({ name, flowData, nodeDefinitions }) {
     const block = harnessLiveBlock(flowData, nodeDefinitions)
     const savedAs = adjusted ? `Saved as "${id}". ${ID_RULE}` : ''
     if (!block) {
-        return { name: id, adjusted, liveFlowData: flowData, draftFlowData: null, retainIncompleteHarness: false, notice: savedAs }
+        return { name: id, adjusted, liveFlowData: flowData, draftFlowData: null, notice: savedAs }
+    }
+    if (draftsOff) {
+        return { error: INCOMPLETE_DRAFTS_OFF_MESSAGE }
     }
     const notice = [`Saved as a draft. ${DRAFT_WHY[block] || DRAFT_WHY.roster}`, savedAs].filter(Boolean).join(' ')
     return {
@@ -179,7 +174,6 @@ export function planNewHarnessSave({ name, flowData, nodeDefinitions }) {
         adjusted,
         liveFlowData: HARNESS_PLACEHOLDER_FLOW,
         draftFlowData: flowData,
-        retainIncompleteHarness: true,
         notice
     }
 }

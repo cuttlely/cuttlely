@@ -144,8 +144,10 @@ function parseMaybeJson(value) {
     }
 }
 
-// A new harness can be stored before it has a Harness Prime. That canvas is not a roster and
-// must not be written to a harness file. Unreadable JSON is not a placeholder: the roster read reports it.
+// An empty Live canvas is how a new incomplete harness waits as draft-only. It is not a roster and
+// must not be written to a harness file. Cards without a Harness Prime or specialist are not a
+// placeholder: they go through the roster checks so Publish is refused and prior Live stays unchanged.
+// Unreadable JSON is not a placeholder either: the roster read reports it.
 export function harnessCanvasIsPlaceholder(flowData) {
     let flow
     try {
@@ -154,10 +156,7 @@ export function harnessCanvasIsPlaceholder(flowData) {
         return false
     }
     const nodes = Array.isArray(flow?.nodes) ? flow.nodes : []
-    return !nodes.some((node) => {
-        const name = node?.data?.name
-        return name === 'harnessChief' || name === 'harnessSpecialist'
-    })
+    return nodes.length === 0
 }
 
 // An incomplete canvas can wait in its database row only while no runnable harness file exists.
