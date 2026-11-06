@@ -424,10 +424,10 @@ test('refresh freezes all twenty period/region views and refuses incomplete gene
     const updates = []
     const frozen = await materializeCached(def, record, execute, cache, false, (progress) => updates.push(progress))
     assert.ok(updates.some((p) => p.phase === 'views' && p.completed === 20))
-    assert.ok(updates.every((p) => p.active.length <= 4))
+    assert.ok(updates.every((p) => p.active.length <= 1))
     assert.equal(updates.at(-1).phase, 'saving')
     assert.equal(calls, 20)
-    assert.ok(maximum <= 4)
+    assert.ok(maximum <= 1)
     assert.equal(values.size, 20)
     assert.equal(Object.keys(frozen.pipelineViews.views).length, 20)
     assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].source.params.region, 'EMEA')
@@ -452,6 +452,12 @@ test('refresh freezes all twenty period/region views and refuses incomplete gene
         true
     )
     assert.equal(calls, 20)
+    // Simulate losing the process after thirteen durable views: execute only the seven missing results.
+    const resumeSince = [...values.values()].map((value) => value.fetchedAt).sort()[0]
+    for (const key of [...values.keys()].slice(0, 7)) values.delete(key)
+    const recovered = await materializeCached(def, record, execute, cache, false, () => {}, resumeSince)
+    assert.equal(calls, 27)
+    assert.equal(Object.keys(recovered.pipelineViews.views).length, 20)
     await assert.rejects(
         materializeCached(
             def,
@@ -556,6 +562,35 @@ test('a lost worker expires without waiting for the old long lease and cannot re
         assert.equal(store.status(saved.id, 'team-a').refreshProgress.status, 'interrupted')
         assert.equal(store.heartbeat(saved.id, 'team-a', claim), false)
         assert.throws(() => store.assertActive(saved.id, 'team-a', claim), /interrupted/)
-        assert.notEqual(store.claim(saved.id, 'team-a').token, claim.token)
+        const retry = store.claim(saved.id, 'team-a')
+        assert.notEqual(retry.token, claim.token)
+        assert.equal(retry.resumeSince, claim.startedAt)
+        store.progress(saved.id, 'team-a', retry, { phase: 'views', completed: 4, total: 20 })
+        store.cancel(saved.id, 'team-a', retry.token, 'interrupted')
+        const next = store.claim(saved.id, 'team-a')
+        assert.equal(next.resumeSince, claim.startedAt)
+        store.settle(saved.id, 'team-a', next, { id: 'complete', cards: [] }, null)
+        assert.equal(store.claim(saved.id, 'team-a').resumeSince, null)
     })
+})
+
+test('restart recovery reuses only this refresh chain and revalidates cached receipts', async () => {
+    const values = new Map()
+    const cache = { get: (key) => values.get(key), put: (key, value) => values.set(key, value) }
+    let calls = 0
+    const execute = async () => {
+        calls++
+        return result()
+    }
+    const since = new Date().toISOString()
+    await materializeCached(definition, harness, execute, cache)
+    await materializeCached(definition, harness, execute, cache, false, () => {}, since)
+    assert.equal(calls, 1)
+    for (const value of values.values()) value.fetchedAt = '2000-01-01T00:00:00.000Z'
+    await materializeCached(definition, harness, execute, cache, false, () => {}, since)
+    assert.equal(calls, 2)
+    for (const value of values.values()) value.raw = { ...result(), pinned: { ...result().pinned, hash: 'changed' } }
+    await assert.rejects(materializeCached(definition, harness, execute, cache, false, () => {}, since))
+    await materializeCached(definition, harness, execute, cache)
+    assert.equal(calls, 3)
 })

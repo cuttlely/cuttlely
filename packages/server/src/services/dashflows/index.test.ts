@@ -136,3 +136,39 @@ it('invalidates its own refresh when a drain begins without cancelling another w
     release({ id: 'late' })
     await running
 })
+
+it('keeps heartbeats running through a transient write failure and a query longer than the lease', async () => {
+    jest.useFakeTimers()
+    let release!: (value: any) => void
+    materialize.mockImplementationOnce(
+        () =>
+            new Promise((resolve) => {
+                release = resolve
+            })
+    )
+    store.heartbeat.mockImplementationOnce(() => {
+        throw new Error('temporary database lock')
+    })
+    try {
+        const running = refreshDashboard('dashboard', 'team-a')
+        await jest.advanceTimersByTimeAsync(120000)
+        expect(store.heartbeat).toHaveBeenCalledTimes(8)
+        expect(store.settle).not.toHaveBeenCalled()
+        release({ id: 'complete' })
+        await running
+        expect(store.settle).toHaveBeenCalledWith('dashboard', 'team-a', claim, { id: 'complete' }, null)
+        await jest.advanceTimersByTimeAsync(15000)
+        expect(store.heartbeat).toHaveBeenCalledTimes(8)
+    } finally {
+        jest.useRealTimers()
+    }
+})
+it('passes the interrupted generation boundary to validated cache recovery', async () => {
+    const resumed = { ...claim, resumeSince: '2026-11-06T12:00:00.000Z' }
+    await refreshDashboard('dashboard', 'team-a', {
+        store,
+        claim: resumed,
+        mod: { materializeCached: materialize, DashFlowError }
+    })
+    expect((materialize.mock.calls[0] as unknown[])[6]).toBe(resumed.resumeSince)
+})
