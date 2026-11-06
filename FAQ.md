@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.6.0)
+# Cuttlely FAQ (1.6.1)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,13 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.6.1?
+
+-   **Dashflows BETA** evidence inspection now leads with account names, executive hover summaries, and searchable risk-filtered source lists (up to 100 records). Pipeline period and region changes automatically save and refresh, with a six-hour workspace-scoped durable cache for date-range presets. Optional public snapshot links expose frozen published data and account-scoped health reports; team-only remains the default. Still Experimental and off by default. See [Dashflows BETA](./docs/how-to/dashflows.md).
+-   No breaking changes; read the [1.6.1 changelog](./CHANGELOG.md#161---2026-11-06). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.6.1`, or run `npm i cuttlely@1.6.1`.
+
+Full notes: [v1.6.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.6.1).
 
 ### What's new in 1.6.0?
 

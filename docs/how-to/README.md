@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.6.1
+
+-   **Updated:** [Dashflows BETA](./dashflows.md). Evidence inspection with searchable account lists and executive hover summaries, a six-hour durable cache for pipeline date-range presets, and optional public snapshot links with account-scoped health reports. Still Experimental and off by default.
+
 ## New in 1.6.0
 
 -   **New:** [Dashflows BETA](./dashflows.md). Turn on the Experimental, default-off BETA to build dashboards from tested PostgreSQL queries, with weekly or on-demand draft refreshes.

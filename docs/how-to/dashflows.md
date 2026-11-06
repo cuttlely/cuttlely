@@ -2,6 +2,8 @@
 
 Dashflows BETA turns a harness's tested PostgreSQL queries into a draggable dashboard. It calls the existing PostgreSQL MCP pinned-tool execution path, stores complete typed rows in a table, and renders later reads without a model or database-source call. It does not parse numbers from an agent answer. The BETA is experimental and off by default.
 
+In **1.6.1**, evidence inspection leads with account names and executive hover summaries, pipeline date/region presets reuse a six-hour durable cache, and **Publish & share** can create an optional public tokenized link for frozen snapshots and account-scoped health reports. Team-only publication remains the default.
+
 ## Turn on the BETA
 
 Open **Admin** > **Server Settings** > **Experimental**, turn on **Dashflows BETA**, and save. Dashflows is not a runtime setting, so restart the server with the Experimental card on that section. The card asks for confirmation, then restarts in place when Cuttlely is supervised or shows the manual steps when it is not. The underlying setting is `CUTTLELY_DASH_FLOWS`. Only the exact values `1` and `true` turn it on; an unset or empty value and every other value leave it off.

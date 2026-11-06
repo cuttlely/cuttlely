@@ -8,7 +8,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Dashflows BETA (Experimental, default off): evidence panel, cached date ranges, and public reports polish for the demo path.
+-   Dashflows BETA (Experimental, default off): evidence inspection with searchable account lists and executive hover summaries, a six-hour durable cache for pipeline date-range presets, and optional public snapshot links with account-scoped health reports.
+
+### Upgrade notes / breaking changes
+
+-   No breaking changes. Dashflows BETA stays off and hidden until an administrator turns it on under **Admin** > **Server Settings** > **Experimental**.
 
 ## [1.6.0] - 2026-11-06
 

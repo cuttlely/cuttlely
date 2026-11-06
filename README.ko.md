@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.6.0이 나왔습니다.** Dashflows는 관리자가 켜기 전까지 숨겨지고 꺼져 있는 Experimental BETA이며 주간 또는 온디맨드 대시보드를 제공합니다. **Experimental**에는 확인 후 다시 시작하는 제어가 추가되었고, Version History는 GitHub Enterprise 호스트에 연결할 수 있으며 열린 버전에서 **Back**으로 돌아갈 수 있습니다. 에이전트 런타임 준비 모드는 Off, Probe periodically, Timed full warmup 중에서 고를 수 있습니다. 호환성을 깨는 변경은 없습니다. 이미지 `1.6.0`을 pull하거나 `npm i cuttlely@1.6.0`을 실행하세요. 1.4.10 이하에서 업그레이드한다면 먼저 [1.5.0 업그레이드 노트](./CHANGELOG.md#150---2026-11-01)를 읽으세요. [변경 기록](./CHANGELOG.md#160---2026-11-06)
+**1.6.1이 나왔습니다.** Dashflows BETA(Experimental, 기본 꺼짐)는 증거 패널 확인, 파이프라인 날짜 범위의 최대 6시간 캐시, 선택적 공개 스냅샷 링크와 계정 단위 헬스 리포트를 다듬습니다. 호환성을 깨는 변경은 없습니다. 이미지 `1.6.1`을 pull하거나 `npm i cuttlely@1.6.1`을 실행하세요. 1.4.10 이하에서 업그레이드한다면 먼저 [1.5.0 업그레이드 노트](./CHANGELOG.md#150---2026-11-01)를 읽으세요. [변경 기록](./CHANGELOG.md#161---2026-11-06)
 
 ## 목차
 
