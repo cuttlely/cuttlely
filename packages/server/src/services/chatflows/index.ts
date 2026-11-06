@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
-import { In, IsNull, QueryRunner, type DataSource, type EntityManager } from 'typeorm'
+import { In, IsNull, Not, QueryRunner, type DataSource, type EntityManager, type FindOptionsWhere } from 'typeorm'
 import { validate as isValidUUID } from 'uuid'
 import { ChatflowType, IHarnessCaller, IReactFlowObject, ScheduleInputMode, StartInputType } from '../../Interface'
 import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface.Metrics'
@@ -434,11 +434,18 @@ const saveChatflow = async (
     actor?: VersionActor,
     // Promote labels the first version of a flow it creates, and gets the result of that record.
     // `caller` is who saves: a HARNESS canvas, or a canvas that names a harness, is refused without one.
-    record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller'>
+    record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller' | 'draftFlowData' | 'retainIncompleteHarness'>
 ): Promise<any> => {
+    const initialDraft = newChatFlow.type === EnumChatflowType.HARNESS ? record?.draftFlowData : undefined
+    const saveInitialDraft = typeof initialDraft === 'string' && flowDraftsService.isDraftsEnabled()
+    if (typeof initialDraft === 'string' && !saveInitialDraft) newChatFlow.flowData = initialDraft
     if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
-    const skipHarnessSync = await validateHarnessCanvas(newChatFlow, record?.caller)
+    const skipHarnessSync = await validateHarnessCanvas(
+        newChatFlow,
+        record?.caller,
+        record?.retainIncompleteHarness === true || (typeof initialDraft === 'string' && !saveInitialDraft)
+    )
     await validateReferencedHarnesses(newChatFlow, record?.caller)
     await validateEtlCanvas(newChatFlow)
     const appServer = getRunningExpressApp()
@@ -467,6 +474,24 @@ const saveChatflow = async (
     // A taken harness name is refused before this insert. If the sync still fails, the new row is removed
     // before history or telemetry, so the caller does not keep a canvas for another team's harness.
     await keepHarnessCanvas(dbResponse, record?.caller, () => deleteChatflowRow(dbResponse.id), skipHarnessSync)
+    if (saveInitialDraft) {
+        try {
+            await flowDraftsService.saveDraft(dbResponse, initialDraft, {
+                userId: actor?.id || null,
+                orgId,
+                subscriptionId,
+                caller: record?.caller
+            })
+        } catch (error) {
+            try {
+                await flowDraftsService.deleteStateFor(dbResponse.id)
+                await deleteChatflowRow(dbResponse.id)
+            } catch (cleanupError) {
+                logger.warn(`[server]: Could not remove an incomplete create for ${dbResponse.id}: ${getErrorMessage(cleanupError)}`)
+            }
+            throw error
+        }
+    }
     // Queued at the save so history keeps database save order.
     const recorded = flowVersionsService.recordFlowVersion(dbResponse, {
         ...(record?.versionRecord || {}),
@@ -571,6 +596,8 @@ export interface UpdateChatflowOptions {
     expectedFlowData?: string
     // Keeps an incomplete harness canvas when drafts are off. It is allowed only before a harness file exists.
     retainIncompleteHarness?: boolean
+    // A new harness can save its first canvas in this create operation while Live stays empty.
+    draftFlowData?: unknown
 }
 
 // Test seam. A race test updates Live or inserts a draft after the check and before the conditional write.
@@ -1001,6 +1028,19 @@ async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assert
         engine.assertSavedHarnessName(chatflow.name)
     } catch (error) {
         throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+    }
+    const where: FindOptionsWhere<ChatFlow> = {
+        name: chatflow.name,
+        workspaceId: chatflow.workspaceId,
+        type: EnumChatflowType.HARNESS
+    }
+    if (chatflow.id) where.id = Not(chatflow.id)
+    const canvas = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy(where)
+    if (canvas) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            `Harness name "${chatflow.name}" is already used by another agent team. Choose a different name.`
+        )
     }
     await harnessesService.withNameLock(chatflow.name, () =>
         harnessesService.withProfileLock(() =>

@@ -172,7 +172,11 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
             throw new AppError(StatusCodes.NOT_FOUND, `Error: chatflowsController.saveChatflow - workspace ${workspaceId} not found!`)
         }
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''
-        const body = req.body
+        const body = { ...req.body }
+        const draftFlowData = body.draftFlowData
+        const retainIncompleteHarness = body.retainIncompleteHarness
+        delete body.draftFlowData
+        delete body.retainIncompleteHarness
 
         const existingChatflowCount = await chatflowsService.getAllChatflowsCountByOrganization(body.type, orgId)
         const newChatflowCount = 1
@@ -189,7 +193,11 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
             subscriptionId,
             getRunningExpressApp().usageCacheManager,
             actorFromUser(req.user),
-            { caller: await harnessCallerFor(req) }
+            {
+                caller: await harnessCallerFor(req),
+                draftFlowData,
+                retainIncompleteHarness: retainIncompleteHarness === true
+            }
         )
 
         return res.json(apiResponse)

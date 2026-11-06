@@ -489,7 +489,8 @@ const Canvas = () => {
                     }
                     newChatflowBody.name = planned.name
                     newChatflowBody.flowData = planned.liveFlowData
-                    if (planned.draftFlowData) pendingDraftRef.current = planned.draftFlowData
+                    if (planned.draftFlowData) newChatflowBody.draftFlowData = planned.draftFlowData
+                    if (planned.retainIncompleteHarness) newChatflowBody.retainIncompleteHarness = true
                     pendingHarnessNoteRef.current = planned.notice || ''
                 }
                 createNewChatflowApi.request(newChatflowBody)

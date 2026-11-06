@@ -171,7 +171,7 @@ export function planNewHarnessSave({ name, flowData, nodeDefinitions }) {
     const block = harnessLiveBlock(flowData, nodeDefinitions)
     const savedAs = adjusted ? `Saved as "${id}". ${ID_RULE}` : ''
     if (!block) {
-        return { name: id, adjusted, liveFlowData: flowData, draftFlowData: null, notice: savedAs }
+        return { name: id, adjusted, liveFlowData: flowData, draftFlowData: null, retainIncompleteHarness: false, notice: savedAs }
     }
     const notice = [`Saved as a draft. ${DRAFT_WHY[block] || DRAFT_WHY.roster}`, savedAs].filter(Boolean).join(' ')
     return {
@@ -179,6 +179,7 @@ export function planNewHarnessSave({ name, flowData, nodeDefinitions }) {
         adjusted,
         liveFlowData: HARNESS_PLACEHOLDER_FLOW,
         draftFlowData: flowData,
+        retainIncompleteHarness: true,
         notice
     }
 }

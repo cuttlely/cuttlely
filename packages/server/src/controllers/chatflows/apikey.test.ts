@@ -1,6 +1,8 @@
 const getApiKey = jest.fn()
 const verifyApiKey = jest.fn()
 const getChatflowByApiKey = jest.fn()
+const saveChatflow = jest.fn()
+const getAllChatflowsCountByOrganization = jest.fn()
 const logger = { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn(), http: jest.fn() }
 
 jest.mock('../../services/apikey', () => ({
@@ -14,7 +16,9 @@ jest.mock('../../services/apikey', () => ({
 jest.mock('../../services/chatflows', () => ({
     __esModule: true,
     default: {
-        getChatflowByApiKey: (...args: unknown[]) => getChatflowByApiKey(...args)
+        getChatflowByApiKey: (...args: unknown[]) => getChatflowByApiKey(...args),
+        getAllChatflowsCountByOrganization: (...args: unknown[]) => getAllChatflowsCountByOrganization(...args),
+        saveChatflow: (...args: unknown[]) => saveChatflow(...args)
     }
 }))
 
@@ -28,7 +32,7 @@ jest.mock('../../schedule/ScheduleBeat', () => ({
 }))
 
 jest.mock('../../utils/getRunningExpressApp', () => ({
-    getRunningExpressApp: jest.fn()
+    getRunningExpressApp: jest.fn().mockReturnValue({ usageCacheManager: {} })
 }))
 
 jest.mock('../../utils/quotaUsage', () => ({
@@ -158,6 +162,54 @@ describe('getChatflowByApiKey', () => {
 
         expect(getApiKey).not.toHaveBeenCalled()
         expect(next.mock.calls[0][0].statusCode).toBe(412)
+    })
+})
+
+describe('saveChatflow', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        getAllChatflowsCountByOrganization.mockResolvedValue(0)
+        saveChatflow.mockResolvedValue({ id: 'flow-1' })
+    })
+
+    it('passes first-canvas data as create options instead of row fields', async () => {
+        const draftFlowData = JSON.stringify({ nodes: [{ id: 'chief' }], edges: [] })
+        const body = {
+            name: 'create-draft',
+            type: 'HARNESS',
+            flowData: JSON.stringify({ nodes: [], edges: [] }),
+            draftFlowData,
+            retainIncompleteHarness: true
+        }
+        const res = response()
+        const next = jest.fn()
+
+        await chatflowsController.saveChatflow(
+            {
+                body,
+                user: {
+                    id: 'user-1',
+                    name: 'Dana',
+                    activeOrganizationId: 'org-1',
+                    activeWorkspaceId: 'ws-1',
+                    activeOrganizationSubscriptionId: 'sub-1'
+                }
+            } as any,
+            res as any,
+            next
+        )
+
+        expect(next).not.toHaveBeenCalled()
+        const [row, , , , , , options] = saveChatflow.mock.calls[0]
+        expect(row).toMatchObject({ name: 'create-draft', type: 'HARNESS', flowData: body.flowData, workspaceId: 'ws-1' })
+        expect(row).not.toHaveProperty('draftFlowData')
+        expect(row).not.toHaveProperty('retainIncompleteHarness')
+        expect(options).toMatchObject({
+            caller: { via: 'session' },
+            draftFlowData,
+            retainIncompleteHarness: true
+        })
+        expect(res.body).toEqual({ id: 'flow-1' })
     })
 })
 
