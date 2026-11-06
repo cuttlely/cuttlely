@@ -14,6 +14,8 @@
 
 let mockDataSource: unknown
 jest.mock('../DataSource', () => ({ getDataSource: () => mockDataSource }))
+// Use the real HTTP guard directly so this focused suite needs no components build.
+jest.mock('@cuttlely/components', () => jest.requireActual('../../../components/src/httpSecurity'), { virtual: true })
 // The real logger loads the storage providers from @cuttlely/components, which the Postgres CI job does not build.
 jest.mock('../utils/logger', () => {
     const quiet = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), verbose: jest.fn() }
@@ -35,6 +37,7 @@ import {
     updateOrganizationUser
 } from './directory'
 import { identityAuthRouter } from './http'
+import { identityOrgUserRouter } from './directoryRoutes'
 import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
@@ -710,6 +713,103 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
                 now: NOW
             })
         ).toBe('invalid')
+    })
+
+    maybe('cancels a pending owner through the users API and invalidates their links on every team', async () => {
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            {
+                user: { email: 'pending-owner@example.com' },
+                workspace: { id: TEAM },
+                role: { id: OWNER_ROLE_ID }
+            },
+            deps()
+        )
+        const firstToken = tokenOf(created.link)
+        await db.rows(`INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES (?, ?, ?, ?)`, [
+            TEAM_2,
+            created.id,
+            MEMBER_ROLE,
+            'active'
+        ])
+        const secondToken = tokenOf((await resetLocalLink(db.sql, { ...owner, workspaceId: TEAM_2 }, created.id, {}, deps())).link)
+        const app = express()
+        app.use((req, _res, next) => {
+            req.user = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM }
+            next()
+        })
+        app.use('/organizationuser', identityOrgUserRouter)
+        await request(app)
+            .delete('/organizationuser')
+            .query({ organizationId: ORG, userId: created.id, invitationOnly: 'true' })
+            .expect(200)
+        expect(await db.rows(`SELECT * FROM organization_user WHERE "userId" = ?`, [created.id])).toEqual([])
+        expect(await db.rows(`SELECT * FROM workspace_user WHERE "userId" = ?`, [created.id])).toEqual([])
+        expect(await db.rows(`SELECT "consumeId" AS "consumeId" FROM identity_action_link WHERE "userId" = ?`, [created.id])).toEqual([
+            { consumeId: 'revoked' },
+            { consumeId: 'revoked' }
+        ])
+        for (const token of [firstToken, secondToken]) {
+            await expect(
+                db.store.acceptInvite({
+                    token,
+                    userId: created.id,
+                    email: 'pending-owner@example.com',
+                    externalId: 'pending-owner',
+                    authenticationMethod: 'workos',
+                    now: NOW
+                })
+            ).resolves.toBe('invalid')
+            await expect(
+                acceptLocalPassword(
+                    db.sql,
+                    { body: { token, password: GOOD }, query: {}, ip: '127.0.0.1', now: NOW },
+                    deps(NOW, { CUTTLELY_LOCAL_USERS: 'true' }, 'local')
+                )
+            ).resolves.toMatchObject({ status: 400 })
+        }
+        expect(await user(created.id)).toEqual({ status: 'deleted', externalId: null })
+        expect(await user(OWNER)).toEqual({ status: 'active', externalId: null })
+        await request(app)
+            .delete('/organizationuser')
+            .query({ organizationId: ORG, userId: created.id, invitationOnly: 'true' })
+            .expect(404)
+    })
+
+    maybe('refuses a stale cancellation through the users API after the owner invitation is accepted', async () => {
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            {
+                user: { email: 'pending-owner@example.com' },
+                workspace: { id: TEAM },
+                role: { id: OWNER_ROLE_ID }
+            },
+            deps()
+        )
+        await expect(
+            db.store.acceptInvite({
+                token: tokenOf(created.link),
+                userId: created.id,
+                email: 'pending-owner@example.com',
+                externalId: 'accepted-owner',
+                authenticationMethod: 'workos',
+                now: NOW
+            })
+        ).resolves.toBe('accepted')
+        const app = express()
+        app.use((req, _res, next) => {
+            req.user = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM }
+            next()
+        })
+        app.use('/organizationuser', identityOrgUserRouter)
+        await request(app)
+            .delete('/organizationuser')
+            .query({ organizationId: ORG, userId: created.id, invitationOnly: 'true' })
+            .expect(409)
+        expect(await user(created.id)).toEqual({ status: 'active', externalId: 'accepted-owner' })
+        expect(await db.rows(`SELECT "userId" FROM organization_user WHERE "userId" = ?`, [created.id])).toHaveLength(1)
     })
 
     maybe("refuses another person's token, and leaves it usable for the person it was for", async () => {

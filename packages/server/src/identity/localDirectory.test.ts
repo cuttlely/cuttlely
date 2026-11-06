@@ -496,6 +496,35 @@ describe('local directory rules', () => {
         expect(db.prepare('SELECT status FROM organization_user WHERE "userId" = ?').all(OWNER)).toEqual([{ status: 'active' }])
     })
 
+    it('keeps last-active-owner protection across removal paths when another owner is invited', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO "user" (id, email, status) VALUES ('pending-owner', 'pending@example.com', 'invited');
+            INSERT INTO organization_user (organizationId, userId, roleId, status)
+                VALUES ('${ORG}', 'pending-owner', 'role-owner', 'active');
+            INSERT INTO workspace_user (workspaceId, userId, roleId, status)
+                VALUES ('${TEAM}', 'pending-owner', 'role-owner', 'active');
+        `)
+        await expect(deleteOrganizationUser(sql, owner, ORG, OWNER)).rejects.toMatchObject({ status: 409 })
+        await expect(deleteWorkspaceUser(sql, owner, TEAM, OWNER)).rejects.toMatchObject({ status: 409 })
+        await expect(setUserDisabled(sql, owner, OWNER, true)).rejects.toMatchObject({ status: 409 })
+        await expect(updateOrganizationUser(sql, owner, { organizationId: ORG, userId: OWNER, status: 'inactive' })).rejects.toMatchObject({
+            status: 409
+        })
+        await expect(updateWorkspaceUserRole(sql, owner, { workspaceId: TEAM, userId: OWNER, roleId: 'role-admin' })).rejects.toMatchObject(
+            { status: 403 }
+        )
+        expect(db.prepare('SELECT status FROM "user" WHERE id = ?').all(OWNER)).toEqual([{ status: 'active' }])
+    })
+
+    it('still removes an ordinary member from the organization and every team', async () => {
+        const { sql, db } = memorySql()
+        await expect(deleteOrganizationUser(sql, owner, ORG, 'viewer-1')).resolves.toEqual({ id: 'viewer-1' })
+        expect(db.prepare('SELECT * FROM organization_user WHERE userId = ?').all('viewer-1')).toEqual([])
+        expect(db.prepare('SELECT * FROM workspace_user WHERE userId = ?').all('viewer-1')).toEqual([])
+        expect(db.prepare('SELECT status FROM "user" WHERE id = ?').all('viewer-1')).toEqual([{ status: 'deleted' }])
+    })
+
     it('lets one of two overlapping owner disables succeed', async () => {
         const { sql, db } = memorySql()
         db.exec(`
