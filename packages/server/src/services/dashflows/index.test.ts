@@ -87,10 +87,21 @@ it('does no scheduled work while Dashflows is off', async () => {
     startDashflowScheduler(null)
     expect(drainStart).not.toHaveBeenCalled()
 })
+it('refuses a manual refresh while draining without claiming or starting work', async () => {
+    draining.mockReturnValue(true)
+    await expect(startDashboardRefresh('dashboard', 'team-a')).rejects.toMatchObject({
+        statusCode: 503,
+        message: 'Cuttlely is restarting. Try again in a minute.'
+    })
+    expect(store.claim).not.toHaveBeenCalled()
+    expect(track).not.toHaveBeenCalled()
+    expect(materialize).not.toHaveBeenCalled()
+})
 it('claims a manual refresh and returns before materialization settles', async () => {
     let finish!: (value: { id: string }) => void
     materialize.mockImplementationOnce(() => new Promise<{ id: string }>((resolve) => (finish = resolve)))
     await expect(startDashboardRefresh('dashboard', 'team-a')).resolves.toEqual({ id: 'dashboard', refreshing: true })
+    expect(store.claim).toHaveBeenCalledWith('dashboard', 'team-a')
     expect(track).toHaveBeenCalledTimes(1)
     await new Promise((resolve) => setImmediate(resolve))
     expect(store.settle).not.toHaveBeenCalled()
