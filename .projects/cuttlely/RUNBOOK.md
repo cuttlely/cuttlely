@@ -1,3 +1,5 @@
+Warm-up modes: `CUTTLELY_WARM_HERMES=false` disables background warm-up, `probe` or unset uses conditional probes, and `true` selects full roster warm-up. The interval defaults to five minutes; save and restart to apply. Both active modes keep bounded concurrency and prioritize user work.
+
 Warm-up uses process-local evidence. Successful real specialist calls count as warm; evidence expires for probe decisions after `CUTTLELY_HERMES_KEEP_WARM_MINUTES` (five minutes when unset). Cold or recompiled profiles still need their own warm-up. A failed health check clears that evidence; an unsuccessful probe ends the cycle. External worker processes do not share this in-memory evidence.
 
 # Runbook

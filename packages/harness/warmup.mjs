@@ -31,16 +31,16 @@ export class WarmupCoordinator {
         this.runtime(url).profiles.clear()
     }
 
-    async run({ url, targets, healthy, warm }) {
-        if (!targets.length) return []
+    async run({ url, targets, healthy, warm, mode = 'probe' }) {
+        if (mode === 'off' || !targets.length) return []
         const runtime = this.runtime(url)
         // Queue concurrent saves/timers, then recheck evidence. Do not lose newly
         // saved profiles when another cycle was already warming a different roster.
         if (runtime.pending) {
             await runtime.pending.catch(() => {})
-            return this.run({ url, targets, healthy, warm })
+            return this.run({ url, targets, healthy, warm, mode })
         }
-        const pending = this.cycle(runtime, { url, targets, healthy, warm })
+        const pending = this.cycle(runtime, { url, targets, healthy, warm, mode })
         runtime.pending = pending
         try {
             return await pending
@@ -49,7 +49,7 @@ export class WarmupCoordinator {
         }
     }
 
-    async cycle(runtime, { url, targets, healthy, warm }) {
+    async cycle(runtime, { url, targets, healthy, warm, mode }) {
         if (runtime.active) return []
         // Failed health invalidates evidence from the old runtime process.
         if (!(await healthy())) {
@@ -58,8 +58,10 @@ export class WarmupCoordinator {
         }
         if (runtime.active) return []
         const current = (target) => runtime.profiles.get(target.profile)?.version === target.version
-        const cold = targets.filter((target) => !current(target))
-        const recent = targets.some((target) => current(target) && this.now() - runtime.profiles.get(target.profile).at < this.recentMs())
+        const cold = mode === 'full' ? targets : targets.filter((target) => !current(target))
+        const recent =
+            mode !== 'full' &&
+            targets.some((target) => current(target) && this.now() - runtime.profiles.get(target.profile).at < this.recentMs())
         if (!cold.length && recent) return []
         const results = []
         const runOne = async (target) => {

@@ -189,3 +189,29 @@ test('a failed warm-up waits for its sibling before releasing the cycle to a que
     )
     assert.equal((await f.coordinator.run(f.options)).length, 3)
 })
+
+test('Off makes no health checks or model calls', async () => {
+    const f = fixture()
+    let healthChecks = 0
+    assert.deepEqual(
+        await f.coordinator.run({
+            ...f.options,
+            mode: 'off',
+            healthy: async () => {
+                healthChecks++
+                return true
+            }
+        }),
+        []
+    )
+    assert.equal(healthChecks, 0)
+    assert.deepEqual(f.seen, [])
+})
+
+test('Timed full warmup warms every profile again, even when recently successful', async () => {
+    const f = fixture()
+    await f.coordinator.run(f.options)
+    assert.equal((await f.coordinator.run({ ...f.options, mode: 'full' })).length, 5)
+    assert.equal(f.seen.length, 10)
+    assert.deepEqual(await f.coordinator.run(f.options), [])
+})

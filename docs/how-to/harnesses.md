@@ -487,6 +487,12 @@ Harness Prime can ask a fixed clarification for missing essential record selecti
 
 ## Runtime warm-up
 
-Startup warm-up checks runtime health, then probes one specialist before warming other cold profiles. At most two remaining profiles warm at once. Later idle cycles probe one specialist rather than calling the whole roster again. Successful recent specialist requests skip the probe, and background warm-up pauses while user specialist work is active.
+In **Admin** > **Server Settings** > **Agent runtime** > **Warm-up**, choose a mode:
 
-A saved change that recompiles a profile makes it cold again. One successful probe confirms the shared runtime can answer; it does not initialize every specialist’s tools. Warm-up evidence is local to each server process. The keep-warm interval is configured in **Admin** > **Server Settings** > **Agent runtime** > **Warm-up**.
+-   **Off**: no startup, save-triggered or scheduled warm-up calls.
+-   **Probe periodically** (default): check runtime health, probe one idle specialist, then warm only cold or changed profiles. Recent successful requests skip the probe.
+-   **Timed full warmup**: warm all eligible specialists at startup, after saves and at each interval, even when they were recently used.
+
+**Interval** defaults to five minutes and appears for either active mode. Save and restart to apply. Both active modes prioritize user work, serialize overlapping cycles, check health and stop if their initial probe fails. Remaining profiles warm at most two at a time.
+
+A successful probe confirms the shared runtime can answer; it does not initialize every specialist’s tools. Warm-up evidence is local to each server process. Existing explicit `CUTTLELY_WARM_HERMES=false` values remain Off; `true` selects Timed full warmup. Unset or `probe` selects Probe periodically. `CUTTLELY_HERMES_KEEP_WARM_MINUTES` sets the interval.

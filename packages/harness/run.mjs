@@ -3937,8 +3937,10 @@ export async function warmHarnessProfiles({
     baseUrl = hermesBaseUrl(),
     fetchImpl = fetch,
     healthWaitMs = 1200000,
+    mode = process.env.CUTTLELY_WARM_HERMES === 'false' ? 'off' : process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
     lock = (fn) => fn()
 } = {}) {
+    if (mode === 'off') return []
     const records = names ? names.map((name) => getHarness(name)).filter(Boolean) : listHarnesses()
     const targets = []
     for (const record of records) {
@@ -3959,6 +3961,7 @@ export async function warmHarnessProfiles({
     const chatId = `cuttlely-warmup-${Date.now()}`
     const results = await warmupCoordinator.run({
         url: baseUrl,
+        mode,
         targets,
         healthy: () => hermesHealthy(baseUrl, fetchImpl, healthWaitMs),
         warm: async ({ name, roster, specialist, record }) => {
