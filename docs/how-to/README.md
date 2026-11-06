@@ -2,6 +2,14 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.6.0
+
+-   **New:** [Dashflows BETA](./dashflows.md). Turn on the Experimental, default-off BETA to build dashboards from tested PostgreSQL queries, with weekly or on-demand draft refreshes.
+-   **Updated:** [Runtime warm-up](./harnesses.md#runtime-warm-up). Choose Off, Probe periodically (the default), or Timed full warmup, then save and restart.
+-   **Updated:** [Version history](./versioning.md#keep-a-copy-in-github). Connect a GitHub Enterprise host, and use **Back** from an open version without returning to it again.
+-   **Updated:** [Share and embed](./share-and-embed.md). Public chat and embedded chat show the paperclip for File Upload, and public PDF downloads work in a signed-in browser session.
+-   **Updated:** [Context and tokens](./context-and-tokens.md). File-capable specialists receive complete recent answers within the documented limit for follow-up report exports.
+
 ## New in 1.5.2
 
 -   **New:** [Sort answer tables](./answer-tables.md). Click a column header in a chat answer's table to sort it, in the app chat and the embedded widget.
