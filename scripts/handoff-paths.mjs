@@ -1,4 +1,4 @@
-// Classify a push against origin/main. A code change must also touch the project
+// Classify a push against the integration branch. A code change must also touch the project
 // notes in .projects/cuttlely/, which ship with the repository. Docs-only and
 // tests-only diffs do not. A checkout without that directory (a stripped export)
 // skips the check.
@@ -8,6 +8,10 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const HANDOFF_PREFIX = '.projects/cuttlely/'
+
+// The branch work is branched from and merged into. The handoff check, the
+// handoff facts script and the take-over steps all read it from here.
+export const INTEGRATION_BRANCH = 'dev'
 
 export function handoffDirectoryExists(root = process.cwd()) {
     try {
@@ -20,7 +24,7 @@ export function handoffDirectoryExists(root = process.cwd()) {
 export function handoffSkipMessage() {
     return [
         'Handoff check skipped: .projects/cuttlely/ is missing from this checkout.',
-        'The repository ships those notes. Restore them with: git checkout origin/main -- .projects/cuttlely',
+        `The repository ships those notes. Restore them with: git checkout origin/${INTEGRATION_BRANCH} -- .projects/cuttlely`,
         'When the directory is present, a code change must update it.'
     ].join('\n')
 }
@@ -72,17 +76,17 @@ export function classifyFiles(files) {
     return { ok, code, docs, tests, handoff }
 }
 
-function git(args) {
-    const result = spawnSync('git', args, { encoding: 'utf8' })
+function git(args, cwd) {
+    const result = spawnSync('git', args, { encoding: 'utf8', cwd })
     return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' }
 }
 
-export function changedFilesSinceMain(sha) {
+export function changedFilesSinceBase(sha, branch = INTEGRATION_BRANCH, cwd = undefined) {
     const tip = sha || 'HEAD'
     let mergeBase = ''
     let baseName = ''
-    for (const base of ['origin/main', 'main']) {
-        const found = git(['merge-base', tip, base])
+    for (const base of [`origin/${branch}`, branch]) {
+        const found = git(['merge-base', tip, base], cwd)
         if (found.status === 0 && found.stdout.trim()) {
             mergeBase = found.stdout.trim()
             baseName = base
@@ -90,9 +94,9 @@ export function changedFilesSinceMain(sha) {
         }
     }
     if (!mergeBase) {
-        throw new Error('Could not find a merge-base with origin/main or main. Fetch origin main and run again.')
+        throw new Error(`Could not find a merge-base with origin/${branch} or ${branch}. Fetch origin ${branch} and run again.`)
     }
-    const diff = git(['diff', '--name-only', `${mergeBase}..${tip}`])
+    const diff = git(['diff', '--name-only', `${mergeBase}..${tip}`], cwd)
     if (diff.status !== 0) {
         throw new Error(diff.stderr.trim() || `git diff failed for ${mergeBase}..${tip}`)
     }
@@ -106,7 +110,7 @@ export function changedFilesSinceMain(sha) {
 export function formatBlock(result, files) {
     const lines = []
     if (result.ok) {
-        if (!files.length) lines.push('No files changed against main.')
+        if (!files.length) lines.push(`No files changed against ${INTEGRATION_BRANCH}.`)
         else if (!result.code.length) lines.push('Docs-only or tests-only change. Handoff files are not required.')
         else lines.push(`Code change also touches ${result.handoff.length} file(s) under ${HANDOFF_PREFIX}.`)
         return lines.join('\n')
@@ -141,8 +145,12 @@ if (isDirectRun) {
             console.log(handoffSkipMessage())
             process.exit(0)
         }
+        if (process.argv.includes('--print-branch')) {
+            console.log(INTEGRATION_BRANCH)
+            process.exit(0)
+        }
         const sha = shaArg(process.argv.slice(2))
-        const range = changedFilesSinceMain(sha || 'HEAD')
+        const range = changedFilesSinceBase(sha || 'HEAD')
         const result = classifyFiles(range.files)
         console.log(`handoff check ${range.baseName}..${range.tip} (${range.files.length} files)`)
         console.log(formatBlock(result, range.files))

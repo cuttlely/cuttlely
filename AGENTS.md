@@ -10,6 +10,7 @@ Cuttlely 1.6.1 gives applications agent teams (harnesses) that apps call through
 
 ## While working
 
+-   Branch from `dev` and open pull requests against `dev`, the integration branch (`INTEGRATION_BRANCH` in `scripts/handoff-paths.mjs`). A maintainer promotes `dev` to `main` by hand.
 -   Before a push or a pull request, run `pnpm verify` on Node 24. A change that is only docs or markdown can use `pnpm verify --fast`.
 -   When project state changes, update `.projects/cuttlely/` in the same change. Before a push or a pull request, run the `refresh-project-handoff` skill once. The notes are public: no secrets, personal names, private hosts, machine paths, customer data, or business notes.
 -   Never commit or print secrets: model keys, tokens, `.cuttlely/`, or any `.env` file.

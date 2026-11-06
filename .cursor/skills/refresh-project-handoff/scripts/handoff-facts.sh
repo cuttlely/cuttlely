@@ -4,12 +4,14 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 git fetch --prune origin
+# The integration branch is set once, in scripts/handoff-paths.mjs.
+base="$(node scripts/handoff-paths.mjs --print-branch)"
 
 echo "branch $(git branch --show-current)"
 echo "HEAD $(git log -1 --format='%h %cs %s')"
-echo "origin/main $(git log -1 --format='%h %cs %s' origin/main)"
-echo "ahead-of-origin/main $(git rev-list --count origin/main..HEAD)"
-echo "behind-origin/main $(git rev-list --count HEAD..origin/main)"
+echo "origin/$base $(git log -1 --format='%h %cs %s' "origin/$base")"
+echo "ahead-of-origin/$base $(git rev-list --count "origin/$base..HEAD")"
+echo "behind-origin/$base $(git rev-list --count "HEAD..origin/$base")"
 
 echo "open-prs"
 if prs="$(gh pr list --state open --json number,title,headRefName --jq '.[] | "#\(.number) \(.headRefName) \(.title)"')"; then
@@ -36,19 +38,19 @@ else
     echo "(gh issue list failed)"
 fi
 
-echo "remote-branches-ahead-of-main"
+echo "remote-branches-ahead-of-$base"
 git for-each-ref --format='%(refname:short)' refs/remotes/origin \
-    | { grep -Ev '^origin(/HEAD|/main)?$' || true; } \
+    | { grep -Ev "^origin(/HEAD|/$base)?\$" || true; } \
     | while read -r ref; do
-        ahead="$(git rev-list --count origin/main.."$ref")"
+        ahead="$(git rev-list --count "origin/$base..$ref")"
         [[ "$ahead" == "0" ]] && continue
         echo "$ref ahead=$ahead $(git log -1 --format='%cs %s' "$ref")"
     done
 
 echo "recent-ci"
-if ! gh run list --branch main --limit 4 --json name,conclusion,headSha,displayTitle --jq '.[] | "\(.conclusion // "pending") \(.headSha[0:9]) \(.name) \(.displayTitle)"'; then
+if ! gh run list --branch "$base" --limit 4 --json name,conclusion,headSha,displayTitle --jq '.[] | "\(.conclusion // "pending") \(.headSha[0:9]) \(.name) \(.displayTitle)"'; then
     echo "(gh run list failed)"
 fi
 
-echo "recent-main"
-git log -15 --format='%h %cs %s' origin/main
+echo "recent-$base"
+git log -15 --format='%h %cs %s' "origin/$base"
