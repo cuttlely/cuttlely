@@ -28,6 +28,8 @@ import {
     parseArgs,
     plannedVersion,
     preflightProblems,
+    releaseBranch,
+    TAG_STEP_PENDING,
     redactSecret,
     releaseNotes,
     releaseSection,
@@ -326,6 +328,10 @@ test('preflight lists every reason to refuse', () => {
         )
     }
     assert.deepEqual(preflightProblems({ ...ok, gh: false, local: true }), [])
+    assert.deepEqual(preflightProblems({ ...ok, localBranch: true }), ['Branch release/v1.0.0 already exists here.'])
+    assert.deepEqual(preflightProblems({ ...ok, remoteBranch: true }), ['Branch release/v1.0.0 already exists on origin.'])
+    assert.deepEqual(preflightProblems({ ...ok, remoteBranch: true, local: true, localImage: true }), [])
+    assert.equal(releaseBranch('1.2.3-rc.1'), 'release/v1.2.3-rc.1')
 })
 
 // End to end against a throwaway repository, a bare origin, and stub docker, gh and pnpm.
@@ -410,6 +416,7 @@ exit 0`
   "release view") [ -f "${dir}/released" ] || exit 1; cat "${dir}/released" ;;
   "release create") case "$*" in *--draft*) echo true > "${dir}/released" ;; *) echo false > "${dir}/released" ;; esac ;;
   "release edit") echo false > "${dir}/released" ;;
+  "pr create") echo https://github.com/acme/cuttlely/pull/1 ;;
 esac
 exit 0`
     )
@@ -440,8 +447,17 @@ exit 0`
         }
     }
     const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '')
+    // Tag timing is pending a decision, so the release does not tag. Tests stand in for the merged
+    // release pull request and a maintainer's tag: fast-forward main to the release branch, push it,
+    // and tag that commit.
+    const mergeAndTag = (version) => {
+        sh(repo, 'git', ['switch', '-q', 'main'])
+        sh(repo, 'git', ['merge', '-q', '--ff-only', `release/v${version}`])
+        sh(repo, 'git', ['push', '-q', 'origin', 'main'])
+        sh(repo, 'git', ['tag', '-a', `v${version}`, '-m', `Cuttlely ${version}`])
+    }
     const cleanup = () => fs.rmSync(dir, { recursive: true, force: true })
-    return { repo, origin, runRelease, calls, cleanup, dir }
+    return { repo, origin, runRelease, calls, cleanup, dir, mergeAndTag }
 }
 
 test('dry run on a clean, synced main passes and changes nothing', (t) => {
@@ -451,17 +467,18 @@ test('dry run on a clean, synced main passes and changes nothing', (t) => {
     const res = f.runRelease(['--dry-run'])
     assert.equal(res.code, 0, res.out)
     assert.match(res.out, /Version 1\.0\.0 comes from CHANGELOG\.md/)
-    assert.match(
-        res.out,
-        /wait for the \.github\/workflows\/release-image\.yml run for v1\.0\.0 to pass and ghcr\.io\/acme\/cuttlely:1\.0\.0 to be available/
-    )
-    assert.match(res.out, /gh release create v1\.0\.0 .*--draft/)
+    assert.match(res.out, /git switch -c release\/v1\.0\.0/)
+    assert.match(res.out, /git push -u origin release\/v1\.0\.0/)
+    assert.match(res.out, /gh pr create --base main --head release\/v1\.0\.0/)
+    assert.ok(res.out.includes(`TAG STEP: ${TAG_STEP_PENDING}`), res.out)
+    assert.doesNotMatch(res.out, /git tag|HEAD:main|gh release create/)
     assert.doesNotMatch(res.out, /docker build|docker push/)
     assert.match(res.out, /Dry run passed/)
     assert.equal(sh(f.repo, 'git', ['rev-parse', 'HEAD']), before)
     assert.equal(sh(f.repo, 'git', ['status', '--porcelain']), '')
     assert.equal(sh(f.repo, 'git', ['tag']), '')
-    assert.doesNotMatch(f.calls(), /docker |gh release create|pnpm verify/)
+    assert.equal(sh(f.repo, 'git', ['branch', '--list', 'release/*']), '')
+    assert.doesNotMatch(f.calls(), /docker |gh release create|gh pr create|pnpm verify/)
 })
 
 test('--local-image keeps the maintainer-machine image plan', (t) => {
@@ -479,8 +496,11 @@ test('--local-image keeps the maintainer-machine image plan', (t) => {
 test('--local-image --publish waits for the workflow image without a registry probe', (t) => {
     const f = fixture()
     t.after(f.cleanup)
-    const res = f.runRelease(['--local-image', '--publish', '--dry-run'])
+    assert.equal(f.runRelease(['--local', '--skip-image-check']).code, 0)
+    f.mergeAndTag('1.0.0')
+    const res = f.runRelease(['1.0.0', '--local-image', '--publish', '--dry-run'])
     assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /git push origin refs\/tags\/v1\.0\.0/)
     assert.match(
         res.out,
         /wait for the \.github\/workflows\/release-image\.yml run for v1\.0\.0 to pass and ghcr\.io\/acme\/cuttlely:1\.0\.0 to be available/
@@ -493,6 +513,7 @@ test('a local push does not start an anonymous registry wait', (t) => {
     t.after(f.cleanup)
     const local = f.runRelease(['--local', '--skip-image-check'])
     assert.equal(local.code, 0, local.out)
+    f.mergeAndTag('1.0.0')
     const pushed = f.runRelease(['1.0.0', '--local-image', '--push', '--skip-image-check'])
     assert.equal(pushed.code, 0, pushed.out)
     assert.doesNotMatch(pushed.out, /Wait for ghcr\.io/)
@@ -520,30 +541,46 @@ test('dry run refuses a dirty tree, another branch, and a main that is behind or
     assert.match(res.out, /not in sync with origin\/main/)
 })
 
-test('a real run with --local commits, tags and builds, and nothing leaves the machine', (t) => {
+test('a real run with --local commits on the release branch without a tag, builds, and nothing leaves the machine', (t) => {
     const f = fixture()
     t.after(f.cleanup)
     const res = f.runRelease(['--local'])
     assert.equal(res.code, 0, res.out)
     assert.equal(JSON.parse(fs.readFileSync(path.join(f.repo, 'package.json'), 'utf8')).version, '1.0.0')
     assert.match(fs.readFileSync(path.join(f.repo, 'CHANGELOG.md'), 'utf8'), /## \[1\.0\.0\] - \d{4}-\d{2}-\d{2}/)
-    assert.equal(sh(f.repo, 'git', ['cat-file', '-t', 'v1.0.0']), 'tag')
+    assert.equal(sh(f.repo, 'git', ['tag']), '')
+    assert.equal(sh(f.repo, 'git', ['branch', '--show-current']), 'release/v1.0.0')
     assert.equal(sh(f.repo, 'git', ['log', '-1', '--format=%s']), 'Release v1.0.0')
-    assert.equal(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), '')
+    assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/release/*', 'refs/tags/*']), '')
+    assert.ok(res.out.includes(TAG_STEP_PENDING), res.out)
     const calls = f.calls()
     assert.match(calls, /pnpm verify/)
     assert.match(calls, /docker build --platform linux\/amd64/)
     assert.match(calls, /docker run -d --name cuttlely-release-check-/)
-    assert.doesNotMatch(calls, /docker push|gh release/)
+    assert.doesNotMatch(calls, /docker push|gh release|gh pr/)
 })
 
-test('a minor release bumps both package files; then a resumed run drafts, and --push --publish finishes', (t) => {
+test('a release opens a pull request into main and stops at the tag step; a tagged main then drafts', (t) => {
     const f = fixture()
     t.after(f.cleanup)
+    const mainBefore = sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/main'])
     const first = f.runRelease([])
     assert.equal(first.code, 0, first.out)
-    assert.match(first.out, /Wait for \.github\/workflows\/release-image\.yml run for v1\.0\.0/)
-    assert.doesNotMatch(f.calls(), /docker /)
+    assert.match(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/release/v1.0.0']), /refs\/heads\/release\/v1\.0\.0/)
+    assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/main']), mainBefore)
+    assert.equal(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), '')
+    assert.equal(sh(f.repo, 'git', ['tag']), '')
+    assert.match(f.calls(), /gh pr create --base main --head release\/v1\.0\.0 --title Release v1\.0\.0 --body-file /)
+    assert.ok(first.out.includes(TAG_STEP_PENDING), first.out)
+    assert.doesNotMatch(first.out, /Wait for /)
+    assert.doesNotMatch(f.calls(), /docker |gh release/)
+    assert.equal(fs.existsSync(`${f.dir}/released`), false)
+
+    f.mergeAndTag('1.0.0')
+    const drafted = f.runRelease(['1.0.0'])
+    assert.equal(drafted.code, 0, drafted.out)
+    assert.match(drafted.out, /Resuming: v1\.0\.0 is already on this commit/)
+    assert.match(drafted.out, /Wait for \.github\/workflows\/release-image\.yml run for v1\.0\.0/)
     assert.equal(fs.readFileSync(`${f.dir}/released`, 'utf8').trim(), 'true')
     assert.match(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), /refs\/tags\/v1\.0\.0/)
 
@@ -561,6 +598,7 @@ test('a minor release bumps both package files; then a resumed run drafts, and -
     for (const file of VERSION_FILES) {
         assert.equal(JSON.parse(fs.readFileSync(path.join(f.repo, file), 'utf8')).version, '1.1.0', file)
     }
+    f.mergeAndTag('1.1.0')
     res = f.runRelease(['1.1.0', '--local-image', '--push', '--publish', '--skip-image-check'])
     assert.equal(res.code, 0, res.out)
     assert.match(res.out, /Resuming: v1\.1\.0 is already on this commit/)

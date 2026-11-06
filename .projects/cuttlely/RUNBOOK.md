@@ -255,12 +255,13 @@ The website source is `website/` (Astro 7.4.0 and Starlight, static, with its ow
 
 ## Release
 
-`pnpm release` (D30) runs from a clean `main` that matches `origin/main`. Steps and flags are in `docs/releases.md` under Cutting a release.
+`pnpm release` (D30) runs from a clean `main` that matches `origin/main`. It commits the release on a `release/vX.Y.Z` branch and opens a pull request into `main`. Tag timing pending decision: the release does not create the `vX.Y.Z` tag yet (the TAG STEP placeholder in `scripts/release.mjs`). Steps and flags are in `docs/releases.md` under Cutting a release.
 
 ```bash
 pnpm release --dry-run                # changes nothing: checks, plan, release notes
-pnpm release                          # verify, bump, commit, tag, push, wait for the workflow image, draft release
-pnpm release X.Y.Z --publish          # on the tagged commit: wait for the image, publish the GitHub release
+pnpm release                          # verify, bump, commit on release/vX.Y.Z, push it, open a PR into main
+pnpm release X.Y.Z                    # on the tagged main commit: push the tag, wait for the image, draft release
+pnpm release X.Y.Z --publish          # on the tagged main commit: wait for the image, publish the GitHub release
 pnpm release X.Y.Z --local-image      # fallback: build and ping the image on this machine
 pnpm release X.Y.Z --local-image --push --publish # fallback: push that build and publish
 pnpm release X.Y.Z --npm              # from the annotated tag: publish the npm packages
@@ -273,7 +274,8 @@ pnpm release X.Y.Z --npm --dry-run    # the same npm checks and plan, no publish
 -   A release tag starts `.github/workflows/release-image.yml`. It builds and pushes `linux/amd64` with provenance and an SBOM. A stable version also moves `:latest`; a pre-release does not.
 -   A `ci-dryrun-*` tag and a manual workflow run publish only their requested test tag and never move `:latest`. Manual tags must begin `ci-` or match `X.Y.Z-rc.N`. The manual `platforms` input defaults to `linux/amd64`; `linux/amd64,linux/arm64` opts into an arm64 build that is slow under emulation. Apple silicon runs the amd64 image under emulation.
 -   `--local-image` is the fallback that keeps the local Docker build and start-and-ping check. `--push` is accepted only with that flag. `--local` implies it and keeps all work on the machine.
--   The release commit goes straight to `main` with the hook skips, because the full verify already ran on that tree. Branch protection must allow the releasing maintainer to bypass.
+-   The release commit reaches `main` only through the release pull request, which needs the required checks like any other. The push of `release/vX.Y.Z` uses the hook skips, because the full verify already ran on that tree.
+-   Tag timing pending decision. Until it is decided, a maintainer creates the annotated `vX.Y.Z` tag by hand on the merged release commit on `main`, then runs `pnpm release X.Y.Z` to continue.
 -   After a release, refresh the upgrade fixture (D31): build the release tag in its own checkout, run `node scripts/upgrade-fixture.mjs --server-root <that checkout> --out scripts/fixtures/upgrade`, and ship it as a pull request.
 -   Model list updates need no release: edit `packages/components/models.json` and follow `docs/reference/model-list.md`.
 

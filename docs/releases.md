@@ -79,17 +79,18 @@ You need Node 24, pnpm and the GitHub CLI signed in (`gh auth status`). Docker i
 
     npm publish is the last step. It runs only from the annotated tag, after the image and the GitHub release for that version are public. [Publish the npm packages](#publish-the-npm-packages) is the check list.
 
-`pnpm release` refuses unless the working tree is clean (untracked files included), the checkout is on `main`, and `main` matches `origin/main`. It also refuses when the tag already exists, when the version is not newer than the last tag, or when `CHANGELOG.md` has nothing to release.
+`pnpm release` refuses unless the working tree is clean (untracked files included), the checkout is on `main`, and `main` matches `origin/main`. It also refuses when the tag or the `release/vX.Y.Z` branch already exists, when the version is not newer than the last tag, or when `CHANGELOG.md` has nothing to release.
 
 It then runs these steps, in order:
 
 1. Run the full `pnpm verify`.
-2. Set the version in `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`.
-3. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
-4. Commit `Release vX.Y.Z` and create the annotated tag `vX.Y.Z`.
-5. Push the release commit and annotated tag. The tag starts `.github/workflows/release-image.yml`.
-6. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
-7. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
+2. Create the branch `release/vX.Y.Z` from `main`.
+3. Set the version in `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`.
+4. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
+5. Commit `Release vX.Y.Z` on `release/vX.Y.Z`, push that branch, and open a pull request into `main` with the changelog section as its body. The command stops there.
+6. **Tag step: tag timing pending decision.** The release does not create the `vX.Y.Z` tag yet; the placeholder is the TAG STEP in `scripts/release.mjs`. Until the timing is decided, a maintainer merges the release pull request, creates the annotated tag `vX.Y.Z` on that commit on `main`, and runs `pnpm release X.Y.Z` from it. That run pushes the tag and continues from step 7. The tag starts `.github/workflows/release-image.yml`.
+7. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
+8. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
 The image flags are:
 
@@ -101,9 +102,9 @@ The image flags are:
 
 For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual rc tag must equal the version in the checked-out root `package.json`; manual `ci-` tags and pushed `ci-dryrun-*` tags do not use that comparison. Every planned image tag must match the Docker tag grammar `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`. A manual run can select another `ref`; an empty value uses the branch where the run starts. Its `platforms` input defaults to `linux/amd64`; choose `linux/amd64,linux/arm64` only when the slower emulated arm64 build is wanted.
 
-A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
+A run that stopped part way can be started again with the same version. When the release commit on `main` is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
-The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
+The release commit reaches `main` only through the release pull request, so no maintainer needs to bypass the rule that `main` requires pull requests.
 
 ## Docs and site sync
 
@@ -131,7 +132,8 @@ No output means they match. A difference means the package was not packed from t
 GitHub Actions does not publish to npm. Publish from the annotated tag, after the image is in the registry and the GitHub release is published:
 
 ```bash
-pnpm release                          # bump, tag, wait for the image, and draft the GitHub release
+pnpm release                          # bump and open the release pull request into main
+pnpm release X.Y.Z                    # after the merge, on the tagged main commit: wait for the image, draft the GitHub release
 pnpm release X.Y.Z --publish          # publish after the image workflow completes
 git checkout vX.Y.Z                   # npm publish reads this tag
 pnpm release X.Y.Z --npm              # publish cuttlely and @cuttlely/chat

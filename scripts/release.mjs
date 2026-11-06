@@ -6,8 +6,10 @@
 // With no version, the version comes from a "## [X.Y.Z] - Unreleased" heading in CHANGELOG.md.
 //
 //   --dry-run   change nothing: run the checks, print the plan and the release notes
-//   (no flag)   verify, bump, update CHANGELOG, commit and tag, push both, wait for the release-image
-//               workflow run to pass and its image to be available, and create a draft GitHub release
+//   (no flag)   verify, bump, update CHANGELOG, commit on a release/vX.Y.Z branch, push that branch and
+//               open a pull request into main. The tag step is pending a decision on tag timing.
+//               Once vX.Y.Z is tagged on main, the same command waits for the release-image workflow
+//               run to pass and its image to be available, and creates a draft GitHub release
 //   --local     stop before anything leaves this machine and build and check the image locally
 //   --local-image  use the maintainer-machine image build and start-and-ping check as a fallback
 //   --push      with --local-image, also push that local build (multi-arch when available)
@@ -18,7 +20,7 @@
 // start-and-ping check of the local image), --help.
 //
 // A run that stopped part way can be started again with the same version: a release commit that
-// is already tagged is reused, and steps that are already done are skipped.
+// is already tagged on main is reused, and steps that are already done are skipped.
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -61,6 +63,17 @@ const REGISTRY_WAIT_POLL_MS = 15 * 1000
 export const RELEASE_IMAGE_WORKFLOW = '.github/workflows/release-image.yml'
 
 export class ReleaseError extends Error {}
+
+// The release commit goes to this branch and reaches main through a pull request.
+export function releaseBranch(version) {
+    return `release/v${version}`
+}
+
+// TAG STEP: tag timing pending decision. The release no longer creates the vX.Y.Z tag. When and
+// where it is created (for example on main after the release pull request merges) is not decided
+// yet. Until then, a maintainer creates the annotated tag by hand, and `pnpm release X.Y.Z` on that
+// tagged commit continues with the image wait and the GitHub release.
+export const TAG_STEP_PENDING = 'Tag timing pending decision: the release does not create the vX.Y.Z tag yet.'
 
 // ---------- pure helpers (tested in scripts/release.test.mjs) ----------
 
@@ -439,9 +452,14 @@ export function preflightProblems(state) {
         if (compareSemver(state.version, state.currentVersion) < 0)
             problems.push(`${state.version} is older than the current version ${state.currentVersion}.`)
         if (state.changelogProblem) problems.push(state.changelogProblem)
+        if (state.localBranch) problems.push(`Branch ${releaseBranch(state.version)} already exists here.`)
+        if (state.remoteBranch && !state.local) problems.push(`Branch ${releaseBranch(state.version)} already exists on origin.`)
     }
     if (state.localImage && !state.docker) problems.push('docker was not found. --local-image builds the image on this machine.')
-    if (!state.local && !state.gh) problems.push('gh is not installed or not signed in (gh auth status). It creates the GitHub release.')
+    if (!state.local && !state.gh)
+        problems.push(
+            'gh is not installed or not signed in (gh auth status). It opens the release pull request and creates the GitHub release.'
+        )
     if (!state.push && state.image !== state.workflowImage)
         problems.push(`The release image workflow publishes only to ${state.workflowImage}. Use --push with a custom --image.`)
     return problems
@@ -645,7 +663,8 @@ export function localDate(now = new Date()) {
 export const HELP = `pnpm release [X.Y.Z | major | minor | patch] [options]
 
 Cuts a release from a clean main that matches origin/main. The version defaults to the
-"## [X.Y.Z] - Unreleased" heading in CHANGELOG.md.
+"## [X.Y.Z] - Unreleased" heading in CHANGELOG.md. The release commit goes to a release/vX.Y.Z
+branch and reaches main through a pull request.
 
   --dry-run           change nothing: run every check, print the plan and the release notes
   --local             stop before anything leaves this machine; implies --local-image
@@ -656,8 +675,10 @@ Cuts a release from a clean main that matches origin/main. The version defaults 
   --image <name>      image name (default ghcr.io/<owner>/<repo>)
   --skip-image-check  do not start the local image to check /api/v1/ping
 
-By default, the release tag starts ${RELEASE_IMAGE_WORKFLOW}; the command waits for its image and
-then creates a draft GitHub release. --publish publishes after that wait. --push and --image require
+By default, the command pushes release/vX.Y.Z and opens a pull request into main. Tag timing is
+pending a decision, so it does not create the tag. Once vX.Y.Z is tagged on main, the same command
+continues: the tag starts ${RELEASE_IMAGE_WORKFLOW}; the command waits for its image and then creates
+a draft GitHub release. --publish publishes after that wait. --push and --image require
 --local-image. The local image path retains the build, start-and-ping check, and optional local push.
 --npm is a later step, from that tag, after the image and the GitHub release are public.
 See docs/releases.md.`
@@ -733,6 +754,9 @@ function readState(root, opts) {
             .pop() || null
     const localTag = tags.includes(tag)
     const remoteTag = git(root, ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], { allowFail: true }).stdout.length > 0
+    const branchRef = `refs/heads/${releaseBranch(version)}`
+    const localBranch = git(root, ['rev-parse', '--verify', '--quiet', branchRef], { allowFail: true }).stdout.length > 0
+    const remoteBranch = git(root, ['ls-remote', '--heads', 'origin', branchRef], { allowFail: true }).stdout.length > 0
 
     // Resume: HEAD is the release commit, tagged here, with the versions already bumped.
     let resume = null
@@ -776,6 +800,8 @@ function readState(root, opts) {
         latestTag,
         localTag,
         remoteTag,
+        localBranch,
+        remoteBranch,
         resume,
         changelogText,
         changelogProblem,
@@ -902,16 +928,35 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         if (!state.resume) {
             lines.push('pnpm verify')
             lines.push(`set "version" to ${state.version} in ${formatList(VERSION_FILES)}`)
+            lines.push(formatCommand('git', ['switch', '-c', releaseBranch(state.version)]))
             lines.push(`CHANGELOG.md: "## [${state.version}] - ${date}", a fresh "## [Unreleased]", compare links`)
             lines.push(formatCommand('git', ['commit', '-m', `Release v${state.version}`]))
-            lines.push(formatCommand('git', ['tag', '-a', `v${state.version}`, '-m', `Cuttlely ${state.version}`]))
+            lines.push(`TAG STEP: ${TAG_STEP_PENDING}`)
         }
         if (state.localImage) {
             lines.push(formatCommand('docker', plan.local))
             if (!opts.skipImageCheck) lines.push(`start ${plan.tags[0]} with a temporary volume and wait for /api/v1/ping to answer pong`)
         }
-        if (!opts.local) {
-            lines.push(formatCommand('git', ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/v${state.version}`]))
+        if (!opts.local && !state.resume) {
+            lines.push(formatCommand('git', ['push', '-u', 'origin', releaseBranch(state.version)]))
+            lines.push(
+                formatCommand('gh', [
+                    'pr',
+                    'create',
+                    '--base',
+                    'main',
+                    '--head',
+                    releaseBranch(state.version),
+                    '--title',
+                    `Release v${state.version}`
+                ])
+            )
+            lines.push(
+                `then, once v${state.version} is tagged on main: pnpm release ${state.version} waits for the image and drafts the GitHub release`
+            )
+        }
+        if (!opts.local && state.resume) {
+            lines.push(formatCommand('git', ['push', 'origin', `refs/tags/v${state.version}`]))
             for (const cmd of plan.push) lines.push(formatCommand('docker', cmd))
             if (!opts.push)
                 lines.push(
@@ -968,6 +1013,9 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         step('pnpm verify')
         run('pnpm', ['verify'], { cwd: root, capture: false })
 
+        step(`Create ${releaseBranch(state.version)}`)
+        git(root, ['switch', '-c', releaseBranch(state.version)])
+
         step(`Bump to ${state.version} and update CHANGELOG.md`)
         for (const file of VERSION_FILES) {
             const full = path.join(root, file)
@@ -977,17 +1025,10 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         fs.writeFileSync(path.join(root, CHANGELOG), nextChangelog)
         say(`  CHANGELOG.md: ## [${state.version}] - ${date}`)
 
-        step(`Commit and tag v${state.version}`)
+        step(`Commit Release v${state.version}`)
         git(root, ['add', '--', ...VERSION_FILES, CHANGELOG])
         git(root, ['commit', '--no-verify', '-m', `Release v${state.version}`])
-        const tagMessage = `Cuttlely ${state.version}\n\n${releaseNotes(nextChangelog, state.version)}`
-        const tagFile = path.join(os.tmpdir(), `cuttlely-tag-${process.pid}.txt`)
-        fs.writeFileSync(tagFile, tagMessage)
-        try {
-            git(root, ['tag', '-a', `v${state.version}`, '-F', tagFile])
-        } finally {
-            fs.rmSync(tagFile, { force: true })
-        }
+        // TAG STEP: tag timing pending decision. Do not create v${state.version} here; see TAG_STEP_PENDING.
         sha = git(root, ['rev-parse', 'HEAD']).stdout
         say(`  ${short(sha)} Release v${state.version}`)
     }
@@ -1024,20 +1065,52 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
     }
 
     if (opts.local) {
-        say(`\nLocal release v${state.version} is ready. Nothing left this machine.`)
+        say(`\nLocal release v${state.version} is ready on ${releaseBranch(state.version)}. Nothing left this machine.`)
+        say(`${TAG_STEP_PENDING}`)
+        say(`Next: push ${releaseBranch(state.version)} and open a pull request into main.`)
         say(
-            `Next: pnpm release ${state.version}            push the commit and tag, wait for the workflow run and image, draft the GitHub release`
+            `      Once v${state.version} is tagged on main: pnpm release ${state.version}   wait for the workflow run and image, draft the GitHub release`
         )
         say(`      pnpm release ${state.version} --local-image --push --publish   use the local fallback and publish`)
         say(`      pnpm release ${state.version} --npm   publish the npm packages from the tag, after both are public`)
         return 0
     }
 
-    step('Push the release commit and tag')
+    if (!state.resume) {
+        const branch = releaseBranch(state.version)
+        step(`Push ${branch} and open a pull request into main`)
+        // The full verify already ran on this tree, so the hook's fast verify and handoff check are skipped.
+        git(root, ['push', '-u', 'origin', branch], {
+            capture: false,
+            env: { CUTTLELY_SKIP_VERIFY: '1', CUTTLELY_SKIP_HANDOFF_CHECK: '1' }
+        })
+        const notesFile = path.join(os.tmpdir(), `cuttlely-release-pr-${process.pid}.md`)
+        fs.writeFileSync(notesFile, releaseNotes(nextChangelog, state.version, { slug: state.slug }))
+        try {
+            run(
+                'gh',
+                ['pr', 'create', '--base', 'main', '--head', branch, '--title', `Release v${state.version}`, '--body-file', notesFile],
+                {
+                    cwd: root
+                }
+            )
+        } finally {
+            fs.rmSync(notesFile, { force: true })
+        }
+        say(`\nRelease pull request for v${state.version} is open from ${branch} into main.`)
+        // TAG STEP: tag timing pending decision. The run stops here until the tag exists.
+        say(TAG_STEP_PENDING)
+        say(
+            `Once v${state.version} is tagged on main: pnpm release ${state.version}   wait for the workflow run and image, draft the GitHub release`
+        )
+        return 0
+    }
+
+    step('Push the release tag')
     if (state.remoteTag) {
         say('  Already on origin.')
     } else {
-        git(root, ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/v${state.version}`], {
+        git(root, ['push', 'origin', `refs/tags/v${state.version}`], {
             capture: false,
             env: { CUTTLELY_SKIP_VERIFY: '1', CUTTLELY_SKIP_HANDOFF_CHECK: '1' }
         })
