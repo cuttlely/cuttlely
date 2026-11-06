@@ -27,7 +27,7 @@ it('adds the exact selected opportunity watchlist when its source is available',
     ])
     expect(template.cards).toHaveLength(4)
     expect(template.cards[3].source).toBe('list')
-    expect(template.cards[3].params.top_n).toBe(10)
+    expect(template.cards[3].params.top_n).toBe(100)
     expect(template.cards[3].selectionTotalPath).toBe('risk_quarter_payload.total_eligible_renewal_opportunities')
 })
 

@@ -893,3 +893,247 @@
 .df-command-board .df-composition svg text {
     fill: #a5b4d2;
 }
+
+.df-metric-button {
+    display: block;
+    background: none;
+    border: 0;
+    padding: 0;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+}
+.df-metric-button:focus-visible {
+    outline: 2px solid #a48aff;
+    outline-offset: 6px;
+    border-radius: 6px;
+}
+.df-executive-tooltip {
+    min-width: 240px;
+    max-width: 340px;
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.df-tooltip-kicker {
+    display: block;
+    color: #d1c3ff;
+    font-size: 11px;
+    margin-bottom: 6px;
+}
+.df-executive-tooltip > strong {
+    display: block;
+    font-size: 15px;
+    color: white;
+}
+.df-tooltip-value {
+    color: #fff;
+    font-size: 26px;
+    font-weight: 650;
+    margin: 10px 0;
+}
+.df-tooltip-value small {
+    display: block;
+    color: #cbd3e6;
+    font-size: 11px;
+    font-weight: 400;
+}
+.df-executive-tooltip p {
+    color: #d3dbea;
+    margin: 8px 0;
+}
+.df-executive-tooltip dl {
+    margin: 10px 0;
+}
+.df-executive-tooltip dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 3px 0;
+}
+.df-executive-tooltip dt {
+    color: #bac6dc;
+}
+.df-executive-tooltip dd {
+    margin: 0;
+    text-align: right;
+    color: white;
+}
+.df-tooltip-action {
+    display: block;
+    color: #d3bcff;
+    border-top: 1px solid #ffffff33;
+    padding-top: 10px;
+    margin-top: 10px;
+}
+.df-evidence-panel {
+    width: min(1120px, 96vw);
+    max-width: none;
+    padding: 32px;
+    background: #0d1425;
+    color: #e5ecfc;
+    min-height: 100vh;
+}
+.df-evidence-heading,
+.df-evidence-section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+.df-evidence-heading h2 {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+.df-evidence-panel > p {
+    color: #a8b8d1;
+}
+.df-evidence-panel .MuiButton-root {
+    color: #c0acff;
+    text-transform: none;
+}
+.df-evidence-freshness {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 14px 18px;
+    border-radius: 9px;
+    background: #171f35;
+    color: #a6b7d1;
+    font-size: 12px;
+}
+.df-evidence-freshness strong {
+    color: #cbbdff;
+}
+.df-evidence-section {
+    margin: 22px 0;
+    border: 1px solid #293550;
+    border-radius: 12px;
+    padding: 20px;
+    background: #111a2e;
+}
+.df-evidence-section h3 {
+    margin-top: 0;
+    font-size: 17px;
+}
+.df-evidence-section-heading > span {
+    font-size: 12px;
+    color: #a9b7cf;
+}
+.df-coverage {
+    color: #a9bad4;
+    font-size: 12px;
+    line-height: 1.7;
+}
+.df-evidence-filters {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 18px 0;
+}
+.df-evidence-filters .MuiTextField-root {
+    min-width: 200px;
+    background: #fff;
+    border-radius: 5px;
+}
+.df-evidence-filters > span {
+    margin-left: auto;
+    color: #a9b7cf;
+    font-size: 12px;
+}
+.df-evidence-panel .df-table-scroll {
+    max-height: 480px;
+}
+.df-evidence-panel th {
+    background: #19243a;
+    color: #b7c7e0;
+}
+.df-evidence-panel td {
+    color: #d4dff1;
+    border-color: #2b3751;
+    padding: 12px;
+}
+.df-evidence-panel .df-sort-header {
+    color: #b7c7e0;
+}
+.df-evidence-panel .df-account-link {
+    color: #c7b4ff;
+    border-color: #67558e;
+}
+.df-secondary-id {
+    font-size: 11px;
+    opacity: 0.75;
+}
+.df-risk-pill {
+    display: inline-block;
+    white-space: nowrap;
+    padding: 4px 9px;
+    border-radius: 20px;
+    background: #8192b322;
+    color: inherit;
+    font-size: 11px;
+}
+.df-risk-high {
+    background: #f36b9e22;
+    color: #f798bb;
+}
+.df-risk-moderate {
+    background: #edb35b22;
+    color: #e7bd7f;
+}
+.df-account-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin: 18px 0;
+}
+.df-account-facts span {
+    display: block;
+    color: #97acca;
+    font-size: 11px;
+}
+.df-account-facts strong {
+    display: block;
+    color: #e1e9f8;
+    margin-top: 5px;
+    font-size: 14px;
+}
+.df-risk-context {
+    padding: 16px;
+    border-left: 3px solid #ad86ee;
+    background: #ad86ee0a;
+    line-height: 1.7;
+}
+.df-evidence-panel summary {
+    cursor: pointer;
+    color: #b9a4ed;
+    padding: 12px 0;
+}
+.df-evidence-panel pre {
+    max-height: 360px;
+    overflow: auto;
+    background: #080e1b;
+    padding: 14px;
+    font-size: 11px;
+    white-space: pre;
+}
+.df-evidence-panel dd {
+    overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+    .df-evidence-panel {
+        padding: 16px;
+    }
+    .df-evidence-filters {
+        flex-wrap: wrap;
+    }
+    .df-evidence-section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0;
+    }
+    .df-account-facts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

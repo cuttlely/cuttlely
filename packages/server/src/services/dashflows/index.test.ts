@@ -1,5 +1,6 @@
 const claim = { token: 'lease', revision: 1, definition: { harness: 'synthetic-contract' } }
 const store = {
+    queryCache: jest.fn(() => ({ get: jest.fn(), put: jest.fn() })),
     claim: jest.fn(() => claim),
     settle: jest.fn((..._args: unknown[]) => ({ snapshot: { id: 'new' } })),
     due: jest.fn(() => [])
@@ -22,7 +23,9 @@ jest.mock('../harnesses', () => ({
     default: { getHarness: jest.fn(async () => ({ name: 'synthetic-contract', workspaceId: 'team-a' })) },
     contextFor: jest.fn(async () => ({ flowOptions: { workspaceId: 'team-a' } })),
     loadHarness: async (name: string) =>
-        name === 'dashflows.mjs' ? { dashStore: () => store, materialize, DashFlowError } : { executeSpecialistTool: execute }
+        name === 'dashflows.mjs'
+            ? { dashStore: () => store, materializeCached: materialize, DashFlowError }
+            : { executeSpecialistTool: execute }
 }))
 jest.mock('../../identity/rbac', () => ({ resolveTeamAccess: (...args: unknown[]) => access(...args) }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { warn: jest.fn() } }))

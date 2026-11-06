@@ -1,4 +1,6 @@
 import PropTypes from 'prop-types'
+import ExecutiveTooltip from './ExecutiveTooltip'
+import { formatValue, rowLabel } from './presentation'
 
 export function sortedRows(rows, field, order) {
     const list = rows.map((row, index) => ({ row, index }))
@@ -14,12 +16,13 @@ export function sortedRows(rows, field, order) {
 export function chartOrderedRows(card, rows) {
     return sortedRows(rows, card.valueField, card.kind === 'trend' ? 'source' : card.sort)
 }
-export default function Chart({ card, rows, inspect }) {
+export default function Chart({ card, rows, snapshot, inspect }) {
     const ordered = chartOrderedRows(card, rows)
     const numeric = ordered.filter(({ row }) => row[card.valueField] !== null)
     const values = numeric.map(({ row }) => Number(row[card.valueField]))
     const max = Math.max(1, ...values.map(Math.abs))
-    const text = (v) => (v == null ? 'Unavailable' : String(v))
+    const text = (v) => formatValue(v, card.valueField)
+    const label = (row) => rowLabel(row, card.labelField)
     if (card.kind === 'trend') {
         const low = Math.min(0, ...values),
             high = Math.max(1, ...values)
@@ -46,30 +49,27 @@ export default function Chart({ card, rows, inspect }) {
                         )}
                     {ordered.map((item, i) =>
                         item.row[card.valueField] != null ? (
-                            <circle
-                                key={item.index}
-                                cx={point(item, i).split(',')[0]}
-                                cy={point(item, i).split(',')[1]}
-                                r='5'
-                                fill='#b596ff'
-                                tabIndex={0}
-                                role='button'
-                                aria-label={`${text(item.row[card.labelField])}: ${text(item.row[card.valueField])}`}
-                                onClick={() => inspect(item.index)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') inspect(item.index)
-                                }}
-                            >
-                                <title>
-                                    {text(item.row[card.labelField])}: {text(item.row[card.valueField])}
-                                </title>
-                            </circle>
+                            <ExecutiveTooltip key={item.index} card={card} row={item.row} snapshot={snapshot}>
+                                <circle
+                                    cx={point(item, i).split(',')[0]}
+                                    cy={point(item, i).split(',')[1]}
+                                    r='5'
+                                    fill='#b596ff'
+                                    tabIndex={0}
+                                    role='button'
+                                    aria-label={`${label(item.row)}: ${text(item.row[card.valueField])}`}
+                                    onClick={() => inspect(item.index)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') inspect(item.index)
+                                    }}
+                                ></circle>
+                            </ExecutiveTooltip>
                         ) : null
                     )}
                 </svg>
                 <div className='df-chart-ends'>
-                    <span>{text(ordered[0]?.row[card.labelField])}</span>
-                    <span>{text(ordered.at(-1)?.row[card.labelField])}</span>
+                    <span>{ordered[0] ? label(ordered[0].row) : 'Not provided'}</span>
+                    <span>{ordered.length ? label(ordered.at(-1).row) : 'Not provided'}</span>
                 </div>
             </div>
         )
@@ -87,29 +87,26 @@ export default function Chart({ card, rows, inspect }) {
                         const start = offset
                         offset += length
                         return (
-                            <circle
-                                key={item.index}
-                                cx='90'
-                                cy='90'
-                                r='65'
-                                fill='none'
-                                stroke={colors[i % colors.length]}
-                                strokeWidth='24'
-                                strokeDasharray={`${length} ${408.407 - length}`}
-                                strokeDashoffset={-start}
-                                transform='rotate(-90 90 90)'
-                                role='button'
-                                tabIndex={0}
-                                aria-label={`${text(item.row[card.labelField])}: ${text(item.row[card.valueField])}`}
-                                onClick={() => inspect(item.index)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') inspect(item.index)
-                                }}
-                            >
-                                <title>
-                                    {text(item.row[card.labelField])}: {text(item.row[card.valueField])}
-                                </title>
-                            </circle>
+                            <ExecutiveTooltip key={item.index} card={card} row={item.row} snapshot={snapshot}>
+                                <circle
+                                    cx='90'
+                                    cy='90'
+                                    r='65'
+                                    fill='none'
+                                    stroke={colors[i % colors.length]}
+                                    strokeWidth='24'
+                                    strokeDasharray={`${length} ${408.407 - length}`}
+                                    strokeDashoffset={-start}
+                                    transform='rotate(-90 90 90)'
+                                    role='button'
+                                    tabIndex={0}
+                                    aria-label={`${label(item.row)}: ${text(item.row[card.valueField])}`}
+                                    onClick={() => inspect(item.index)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') inspect(item.index)
+                                    }}
+                                ></circle>
+                            </ExecutiveTooltip>
                         )
                     })}
                     <text x='90' y='87' textAnchor='middle' fontSize='11' fill='#41644c'>
@@ -121,11 +118,13 @@ export default function Chart({ card, rows, inspect }) {
                 </svg>
                 <div className='df-chart-legend'>
                     {ordered.map((item, i) => (
-                        <button key={item.index} onClick={() => inspect(item.index)}>
-                            <i style={{ background: colors[i % colors.length] }} />
-                            <span>{text(item.row[card.labelField])}</span>
-                            <strong>{text(item.row[card.valueField])}</strong>
-                        </button>
+                        <ExecutiveTooltip key={item.index} card={card} row={item.row} snapshot={snapshot}>
+                            <button onClick={() => inspect(item.index)}>
+                                <i style={{ background: colors[i % colors.length] }} />
+                                <span>{label(item.row)}</span>
+                                <strong>{text(item.row[card.valueField])}</strong>
+                            </button>
+                        </ExecutiveTooltip>
                     ))}
                 </div>
             </div>
@@ -134,18 +133,24 @@ export default function Chart({ card, rows, inspect }) {
     return (
         <div className='df-bars nodrag nowheel'>
             {ordered.map(({ row, index }) => (
-                <button
-                    key={index}
-                    className='df-bar-row'
-                    title={`${text(row[card.labelField])}: ${text(row[card.valueField])} · Click for evidence`}
-                    onClick={() => inspect(index)}
-                >
-                    <span>{text(row[card.labelField])}</span>
-                    <strong>{text(row[card.valueField])}</strong>
-                    <i style={{ width: `${(Math.abs(Number(row[card.valueField]) || 0) / max) * 100}%` }} />
-                </button>
+                <ExecutiveTooltip key={index} card={card} row={row} snapshot={snapshot}>
+                    <button
+                        className='df-bar-row'
+                        aria-label={`${label(row)}: ${text(row[card.valueField])} · View evidence`}
+                        onClick={() => inspect(index)}
+                    >
+                        <span>{label(row)}</span>
+                        <strong>{text(row[card.valueField])}</strong>
+                        <i style={{ width: `${(Math.abs(Number(row[card.valueField]) || 0) / max) * 100}%` }} />
+                    </button>
+                </ExecutiveTooltip>
             ))}
         </div>
     )
 }
-Chart.propTypes = { card: PropTypes.object.isRequired, rows: PropTypes.array.isRequired, inspect: PropTypes.func.isRequired }
+Chart.propTypes = {
+    card: PropTypes.object.isRequired,
+    rows: PropTypes.array.isRequired,
+    snapshot: PropTypes.object,
+    inspect: PropTypes.func.isRequired
+}

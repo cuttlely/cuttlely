@@ -68,7 +68,7 @@ const labels = [
     'Sub-use-case health concern'
 ]
 const patterns = labels.map((label, i) => ({ label, accounts: 94 - i * 9, percent_of_risk_accounts: 62 - i * 6 }))
-const accounts = Array.from({ length: 10 }, (_, i) => ({
+const accounts = Array.from({ length: 100 }, (_, i) => ({
     account_id: `001${String(i).padStart(15, '0')}`,
     account_name: `Demo account ${String(i + 1).padStart(2, '0')}`,
     risk_radar: i < 4 ? 'High Risk' : 'Moderate Risk',
@@ -100,7 +100,8 @@ const snapshot = {
                           retention_pct: '77.96',
                           forecast_churn: '16200000',
                           unknown_acv_count: 18,
-                          gross_racv: '52410800'
+                          gross_racv: '52410800',
+                          ...(card.source === dashSourceName('pipeline_window') ? { deal_details: accounts, next_page: 2 } : {})
                       }
                   ]
                 : card.kind === 'donut'
@@ -124,16 +125,19 @@ const snapshot = {
                 : card.kind === 'bar'
                 ? patterns
                 : accounts,
+        ...(card.source === dashSourceName('pipeline_window') && card.kind !== 'metric'
+            ? { evidenceRows: [{ deal_count: 1285, deal_details: accounts, next_page: 2 }] }
+            : {}),
         source: {
             harness: definition.harness,
-            pin: card.kind === 'table' ? sources[1].name : sources[0].name,
+            pin: sources.find((source) => source.key === card.source).name,
             version: 1,
             hash: card.hash,
             params: card.params,
             scope: card.scope,
             rowsPath: card.rowsPath,
             completenessPath: card.completePath,
-            ...(card.kind === 'table' ? { selection: { shown: 10, total: 218 } } : {})
+            ...(card.kind === 'table' ? { selection: { shown: 100, total: 218 } } : {})
         },
         fetchedAt: '2026-11-06T03:00:00Z'
     }))
@@ -141,7 +145,12 @@ const snapshot = {
 const record = { id: 'demo', revision: 1, definition, snapshot, published: true, publishedAt: '2026-11-06T03:00:00Z' }
 let reports = 0
 let refreshes = 0
+let publicPublishes = 0
 await page.addInitScript(() => {
+    if (location.pathname.startsWith('/public/dashboards')) {
+        localStorage.clear()
+        return
+    }
     localStorage.setItem('isAuthenticated', 'true')
     localStorage.setItem('isGlobal', 'true')
     localStorage.setItem(
@@ -160,16 +169,26 @@ await page.route('**/api/v1/**', async (route) => {
     const p = new URL(route.request().url()).pathname
     if (p.endsWith('/refresh')) refreshes++
     let data = {}
-    if (p.endsWith('/settings')) data = { PLATFORM_TYPE: 'open-source' }
+    if (p.endsWith('/settings')) data = { PLATFORM_TYPE: 'open-source', DASH_FLOWS: true }
     else if (p.endsWith('/authentication-settings')) data = { recovery: { available: true } }
     else if (p.endsWith('/harnesses')) data = [{ name: 'honeybadger-supreme' }]
     else if (p.includes('/dashflows/sources/')) data = { sources }
     else if (p.endsWith('/dashflows')) data = [record]
-    else if (p.includes('/dashflows/demo')) data = record
-    else if (p.endsWith('/runs/async')) {
+    else if (p === '/api/v1/dashflows/demo' && route.request().method() === 'PUT') {
+        record.definition = route.request().postDataJSON().definition
+        record.revision++
+        data = record
+    } else if (p.endsWith('/refresh')) data = { id: 'demo', refreshing: true }
+    else if (p.endsWith('/dashflows/demo/publish') && route.request().method() === 'POST') {
+        const isPublic = route.request().postDataJSON().public === true
+        if (isPublic) publicPublishes++
+        data = { ...record, publicToken: isPublic ? 'synthetic-public-token' : null }
+    } else if (p.includes('/dashflows/demo')) data = record
+    else if (p === '/api/v1/public-dashflows/synthetic-public-token') data = record
+    else if (p.endsWith('/runs/async') || (p.includes('/public-dashflows/') && p.endsWith('/report'))) {
         reports++
         data = { runId: 'synthetic-report' }
-    } else if (p.endsWith('/synthetic-report/result'))
+    } else if (p.endsWith('/synthetic-report/result') || p.endsWith('/reports/synthetic-report'))
         data = {
             finished: true,
             status: 'succeeded',
@@ -190,10 +209,29 @@ try {
         if (badge) badge.textContent = 'SYNTHETIC DEMO DATA / BETA'
     })
     await page.screenshot({ path: path.join(output, 'supreme-builder.png'), fullPage: true })
+    await page.getByRole('button', { name: 'View evidence for Open pipeline' }).hover()
+    await page.getByRole('tooltip').waitFor()
+    await page.waitForTimeout(250) // Let the tooltip transition finish before visual capture.
+    await page.screenshot({ path: path.join(output, 'supreme-executive-hover.png'), fullPage: true })
+    await page.getByRole('button', { name: 'View evidence for Open pipeline' }).click()
+    await page.getByRole('heading', { name: 'Accounts & opportunities' }).waitFor()
+    if ((await page.locator('.df-evidence-panel .df-account-link').count()) !== 100)
+        throw new Error('Evidence did not show 100 cached records')
+    await page.getByLabel('Find account or opportunity').fill('Demo account 100')
+    if ((await page.locator('.df-evidence-panel .df-account-link').count()) !== 1)
+        throw new Error('Evidence search did not narrow the records')
+    await page.getByLabel('Find account or opportunity').fill('')
+    await page.screenshot({ path: path.join(output, 'supreme-evidence-list.png'), fullPage: true })
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+
     if (reports !== 0 || refreshes !== 0) throw new Error('Passive dashboard view executed a report or refresh')
+    await page.getByLabel('Date range', { exact: true }).selectOption('60')
+    await page.getByText('Pipeline range updated.', { exact: false }).waitFor()
+    if (refreshes !== 1) throw new Error('Preset selection did not automatically refresh')
+    await page.getByLabel('Date range', { exact: true }).selectOption('custom')
     await page.getByLabel('From', { exact: true }).fill('2026-10-01')
-    await page.getByRole('button', { name: 'Apply lens', exact: true }).click()
-    if (await page.locator('.df-value').count()) throw new Error('Pipeline lens retained stale values')
+    await page.getByText('Pipeline range updated.', { exact: false }).waitFor()
+    if (refreshes !== 2) throw new Error('Custom date change did not automatically refresh')
     await page.goto(`${base}/dashflows/demo`)
     await page.getByRole('heading', { name: 'Supreme · GTM command center' }).waitFor()
     await page.getByRole('button', { name: 'Demo account 01 ↗' }).click()
@@ -202,6 +240,12 @@ try {
     if (reports !== 1) throw new Error('Health report was not executed exactly once')
     await page.screenshot({ path: path.join(output, 'supreme-account-health.png'), fullPage: true })
     await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Publish & share' }).click()
+    await page.getByLabel('Audience', { exact: true }).click()
+    await page.getByRole('option', { name: 'Anyone with the public link' }).click()
+    await page.getByRole('button', { name: 'Publish snapshot & copy link' }).click()
+    await page.getByText(/Published\. (Public link copied|Link:)/).waitFor()
+    if (publicPublishes !== 1) throw new Error('Public publication was not an explicit opt-in')
     await page.getByRole('button', { name: 'Filters and settings for Priority renewal watchlist' }).click()
     await page.getByLabel('period', { exact: true }).click()
     await page.getByRole('option', { name: 'next_week', exact: true }).click()
@@ -212,6 +256,15 @@ try {
     await page.getByText('A published snapshot. Every number has a source.').waitFor()
     if (await page.getByRole('button', { name: 'Save draft' }).count()) throw new Error('Published view exposed author controls')
     await page.screenshot({ path: path.join(output, 'supreme-published.png'), fullPage: true })
+    await page.goto(`${base}/public/dashboards/synthetic-public-token`)
+    await page.getByText('A published snapshot. Every number has a source.').waitFor()
+    if (await page.evaluate(() => localStorage.getItem('isAuthenticated'))) throw new Error('Public acceptance is not anonymous')
+    if (await page.getByRole('button', { name: 'Save draft' }).count()) throw new Error('Public page exposed author controls')
+    await page.getByRole('button', { name: 'Demo account 01 ↗' }).click()
+    await page.getByRole('button', { name: 'Run full health report', exact: true }).click()
+    await page.getByRole('heading', { name: 'Synthetic account health' }).waitFor()
+    if (reports !== 2) throw new Error('Anonymous public report did not use the scoped endpoint')
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator('.df-command-board .df-card').first().waitFor()
     await page.screenshot({ path: path.join(output, 'supreme-mobile.png'), fullPage: true })
@@ -225,10 +278,14 @@ try {
                 'account drill-in',
                 'explicit health report',
                 'source period filter',
-                'pipeline region/date lens',
+                'executive hover summary',
+                '100 cached source records',
+                'account evidence search',
+                'automatic preset and custom date refresh',
                 'zero passive query executions',
-                'stale data cleared',
+                'range changes saved before refresh',
                 'published read-only',
+                'anonymous public dashboard and scoped health report',
                 'mobile stacked cards'
             ],
             screenshots: output

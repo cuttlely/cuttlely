@@ -24,7 +24,7 @@ it('retains decimal source bytes and opens the evidence for the exact snapshot',
     const inspect = jest.fn()
     const snapshot = { rows: [{ amount: '123456789.0123456789' }] }
     act(() => root.render(createElement(DashboardCard, { data: { card, snapshot, inspect } })))
-    expect(container.querySelector('.df-value span').title).toBe('123456789.0123456789')
+    expect(container.querySelector('.df-value span').dataset.exactValue).toBe('123456789.0123456789')
     expect(container.textContent).toContain('123.46M')
     act(() => container.querySelector('button.df-evidence').click())
     expect(inspect).toHaveBeenCalledWith(card, snapshot)
@@ -47,7 +47,7 @@ it('bar hover labels show exact values and drill into the selected source row', 
     }
     act(() => root.render(createElement(DashboardCard, { data: { card: bar, snapshot, inspect } })))
     const buttons = container.querySelectorAll('button.df-bar-row')
-    expect(buttons[1].title).toContain('South: 7')
+    expect(buttons[1].getAttribute('aria-label')).toContain('South: 7')
     act(() => buttons[1].click())
     expect(inspect).toHaveBeenCalledWith(bar, snapshot, 1)
 })

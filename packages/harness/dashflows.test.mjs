@@ -4,7 +4,15 @@ import { test } from 'node:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { catalog, materialize, openDashStore, validateDefinition, validateSnapshot } from './dashflows.mjs'
+import {
+    catalog,
+    materializeCached,
+    pipelinePeriods,
+    materialize,
+    openDashStore,
+    validateDefinition,
+    validateSnapshot
+} from './dashflows.mjs'
 import { compilePinned } from './runtime/pinned-query.mjs'
 
 // Synthetic contract fixture. This is not a Supreme export or a live database result.
@@ -338,3 +346,113 @@ for (const mutation of ['save', 'unpublish']) {
             }
         }))
 }
+test('cached refresh revalidates source receipts, preserves freshness and keys exact parameters', async () => {
+    const values = new Map()
+    const cache = { get: (key) => values.get(key), put: (key, value) => values.set(key, value) }
+    let calls = 0
+    const execute = async () => {
+        calls++
+        return result()
+    }
+    const first = await materializeCached(definition, harness, execute, cache)
+    const second = await materializeCached(definition, harness, execute, cache, true)
+    assert.equal(calls, 1)
+    assert.equal(second.cards[0].fetchedAt, first.cards[0].fetchedAt)
+    await materializeCached({ ...definition, cards: [{ ...card, params: { month: '2026-11-01' } }] }, harness, execute, cache, true)
+    assert.equal(calls, 2)
+    for (const value of values.values()) value.raw.pinned.hash = 'wrong'
+    await assert.rejects(materializeCached(definition, harness, execute, cache, true))
+    await materializeCached(definition, harness, execute, cache, false)
+    assert.equal(calls, 3)
+})
+test('durable query cache isolates workspaces/dashboards, expires from original fetch time and survives reopen', () => {
+    storeTest((store, file) => {
+        const row = store.save(null, 'team-a', 'owner', definition)
+        const second = store.save(null, 'team-a', 'owner', definition)
+        const cache = store.queryCache(row.id, 'team-a')
+        cache.put('one', { raw: result(), fetchedAt: new Date().toISOString() })
+        assert.equal(store.queryCache(second.id, 'team-a').get('one'), null)
+        assert.throws(() => store.queryCache(row.id, 'team-b'), /not found/)
+        const reopened = openDashStore(file)
+        assert.ok(reopened.queryCache(row.id, 'team-a').get('one'))
+        reopened.close()
+        cache.put('expired', { raw: result(), fetchedAt: new Date(Date.now() - 7 * 3600000).toISOString() })
+        assert.equal(cache.get('expired'), null)
+    })
+})
+test('pipeline preset periods use UTC boundaries including next-year quarters', () => {
+    const periods = pipelinePeriods(new Date('2026-12-31T23:59:00Z'))
+    assert.equal(periods.length, 5)
+    assert.deepEqual(periods[0], { start_date: '2026-12-31', end_date: '2027-01-30' })
+    assert.deepEqual(periods[4], { start_date: '2027-01-01', end_date: '2027-04-01' })
+})
+test('explicit refresh prepares five pipeline ranges once; cached selection performs no source execution', async () => {
+    const rangePin = {
+        ...pin,
+        id: queryName('pipeline_window'),
+        name: queryName('pipeline_window'),
+        sql: 'SELECT region, amount FROM demo_totals WHERE month >= :start_date AND month < :end_date LIMIT 100',
+        params: [
+            { name: 'start_date', type: 'date', required: true },
+            { name: 'end_date', type: 'date', required: true }
+        ]
+    }
+    const record = {
+        ...harness,
+        specialists: [{ name: 'analyst', modules: [{ nodeName: 'postgreSQLMCP', inputs: { pinnedQueries: [rangePin] } }] }]
+    }
+    const rangedCard = {
+        ...card,
+        source: `analyst:0:${rangePin.id}`,
+        hash: compilePinned(rangePin).statementHash,
+        params: pipelinePeriods()[0]
+    }
+    const def = { ...definition, cards: [rangedCard] }
+    const values = new Map()
+    const cache = { get: (key) => values.get(key), put: (key, value) => values.set(key, value) }
+    let calls = 0
+    const execute = async () => {
+        calls++
+        return { ...result(), pinned: { id: rangePin.id, name: rangePin.name, version: 1, hash: rangedCard.hash } }
+    }
+    await materializeCached(def, record, execute, cache)
+    assert.equal(calls, 5)
+    assert.equal(values.size, 5)
+    await materializeCached({ ...def, cards: [{ ...rangedCard, params: pipelinePeriods()[2] }] }, record, execute, cache, true)
+    assert.equal(calls, 5)
+    const partial = await materializeCached(
+        def,
+        record,
+        async (item, args) => {
+            if (args.end_date === pipelinePeriods()[1].end_date) throw new Error('Source unavailable')
+            return execute(item, args)
+        },
+        cache
+    )
+    assert.ok(partial.cards.length)
+    assert.match(partial.rangeCacheWarning, /not ready/)
+})
+test('public publishing is opt-in, frozen, revocable, and does not revive an old token', () => {
+    storeTest((store) => {
+        const row = store.save(null, 'team-a', 'owner', definition)
+        const claim = store.claim(row.id, 'team-a')
+        store.settle(row.id, 'team-a', claim, { cards: [{ cardId: card.id, rows: [{ account_name: 'Synthetic' }] }] }, null)
+        assert.equal(store.publish(row.id, 'team-a', row.revision).publicToken, null)
+        const publicView = store.publish(row.id, 'team-a', row.revision, true)
+        assert.ok(publicView.publicToken)
+        assert.equal(store.publicView(publicView.publicToken).workspace, 'team-a')
+        assert.throws(() => store.publicView(row.id), /not found/)
+        const slot = store.reservePublicReport(publicView.publicToken)
+        store.attachPublicReport(slot, 'run-one')
+        assert.ok(store.hasPublicReport(publicView.publicToken, 'run-one'))
+        assert.equal(store.hasPublicReport('other-token', 'run-one'), false)
+        for (let i = 1; i < 10; i++) store.reservePublicReport(publicView.publicToken)
+        assert.throws(() => store.reservePublicReport(publicView.publicToken), /hourly report limit/)
+        store.unpublish(row.id, 'team-a')
+        assert.throws(() => store.publicView(publicView.publicToken), /not found/)
+        const newView = store.publish(row.id, 'team-a', row.revision, true)
+        assert.notEqual(newView.publicToken, publicView.publicToken)
+        store.publish(row.id, 'team-a', row.revision, false)
+        assert.throws(() => store.publicView(newView.publicToken), /not found/)
+    })
+})

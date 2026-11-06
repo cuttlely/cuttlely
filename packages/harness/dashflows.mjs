@@ -1,7 +1,7 @@
 // Dashflows store typed source rows, never generated prose. Like the harness queue,
 // this BETA uses a local SQLite database shared by processes on the same data volume.
 import { DatabaseSync } from 'node:sqlite'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { dataRoot } from './paths.mjs'
@@ -261,7 +261,7 @@ export function validateSnapshot(raw, pin, card) {
         fetchedAt: new Date().toISOString()
     }
 }
-export async function materialize(definition, record, execute) {
+export async function materialize(definition, record, execute, sourceTime = () => null) {
     const snapshots = []
     const executed = new Map()
     for (const card of definition.cards) {
@@ -272,11 +272,80 @@ export async function materialize(definition, record, execute) {
         if (!executed.has(cacheKey)) executed.set(cacheKey, await execute(item, card.params))
         const raw = executed.get(cacheKey)
         const snapshot = validateSnapshot(raw, pin, card)
+        snapshot.fetchedAt = sourceTime(item, card.params) || snapshot.fetchedAt
         snapshot.source.harness = definition.harness
         snapshots.push(snapshot)
     }
     if (!snapshots.length) fail('Add a card before refreshing.')
     return { id: randomUUID(), refreshedAt: new Date().toISOString(), cards: snapshots }
+}
+
+// UTC, half-open pipeline periods. Keep in sync with the Dashflows range picker.
+export function pipelinePeriods(now = new Date()) {
+    const today = new Date(now.toISOString().slice(0, 10) + 'T00:00:00Z')
+    const iso = (date) => date.toISOString().slice(0, 10)
+    const year = today.getUTCFullYear(),
+        quarter = Math.floor(today.getUTCMonth() / 3) * 3
+    return [30, 60, 90]
+        .map((days) => ({ start_date: iso(today), end_date: iso(new Date(+today + days * 86400000)) }))
+        .concat([
+            { start_date: iso(new Date(Date.UTC(year, quarter, 1))), end_date: iso(new Date(Date.UTC(year, quarter + 3, 1))) },
+            { start_date: iso(new Date(Date.UTC(year, quarter + 3, 1))), end_date: iso(new Date(Date.UTC(year, quarter + 6, 1))) }
+        ])
+}
+export async function materializeCached(definition, record, execute, cache, preferCache = false) {
+    const warmDeadline = Date.now() + 20 * 60000
+    const pending = new Map()
+    const keyFor = (item, args) =>
+        createHash('sha256')
+            .update(JSON.stringify([definition.harness, item, Object.entries(args).sort()]))
+            .digest('hex')
+    const run = async (item, args) => {
+        const key = keyFor(item, args)
+        if (!pending.has(key)) {
+            const cached = preferCache ? cache.get(key) : null
+            pending.set(key, cached || { raw: await execute(item, args), fetchedAt: new Date().toISOString() })
+        }
+        return pending.get(key).raw
+    }
+    const time = (item, args) => pending.get(keyFor(item, args))?.fetchedAt
+    const snapshot = await materialize(definition, record, run, time)
+    // The active result must validate before anything enters the durable cache.
+    const persist = (cards) => {
+        for (const card of cards) {
+            const { item } = sourceFor(record, card.source)
+            const key = keyFor(item, card.params)
+            cache.put(key, pending.get(key))
+        }
+    }
+    persist(definition.cards)
+    const pipeline = definition.cards.filter((card) => card.source.endsWith(':pq_pipeline_window'))
+    const group = (card) =>
+        JSON.stringify([
+            card.source,
+            Object.entries(card.params)
+                .filter(([key]) => !['start_date', 'end_date'].includes(key))
+                .sort()
+        ])
+    // Warm one shared pipeline lens, bounded to five additional executions under the refresh lease.
+    const cards = pipeline.filter((card) => group(card) === group(pipeline[0]))
+    if (!preferCache && cards.length) {
+        for (const dates of pipelinePeriods()) {
+            if (Date.now() >= warmDeadline) {
+                snapshot.rangeCacheWarning = 'Some preset ranges are not ready. Selecting one will retry its source.'
+                break
+            }
+            try {
+                const rangedCards = cards.map((card) => ({ ...card, params: { ...card.params, ...dates } }))
+                await materialize({ ...definition, cards: rangedCards }, record, run, time)
+                persist(rangedCards)
+            } catch {
+                // Optional preset preparation must never discard the validated active result.
+                snapshot.rangeCacheWarning = 'Some preset ranges are not ready. Selecting one will retry its source.'
+            }
+        }
+    }
+    return snapshot
 }
 
 export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) {
@@ -289,7 +358,13 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             next_refresh INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS dash_flow_workspace ON dash_flow(workspace);
-        CREATE INDEX IF NOT EXISTS dash_flow_due ON dash_flow(next_refresh);`)
+        CREATE INDEX IF NOT EXISTS dash_flow_due ON dash_flow(next_refresh);
+        CREATE INDEX IF NOT EXISTS dash_flow_public_token ON dash_flow(json_extract(published, '$.publicToken'));
+        CREATE TABLE IF NOT EXISTS dash_flow_query_cache (
+            dashboard TEXT NOT NULL, workspace TEXT NOT NULL, cache_key TEXT NOT NULL, value TEXT NOT NULL, expires INTEGER NOT NULL,
+            PRIMARY KEY(dashboard, workspace, cache_key)
+        );
+        CREATE TABLE IF NOT EXISTS dash_flow_public_report (slot TEXT PRIMARY KEY, token TEXT NOT NULL, run_id TEXT, started INTEGER NOT NULL);`)
     const rowFor = (id, workspace) => {
         if (!workspace) fail('Workspace required.', 403)
         const row = db.prepare('SELECT * FROM dash_flow WHERE id=? AND workspace=?').get(id, workspace)
@@ -315,12 +390,39 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         definition: JSON.parse(row.definition),
         snapshot: row.snapshot ? JSON.parse(row.snapshot) : null,
         published: Boolean(row.published),
+        publicToken: row.published ? JSON.parse(row.published).publicToken || null : null,
         error: row.error,
         nextRefresh: row.next_refresh || null,
         refreshing: row.lease_until > Date.now()
     })
     return {
         close: () => db.close(),
+        queryCache(id, workspace) {
+            rowFor(id, workspace)
+            return {
+                get(key) {
+                    const row = db
+                        .prepare('SELECT value FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? AND cache_key=? AND expires>?')
+                        .get(id, workspace, key, Date.now())
+                    return row ? JSON.parse(row.value) : null
+                },
+                put(key, value) {
+                    const json = JSON.stringify(value)
+                    if (Buffer.byteLength(json) > 2 * 1024 * 1024) return
+                    db.prepare('INSERT OR REPLACE INTO dash_flow_query_cache VALUES(?,?,?,?,?)').run(
+                        id,
+                        workspace,
+                        key,
+                        json,
+                        Date.parse(value.fetchedAt) + 6 * 3600000
+                    )
+                    db.prepare('DELETE FROM dash_flow_query_cache WHERE expires<=?').run(Date.now())
+                    db.prepare(
+                        'DELETE FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? AND cache_key NOT IN (SELECT cache_key FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? ORDER BY expires DESC LIMIT 32)'
+                    ).run(id, workspace, id, workspace)
+                }
+            }
+        },
         list(workspace) {
             if (!workspace) fail('Workspace required.', 403)
             return db
@@ -344,6 +446,29 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             if (!row.published) fail('This dashboard is not published.', 404)
             return { id, ...JSON.parse(row.published) }
         },
+        publicView(token) {
+            if (!/^[a-f0-9-]{36}$/.test(token || '')) fail('Public dashboard not found.', 404)
+            const row = db.prepare("SELECT * FROM dash_flow WHERE json_extract(published, '$.publicToken')=?").get(token)
+            if (!row) fail('Public dashboard not found.', 404)
+            return { workspace: row.workspace, owner: row.owner, publication: { id: row.id, ...JSON.parse(row.published) } }
+        },
+        reservePublicReport(token) {
+            return writeTransaction(() => {
+                const count = db
+                    .prepare('SELECT COUNT(*) AS n FROM dash_flow_public_report WHERE token=? AND started>?')
+                    .get(token, Date.now() - 3600000)
+                if (count.n >= 10) fail('This dashboard has reached its hourly report limit. Try later.', 429)
+                const slot = randomUUID()
+                db.prepare('INSERT INTO dash_flow_public_report VALUES(?,?,NULL,?)').run(slot, token, Date.now())
+                return slot
+            })
+        },
+        attachPublicReport(slot, runId) {
+            db.prepare('UPDATE dash_flow_public_report SET run_id=? WHERE slot=?').run(runId, slot)
+        },
+        hasPublicReport(token, runId) {
+            return !!db.prepare('SELECT slot FROM dash_flow_public_report WHERE token=? AND run_id=?').get(token, runId)
+        },
         save(id, workspace, owner, input, revision) {
             if (!workspace || !owner) fail('Sign in to save a dashboard.', 403)
             const definition = validateDefinition(input)
@@ -366,13 +491,14 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             }
             return decode(rowFor(id, workspace))
         },
-        publish(id, workspace, revision) {
+        publish(id, workspace, revision, makePublic = false) {
             return writeTransaction(() => {
                 const row = rowFor(id, workspace)
                 if (!row.snapshot || row.revision !== revision) fail('Refresh the saved draft before publishing.', 409)
                 const publication = {
                     definition: JSON.parse(row.definition),
                     snapshot: JSON.parse(row.snapshot),
+                    publicToken: makePublic === true ? (row.published && JSON.parse(row.published).publicToken) || randomUUID() : null,
                     publishedAt: new Date().toISOString()
                 }
                 db.prepare('UPDATE dash_flow SET published=? WHERE id=? AND workspace=?').run(JSON.stringify(publication), id, workspace)

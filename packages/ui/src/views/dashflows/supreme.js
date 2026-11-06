@@ -59,8 +59,8 @@ export function supremeRiskTemplate(sources) {
                           kind: 'table',
                           source: accountSource.key,
                           hash: accountSource.hash,
-                          params: { top_n: 10, quarter_offset: 0, period: 'quarter', window_days: 7 },
-                          scope: 'Top 10 at-risk renewal opportunities by recorded risk score · selected records, not the full portfolio · click an account',
+                          params: { top_n: 100, quarter_offset: 0, period: 'quarter', window_days: 7 },
+                          scope: 'Up to 100 at-risk renewal opportunities by recorded risk score · selected records, not the full portfolio · click an account',
                           rowsPath: 'risk_quarter_payload.inline_rows',
                           selectionCountPath: 'risk_quarter_payload.returned_rows',
                           selectionTotalPath: 'risk_quarter_payload.total_eligible_renewal_opportunities',
@@ -100,7 +100,7 @@ export function supremeCommandTemplate(sources, now = new Date()) {
             ...extra
         })
     }
-    const pipeline = { window_days: 30, region: 'ALL', page_number: 1, page_size: 20 }
+    const pipeline = { window_days: 30, region: 'ALL', page_number: 1, page_size: 100 }
     const pipelineScope = 'Next 30 days · open/non-omitted · close-date cohort · unweighted source ACV'
     add(dashSourceName('pipeline_window'), 'Open pipeline', 'metric', 'total_known_deal_acv', pipelineScope, pipeline)
     add(

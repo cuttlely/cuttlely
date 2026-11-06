@@ -794,6 +794,16 @@
             "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
+            "from": "packages/server/src/routes/dashflows/public-gate.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "Dashflows public route uses the existing AppError contract; its auth-gate regression reads the existing public route constants."
+        },
+        {
+            "from": "packages/server/src/routes/dashflows/public.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Dashflows public route uses the existing AppError contract; its auth-gate regression reads the existing public route constants."
+        },
+        {
             "from": "packages/server/src/routes/export-import/index.test.ts",
             "to": "packages/server/src/routes/export-import/index.ts",
             "reason": "The closed-route test mounts the real export-import router"

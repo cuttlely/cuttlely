@@ -9,11 +9,11 @@ const published = jest.fn((_id: string, workspace: string) => {
     if (workspace !== 'team-a') throw new AppError(404, 'Dashboard not found.')
     return { definition: { harness: 'synthetic-contract' }, snapshot: { id: 'stored-data' } }
 })
-const startRefresh = jest.fn(async (id: string, _workspace: string) => ({ id, refreshing: true }))
+const startRefresh = jest.fn(async (id: string, _workspace: string, _preferCache = false) => ({ id, refreshing: true }))
 const store = { published, get: jest.fn(), list: jest.fn(() => []), publish: jest.fn(), unpublish: jest.fn() }
 jest.mock('../../services/dashflows', () => ({
     runtime: async () => ({ dashStore: () => store, DashFlowError: class extends Error {} }),
-    startDashboardRefresh: (id: string, workspace: string) => startRefresh(id, workspace),
+    startDashboardRefresh: (id: string, workspace: string, preferCache: boolean) => startRefresh(id, workspace, preferCache),
     saveDashboard: jest.fn(),
     sources: jest.fn()
 }))
@@ -103,5 +103,12 @@ it('accepts a refresh without waiting for its background materialization', async
     const res = await request(app(editor)).post('/dashflows/demo/refresh')
     expect(res.status).toBe(202)
     expect(res.body).toEqual({ id: 'demo', refreshing: true })
-    expect(startRefresh).toHaveBeenCalledWith('demo', 'team-a')
+    expect(startRefresh).toHaveBeenCalledWith('demo', 'team-a', false)
+})
+
+it('only an explicit cache preference reuses source results for an authorized range change', async () => {
+    await request(app(editor)).post('/dashflows/demo/refresh').send({ preferCache: true }).expect(202)
+    expect(startRefresh).toHaveBeenLastCalledWith('demo', 'team-a', true)
+    await request(app(editor)).post('/dashflows/demo/refresh').send({ preferCache: 'true' }).expect(202)
+    expect(startRefresh).toHaveBeenLastCalledWith('demo', 'team-a', false)
 })

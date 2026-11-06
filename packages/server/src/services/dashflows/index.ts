@@ -27,7 +27,7 @@ export async function saveDashboard(req: Request, workspace: string) {
 
 type StartedRefresh = { mod: any; store: any; claim: any }
 
-export async function refreshDashboard(id: string, workspace: string, started?: StartedRefresh) {
+export async function refreshDashboard(id: string, workspace: string, started?: StartedRefresh, preferCache = false) {
     const mod = started?.mod ?? (await runtime())
     const store = started?.store ?? mod.dashStore()
     const claim = started?.claim ?? store.claim(id, workspace)
@@ -35,12 +35,17 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
         const record = await harnessesService.getHarness(claim.definition.harness, workspace)
         const bridge = await loadHarness('bridge.mjs')
         const context = await contextFor(record)
-        const snapshot = await mod.materialize(claim.definition, record, (item: any, args: unknown) =>
-            bridge.executeSpecialistTool(record.name, item.specialist, item.name, args, {
-                harness: record,
-                bindingIndex: item.bindingIndex,
-                ...context
-            })
+        const snapshot = await mod.materializeCached(
+            claim.definition,
+            record,
+            (item: any, args: unknown) =>
+                bridge.executeSpecialistTool(record.name, item.specialist, item.name, args, {
+                    harness: record,
+                    bindingIndex: item.bindingIndex,
+                    ...context
+                }),
+            store.queryCache(id, workspace),
+            preferCache
         )
         return store.settle(id, workspace, claim, snapshot, null)
     } catch (error) {
@@ -51,12 +56,12 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
     }
 }
 
-export async function startDashboardRefresh(id: string, workspace: string) {
+export async function startDashboardRefresh(id: string, workspace: string, preferCache = false) {
     if (isDraining() || isShuttingDown()) throw new AppError(503, 'Cuttlely is restarting. Try again in a minute.')
     const mod = await runtime()
     const store = mod.dashStore()
     const claim = store.claim(id, workspace)
-    void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim })).catch(() => {
+    void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim }, preferCache)).catch(() => {
         /* The durable error is returned by later reads. */
     })
     return { id, refreshing: true }

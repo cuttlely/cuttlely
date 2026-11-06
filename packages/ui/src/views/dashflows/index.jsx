@@ -12,7 +12,11 @@ import { useAuth } from '@/hooks/useAuth'
 import { useConfig } from '@/store/context/ConfigContext'
 import './dashflows.css'
 import { dashSourceName, supremeCommandTemplate } from './supreme'
-import AccountReport, { accountIdentity } from './AccountReport'
+import SourceTable from './SourceTable'
+import EvidencePanel from './EvidencePanel'
+import ExecutiveTooltip from './ExecutiveTooltip'
+import { RANGE_OPTIONS, rangeDates } from './ranges'
+export { default as SourceTable } from './SourceTable'
 import Chart from './Charts'
 
 const blank = { title: 'Untitled dashboard', harness: '', intervalSeconds: 0, cards: [] }
@@ -44,56 +48,6 @@ export async function pollDashboard(fetchRecord, pause = () => new Promise((reso
         if (!data.refreshing) return data
     }
 }
-
-export function SourceTable({ rows, selectedColumns, onAccount }) {
-    const [sort, setSort] = useState(null)
-    const orderedRows = rows.map((row, index) => ({ row, index }))
-    if (sort)
-        orderedRows.sort(
-            (a, b) =>
-                String(a.row[sort.field] ?? '').localeCompare(String(b.row[sort.field] ?? ''), undefined, { numeric: true }) *
-                sort.direction
-        )
-    const columns = selectedColumns || [...new Set(rows.flatMap(Object.keys))]
-    return (
-        <div className='df-table-scroll nodrag nowheel'>
-            <table>
-                <thead>
-                    <tr>
-                        {columns.map((c) => (
-                            <th key={c}>
-                                <button
-                                    className='df-sort-header'
-                                    onClick={() => setSort({ field: c, direction: sort?.field === c ? -sort.direction : 1 })}
-                                >
-                                    {c.replaceAll('_', ' ')} {sort?.field === c ? (sort.direction === 1 ? '↑' : '↓') : '↕'}
-                                </button>
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {orderedRows.map(({ row: r, index: i }) => (
-                        <tr key={i}>
-                            {columns.map((c) => (
-                                <td key={c}>
-                                    {onAccount && c === 'account_name' && accountIdentity(r) ? (
-                                        <button className='df-account-link' onClick={() => onAccount(r, i)}>
-                                            {cell(r[c])} ↗
-                                        </button>
-                                    ) : (
-                                        cell(r[c])
-                                    )}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    )
-}
-SourceTable.propTypes = { rows: PropTypes.array.isRequired, selectedColumns: PropTypes.array, onAccount: PropTypes.func }
 
 export function DashboardCard({ data }) {
     const { card, snapshot, inspect, remove, edit } = data
@@ -128,7 +82,8 @@ export function DashboardCard({ data }) {
             <p className='df-scope'>{card.scope}</p>
             {snapshot?.source?.selection && (
                 <p className='df-selection'>
-                    Showing {snapshot.source.selection.shown} of {snapshot.source.selection.total} eligible opportunities
+                    Previewing {Math.min(10, snapshot.source.selection.shown)} of {snapshot.source.selection.shown} stored opportunities ·{' '}
+                    {snapshot.source.selection.total} in scope
                 </p>
             )}
             {!snapshot ? (
@@ -136,21 +91,26 @@ export function DashboardCard({ data }) {
             ) : rows.length === 0 ? (
                 <div className='df-await'>No rows in this scope</div>
             ) : card.kind === 'metric' ? (
-                <div className='df-value'>
-                    <span title={cell(rows[0][card.valueField])}>
-                        {Number.isFinite(Number(rows[0][card.valueField])) && rows[0][card.valueField] !== null
-                            ? new Intl.NumberFormat('en-US', {
-                                  notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
-                                  maximumFractionDigits: 2
-                              }).format(Number(rows[0][card.valueField]))
-                            : cell(rows[0][card.valueField])}
-                    </span>
-                    <small>{card.valueField}</small>
-                </div>
+                <ExecutiveTooltip card={card} row={rows[0]} snapshot={snapshot}>
+                    <button
+                        className='df-value df-metric-button nodrag'
+                        onClick={() => inspect(card, snapshot)}
+                        aria-label={`View evidence for ${card.title}`}
+                    >
+                        <span data-exact-value={cell(rows[0][card.valueField])}>
+                            {Number.isFinite(Number(rows[0][card.valueField])) && rows[0][card.valueField] !== null
+                                ? new Intl.NumberFormat('en-US', {
+                                      notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
+                                      maximumFractionDigits: 2
+                                  }).format(Number(rows[0][card.valueField]))
+                                : cell(rows[0][card.valueField])}
+                        </span>
+                    </button>
+                </ExecutiveTooltip>
             ) : card.kind === 'table' ? (
-                <SourceTable rows={rows} selectedColumns={card.columns} onAccount={(_row, i) => inspect(card, snapshot, i)} />
+                <SourceTable limit={10} rows={rows} selectedColumns={card.columns} onAccount={(_row, i) => inspect(card, snapshot, i)} />
             ) : (
-                <Chart card={card} rows={rows} inspect={(index) => inspect(card, snapshot, index)} />
+                <Chart card={card} rows={rows} snapshot={snapshot} inspect={(index) => inspect(card, snapshot, index)} />
             )}
             <button className='df-evidence nodrag' disabled={!snapshot} onClick={() => inspect(card, snapshot)}>
                 <IconShieldCheck size={16} /> {snapshot ? 'Pinned source · inspect evidence' : 'Source not yet checked'}{' '}
@@ -179,15 +139,17 @@ export function DashFlowsOff() {
     )
 }
 
-export default function DashFlows({ published = false }) {
+export default function DashFlows({ published = false, publicLink = false }) {
     const { config, loading } = useConfig() || {}
+    if (publicLink) return <DashFlowsEnabled published publicLink />
     if (loading) return null
     if (config?.DASH_FLOWS !== true) return <DashFlowsOff />
     return <DashFlowsEnabled published={published} />
 }
 
-export function DashFlowsEnabled({ published = false }) {
-    const { id } = Router.useParams()
+export function DashFlowsEnabled({ published = false, publicLink = false }) {
+    const { id, token } = Router.useParams()
+    const publicToken = publicLink ? token : null
     const workspaceId = useSelector((state) => state.auth.user?.activeWorkspaceId)
     const compact = useMediaQuery('(max-width:650px)')
     const changeRoute = useRouteChange()
@@ -212,6 +174,7 @@ export function DashFlowsEnabled({ published = false }) {
         start_date: new Date().toISOString().slice(0, 10),
         end_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
     })
+    const [range, setRange] = useState('30')
     const [dirty, setDirty] = useState(false)
     const [error, setError] = useState('')
     const [notice, setNotice] = useState('')
@@ -219,9 +182,24 @@ export function DashFlowsEnabled({ published = false }) {
     const [evidence, setEvidence] = useState(null)
     const [flow, setFlow] = useState(null)
     const [publishDialog, setPublishDialog] = useState(false)
+    const [publishPublic, setPublishPublic] = useState(false)
     const adopt = (value) => {
         setRecord(value)
+        setPublishPublic(!!value.publicToken)
         setDefinition(value.definition)
+        const pipeline = value.definition.cards.find((card) => card.source.endsWith(':pq_pipeline_window'))
+        if (pipeline) {
+            const params = pipeline.params
+            const dates =
+                params.start_date && params.end_date
+                    ? { start_date: params.start_date, end_date: params.end_date }
+                    : rangeDates(String(params.window_days || 30))
+            setPipelineFilters({ region: params.region || 'ALL', ...dates })
+            setRange(
+                RANGE_OPTIONS.find(([key]) => key !== 'custom' && JSON.stringify(rangeDates(key)) === JSON.stringify(dates))?.[0] ||
+                    'custom'
+            )
+        }
         setDirty(false)
     }
     const run = async (fn) => {
@@ -246,8 +224,10 @@ export function DashFlowsEnabled({ published = false }) {
         setEvidence(null)
         const load = async () => {
             try {
-                if (id) {
-                    const { data } = await client.get(`${path(id)}${published ? '/published' : ''}`)
+                if (id || publicToken) {
+                    const { data } = await client.get(
+                        publicToken ? `/public-dashflows/${encodeURIComponent(publicToken)}` : `${path(id)}${published ? '/published' : ''}`
+                    )
                     if (active) adopt(data)
                 }
                 if (!published) {
@@ -265,7 +245,7 @@ export function DashFlowsEnabled({ published = false }) {
         return () => {
             active = false
         }
-    }, [id, published, workspaceId])
+    }, [id, published, workspaceId, publicToken])
     useEffect(() => {
         let active = true
         setSources([])
@@ -341,12 +321,12 @@ export function DashFlowsEnabled({ published = false }) {
         adopt(data)
         if (!id) changeRoute(`/dashflows/${data.id}`)
     }
-    const refresh = async () => {
+    const refresh = async (preferCache = false) => {
         refreshAbort.current?.abort()
         const controller = new AbortController()
         refreshAbort.current = controller
         try {
-            const { data } = await client.post(`${path(id)}/refresh`)
+            const { data } = await client.post(`${path(id)}/refresh`, { preferCache })
             setRecord((current) => (current ? { ...current, ...data } : current))
             adopt(await pollDashboard(() => client.get(path(id)), undefined, controller.signal))
         } catch (error) {
@@ -360,6 +340,28 @@ export function DashFlowsEnabled({ published = false }) {
     const pipelineSource = sources.find(
         (s) => s.name === dashSourceName('pipeline_window') && definition.cards.some((c) => c.source === s.key)
     )
+    const applyPipeline = async (filters) => {
+        if (!id || !pipelineSource || !filters.start_date || filters.end_date <= filters.start_date) return
+        const next = {
+            ...definition,
+            cards: definition.cards.map((card) =>
+                card.source === pipelineSource.key
+                    ? {
+                          ...card,
+                          params: { ...card.params, ...filters },
+                          scope: `${filters.region} · ${filters.start_date} to ${filters.end_date} excluded · open/non-omitted close-date cohort; unweighted source values`
+                      }
+                    : card
+            )
+        }
+        setDefinition(next)
+        setRecord((current) => (current ? { ...current, snapshot: null } : current))
+        setDirty(true)
+        const { data } = await client.put(path(id), { definition: next, revision: record.revision })
+        adopt(data)
+        await refresh(true)
+        setNotice('Pipeline range updated. Cached source results are reused for up to six hours; missing ranges refresh automatically.')
+    }
     const shareUrl = id ? `${window.location.origin}/dashboards/${id}` : ''
     return (
         <main className={`df-root ${!building ? 'df-command' : ''}`}>
@@ -416,6 +418,7 @@ export function DashFlowsEnabled({ published = false }) {
                 </Alert>
             )}
             {record?.error && <Alert severity='warning'>{record.error}</Alert>}
+            {record?.snapshot?.rangeCacheWarning && <Alert severity='warning'>{record.snapshot.rangeCacheWarning}</Alert>}
             {editable && supremeReady && !definition.cards.length && (
                 <Alert
                     severity='info'
@@ -495,52 +498,85 @@ export function DashFlowsEnabled({ published = false }) {
                         <small>Filters open-pipeline cards only · YTD and renewal cohorts retain their own periods</small>
                     </div>
                     <label>
+                        Date range
+                        <select
+                            disabled={busy || !id}
+                            aria-label='Date range'
+                            value={range}
+                            onChange={(e) => {
+                                const key = e.target.value
+                                setRange(key)
+                                if (key !== 'custom') {
+                                    const filters = { ...pipelineFilters, ...rangeDates(key) }
+                                    setPipelineFilters(filters)
+                                    void run(() => applyPipeline(filters))
+                                }
+                            }}
+                        >
+                            {RANGE_OPTIONS.map(([key, label]) => (
+                                <option key={key} value={key}>
+                                    {label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
                         Region
                         <select
+                            disabled={busy || !id}
+                            aria-label='Region'
                             value={pipelineFilters.region}
-                            onChange={(e) => setPipelineFilters({ ...pipelineFilters, region: e.target.value })}
+                            onChange={(e) => {
+                                const filters = { ...pipelineFilters, region: e.target.value }
+                                setPipelineFilters(filters)
+                                void run(() => applyPipeline(filters))
+                            }}
                         >
                             {['ALL', 'AMER', 'EMEA', 'APJ'].map((region) => (
                                 <option key={region}>{region}</option>
                             ))}
                         </select>
                     </label>
-                    <label>
-                        From
-                        <input
-                            type='date'
-                            value={pipelineFilters.start_date}
-                            onChange={(e) => setPipelineFilters({ ...pipelineFilters, start_date: e.target.value })}
-                        />
-                    </label>
-                    <label>
-                        Until (excluded)
-                        <input
-                            type='date'
-                            value={pipelineFilters.end_date}
-                            onChange={(e) => setPipelineFilters({ ...pipelineFilters, end_date: e.target.value })}
-                        />
-                    </label>
-                    <Button
-                        disabled={busy || !pipelineFilters.start_date || pipelineFilters.end_date <= pipelineFilters.start_date}
-                        onClick={() => {
-                            change({
-                                cards: definition.cards.map((card) =>
-                                    card.source === pipelineSource.key
-                                        ? {
-                                              ...card,
-                                              params: { ...card.params, ...pipelineFilters },
-                                              scope: `${pipelineFilters.region} · ${pipelineFilters.start_date} to ${pipelineFilters.end_date} excluded · open/non-omitted close-date cohort; unweighted source values`
-                                          }
-                                        : card
-                                )
-                            })
-                            if (record) setRecord({ ...record, snapshot: null })
-                            setNotice('Pipeline filters applied to all pipeline cards. Save and refresh to materialize this scope.')
-                        }}
-                    >
-                        Apply lens
-                    </Button>
+                    {range === 'custom' && (
+                        <>
+                            <label>
+                                From
+                                <input
+                                    type='date'
+                                    disabled={busy}
+                                    value={pipelineFilters.start_date}
+                                    onChange={(e) => {
+                                        const filters = { ...pipelineFilters, start_date: e.target.value }
+                                        setPipelineFilters(filters)
+                                        if (filters.start_date && filters.end_date > filters.start_date)
+                                            void run(() => applyPipeline(filters))
+                                    }}
+                                />
+                            </label>
+                            <label>
+                                Until (excluded)
+                                <input
+                                    type='date'
+                                    disabled={busy}
+                                    value={pipelineFilters.end_date}
+                                    onChange={(e) => {
+                                        const filters = { ...pipelineFilters, end_date: e.target.value }
+                                        setPipelineFilters(filters)
+                                        if (filters.start_date && filters.end_date > filters.start_date)
+                                            void run(() => applyPipeline(filters))
+                                    }}
+                                />
+                            </label>
+                            <Button
+                                disabled={
+                                    busy || !id || !pipelineFilters.start_date || pipelineFilters.end_date <= pipelineFilters.start_date
+                                }
+                                onClick={() => run(() => applyPipeline(pipelineFilters))}
+                            >
+                                Refresh range
+                            </Button>
+                        </>
+                    )}
                 </div>
             )}
             {!building && nodes.length > 0 && (
@@ -692,7 +728,8 @@ export function DashFlowsEnabled({ published = false }) {
             </footer>
             {!published && (
                 <p className='df-footnote'>
-                    Published links require team sign-in. Scheduled refreshes update the draft; publish again to release a new snapshot.
+                    Team links require sign-in; public links are an explicit publishing option. Scheduled refreshes update the draft;
+                    publish again to release a new snapshot.
                 </p>
             )}
             <Dialog open={!!editor} onClose={() => setEditor(null)} fullWidth maxWidth='sm'>
@@ -841,71 +878,53 @@ export function DashFlowsEnabled({ published = false }) {
                 </DialogActions>
             </Dialog>
             <Drawer anchor='right' open={!!evidence} onClose={() => setEvidence(null)}>
-                <div className='df-drawer'>
-                    <span className='df-eyebrow'>THE EVIDENCE</span>
-                    <h2>{evidence?.card.title}</h2>
-                    <Button onClick={() => setEvidence(null)}>Close</Button>
-                    {evidence && (
-                        <>
-                            <p>{evidence.card.scope}</p>
-                            <Alert severity='info'>
-                                Pinned execution verified. Business scope and parameter selection are author supplied; they are not
-                                independently certified.
-                            </Alert>
-                            {evidence.row !== undefined && accountIdentity(evidence.snapshot.rows[evidence.row]) && (
-                                <AccountReport
-                                    key={evidence.snapshot.rows[evidence.row].account_id}
-                                    row={evidence.snapshot.rows[evidence.row]}
-                                    harness={definition.harness}
-                                    canRun={hasPermission('chatflows:create,chatflows:update,agentflows:create')}
-                                />
-                            )}
-                            <dl>
-                                <dt>Harness / query</dt>
-                                <dd>
-                                    {evidence.snapshot.source.harness} / {evidence.snapshot.source.pin}
-                                </dd>
-                                <dt>Source version</dt>
-                                <dd>{evidence.snapshot.source.version}</dd>
-                                <dt>Refreshed</dt>
-                                <dd>{date(evidence.snapshot.fetchedAt)}</dd>
-                                <dt>Query fingerprint</dt>
-                                <dd className='df-hash'>{evidence.snapshot.source.hash}</dd>
-                                <dt>Source row projection</dt>
-                                <dd>{evidence.snapshot.source.rowsPath || 'Top-level source rows'}</dd>
-                                <dt>Source completeness assertion</dt>
-                                <dd>{evidence.snapshot.source.completenessPath || 'Complete bounded query result'}</dd>
-                                <dt>Exact parameters</dt>
-                                <dd>
-                                    <pre>{JSON.stringify(evidence.snapshot.source.params, null, 2)}</pre>
-                                </dd>
-                            </dl>
-                            <h3>
-                                {evidence.row !== undefined
-                                    ? `Source row ${evidence.row + 1}`
-                                    : `${evidence.snapshot.rows.length} source rows`}
-                            </h3>
-                            <SourceTable
-                                rows={evidence.row !== undefined ? [evidence.snapshot.rows[evidence.row]] : evidence.snapshot.rows}
-                            />
-                            {evidence.snapshot.evidenceRows && (
-                                <details>
-                                    <summary>Original source envelope (scope and coverage)</summary>
-                                    <SourceTable rows={evidence.snapshot.evidenceRows} />
-                                </details>
-                            )}
-                        </>
-                    )}
-                </div>
+                {evidence && (
+                    <EvidencePanel
+                        key={`${evidence.card.id}:${evidence.row ?? 'all'}`}
+                        evidence={evidence}
+                        harness={definition.harness}
+                        canRun={!!publicToken || hasPermission('chatflows:create,chatflows:update,agentflows:create')}
+                        publicToken={publicToken}
+                        onClose={() => setEvidence(null)}
+                    />
+                )}
             </Drawer>
             <Dialog open={publishDialog} onClose={() => setPublishDialog(false)} fullWidth>
                 <DialogTitle>Share a view people can trust.</DialogTitle>
                 <DialogContent>
                     <p>
-                        Publish this saved snapshot for signed-in members of the current team with dashboard viewing access. Later draft
-                        edits stay private to the builder view.
+                        Choose who can open this saved snapshot. Later draft edits stay private to the builder view. Public publishing
+                        includes the source evidence and account health-report action.
                     </p>
-                    <TextField fullWidth label='Team dashboard link' value={shareUrl} InputProps={{ readOnly: true }} />
+                    <TextField
+                        select
+                        fullWidth
+                        label='Audience'
+                        value={publishPublic ? 'public' : 'team'}
+                        onChange={(e) => setPublishPublic(e.target.value === 'public')}
+                    >
+                        <MenuItem value='team'>Signed-in team only</MenuItem>
+                        <MenuItem value='public'>Anyone with the public link</MenuItem>
+                    </TextField>
+                    {publishPublic && (
+                        <Alert severity='warning'>
+                            The public link shares all stored source records and evidence. Visitors can also request current full health
+                            reports for these accounts, using your harness and its model usage. Unpublish revokes the link and report
+                            access.
+                        </Alert>
+                    )}
+                    <TextField
+                        fullWidth
+                        label={publishPublic ? 'Public dashboard link' : 'Team dashboard link'}
+                        value={
+                            publishPublic
+                                ? record?.publicToken
+                                    ? `${window.location.origin}/public/dashboards/${record.publicToken}`
+                                    : 'Created when you publish'
+                                : shareUrl
+                        }
+                        InputProps={{ readOnly: true }}
+                    />
                     <p>This is a snapshot, not a live query. Anyone opening the link reads stored data.</p>
                 </DialogContent>
                 <DialogActions>
@@ -930,14 +949,18 @@ export function DashFlowsEnabled({ published = false }) {
                         disabled={busy || dirty || !record?.snapshot}
                         onClick={() =>
                             run(async () => {
-                                await client.post(`${path(id)}/publish`, { revision: record.revision })
-                                setRecord({ ...record, published: true })
+                                const { data } = await client.post(`${path(id)}/publish`, {
+                                    revision: record.revision,
+                                    public: publishPublic
+                                })
+                                const url = data.publicToken ? `${window.location.origin}/public/dashboards/${data.publicToken}` : shareUrl
+                                setRecord({ ...record, published: true, publicToken: data.publicToken })
                                 setPublishDialog(false)
                                 try {
-                                    await window['nav' + 'igator'].clipboard.writeText(shareUrl)
-                                    setNotice('Published. Team link copied.')
+                                    await window['nav' + 'igator'].clipboard.writeText(url)
+                                    setNotice(`Published. ${publishPublic ? 'Public' : 'Team'} link copied.`)
                                 } catch {
-                                    setNotice(`Published. Team link: ${shareUrl}`)
+                                    setNotice(`Published. Link: ${url}`)
                                 }
                             })
                         }
@@ -949,5 +972,5 @@ export function DashFlowsEnabled({ published = false }) {
         </main>
     )
 }
-DashFlows.propTypes = { published: PropTypes.bool }
-DashFlowsEnabled.propTypes = { published: PropTypes.bool }
+DashFlows.propTypes = { published: PropTypes.bool, publicLink: PropTypes.bool }
+DashFlowsEnabled.propTypes = { published: PropTypes.bool, publicLink: PropTypes.bool }

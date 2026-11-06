@@ -9,7 +9,7 @@ export const accountIdentity = (row) =>
 export const healthQuestion = (id) =>
     `Run the full account health report for the verified Salesforce account ID ${id}. Use the ID-based full health source. Preserve exact source facts, dates, coverage and unknowns. Do not resolve or substitute a different account.`
 
-export default function AccountReport({ row, harness, canRun }) {
+export default function AccountReport({ row, harness, canRun, publicToken }) {
     const [state, setState] = useState(null)
     const abort = useRef(null)
     const timer = useRef(null)
@@ -30,12 +30,23 @@ export default function AccountReport({ row, harness, canRun }) {
         setState({ status: 'Starting full health report…' })
         try {
             const base = `/harnesses/${encodeURIComponent(harness)}/runs`
-            const { data } = await client.post(`${base}/async`, { question: healthQuestion(id) }, { signal: controller.signal })
+            const { data } = await client.post(
+                publicToken
+                    ? `/public-dashflows/${encodeURIComponent(publicToken)}/accounts/${encodeURIComponent(id)}/report`
+                    : `${base}/async`,
+                publicToken ? {} : { question: healthQuestion(id) },
+                { signal: controller.signal }
+            )
             const poll = async () => {
                 try {
-                    const { data: result } = await client.get(`${base}/${encodeURIComponent(data.runId)}/result`, {
-                        signal: controller.signal
-                    })
+                    const { data: result } = await client.get(
+                        publicToken
+                            ? `/public-dashflows/${encodeURIComponent(publicToken)}/reports/${encodeURIComponent(data.runId)}`
+                            : `${base}/${encodeURIComponent(data.runId)}/result`,
+                        {
+                            signal: controller.signal
+                        }
+                    )
                     if (!mounted.current) return
                     setState({
                         status: result.status,
@@ -61,10 +72,13 @@ export default function AccountReport({ row, harness, canRun }) {
     return (
         <section className='df-account-report'>
             <h3>{row.account_name || 'Account details'}</h3>
-            <p className='df-hash'>{id}</p>
+            <details>
+                <summary>Verified account identifier</summary>
+                <p className='df-hash'>{id}</p>
+            </details>
             <p>
-                Full health runs Supreme against this exact account. It uses current source data and may differ from this dashboard
-                snapshot.
+                Full health runs the selected harness against this exact account. It uses current source data and may differ from this
+                dashboard snapshot.
             </p>
             {canRun ? (
                 <Button variant='contained' disabled={!!state && !state.finished} onClick={start}>
@@ -82,4 +96,9 @@ export default function AccountReport({ row, harness, canRun }) {
         </section>
     )
 }
-AccountReport.propTypes = { row: PropTypes.object.isRequired, harness: PropTypes.string.isRequired, canRun: PropTypes.bool }
+AccountReport.propTypes = {
+    row: PropTypes.object.isRequired,
+    harness: PropTypes.string.isRequired,
+    canRun: PropTypes.bool,
+    publicToken: PropTypes.string
+}

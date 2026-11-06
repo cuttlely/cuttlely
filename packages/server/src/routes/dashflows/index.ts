@@ -69,12 +69,14 @@ router.post(
     '/:id/refresh',
     edit,
     harnessRunRateLimit('start'),
-    action(async (req, res, ws) => res.status(202).json(await startDashboardRefresh(req.params.id, ws)))
+    action(async (req, res, ws) => res.status(202).json(await startDashboardRefresh(req.params.id, ws, req.body?.preferCache === true)))
 )
 router.post(
     '/:id/publish',
     edit,
-    action(async (req, res, ws) => res.json((await runtime()).dashStore().publish(req.params.id, ws, req.body.revision)))
+    action(async (req, res, ws) =>
+        res.json((await runtime()).dashStore().publish(req.params.id, ws, req.body.revision, req.body.public === true))
+    )
 )
 router.delete(
     '/:id/publish',
@@ -85,3 +87,5 @@ router.delete(
     })
 )
 export default router
+
+export { default as publicDashflowsRouter } from './public'
