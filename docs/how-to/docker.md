@@ -33,10 +33,10 @@ npx cuttlely stop
 npx cuttlely status
 npx cuttlely logs
 npx cuttlely upgrade
-npx cuttlely start --port 8080 --tag 1.6.0 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.6.1 --env-file .env --no-open
 ```
 
-`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.6.0` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
+`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.6.1` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
 
 If Docker is missing or not running, the command says so and links to this page. The first account is the same as Compose: the one-time setup link is in `npx cuttlely logs`.
 

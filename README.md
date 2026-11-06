@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.6.0 is out.** Dashflows is an Experimental, default-off BETA for weekly or on-demand dashboards, hidden until an administrator turns it on. **Experimental** now has a confirmed restart control, Version History connects to a GitHub Enterprise host and **Back** returns from an open version, and agent runtime warm-up offers Off, Probe periodically, and Timed full warmup. No breaking changes. Pull image `1.6.0` or run `npm i cuttlely@1.6.0`. Upgrading from 1.4.10 or earlier? Read the [1.5.0 upgrade notes](./CHANGELOG.md#150---2026-11-01) first. [Changelog](./CHANGELOG.md#160---2026-11-06)
+**1.6.1 is out.** Dashflows BETA (Experimental, default off) polishes evidence inspection, caches pipeline date ranges for six hours, and adds optional public snapshot links with account-scoped health reports. No breaking changes. Pull image `1.6.1` or run `npm i cuttlely@1.6.1`. Upgrading from 1.4.10 or earlier? Read the [1.5.0 upgrade notes](./CHANGELOG.md#150---2026-11-01) first. [Changelog](./CHANGELOG.md#161---2026-11-06)
 
 ## Contents
 
