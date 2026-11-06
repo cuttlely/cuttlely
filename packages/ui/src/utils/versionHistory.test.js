@@ -6,6 +6,7 @@ import {
     kindLabel,
     relativeTime,
     backPathFor,
+    versionExit,
     restoreMessage,
     authorLabel,
     authorOptions,
@@ -123,6 +124,23 @@ describe('backPathFor', () => {
 
     test('is null until a type is known, so the button waits instead of opening the wrong editor', () => {
         expect(backPathFor('id-1', undefined, null, '')).toBeNull()
+    })
+})
+
+describe('versionExit', () => {
+    test('pops when the version was opened on top of a chatflow or harness canvas', () => {
+        // History is [menu, canvas, version]. Pushing the canvas again makes canvas Back return here.
+        expect(versionExit(2, '/canvas/id-1')).toEqual({ pop: true })
+        expect(versionExit(1, '/harnesscanvas/id-1')).toEqual({ pop: true })
+        expect(versionExit(3, null)).toEqual({ pop: true })
+    })
+
+    test('replaces this page when it was opened on its own, so Back cannot return to it', () => {
+        expect(versionExit(0, '/canvas/id-1')).toEqual({ path: '/canvas/id-1', replace: true })
+        expect(versionExit(0, '/harnesscanvas/id-1')).toEqual({ path: '/harnesscanvas/id-1', replace: true })
+        expect(versionExit(undefined, '/canvas/id-1')).toEqual({ path: '/canvas/id-1', replace: true })
+        expect(versionExit(0, null)).toEqual({ path: '/', replace: true })
+        expect(versionExit(undefined, '')).toEqual({ path: '/', replace: true })
     })
 })
 

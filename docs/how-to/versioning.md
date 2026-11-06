@@ -48,7 +48,7 @@ Select a version in the panel. It opens as a read-only canvas at `/versions/:flo
 
 For the first version of a flow, the box says `This is the first saved version.`
 
-**Back to editing**, the arrow at the top left, returns to the canvas.
+**Back to editing**, the arrow at the top left, returns to the canvas you opened the version from. From there, Back leaves the canvas, including back to the main menu when you came from it. Opened on its own, it opens that canvas in place of this page, so Back does not bring you here again. **Open as draft** and **Restore** leave the same way.
 
 ## Compare with now
 

@@ -47,6 +47,7 @@ import {
     CHANGE_COLORS,
     ambiguousCredentialText,
     backPathFor,
+    versionExit,
     restoreMessage,
     decorateNodes,
     describeDiff,
@@ -200,6 +201,14 @@ const VersionCanvas = () => {
     const backPath = backPathFor(chatflowId, version?.type, location.state?.type, flowType)
     const firstVersion = against === 'previous' && diff && diff.against === null
 
+    // Pop when this page was opened from a canvas. Replace when it was opened on its own.
+    // Both the arrow and Open as draft / Restore use this, so neither leaves the version page under the canvas.
+    const leaveVersion = (canvasPath) => {
+        const exit = versionExit(window.history.state?.idx, canvasPath)
+        if (exit.pop) navigate(-1)
+        else navigate(exit.path, { replace: true })
+    }
+
     const restore = async () => {
         setRestoring(true)
         setRestoreError(null)
@@ -213,7 +222,7 @@ const VersionCanvas = () => {
                 })
             )
             setConfirmOpen(false)
-            navigate(backPathFor(chatflowId, res.data?.chatflow?.type, version?.type, location.state?.type, flowType))
+            leaveVersion(backPathFor(chatflowId, res.data?.chatflow?.type, version?.type, location.state?.type, flowType))
         } catch (error) {
             setRestoreError(errorMessage(error, 'This version could not be restored.'))
         } finally {
@@ -225,12 +234,7 @@ const VersionCanvas = () => {
         <Box>
             <AppBar enableColorOnDark position='fixed' color='inherit' elevation={1} sx={{ bgcolor: theme.palette.background.default }}>
                 <Toolbar sx={{ flexWrap: { xs: 'wrap', md: 'nowrap' }, rowGap: 1, py: { xs: 1, md: 0 } }}>
-                    <ButtonBase
-                        title='Back to editing'
-                        disabled={!backPath}
-                        sx={{ borderRadius: '50%', flexShrink: 0 }}
-                        onClick={() => backPath && navigate(backPath)}
-                    >
+                    <ButtonBase title='Back to editing' sx={{ borderRadius: '50%', flexShrink: 0 }} onClick={() => leaveVersion(backPath)}>
                         <Avatar
                             variant='rounded'
                             sx={{
