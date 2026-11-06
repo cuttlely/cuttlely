@@ -2,7 +2,7 @@
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react-dom/test-utils'
-import { DASH_FLOWS_BADGE, DashboardCard, DashFlowsOff, pollDashboard, REFRESH_OPTIONS } from './index'
+import { assignParamValue, DASH_FLOWS_BADGE, DashboardCard, DashFlowsOff, pollDashboard, REFRESH_OPTIONS } from './index'
 
 jest.mock('@/ui-component/markdown/MemoizedReactMarkdown', () => ({ MemoizedReactMarkdown: ({ children }) => children }))
 
@@ -99,4 +99,21 @@ it('polls an accepted refresh until the stored result is ready', async () => {
     await expect(pollDashboard(fetchRecord, pause)).resolves.toMatchObject({ refreshing: false, snapshot: { id: 'new' } })
     expect(fetchRecord).toHaveBeenCalledTimes(2)
     expect(pause).toHaveBeenCalledTimes(2)
+})
+
+it('keeps int8 and numeric parameter edits as exact digit strings', () => {
+    const big = '9007199254740993'
+    const next = assignParamValue({ account: '1' }, 'amount', big, 'numeric')
+    expect(next.amount).toBe(big)
+    expect(typeof next.amount).toBe('string')
+    expect(assignParamValue(next, 'amount', '', 'numeric')).toEqual({ account: '1' })
+})
+
+it('aborts refresh polling when the signal is aborted', async () => {
+    const controller = new AbortController()
+    const fetchRecord = jest.fn().mockResolvedValue({ data: { refreshing: true } })
+    const pause = jest.fn(async () => {
+        controller.abort()
+    })
+    await expect(pollDashboard(fetchRecord, pause, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
 })

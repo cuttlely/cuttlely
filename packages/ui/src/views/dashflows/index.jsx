@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Router from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import ReactFlow, { Background, Controls } from 'reactflow'
@@ -21,14 +21,25 @@ const date = (v) => (v ? new Date(v).toLocaleString() : 'Not refreshed')
 const path = (id) => `/dashflows/${encodeURIComponent(id)}`
 const useRouteChange = Router['use' + 'Nav' + 'igate']
 export const DASH_FLOWS_BADGE = 'BETA'
+
+/** Keep int8/numeric parameter edits as exact digit strings (no JS Number rounding). */
+export function assignParamValue(params, name, value, type) {
+    const next = { ...params }
+    if (value === '') delete next[name]
+    else next[name] = value
+    return next
+}
+
 export const REFRESH_OPTIONS = [
     { value: 0, label: 'On demand' },
     { value: 604800, label: 'Every week' }
 ]
 
-export async function pollDashboard(fetchRecord, pause = () => new Promise((resolve) => setTimeout(resolve, 1000))) {
+export async function pollDashboard(fetchRecord, pause = () => new Promise((resolve) => setTimeout(resolve, 1000)), signal) {
     for (;;) {
+        if (signal?.aborted) throw new DOMException('Refresh polling stopped.', 'AbortError')
         await pause()
+        if (signal?.aborted) throw new DOMException('Refresh polling stopped.', 'AbortError')
         const { data } = await fetchRecord()
         if (!data.refreshing) return data
     }
@@ -188,6 +199,13 @@ export function DashFlowsEnabled({ published = false }) {
     const [harnesses, setHarnesses] = useState([])
     const [sources, setSources] = useState([])
     const [busy, setBusy] = useState(false)
+    const refreshAbort = useRef(null)
+    useEffect(
+        () => () => {
+            refreshAbort.current?.abort()
+        },
+        []
+    )
     const [building, setBuilding] = useState(false)
     const [pipelineFilters, setPipelineFilters] = useState({
         region: 'ALL',
@@ -213,6 +231,7 @@ export function DashFlowsEnabled({ published = false }) {
         try {
             await fn()
         } catch (e) {
+            if (e?.name === 'AbortError') return
             setError(e.response?.data?.message || e.message || 'Request failed. Try again.')
         } finally {
             setBusy(false)
@@ -323,9 +342,17 @@ export function DashFlowsEnabled({ published = false }) {
         if (!id) changeRoute(`/dashflows/${data.id}`)
     }
     const refresh = async () => {
-        const { data } = await client.post(`${path(id)}/refresh`)
-        setRecord((current) => (current ? { ...current, ...data } : current))
-        adopt(await pollDashboard(() => client.get(path(id))))
+        refreshAbort.current?.abort()
+        const controller = new AbortController()
+        refreshAbort.current = controller
+        try {
+            const { data } = await client.post(`${path(id)}/refresh`)
+            setRecord((current) => (current ? { ...current, ...data } : current))
+            adopt(await pollDashboard(() => client.get(path(id)), undefined, controller.signal))
+        } catch (error) {
+            if (error?.name === 'AbortError') return
+            throw error
+        }
     }
     const source = sources.find((s) => s.key === editor?.source)
     const supremeReady =
@@ -711,22 +738,14 @@ export function DashFlowsEnabled({ published = false }) {
                                             key={param.name}
                                             size='small'
                                             label={param.name.replaceAll('_', ' ')}
-                                            type={
-                                                param.type === 'date'
-                                                    ? 'date'
-                                                    : ['int8', 'numeric'].includes(param.type)
-                                                    ? 'number'
-                                                    : 'text'
-                                            }
+                                            type={param.type === 'date' ? 'date' : 'text'}
+                                            inputMode={['int8', 'numeric'].includes(param.type) ? 'decimal' : undefined}
                                             select={param.type === 'bool' || Boolean(param.allowedValues)}
                                             InputLabelProps={{ shrink: true }}
                                             value={value}
                                             inputProps={{ min: param.min, max: param.max }}
                                             onChange={(e) => {
-                                                const next = { ...params }
-                                                const value = e.target.value
-                                                if (value === '') delete next[param.name]
-                                                else next[param.name] = ['int8', 'numeric'].includes(param.type) ? Number(value) : value
+                                                const next = assignParamValue(params, param.name, e.target.value, param.type)
                                                 setEditor({ ...editor, paramsText: JSON.stringify(next, null, 2) })
                                             }}
                                         >
