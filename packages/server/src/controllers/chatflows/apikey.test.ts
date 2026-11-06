@@ -206,9 +206,9 @@ describe('saveChatflow', () => {
         expect(row).not.toHaveProperty('retainIncompleteHarness')
         expect(options).toMatchObject({
             caller: { via: 'session' },
-            draftFlowData,
-            retainIncompleteHarness: true
+            draftFlowData
         })
+        expect(options).not.toHaveProperty('retainIncompleteHarness')
         expect(res.body).toEqual({ id: 'flow-1' })
     })
 })
