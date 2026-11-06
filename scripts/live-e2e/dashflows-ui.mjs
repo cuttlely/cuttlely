@@ -142,10 +142,41 @@ const snapshot = {
         fetchedAt: '2026-11-06T03:00:00Z'
     }))
 }
+const periodKeys = ['30', '60', '90', 'quarter', 'next-quarter']
+snapshot.pipelineViews = {
+    periods: periodKeys.map((key) => ({ key, start_date: '2026-11-06', end_date: '2027-02-04' })),
+    regions: ['ALL', 'AMER', 'EMEA', 'APJ'],
+    views: {}
+}
+for (const region of snapshot.pipelineViews.regions) {
+    for (const key of periodKeys) {
+        const cards = snapshot.cards.filter(
+            (card) => definition.cards.find((c) => c.id === card.cardId).source === dashSourceName('pipeline_window')
+        )
+        snapshot.pipelineViews.views[`${region}:${key}`] = {
+            evidenceRows: [
+                {
+                    ...cards[0].rows[0],
+                    total_known_deal_acv: region === 'EMEA' && key === '90' ? 1234567 : cards[0].rows[0].total_known_deal_acv
+                }
+            ],
+            cards: cards.map((card) => {
+                const { rows, evidenceRows: _rows, ...rest } = card
+                const metric = definition.cards.find((c) => c.id === card.cardId).kind === 'metric'
+                return {
+                    ...rest,
+                    source: { ...rest.source, scope: `${region} / prepared ${key}`, params: { ...rest.source.params, region } },
+                    ...(metric ? { rowsFromEvidence: true } : { rows })
+                }
+            })
+        }
+    }
+}
 const record = { id: 'demo', revision: 1, definition, snapshot, published: true, publishedAt: '2026-11-06T03:00:00Z' }
 let reports = 0
 let refreshes = 0
 let publicPublishes = 0
+let dashboardRequests = 0
 await page.addInitScript(() => {
     if (location.pathname.startsWith('/public/dashboards')) {
         localStorage.clear()
@@ -167,6 +198,7 @@ await page.addInitScript(() => {
 })
 await page.route('**/api/v1/**', async (route) => {
     const p = new URL(route.request().url()).pathname
+    if (p.includes('/dashflows/') || p.includes('/public-dashflows/')) dashboardRequests++
     if (p.endsWith('/refresh')) refreshes++
     let data = {}
     if (p.endsWith('/settings')) data = { PLATFORM_TYPE: 'open-source', DASH_FLOWS: true }
@@ -226,12 +258,12 @@ try {
 
     if (reports !== 0 || refreshes !== 0) throw new Error('Passive dashboard view executed a report or refresh')
     await page.getByLabel('Date range', { exact: true }).selectOption('60')
-    await page.getByText('Pipeline range updated.', { exact: false }).waitFor()
-    if (refreshes !== 1) throw new Error('Preset selection did not automatically refresh')
+    await page.getByText('Showing prepared results.', { exact: false }).waitFor()
+    if (refreshes !== 0) throw new Error('Preset selection ran a refresh')
     await page.getByLabel('Date range', { exact: true }).selectOption('custom')
     await page.getByLabel('From', { exact: true }).fill('2026-10-01')
     await page.getByText('Pipeline range updated.', { exact: false }).waitFor()
-    if (refreshes !== 2) throw new Error('Custom date change did not automatically refresh')
+    if (refreshes !== 1) throw new Error('Custom date change did not automatically refresh')
     await page.goto(`${base}/dashflows/demo`)
     await page.getByRole('heading', { name: 'Supreme · GTM command center' }).waitFor()
     await page.getByRole('button', { name: 'Demo account 01 ↗' }).click()
@@ -260,6 +292,15 @@ try {
     await page.getByText('A published snapshot. Every number has a source.').waitFor()
     if (await page.evaluate(() => localStorage.getItem('isAuthenticated'))) throw new Error('Public acceptance is not anonymous')
     if (await page.getByRole('button', { name: 'Save draft' }).count()) throw new Error('Public page exposed author controls')
+    const requestsBeforeSwitch = dashboardRequests
+    for (const region of snapshot.pipelineViews.regions) {
+        await page.getByLabel('Region', { exact: true }).selectOption(region)
+        for (const key of periodKeys) await page.getByLabel('Date range', { exact: true }).selectOption(key)
+    }
+    await page.getByLabel('Date range', { exact: true }).selectOption('90')
+    await page.getByLabel('Region', { exact: true }).selectOption('EMEA')
+    if (!(await page.locator('.df-value').first().innerText()).includes('1.23M')) throw new Error('Prepared region data did not change')
+    if (dashboardRequests !== requestsBeforeSwitch) throw new Error('Public range selection made a dashboard API request')
     await page.getByRole('button', { name: 'Demo account 01 ↗' }).click()
     await page.getByRole('button', { name: 'Run full health report', exact: true }).click()
     await page.getByRole('heading', { name: 'Synthetic account health' }).waitFor()
@@ -281,7 +322,8 @@ try {
                 'executive hover summary',
                 '100 cached source records',
                 'account evidence search',
-                'automatic preset and custom date refresh',
+                'twenty instant published period/region combinations',
+                'custom date source refresh',
                 'zero passive query executions',
                 'range changes saved before refresh',
                 'published read-only',

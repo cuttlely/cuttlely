@@ -386,15 +386,16 @@ test('pipeline preset periods use UTC boundaries including next-year quarters', 
     assert.deepEqual(periods[0], { start_date: '2026-12-31', end_date: '2027-01-30' })
     assert.deepEqual(periods[4], { start_date: '2027-01-01', end_date: '2027-04-01' })
 })
-test('explicit refresh prepares five pipeline ranges once; cached selection performs no source execution', async () => {
+test('refresh freezes all twenty period/region views and refuses incomplete generations', async () => {
     const rangePin = {
         ...pin,
         id: queryName('pipeline_window'),
         name: queryName('pipeline_window'),
-        sql: 'SELECT region, amount FROM demo_totals WHERE month >= :start_date AND month < :end_date LIMIT 100',
+        sql: 'SELECT region, amount FROM demo_totals WHERE month >= :start_date AND month < :end_date AND region = :region LIMIT 100',
         params: [
             { name: 'start_date', type: 'date', required: true },
-            { name: 'end_date', type: 'date', required: true }
+            { name: 'end_date', type: 'date', required: true },
+            { name: 'region', type: 'text', required: true }
         ]
     }
     const record = {
@@ -405,32 +406,60 @@ test('explicit refresh prepares five pipeline ranges once; cached selection perf
         ...card,
         source: `analyst:0:${rangePin.id}`,
         hash: compilePinned(rangePin).statementHash,
-        params: pipelinePeriods()[0]
+        params: { ...pipelinePeriods()[0], region: 'ALL' }
     }
     const def = { ...definition, cards: [rangedCard] }
     const values = new Map()
     const cache = { get: (key) => values.get(key), put: (key, value) => values.set(key, value) }
     let calls = 0
+    let running = 0
+    let maximum = 0
     const execute = async () => {
         calls++
+        maximum = Math.max(maximum, ++running)
+        await new Promise((resolve) => setImmediate(resolve))
+        running--
         return { ...result(), pinned: { id: rangePin.id, name: rangePin.name, version: 1, hash: rangedCard.hash } }
     }
-    await materializeCached(def, record, execute, cache)
-    assert.equal(calls, 5)
-    assert.equal(values.size, 5)
-    await materializeCached({ ...def, cards: [{ ...rangedCard, params: pipelinePeriods()[2] }] }, record, execute, cache, true)
-    assert.equal(calls, 5)
-    const partial = await materializeCached(
-        def,
+    const frozen = await materializeCached(def, record, execute, cache)
+    assert.equal(calls, 20)
+    assert.ok(maximum <= 4)
+    assert.equal(values.size, 20)
+    assert.equal(Object.keys(frozen.pipelineViews.views).length, 20)
+    assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].source.params.region, 'EMEA')
+    assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].rowsFromEvidence, true)
+    assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].rows, undefined)
+    storeTest((store) => {
+        const saved = store.save(null, 'team-a', 'owner', def)
+        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), frozen, null)
+        const published = store.publish(saved.id, 'team-a', saved.revision, true)
+        assert.equal(Object.keys(store.publicView(published.publicToken).publication.snapshot.pipelineViews.views).length, 20)
+        const incomplete = structuredClone(frozen)
+        delete incomplete.pipelineViews.views['APJ:90']
+        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), incomplete, null)
+        assert.throws(() => store.publish(saved.id, 'team-a', saved.revision, true), /prepare every period and region/)
+        assert.equal(Object.keys(store.publicView(published.publicToken).publication.snapshot.pipelineViews.views).length, 20)
+    })
+    await materializeCached(
+        { ...def, cards: [{ ...rangedCard, params: { ...pipelinePeriods()[2], region: 'APJ' } }] },
         record,
-        async (item, args) => {
-            if (args.end_date === pipelinePeriods()[1].end_date) throw new Error('Source unavailable')
-            return execute(item, args)
-        },
-        cache
+        execute,
+        cache,
+        true
     )
-    assert.ok(partial.cards.length)
-    assert.match(partial.rangeCacheWarning, /not ready/)
+    assert.equal(calls, 20)
+    await assert.rejects(
+        materializeCached(
+            def,
+            record,
+            async (item, args) => {
+                if (args.end_date === pipelinePeriods()[1].end_date) throw new Error('Source unavailable')
+                return execute(item, args)
+            },
+            cache
+        ),
+        /period\/region snapshot is incomplete/
+    )
 })
 test('public publishing is opt-in, frozen, revocable, and does not revive an old token', () => {
     storeTest((store) => {

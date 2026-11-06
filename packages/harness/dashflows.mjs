@@ -294,18 +294,24 @@ export function pipelinePeriods(now = new Date()) {
         ])
 }
 export async function materializeCached(definition, record, execute, cache, preferCache = false) {
-    const warmDeadline = Date.now() + 20 * 60000
     const pending = new Map()
+    const inflight = new Map()
     const keyFor = (item, args) =>
         createHash('sha256')
             .update(JSON.stringify([definition.harness, item, Object.entries(args).sort()]))
             .digest('hex')
     const run = async (item, args) => {
         const key = keyFor(item, args)
-        if (!pending.has(key)) {
-            const cached = preferCache ? cache.get(key) : null
-            pending.set(key, cached || { raw: await execute(item, args), fetchedAt: new Date().toISOString() })
+        if (!inflight.has(key)) {
+            inflight.set(
+                key,
+                (async () => {
+                    const cached = preferCache ? cache.get(key) : null
+                    pending.set(key, cached || { raw: await execute(item, args), fetchedAt: new Date().toISOString() })
+                })()
+            )
         }
+        await inflight.get(key)
         return pending.get(key).raw
     }
     const time = (item, args) => pending.get(keyFor(item, args))?.fetchedAt
@@ -327,23 +333,43 @@ export async function materializeCached(definition, record, execute, cache, pref
                 .filter(([key]) => !['start_date', 'end_date'].includes(key))
                 .sort()
         ])
-    // Warm one shared pipeline lens, bounded to five additional executions under the refresh lease.
+    // Freeze every supported period/region in the snapshot. Only one copy of the
+    // source envelope is stored per view; metric/chart evidence shares that copy.
     const cards = pipeline.filter((card) => group(card) === group(pipeline[0]))
-    if (!preferCache && cards.length) {
-        for (const dates of pipelinePeriods()) {
-            if (Date.now() >= warmDeadline) {
-                snapshot.rangeCacheWarning = 'Some preset ranges are not ready. Selecting one will retry its source.'
-                break
-            }
-            try {
-                const rangedCards = cards.map((card) => ({ ...card, params: { ...card.params, ...dates } }))
-                await materialize({ ...definition, cards: rangedCards }, record, run, time)
+    if (cards.length) {
+        const keys = ['30', '60', '90', 'quarter', 'next-quarter']
+        const periods = pipelinePeriods().map((dates, i) => ({ key: keys[i], ...dates }))
+        const regions = ['ALL', 'AMER', 'EMEA', 'APJ']
+        const jobs = regions.flatMap((region) => periods.map((period) => ({ region, period })))
+        const views = {}
+        let index = 0
+        const worker = async () => {
+            while (index < jobs.length) {
+                const { region, period } = jobs[index++]
+                const { key, ...dates } = period
+                const rangedCards = cards.map((card) => ({
+                    ...card,
+                    params: { ...card.params, ...dates, region },
+                    scope: `${region} · ${dates.start_date} to ${dates.end_date} excluded · open/non-omitted close-date cohort; unweighted source values`
+                }))
+                const view = await materialize({ ...definition, cards: rangedCards }, record, run, time)
+                const evidenceRows = view.cards[0].evidenceRows || view.cards[0].rows
+                views[`${region}:${key}`] = {
+                    evidenceRows,
+                    cards: view.cards.map((item, i) => {
+                        const { evidenceRows: _evidence, rows, ...rest } = item
+                        return { ...rest, ...(rangedCards[i].rowsPath ? { rows } : { rowsFromEvidence: true }) }
+                    })
+                }
                 persist(rangedCards)
-            } catch {
-                // Optional preset preparation must never discard the validated active result.
-                snapshot.rangeCacheWarning = 'Some preset ranges are not ready. Selecting one will retry its source.'
             }
         }
+        // Await every worker even on failure: do not release the refresh lease
+        // while other source queries from this generation are still running.
+        const outcomes = await Promise.allSettled(Array.from({ length: 4 }, worker))
+        if (outcomes.some((result) => result.status === 'rejected'))
+            fail('The period/region snapshot is incomplete. Last good data was kept; retry Refresh.', 422)
+        snapshot.pipelineViews = { periods, regions, views }
     }
     return snapshot
 }
@@ -495,9 +521,16 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             return writeTransaction(() => {
                 const row = rowFor(id, workspace)
                 if (!row.snapshot || row.revision !== revision) fail('Refresh the saved draft before publishing.', 409)
+                const definition = JSON.parse(row.definition)
+                const snapshot = JSON.parse(row.snapshot)
+                if (
+                    definition.cards.some((card) => card.source.endsWith(':pq_pipeline_window')) &&
+                    (!snapshot.pipelineViews || Object.keys(snapshot.pipelineViews.views || {}).length !== 20)
+                )
+                    fail('Refresh once to prepare every period and region before publishing.', 409)
                 const publication = {
-                    definition: JSON.parse(row.definition),
-                    snapshot: JSON.parse(row.snapshot),
+                    definition,
+                    snapshot,
                     publicToken: makePublic === true ? (row.published && JSON.parse(row.published).publicToken) || randomUUID() : null,
                     publishedAt: new Date().toISOString()
                 }
@@ -513,10 +546,11 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             return writeTransaction(() => {
                 const row = rowFor(id, workspace)
                 const token = randomUUID()
-                // At most 12 sequential bounded queries (each <=125s). Lease outlives that bound.
+                // Up to 12 active queries, then 20 presets in four workers (each query <=125s).
+                // The 45-minute lease outlives that bound, including materialization.
                 const changed = db
                     .prepare('UPDATE dash_flow SET lease=?,lease_until=? WHERE id=? AND workspace=? AND lease_until<=?')
-                    .run(token, Date.now() + 1800000, id, workspace, Date.now())
+                    .run(token, Date.now() + 2700000, id, workspace, Date.now())
                 if (!changed.changes) fail('A refresh is already running.', 409)
                 return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner }
             })

@@ -54,7 +54,8 @@ export function hasPublishedAccount(snapshot: any, id: string): boolean {
             return null
         }
     }
-    for (const card of snapshot.cards || []) {
+    const prepared = Object.values(snapshot.pipelineViews?.views || {}).map((view: any) => ({ evidenceRows: view.evidenceRows }))
+    for (const card of [...(snapshot.cards || []), ...prepared]) {
         for (const row of [...(card.rows || []), ...(card.evidenceRows || [])]) {
             if (row.account_id === id) return true
             const rows = unpack(row.deal_details) || unpack(unpack(row.risk_quarter_payload)?.inline_rows)

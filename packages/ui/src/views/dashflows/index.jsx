@@ -16,6 +16,7 @@ import SourceTable from './SourceTable'
 import EvidencePanel from './EvidencePanel'
 import ExecutiveTooltip from './ExecutiveTooltip'
 import { RANGE_OPTIONS, rangeDates } from './ranges'
+import { selectPipelineView } from './cachedViews'
 export { default as SourceTable } from './SourceTable'
 import Chart from './Charts'
 
@@ -175,6 +176,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         end_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
     })
     const [range, setRange] = useState('30')
+    const [viewKey, setViewKey] = useState(null)
     const [dirty, setDirty] = useState(false)
     const [error, setError] = useState('')
     const [notice, setNotice] = useState('')
@@ -185,6 +187,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
     const [publishPublic, setPublishPublic] = useState(false)
     const adopt = (value) => {
         setRecord(value)
+        setViewKey(null)
         setPublishPublic(!!value.publicToken)
         setDefinition(value.definition)
         const pipeline = value.definition.cards.find((card) => card.source.endsWith(':pq_pipeline_window'))
@@ -193,11 +196,14 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
             const dates =
                 params.start_date && params.end_date
                     ? { start_date: params.start_date, end_date: params.end_date }
-                    : rangeDates(String(params.window_days || 30))
+                    : rangeDates(String(params.window_days || 30), new Date(value.snapshot?.refreshedAt || Date.now()))
             setPipelineFilters({ region: params.region || 'ALL', ...dates })
             setRange(
-                RANGE_OPTIONS.find(([key]) => key !== 'custom' && JSON.stringify(rangeDates(key)) === JSON.stringify(dates))?.[0] ||
-                    'custom'
+                RANGE_OPTIONS.find(
+                    ([key]) =>
+                        key !== 'custom' &&
+                        JSON.stringify(rangeDates(key, new Date(value.snapshot?.refreshedAt || Date.now()))) === JSON.stringify(dates)
+                )?.[0] || 'custom'
             )
         }
         setDirty(false)
@@ -268,13 +274,18 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
     }
     const remove = (cardId) => change({ cards: definition.cards.filter((c) => c.id !== cardId) })
     const inspect = useCallback((card, snapshot, row) => setEvidence({ card, snapshot, row }), [])
-    const nodes = definition.cards.map((card) => ({
+    const displayedSnapshot = selectPipelineView(record?.snapshot, viewKey)
+    const displayedCards = definition.cards.map((card) => {
+        const stored = displayedSnapshot?.cards.find((item) => item.cardId === card.id)
+        return viewKey && stored ? { ...card, scope: stored.source.scope } : card
+    })
+    const nodes = displayedCards.map((card) => ({
         id: card.id,
         type: 'dashboard',
         position: { x: card.x, y: card.y },
         data: {
             card,
-            snapshot: record?.snapshot?.cards.find((s) => s.cardId === card.id),
+            snapshot: displayedSnapshot?.cards.find((s) => s.cardId === card.id),
             inspect,
             remove: editable && !busy ? remove : null,
             edit: editable && !busy ? (card) => setEditor({ ...card, paramsText: JSON.stringify(card.params, null, 2) }) : null
@@ -337,9 +348,11 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
     const source = sources.find((s) => s.key === editor?.source)
     const supremeReady =
         definition.harness === 'honeybadger-supreme' && sources.some((s) => s.name === dashSourceName('quarter_account_risk_patterns'))
-    const pipelineSource = sources.find(
-        (s) => s.name === dashSourceName('pipeline_window') && definition.cards.some((c) => c.source === s.key)
-    )
+    const pipelineSource =
+        sources.find((s) => s.name === dashSourceName('pipeline_window') && definition.cards.some((c) => c.source === s.key)) ||
+        (record?.snapshot?.pipelineViews
+            ? { key: definition.cards.find((card) => card.source.endsWith(':pq_pipeline_window'))?.source }
+            : null)
     const applyPipeline = async (filters) => {
         if (!id || !pipelineSource || !filters.start_date || filters.end_date <= filters.start_date) return
         const next = {
@@ -354,6 +367,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     : card
             )
         }
+        setViewKey(null)
         setDefinition(next)
         setRecord((current) => (current ? { ...current, snapshot: null } : current))
         setDirty(true)
@@ -361,6 +375,21 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         adopt(data)
         await refresh(true)
         setNotice('Pipeline range updated. Cached source results are reused for up to six hours; missing ranges refresh automatically.')
+    }
+    const choosePreset = (key, region) => {
+        const cached = record?.snapshot?.pipelineViews
+        const period = cached?.periods.find((item) => item.key === key)
+        const dates = period ? { start_date: period.start_date, end_date: period.end_date } : rangeDates(key)
+        const filters = { region, ...dates }
+        setRange(key)
+        setPipelineFilters(filters)
+        setEvidence(null)
+        if (cached?.views[`${region}:${key}`]) {
+            setViewKey(`${region}:${key}`)
+            setNotice('Showing prepared results. No query or refresh was run.')
+        } else if (editable) {
+            void run(() => applyPipeline(filters))
+        }
     }
     const shareUrl = id ? `${window.location.origin}/dashboards/${id}` : ''
     return (
@@ -371,7 +400,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
             </div>
             <header className='df-header'>
                 <div>
-                    <h1>{id ? definition.title : 'Your business. In focus.'}</h1>
+                    <h1>{id || publicToken ? definition.title : 'Your business. In focus.'}</h1>
                     <p>
                         {published
                             ? 'A published snapshot. Every number has a source.'
@@ -418,7 +447,15 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                 </Alert>
             )}
             {record?.error && <Alert severity='warning'>{record.error}</Alert>}
-            {record?.snapshot?.rangeCacheWarning && <Alert severity='warning'>{record.snapshot.rangeCacheWarning}</Alert>}
+            {record?.snapshot &&
+                !record.snapshot.pipelineViews &&
+                definition.cards.some((card) => card.source.endsWith(':pq_pipeline_window')) && (
+                    <Alert severity='info'>
+                        {published
+                            ? 'The owner must refresh and republish once to add prepared period and region views.'
+                            : 'Refresh once to prepare all 20 period and region combinations for instant switching.'}
+                    </Alert>
+                )}
             {editable && supremeReady && !definition.cards.length && (
                 <Alert
                     severity='info'
@@ -491,31 +528,29 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     </>
                 )}
             </section>
-            {!building && editable && pipelineSource && (
+            {!building && pipelineSource && (editable || record?.snapshot?.pipelineViews) && (
                 <div className='df-window-filter'>
                     <div>
                         <strong>Pipeline lens</strong>
-                        <small>Filters open-pipeline cards only · YTD and renewal cohorts retain their own periods</small>
+                        <small>
+                            Prepared pipeline views · YTD and renewal cohorts retain their own periods · dates are frozen at refresh
+                        </small>
                     </div>
                     <label>
                         Date range
                         <select
-                            disabled={busy || !id}
+                            disabled={busy}
                             aria-label='Date range'
                             value={range}
                             onChange={(e) => {
                                 const key = e.target.value
                                 setRange(key)
-                                if (key !== 'custom') {
-                                    const filters = { ...pipelineFilters, ...rangeDates(key) }
-                                    setPipelineFilters(filters)
-                                    void run(() => applyPipeline(filters))
-                                }
+                                if (key !== 'custom') choosePreset(key, pipelineFilters.region)
                             }}
                         >
-                            {RANGE_OPTIONS.map(([key, label]) => (
-                                <option key={key} value={key}>
-                                    {label}
+                            {RANGE_OPTIONS.filter(([key]) => editable || key !== 'custom' || range === 'custom').map(([key, label]) => (
+                                <option key={key} value={key} disabled={published && key === 'custom'}>
+                                    {published && key === 'custom' ? 'Published default' : label}
                                 </option>
                             ))}
                         </select>
@@ -523,13 +558,16 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     <label>
                         Region
                         <select
-                            disabled={busy || !id}
+                            disabled={busy}
                             aria-label='Region'
                             value={pipelineFilters.region}
                             onChange={(e) => {
-                                const filters = { ...pipelineFilters, region: e.target.value }
-                                setPipelineFilters(filters)
-                                void run(() => applyPipeline(filters))
+                                if (range !== 'custom' || published) choosePreset(range === 'custom' ? '30' : range, e.target.value)
+                                else {
+                                    const filters = { ...pipelineFilters, region: e.target.value }
+                                    setPipelineFilters(filters)
+                                    void run(() => applyPipeline(filters))
+                                }
                             }}
                         >
                             {['ALL', 'AMER', 'EMEA', 'APJ'].map((region) => (
@@ -537,7 +575,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                             ))}
                         </select>
                     </label>
-                    {range === 'custom' && (
+                    {editable && range === 'custom' && (
                         <>
                             <label>
                                 From

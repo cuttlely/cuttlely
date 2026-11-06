@@ -96,3 +96,12 @@ it('only recognizes valid IDs in bounded published evidence rows', () => {
     ).toBe(true)
     expect(hasPublishedAccount(publication.snapshot, 'not-an-id')).toBe(false)
 })
+
+it('allows account reports from prepared published region views, never from unpublished records', () => {
+    const snapshot = {
+        cards: [],
+        pipelineViews: { views: { 'EMEA:90': { evidenceRows: [{ deal_details: [{ account_id: accountId }] }] } } }
+    }
+    expect(hasPublishedAccount(snapshot, accountId)).toBe(true)
+    expect(hasPublishedAccount({ cards: [] }, accountId)).toBe(false)
+})
