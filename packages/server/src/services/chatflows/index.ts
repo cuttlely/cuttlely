@@ -1,4 +1,4 @@
-import { saveLegacyBoundFlow } from '../accessKeys/legacyBinding'
+import { saveFlowPreservingAccess, saveLegacyBoundFlow } from '../accessKeys/legacyBinding'
 import { randomBytes } from 'crypto'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
@@ -473,7 +473,7 @@ const saveChatflow = async (
             await updateFlowDataWithFilePaths(step1Results.id, incomingFlowData, orgId, workspaceId, subscriptionId, usageCacheManager)
         )
         await _checkAndUpdateDocumentStoreUsage(step1Results, newChatFlow.workspaceId)
-        dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(step1Results)
+        dbResponse = await saveFlowPreservingAccess(appServer.AppDataSource, step1Results, step1Results)
     } else {
         const chatflow = appServer.AppDataSource.getRepository(ChatFlow).create(newChatFlow)
         dbResponse = newChatFlow.apikeyid
@@ -622,8 +622,6 @@ const ROW_KEYS = [
     'flowData',
     'deployed',
     'isPublic',
-    'apikeyid',
-    'apiAccessMode',
     'chatbotConfig',
     'apiConfig',
     'analytic',
@@ -815,7 +813,8 @@ const updateChatflow = async (
     // on the canvas that was checked. A type change is conditional on there being no draft.
     const canvasOnly = options.expectedFlowData !== undefined && !typeChanging && updateChatFlow.name == null
     const conditional = options.expectedFlowData !== undefined || typeChanging
-    if (rebinding && conditional) throw new AppError(400, 'Change legacy bindings separately from canvas restoration or type changes.')
+    if ((rebinding || updateChatFlow.apiAccessMode !== undefined) && conditional)
+        throw new AppError(400, 'Change API access separately from canvas restoration or type changes.')
     // Document store usage is updated before the save on both paths, so a later save's update always lands last,
     // as between two ordinary saves.
     await _checkAndUpdateDocumentStoreUsage(newDbChatflow, workspaceId)
@@ -834,7 +833,7 @@ const updateChatflow = async (
         } else {
             dbResponse = rebinding
                 ? await saveLegacyBoundFlow(appServer.AppDataSource, newDbChatflow, previousRow)
-                : await appServer.AppDataSource.getRepository(ChatFlow).save(newDbChatflow)
+                : await saveFlowPreservingAccess(appServer.AppDataSource, newDbChatflow, previousRow, updateChatFlow.apiAccessMode)
         }
     } catch (error) {
         if (conditional) await restoreDocumentStoreUsage(chatflow.id, workspaceId)
@@ -847,9 +846,12 @@ const updateChatflow = async (
         async () => {
             if (rebinding) await saveLegacyBoundFlow(appServer.AppDataSource, previousRow, dbResponse)
             else
-                await inTransaction(async (manager) => {
-                    await manager.getRepository(ChatFlow).save(previousRow)
-                })
+                await saveFlowPreservingAccess(
+                    appServer.AppDataSource,
+                    previousRow,
+                    dbResponse,
+                    updateChatFlow.apiAccessMode !== undefined ? previousRow.apiAccessMode || 'private' : undefined
+                )
             await restoreDocumentStoreUsage(chatflow.id, workspaceId)
         },
         skipHarnessSync
@@ -1229,7 +1231,10 @@ const setWebhookSecret = async (chatflowId: string, workspaceId: string): Promis
         const plaintext = randomBytes(32).toString('hex')
         chatflow.webhookSecret = await encryptCredentialData({ secret: plaintext })
         chatflow.webhookSecretConfigured = true
-        await repo.save(chatflow)
+        await repo.update(
+            { id: chatflowId, workspaceId },
+            { webhookSecret: chatflow.webhookSecret, webhookSecretConfigured: chatflow.webhookSecretConfigured }
+        )
         return { webhookSecret: plaintext }
     } catch (error) {
         if (error instanceof AppError) throw error
@@ -1245,7 +1250,10 @@ const clearWebhookSecret = async (chatflowId: string, workspaceId: string): Prom
         if (!chatflow) throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         chatflow.webhookSecret = null
         chatflow.webhookSecretConfigured = false
-        await repo.save(chatflow)
+        await repo.update(
+            { id: chatflowId, workspaceId },
+            { webhookSecret: chatflow.webhookSecret, webhookSecretConfigured: chatflow.webhookSecretConfigured }
+        )
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: chatflowsService.clearWebhookSecret - ${getErrorMessage(error)}`)

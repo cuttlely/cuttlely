@@ -66,7 +66,7 @@ export async function removeHarnessFromKeyLists(workspaceId: string, name: strin
             const list = harnessAllowlist(key.harnesses)
             if (!list.includes(name)) continue
             key.harnesses = list.filter((item) => item !== name)
-            await repo.save(key)
+            await repo.update({ id: key.id, workspaceId }, { harnesses: key.harnesses })
             changed += 1
         }
         return changed

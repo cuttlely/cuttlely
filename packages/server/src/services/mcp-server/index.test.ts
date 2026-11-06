@@ -23,14 +23,14 @@ jest.mock(
 
 // --- Mock setup ---
 const mockFindOne = jest.fn()
-const mockSave = jest.fn()
+const mockUpdate = jest.fn()
 
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
         AppDataSource: {
             getRepository: () => ({
                 findOne: mockFindOne,
-                save: mockSave
+                update: mockUpdate
             })
         }
     })
@@ -65,7 +65,7 @@ function makeConfig(overrides: Partial<IMcpServerConfig> = {}): IMcpServerConfig
 
 beforeEach(() => {
     jest.clearAllMocks()
-    mockSave.mockImplementation((entity: any) => Promise.resolve(entity))
+    mockUpdate.mockImplementation((entity: any) => Promise.resolve(entity))
 })
 
 describe('mcpServerService', () => {
@@ -129,7 +129,7 @@ describe('mcpServerService', () => {
             expect(result.token).toHaveLength(32) // 16 bytes hex = 32 chars
             expect(result.description).toBe('My tool')
             expect(result.toolName).toBe('my_tool')
-            expect(mockSave).toHaveBeenCalled()
+            expect(mockUpdate).toHaveBeenCalled()
         })
 
         it('returns existing config if already enabled', async () => {
@@ -138,7 +138,7 @@ describe('mcpServerService', () => {
 
             const result = await mcpServerService.createMcpServerConfig('chatflow-1', 'ws-1', {} as any)
             expect(result).toEqual(existing)
-            expect(mockSave).not.toHaveBeenCalled()
+            expect(mockUpdate).not.toHaveBeenCalled()
         })
 
         it('throws NOT_FOUND when chatflow does not exist', async () => {
@@ -197,7 +197,7 @@ describe('mcpServerService', () => {
 
             expect(result.description).toBe('Updated desc')
             expect(result.toolName).toBe('new_name')
-            expect(mockSave).toHaveBeenCalled()
+            expect(mockUpdate).toHaveBeenCalled()
         })
 
         it('can disable config via enabled=false', async () => {
@@ -232,8 +232,8 @@ describe('mcpServerService', () => {
 
             await mcpServerService.deleteMcpServerConfig('chatflow-1', 'ws-1')
 
-            expect(mockSave).toHaveBeenCalled()
-            const savedEntity = mockSave.mock.calls[0][0]
+            expect(mockUpdate).toHaveBeenCalled()
+            const savedEntity = mockUpdate.mock.calls[0][1]
             const savedConfig = JSON.parse(savedEntity.mcpServerConfig)
             expect(savedConfig.enabled).toBe(false)
             // Token should be preserved
@@ -243,7 +243,7 @@ describe('mcpServerService', () => {
         it('does nothing when no config exists', async () => {
             mockFindOne.mockResolvedValue(makeChatflow())
             await mcpServerService.deleteMcpServerConfig('chatflow-1', 'ws-1')
-            expect(mockSave).not.toHaveBeenCalled()
+            expect(mockUpdate).not.toHaveBeenCalled()
         })
 
         it('throws NOT_FOUND when chatflow does not exist', async () => {
@@ -264,7 +264,7 @@ describe('mcpServerService', () => {
             expect(result.token).not.toBe('old-token-value-1234567890ab')
             expect(result.token).toHaveLength(32)
             expect(result.enabled).toBe(true)
-            expect(mockSave).toHaveBeenCalled()
+            expect(mockUpdate).toHaveBeenCalled()
         })
 
         it('throws NOT_FOUND when no config exists', async () => {

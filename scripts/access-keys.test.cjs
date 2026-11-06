@@ -389,12 +389,25 @@ test('management API creates deny-by-default principals, validates grants and pr
                 permissions: [],
                 accessPolicy: id === 'explicit-key' ? parsePolicy({ scopes: ['predict'] }) : compatibility
             })
-        const { saveLegacyBoundFlow } = serverRequire('./src/services/accessKeys/legacyBinding.ts')
-        const bindingFlow = await saveLegacyBoundFlow(data, { ...flow, id: undefined, name: 'Binding fixture', apikeyid: 'legacy-a' })
+        const { saveLegacyBoundFlow, saveFlowPreservingAccess } = serverRequire('./src/services/accessKeys/legacyBinding.ts')
+        const bindingFlow = await saveLegacyBoundFlow(data, {
+            ...flow,
+            id: undefined,
+            name: 'Binding fixture',
+            apikeyid: 'legacy-a',
+            apiAccessMode: 'private'
+        })
         await data.getRepository(ApiKeyResource).save({ principalId: 'explicit-key', resourceType: 'CHATFLOW', resourceId: bindingFlow.id })
         const rebound = await saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-b' }, bindingFlow)
         assert.equal(await hasGrant(data, { id: 'legacy-a' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), false)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
+        const staleCanvas = { ...bindingFlow, apikeyid: null, apiAccessMode: 'public', name: 'Stale canvas fixture' }
+        const privateBinding = await data.getRepository(ChatFlow).findOneByOrFail({ id: rebound.id })
+        const afterOrdinarySave = await saveFlowPreservingAccess(data, staleCanvas, staleCanvas)
+        assert.equal(afterOrdinarySave.apikeyid, privateBinding.apikeyid)
+        assert.equal(afterOrdinarySave.apiAccessMode, privateBinding.apiAccessMode)
+        assert.equal(afterOrdinarySave.name, staleCanvas.name)
+        await assert.rejects(saveFlowPreservingAccess(data, staleCanvas, staleCanvas, 'public'), { statusCode: 409 })
         assert.equal(await hasGrant(data, { id: 'explicit-key' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
         await assert.rejects(saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-a' }, bindingFlow), { statusCode: 409 })
         // A missing target rolls back both the row change and retirement of B's grant.

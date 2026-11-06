@@ -8,6 +8,7 @@
 
 const mockRepo = {
     findOneBy: jest.fn(),
+    findOneByOrFail: jest.fn(async () => mockRepo.save.mock.results.at(-1)?.value),
     findOne: jest.fn(),
     find: jest.fn(),
     create: jest.fn(),

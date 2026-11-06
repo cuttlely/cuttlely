@@ -104,7 +104,10 @@ const createMcpServerConfig = async (
         }
 
         chatflow.mcpServerConfig = JSON.stringify(config)
-        await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        await appServer.AppDataSource.getRepository(ChatFlow).update(
+            { id: chatflowId, workspaceId },
+            { mcpServerConfig: chatflow.mcpServerConfig }
+        )
 
         return config
     } catch (error) {
@@ -142,7 +145,10 @@ const updateMcpServerConfig = async (
         if (body.enabled !== undefined) existing.enabled = body.enabled
 
         chatflow.mcpServerConfig = JSON.stringify(existing)
-        await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        await appServer.AppDataSource.getRepository(ChatFlow).update(
+            { id: chatflowId, workspaceId },
+            { mcpServerConfig: chatflow.mcpServerConfig }
+        )
 
         return existing
     } catch (error) {
@@ -169,7 +175,10 @@ const deleteMcpServerConfig = async (chatflowId: string, workspaceId: string): P
 
         existing.enabled = false
         chatflow.mcpServerConfig = JSON.stringify(existing)
-        await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        await appServer.AppDataSource.getRepository(ChatFlow).update(
+            { id: chatflowId, workspaceId },
+            { mcpServerConfig: chatflow.mcpServerConfig }
+        )
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: mcpServerService.deleteMcpServerConfig - ${getErrorMessage(error)}`)
@@ -196,7 +205,10 @@ const refreshMcpToken = async (chatflowId: string, workspaceId: string): Promise
 
         existing.token = generateToken()
         chatflow.mcpServerConfig = JSON.stringify(existing)
-        await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        await appServer.AppDataSource.getRepository(ChatFlow).update(
+            { id: chatflowId, workspaceId },
+            { mcpServerConfig: chatflow.mcpServerConfig }
+        )
 
         return existing
     } catch (error) {
