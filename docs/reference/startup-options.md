@@ -18,6 +18,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 
 | Key                                          | Default                                     | Range             | Unit          | Where it can be set            | Restart |
 | -------------------------------------------- | ------------------------------------------- | ----------------- | ------------- | ------------------------------ | ------- |
+| `CUTTLELY_DASH_FLOWS`                        | Off                                         | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_LOCAL_ADMIN`                       | On from source and in Docker, off on Render | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_LOCAL_USERS`                       | false                                       | —                 | —             | Host, then Server settings     | Yes     |
 | `INVITE_TOKEN_EXPIRY_IN_HOURS`               | 72                                          | 1 to 168          | hours         | Server settings, then the host | No      |
