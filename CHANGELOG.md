@@ -4,13 +4,27 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Version history can copy to a GitHub Enterprise host. On **Admin** > **Version History**, **GitHub host** stays `github.com` unless you set the host you open in a browser. GitHub Enterprise Cloud with data residency (`example.ghe.com`) uses `https://api.example.ghe.com`. Any other host, including GitHub Enterprise Server, uses `https://<host>/api/v3`. The token is a personal access token from that host. A saved sign-in is not sent to a different host, redirects are not followed, and private-network addresses stay blocked by the outbound check. See [Which GitHub host](./docs/how-to/versioning.md#which-github-host).
+
 ### Changed
+
+-   Admin runtime settings offer Off, Probe periodically (default), and Timed full warmup. Both active modes use a configurable interval, defaulting to five minutes. Existing explicit false and true settings select Off and full warmup respectively. Save and restart to apply.
+
+-   Agent runtime warm-up checks health, skips model calls during active work or after recent successful requests, and probes one specialist on idle cycles. Cold or changed profiles warm with at most two calls at once. Concurrent warm-up requests are serialized.
 
 -   Dependency updates for open Dependabot alerts: undici 6.29.1 and 7.30.1, follow-redirects 1.16.2, multer 2.5.0, body-parser 2.4.0, zod 4.6.6, and fast-uri 3.1.9 (through ajv).
 
 -   Dependency update for an open Dependabot alert (#255) in the bundled agent runtime: `hermes/uv.lock` moves opentelemetry-api to 1.45.1. The optional `otlp` extra now pins opentelemetry-sdk and opentelemetry-exporter-otlp-proto-http 1.45.1, and the optional `mistral` extra pins mistralai 2.10.1, because 2.4.8 does not allow the newer OpenTelemetry packages.
 
 ### Fixed
+
+-   Publishing or saving an emptied live agent team now refuses the change and keeps the live canvas and roster together. New teams can still save an initial placeholder before their roster is ready.
+
+-   When a harness turn times out, completed research prerequisites no longer substitute for an unfinished deliverable. Independent completed work and completed final results remain available.
+
+-   Harnesses stop admitted specialist runs when their status connection fails, including nested specialist calls. Stop requests retry transient failures and briefly check that the run ended instead of treating a stopping acknowledgment as completion. Shutdown-interrupted runs also finish polling immediately rather than waiting for the run timeout.
 
 -   Table-row parsing is now linear-time on long input. Sorting a chat answer table no longer slows down on a very long cell with a long run of spaces or tabs before the last character; currency codes and symbols before or after an amount sort as before. Host-name checks for outgoing HTTP requests also trim trailing dots in linear time.
 

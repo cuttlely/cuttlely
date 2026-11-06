@@ -14,7 +14,9 @@ import {
     timeAgo,
     tokenCreateUrl,
     tokenHelp,
-    tokenHint
+    tokenHint,
+    githubHostHelp,
+    githubHostInput
 } from './githubSync'
 
 const NOW = new Date('2026-10-08T23:00:00Z').getTime()
@@ -112,6 +114,18 @@ describe('githubSync helpers', () => {
         expect(tokenHelp(false, 'Dev').note).not.toContain('empty private repository')
         expect(tokenHint()).toContain('Contents set to Read and write')
         expect(tokenHint(true)).toContain('Read-only')
+        expect(githubHostInput('').host).toBe('github.com')
+        expect(githubHostInput('https://github.example.com/').apiBase).toBe('https://github.example.com/api/v3')
+        expect(githubHostInput('octo.ghe.com').apiBase).toBe('https://api.octo.ghe.com')
+        expect(githubHostInput('http://github.example.com').error).toBeTruthy()
+        expect(githubHostInput('metadata.google.internal').error).toBeTruthy()
+        expect(githubHostInput('https://user:pw@github.example.com').error).toBeTruthy()
+        expect(githubHostHelp('github.example.com')).toContain('https://github.example.com/api/v3')
+        const enterprise = new URL(tokenCreateUrl(false, 'github.example.com'))
+        expect(enterprise.origin + enterprise.pathname).toBe('https://github.example.com/settings/tokens')
+        expect(enterprise.search).toBe('')
+        expect(tokenHint(false, 'github.example.com')).toContain('not sent to github.com')
+        expect(tokenHelp(false, '', 'github.example.com').note).toContain('not on github.com')
         expect(TOKEN_GUIDE_URL).toMatch(/docs\/how-to\/versioning\.md#which-github-token-to-use$/)
         const pair = [
             { name: 'dev', branch: 'main', server: 'dev' },

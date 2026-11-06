@@ -492,3 +492,15 @@ Missed health checks in the first 60 seconds after a start (`CUTTLELY_HERMES_HEA
 `X-Cuttlely-Analyst` is `ready` when the analyst tool is registered, `missing` when the bridge recorded 0 tools, and `unknown` before that file exists.
 
 Harness Prime can ask a fixed clarification for missing essential record selection, entity, measure, period, region, record type or comparison scope. It first uses the current request, conversation, source-backed selections and documented defaults. Before it asks, it reviews the proposed question once against that same text: a supplied name, abbreviation, misspelling or identifier counts as provided scope, so the request goes to the specialist that can resolve it. The corrected plan must quote the request, conversation, selection or defaults and name an existing specialist; otherwise, or if the review fails, the fixed question is asked. Earlier clarification questions do not count as evidence that the input is still missing. A clarification runs no specialist or query; ordinary fulfillable requests continue through the planner.
+
+## Runtime warm-up
+
+In **Admin** > **Server Settings** > **Agent runtime** > **Warm-up**, choose a mode:
+
+-   **Off**: no startup, save-triggered or scheduled warm-up calls.
+-   **Probe periodically** (default): check runtime health, probe one idle specialist, then warm only cold or changed profiles. Recent successful requests skip the probe.
+-   **Timed full warmup**: warm all eligible specialists at startup, after saves and at each interval, even when they were recently used.
+
+**Interval** defaults to five minutes and appears for either active mode. Save and restart to apply. Both active modes prioritize user work, serialize overlapping cycles, check health and stop if their initial probe fails. Remaining profiles warm at most two at a time.
+
+A successful probe confirms the shared runtime can answer; it does not initialize every specialist’s tools. Warm-up evidence is local to each server process. Existing explicit `CUTTLELY_WARM_HERMES=false` values remain Off; `true` selects Timed full warmup. Unset or `probe` selects Probe periodically. `CUTTLELY_HERMES_KEEP_WARM_MINUTES` sets the interval.

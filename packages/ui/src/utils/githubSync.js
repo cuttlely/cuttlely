@@ -6,10 +6,89 @@ export const OWNER_PERMISSION = 'server:owner'
 export const TOKEN_HELP_URL = 'https://github.com/settings/personal-access-tokens/new'
 // The guide section that says which token to make, and why.
 export const TOKEN_GUIDE_URL = 'https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/versioning.md#which-github-token-to-use'
+export const DEFAULT_GITHUB_HOST = 'github.com'
+
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+const HOST_ERROR = 'Enter a GitHub host such as github.com or github.example.com. Use https, and do not include a path, user or password.'
+
+// The same host rules as packages/versioning/src/githubHost.ts. The server checks again on every request.
+export const githubHostInput = (input = '') => {
+    const raw = String(input ?? '').trim()
+    const github = {
+        host: DEFAULT_GITHUB_HOST,
+        kind: 'github.com',
+        apiBase: 'https://api.github.com',
+        gitOrigin: 'https://github.com'
+    }
+    if (!raw || raw.toLowerCase() === 'github.com' || raw.toLowerCase() === 'www.github.com') return github
+    if (/[\u0000-\u0020\u007f\\]/.test(raw) || raw.includes('@') || raw.includes('?') || raw.includes('#')) return { error: HOST_ERROR }
+    let candidate = raw
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) candidate = `https://${candidate}`
+    let url
+    try {
+        url = new URL(candidate)
+    } catch {
+        return { error: HOST_ERROR }
+    }
+    if (url.protocol !== 'https:') return { error: 'A GitHub host has to start with https. http is not used.' }
+    if (url.username || url.password) return { error: 'A GitHub host cannot include a username or password.' }
+    if (url.search || url.hash) return { error: HOST_ERROR }
+    if (url.pathname !== '/' && url.pathname !== '') return { error: 'Enter only the GitHub host, not a repository path.' }
+    let hostname = url.hostname.toLowerCase()
+    while (hostname.endsWith('.')) hostname = hostname.slice(0, -1)
+    if (!hostname || hostname.includes(':') || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+        return { error: 'Enter a host name, not an IP address.' }
+    }
+    if (
+        hostname === 'localhost' ||
+        hostname === 'ip6-localhost' ||
+        hostname === 'metadata.google.internal' ||
+        hostname.endsWith('.localhost') ||
+        hostname.endsWith('.local')
+    ) {
+        return { error: "That GitHub host is blocked by this server's outbound policy." }
+    }
+    const port = url.port
+    if (hostname === 'github.com' || hostname === 'www.github.com') {
+        if (port) return { error: 'github.com does not use a custom port.' }
+        return github
+    }
+    if (hostname === 'api.github.com') return { error: 'Enter github.com. Cuttlely calls api.github.com on its own.' }
+    const labels = hostname.split('.')
+    if (hostname.length > 253 || labels.length < 2 || labels.some((label) => !HOST_LABEL.test(label))) return { error: HOST_ERROR }
+    if (hostname.endsWith('.ghe.com')) {
+        if (port)
+            return { error: 'A ghe.com host does not use a custom port. Enter the host you open in the browser, such as example.ghe.com.' }
+        if (labels.length !== 3 || labels[0] === 'api' || labels[0] === 'www') {
+            return { error: 'Enter the GitHub Enterprise Cloud host you open in the browser, such as example.ghe.com.' }
+        }
+        return { host: hostname, kind: 'ghe.com', apiBase: `https://api.${hostname}`, gitOrigin: `https://${hostname}` }
+    }
+    const host = port ? `${hostname}:${port}` : hostname
+    return { host, kind: 'enterprise-server', apiBase: `https://${host}/api/v3`, gitOrigin: `https://${host}` }
+}
+
+export const githubHostHelp = (input = '') => {
+    const parsed = githubHostInput(input)
+    if (parsed.error) return parsed.error
+    if (parsed.kind === 'ghe.com') {
+        return `Repository calls use ${parsed.gitOrigin}. The API uses ${parsed.apiBase}. Create the token on this host, not on github.com.`
+    }
+    if (parsed.kind === 'enterprise-server') {
+        return `Repository calls use ${parsed.gitOrigin}. The API uses ${parsed.apiBase}. Create the token on this host, not on github.com. A private-network address is refused.`
+    }
+    return 'github.com is the default. For GitHub Enterprise, enter the host you open in the browser, such as github.example.com.'
+}
 
 // GitHub's fine-grained token page, filled in: a name, a 90-day expiry, and Contents only (Read and write on Dev,
 // Read-only on Prod). The person still picks the one repository there; GitHub adds Metadata (Read-only) on its own.
-export const tokenCreateUrl = (reading = false) => {
+// A custom host opens that host's token page. The query string is only added for github.com.
+export const tokenCreateUrl = (reading = false, hostInput = '') => {
+    const parsed = githubHostInput(hostInput)
+    if (parsed.error || parsed.kind !== 'github.com') {
+        if (parsed.error || !parsed.gitOrigin) return TOKEN_HELP_URL
+        return `${parsed.gitOrigin}/settings/tokens`
+    }
     const params = new URLSearchParams({
         name: 'Cuttlely version history',
         description: reading ? 'Cuttlely Prod reads published flow versions' : 'Cuttlely copies flow versions to this repository',
@@ -20,36 +99,51 @@ export const tokenCreateUrl = (reading = false) => {
 }
 
 // What to pick on GitHub's token page, line by line, in the words that page uses.
-export const tokenHelp = (reading = false, from = '') => ({
-    title: 'Which token to use',
-    rows: [
-        { label: 'Token type', value: 'Fine-grained' },
-        { label: 'Repository access', value: 'Only select repositories, then just the one for Cuttlely' },
-        {
-            label: 'Permissions',
-            value: reading ? 'Contents: Read-only. Nothing else.' : 'Contents: Read and write. Nothing else.',
-            hint: 'GitHub adds Metadata: Read-only on its own.'
-        },
-        {
-            label: 'Expiration',
-            value: '90 days, or a date you choose',
-            hint: 'When it runs out, paste a new token into the saved sign-in in Credentials.'
-        }
-    ],
-    // `from` is the previous environment. A server that reads, including one that also copies, uses that repository.
-    note:
-        from || reading
+export const tokenHelp = (reading = false, from = '', hostInput = '') => {
+    const parsed = githubHostInput(hostInput)
+    const enterprise = !parsed.error && parsed.kind !== 'github.com'
+    return {
+        title: 'Which token to use',
+        rows: [
+            {
+                label: 'Token type',
+                value: enterprise ? 'Personal access token on this host' : 'Fine-grained'
+            },
+            { label: 'Repository access', value: 'Only select repositories, then just the one for Cuttlely' },
+            {
+                label: 'Permissions',
+                value: reading ? 'Contents: Read-only. Nothing else.' : 'Contents: Read and write. Nothing else.',
+                hint: 'GitHub adds Metadata: Read-only on its own.'
+            },
+            {
+                label: 'Expiration',
+                value: '90 days, or a date you choose',
+                hint: 'When it runs out, paste a new token into the saved sign-in in Credentials.'
+            }
+        ],
+        // `from` is the previous environment. A server that reads, including one that also copies, uses that repository.
+        note: enterprise
+            ? `Create the token on ${parsed.host}, not on github.com. On GitHub Enterprise Server, the usual token is a personal access token with the repo scope. Fine-grained tokens, when that host offers them, need Contents read and write on the one repository. A saved sign-in for a different host is not reused.`
+            : from || reading
             ? `Pick the repository your ${
                   from || 'Dev'
               } server copies to. The link below fills in the name, expiry and Contents. You pick the repository.`
             : 'Create the empty private repository on GitHub first, so you can pick it there. The link below fills in the name, expiry and Contents. You pick the repository.'
-})
+    }
+}
 
 // The short line under the token box.
-export const tokenHint = (reading = false) =>
-    reading
+export const tokenHint = (reading = false, hostInput = '') => {
+    const parsed = githubHostInput(hostInput)
+    if (!parsed.error && parsed.kind !== 'github.com') {
+        return reading
+            ? `Use a token issued by ${parsed.host} that can read that one repository. It is saved in Credentials and is not sent to github.com.`
+            : `Use a token issued by ${parsed.host} that can read and write that one repository. It is saved in Credentials and is not sent to github.com.`
+    }
+    return reading
         ? 'Use a fine-grained token for just that one repository, with Contents set to Read-only. It is saved in Credentials.'
         : 'Use a fine-grained token for just one repository, with Contents set to Read and write. It is saved in Credentials.'
+}
 export const DEFAULT_REPO_NAME = 'cuttlely-flows'
 export const NEW_TOKEN = '__new__'
 

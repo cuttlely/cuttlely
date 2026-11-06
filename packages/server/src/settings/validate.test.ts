@@ -166,3 +166,15 @@ describe('protected evidence budget', () => {
         for (const value of ['4095', '262145', '40000.5', 'bad']) expect(checkValue(setting, value).ok).toBe(false)
     })
 })
+
+describe('warm-up mode selection', () => {
+    it('accepts all three admin choices and preserves explicit legacy values', () => {
+        const mode = settingFor('CUTTLELY_WARM_HERMES')!
+        expect(mode.defaultValue).toBe('probe')
+        expect(mode.options?.map((option) => option.label)).toEqual(['Off', 'Probe periodically', 'Timed full warmup'])
+        for (const value of ['false', 'probe', 'true']) expect(checkValue(mode, value)).toEqual({ ok: true, value })
+        expect(checkValue(mode, 'full').ok).toBe(false)
+        expect(checkValue(mode, 'off').ok).toBe(false)
+        expect(settingFor('CUTTLELY_HERMES_KEEP_WARM_MINUTES')?.defaultValue).toBe('5')
+    })
+})

@@ -46,7 +46,11 @@ describe('harness runtime start', () => {
             if (file === 'run.mjs') {
                 return {
                     configureHarnessRuntime: () => order.push('configure'),
-                    warmHarnessProfiles: async ({ lock }: { lock?: (fn: () => Promise<unknown>) => Promise<unknown> } = {}) => {
+                    warmHarnessProfiles: async ({
+                        lock,
+                        mode
+                    }: { lock?: (fn: () => Promise<unknown>) => Promise<unknown>; mode?: string } = {}) => {
+                        order.push(`warm-mode:${mode}`)
                         order.push('warm-start')
                         const compile = lock || (async (fn: () => Promise<unknown>) => fn())
                         await compile(async () => {
@@ -379,6 +383,36 @@ describe('harness runtime start', () => {
         expect(released).toBe(true)
         expect(booted).toBe(true)
         expect(bootPassBlocksPing()).toBe(false)
+    })
+
+    test.each([
+        ['probe', 'probe'],
+        ['true', 'full'],
+        ['', 'probe']
+    ])('forwards warm-up setting %s as engine mode %s', async (raw, expected) => {
+        const before = process.env.CUTTLELY_WARM_HERMES
+        try {
+            process.env.CUTTLELY_WARM_HERMES = raw
+            harnessesService.warmHarnesses()
+            for (let i = 0; i < 100 && !order.includes('warm'); i++) await new Promise((resolve) => setTimeout(resolve, 5))
+            expect(order).toContain(`warm-mode:${expected}`)
+            expect(order).toContain('warm')
+        } finally {
+            if (before === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = before
+        }
+    })
+
+    test('Off does not configure or warm the runtime', () => {
+        const before = process.env.CUTTLELY_WARM_HERMES
+        try {
+            process.env.CUTTLELY_WARM_HERMES = 'false'
+            harnessesService.warmHarnesses()
+            expect(order).toEqual([])
+        } finally {
+            if (before === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = before
+        }
     })
 
     test('warm-up holds the profile lock only during compile, not while Hermes health waits', async () => {

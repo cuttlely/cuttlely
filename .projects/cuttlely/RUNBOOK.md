@@ -1,3 +1,7 @@
+Warm-up modes: `CUTTLELY_WARM_HERMES=false` disables background warm-up, `probe` or unset uses conditional probes, and `true` selects full roster warm-up. The interval defaults to five minutes; save and restart to apply. Both active modes keep bounded concurrency and prioritize user work.
+
+Warm-up uses process-local evidence. Successful real specialist calls count as warm; evidence expires for probe decisions after `CUTTLELY_HERMES_KEEP_WARM_MINUTES` (five minutes when unset). Cold or recompiled profiles still need their own warm-up. A failed health check clears that evidence; an unsuccessful probe ends the cycle. External worker processes do not share this in-memory evidence.
+
 # Runbook
 
 Contributor and maintainer commands. People installing Cuttlely use the root README, `docs/how-to/docker.md`, `docs/how-to/from-source.md`, `docs/how-to/render.md` and `docs/how-to/sign-in.md`. Commands here come from the root `package.json`, `packages/*/package.json` and `scripts/`.
@@ -176,6 +180,8 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `A2A_TASK_CAP_PER_FLOW`                                     | `1000`                                      | Max stored A2A tasks per flow. Oldest final tasks are evicted first; all-open is refused (D103, D105)                                                                                                                                                                                           |
 
 ## Gotchas
+
+-   **A failed chat is not proof its runtime worker stopped.** Cleanup targets the admitted run id and waits at most two seconds for a terminal runtime status. `Runtime stop was not confirmed` means the worker may still be active; inspect runtime health and worker state rather than deleting history or raising the concurrency cap. The client does not forcibly kill a worker that ignores interruption.
 
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).

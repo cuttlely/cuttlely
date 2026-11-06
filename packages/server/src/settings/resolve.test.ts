@@ -96,3 +96,13 @@ describe('start script defaults', () => {
         expect(fromFile?.source).toBe('file')
     })
 })
+
+describe('warm-up controls', () => {
+    it('shows the interval for either active mode and hides it when Off is selected', () => {
+        const interval = settingFor('CUTTLELY_HERMES_KEEP_WARM_MINUTES')!
+        for (const mode of ['probe', 'true']) expect(isShown(interval, new Map([['CUTTLELY_WARM_HERMES', mode]]))).toBe(true)
+        expect(isShown(interval, new Map([['CUTTLELY_WARM_HERMES', 'false']]))).toBe(false)
+        const rows = resolveSettings({ env: {}, file: {} })
+        expect(effectiveValue(pick(rows, 'CUTTLELY_WARM_HERMES'))).toBe('probe')
+    })
+})

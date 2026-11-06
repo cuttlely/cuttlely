@@ -492,7 +492,7 @@ export async function start(): Promise<void> {
         etlService.resumeEtlRuns()
         startHarnessSchedulerIfReady(serverApp?.initError)
         flowVersionsService.startGithubSync()
-        const keepWarmMinutes = Number(process.env.CUTTLELY_HERMES_KEEP_WARM_MINUTES)
+        const keepWarmMinutes = Number(process.env.CUTTLELY_HERMES_KEEP_WARM_MINUTES || 5)
         if (keepWarmMinutes > 0) setInterval(() => harnessesService.warmHarnesses(), keepWarmMinutes * 60000).unref()
     })
 }

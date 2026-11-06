@@ -1,3 +1,4 @@
+import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -58,7 +59,7 @@ import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-ou
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
-import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
+import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -747,7 +748,7 @@ async function runRoster(context, input) {
                 context.handoffSkipped = 'answerDirect'
             } else {
                 if (direct) context.answerDirectIneligible = direct.reason
-                text = await chiefHandoff(context, question, history, results)
+                text = await chiefHandoff(context, question, history, results, steps)
             }
         }
     }
@@ -3177,6 +3178,7 @@ async function runHermesSpecialist(context, specialist, task) {
         signal: context.workSignal
     }
     let runId
+    let remoteFinished = false
     const stops = []
     let stopping = false
     const stopCurrentRun = () => {
@@ -3188,7 +3190,11 @@ async function runHermesSpecialist(context, specialist, task) {
                 runId,
                 baseUrl: context.baseUrl,
                 fetchImpl: context.fetchImpl
-            }).catch(() => {})
+            })
+                .then((confirmed) => {
+                    if (!confirmed) console.warn(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
+                })
+                .catch(() => {})
         )
     }
     const cancel = () => {
@@ -3198,6 +3204,7 @@ async function runHermesSpecialist(context, specialist, task) {
     if (context.workSignal?.aborted) cancel()
     const onAbort = () => cancel()
     context.workSignal?.addEventListener('abort', onAbort, { once: true })
+    const finishActivity = context.warmup ? () => {} : warmupCoordinator.begin(context.baseUrl || hermesBaseUrl())
     const specialistStarted = Date.now()
     const retrievalScope = { harness: context.name, specialist: specialist.name, sourceTurn: body.session_id }
     beginRetrievedSources(retrievalScope)
@@ -3239,9 +3246,11 @@ async function runHermesSpecialist(context, specialist, task) {
                       runId: created.run_id,
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
-        noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
+        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
+        const specialistEnded = Date.now()
+        noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: specialistEnded })
         forwardDelta(context, specialist, '', true)
-        if (['failed', 'error', 'cancelled'].includes(status.status)) {
+        if (hermesRunFailed(status.status)) {
             const failure = status.error || status.message
             throw new HarnessError(
                 'specialist_failed',
@@ -3253,12 +3262,15 @@ async function runHermesSpecialist(context, specialist, task) {
         const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir, specialistWorkspaceRoot()) : ''
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
         const sources = takeRetrievedSources(retrievalScope)
+        warmupCoordinator.succeeded(context.baseUrl || hermesBaseUrl(), specialist.profileName, specialist, specialistEnded)
         return { text, ...(sources.length ? { sources } : {}) }
     } catch (error) {
-        // The wait's own deadline stops only this remote run, leaving other chats on the same profile alone.
-        if (error.code === 'run_timeout') stopCurrentRun()
+        warmupCoordinator.failed(context.baseUrl || hermesBaseUrl(), specialist.profileName)
+        // Losing status transport does not mean the admitted worker stopped.
+        if (runId && !remoteFinished) stopCurrentRun()
         throw error
     } finally {
+        finishActivity()
         startCapture.flush()
         // Capture source failures too; they must not fall back to conflicting model output.
         if (specialist.trustedOutputs?.length) attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
@@ -3642,7 +3654,7 @@ function preserveAnalystRows(answer, results, question) {
     return stripTrailingAnalystStatus(next)
 }
 
-async function chiefHandoff(context, input, history, results) {
+async function chiefHandoff(context, input, history, results, steps) {
     if ((results || []).some((result) => result.ungrounded)) {
         const parts = results
             .map((result) => {
@@ -3674,7 +3686,7 @@ async function chiefHandoff(context, input, history, results) {
     })
     noteTruncated(context, fitted.truncated)
     throwIfClient(context)
-    if (overBudget(context)) return budgetReply(results)
+    if (overBudget(context)) return budgetReply(results, steps)
     const handoffStarted = Date.now()
     emit(context, 'handoff', { phase: 'start', model: configuredModel(context, null) })
     try {
@@ -3703,16 +3715,19 @@ async function chiefHandoff(context, input, history, results) {
         return keepClosingLines(preserveAnalystRows(reply.content, results, input), results)
     } catch (error) {
         throwIfClient(context)
-        if (overBudget(context)) return budgetReply(results)
+        if (overBudget(context)) return budgetReply(results, steps)
         throw error
     }
 }
 
-function budgetReply(results) {
+function budgetReply(results, steps) {
+    // A completed prerequisite is input to later work, not a substitute for its
+    // unfinished deliverable. Independent successful steps remain usable.
+    const prerequisites = new Set((steps || []).map((step) => step.after).filter(Boolean))
     const lines = (results || [])
-        .filter((result) => result.status === 'completed' && String(result.text || '').trim())
+        .filter((result) => result.status === 'completed' && !prerequisites.has(result.name) && String(result.text || '').trim())
         .map((result) => result.text)
-    if (!lines.length) return 'The harness turn exceeded its time budget before a specialist finished.'
+    if (!lines.length) return 'The harness turn exceeded its time budget before the requested final work finished.'
     return lines.join('\n\n')
 }
 
@@ -3922,8 +3937,10 @@ export async function warmHarnessProfiles({
     baseUrl = hermesBaseUrl(),
     fetchImpl = fetch,
     healthWaitMs = 1200000,
+    mode = process.env.CUTTLELY_WARM_HERMES === 'false' ? 'off' : process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
     lock = (fn) => fn()
 } = {}) {
+    if (mode === 'off') return []
     const records = names ? names.map((name) => getHarness(name)).filter(Boolean) : listHarnesses()
     const targets = []
     for (const record of records) {
@@ -3937,13 +3954,17 @@ export async function warmHarnessProfiles({
             continue
         }
         for (const specialist of roster.specialists || []) {
-            if (specialist.profileName && needsAgentLoop(specialist)) targets.push({ name: record.name, roster, specialist, record })
+            if (specialist.profileName && needsAgentLoop(specialist))
+                targets.push({ name: record.name, roster, specialist, record, profile: specialist.profileName, version: specialist })
         }
     }
-    if (!targets.length || !(await hermesHealthy(baseUrl, fetchImpl, healthWaitMs))) return []
     const chatId = `cuttlely-warmup-${Date.now()}`
-    const results = await Promise.all(
-        targets.map(async ({ name, roster, specialist, record }) => {
+    const results = await warmupCoordinator.run({
+        url: baseUrl,
+        mode,
+        targets,
+        healthy: () => hermesHealthy(baseUrl, fetchImpl, healthWaitMs),
+        warm: async ({ name, roster, specialist, record }) => {
             const started = Date.now()
             const moduleOptions = await runtimeModuleOptions(record)
             const context = {
@@ -3953,6 +3974,7 @@ export async function warmHarnessProfiles({
                 baseUrl,
                 fetchImpl,
                 limit: 120000,
+                warmup: true,
                 ...(moduleOptions ? { moduleOptions } : {})
             }
             try {
@@ -3966,8 +3988,9 @@ export async function warmHarnessProfiles({
                     error: hideTurnImageDir(String(error?.message ?? ''), '', specialistWorkspaceRoot())
                 }
             }
-        })
-    )
+        }
+    })
+    if (!results.length) return results
     console.info(
         '[harness] Hermes warm-up: ' +
             results
@@ -3981,9 +4004,13 @@ async function hermesHealthy(baseUrl, fetchImpl, waitMs) {
     const deadline = Date.now() + waitMs
     while (Date.now() < deadline) {
         try {
-            const response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/health`)
+            const response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/health`, {
+                signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now())))
+            })
             if (response.ok) return true
+            warmupCoordinator.unavailable(baseUrl)
         } catch {
+            warmupCoordinator.unavailable(baseUrl)
             // Hermes is still starting.
         }
         const pause = Math.min(HEALTH_POLL_MS, deadline - Date.now())

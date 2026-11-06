@@ -146,7 +146,7 @@ jest.mock('http-status-codes', () => ({
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
-import chatflowsService, { liveWriteHooks, validateReferencedHarnesses } from './index'
+import chatflowsService, { liveWriteHooks, syncHarnessCanvas, validateReferencedHarnesses } from './index'
 import harnessesService, { setHarnessModuleLoader } from '../../services/harnesses'
 import scheduleService from '../../services/schedule'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
@@ -1331,15 +1331,17 @@ describe('harnesses a saved canvas names', () => {
         })
     const keyCaller = { via: 'api_key' as const, apiKeyId: 'key-1', harnesses: ['bakery'] }
     let assertNameAvailable: jest.SpyInstance
+    const canWaitForRoster = jest.fn()
 
     beforeEach(() => {
+        canWaitForRoster.mockReturnValue(true)
         assertNameAvailable = jest.spyOn(harnessesService, 'assertNameAvailable').mockResolvedValue(undefined)
         setHarnessModuleLoader(async (file) => {
             if (file !== 'sync-from-flow.mjs') throw new Error(`Unexpected harness module: ${file}`)
             return {
                 assertSavedHarnessName: jest.fn(),
                 harnessCanvasIsPlaceholder: (flowData: string) => JSON.parse(flowData).nodes.length === 0,
-                harnessCanvasCanWaitForRoster: jest.fn().mockReturnValue(true),
+                harnessCanvasCanWaitForRoster: canWaitForRoster,
                 rosterFromFlow: jest.fn().mockImplementation(() => {
                     throw new Error('The roster is incomplete.')
                 })
@@ -1460,6 +1462,40 @@ describe('harnesses a saved canvas names', () => {
                 { caller: keyCaller }
             )
         ).rejects.toMatchObject({ statusCode: 403 })
+        expect(mockRepo.save).not.toHaveBeenCalled()
+    })
+
+    it.each(['publish', 'api'])('refuses an emptied live harness on %s before changing Live or recording a version', async (mode) => {
+        const liveFlowData = JSON.stringify({ nodes: [{ id: 'chief', data: { name: 'harnessChief' } }], edges: [] })
+        const stored = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'live-team', flowData: liveFlowData })
+        const empty = makePlainFlowData()
+        mockRepo.merge.mockImplementation((existing: any, updates: any) => ({ ...existing, ...updates }))
+        canWaitForRoster.mockReturnValue(false)
+        const afterLiveSet = jest.spyOn(flowDraftsService, 'afterLiveSet')
+        try {
+            await expect(
+                chatflowsService.updateChatflow(stored as any, { flowData: empty } as any, 'org-1', 'ws-1', 'sub-1', {
+                    caller: { via: 'session' },
+                    ...(mode === 'publish' ? { expectedFlowData: liveFlowData, versionRecord: { kind: 'publish' as const } } : {})
+                })
+            ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('runnable canvas') })
+            expect(stored.flowData).toBe(liveFlowData)
+            expect(mockRepo.save).not.toHaveBeenCalled()
+            expect(mockRepo.update).not.toHaveBeenCalled()
+            expect(mockRepo.createQueryBuilder).not.toHaveBeenCalled()
+            expect(flowVersionsService.recordFlowVersion).not.toHaveBeenCalled()
+            expect(afterLiveSet).not.toHaveBeenCalled()
+        } finally {
+            afterLiveSet.mockRestore()
+        }
+    })
+
+    it('refuses direct empty sync over a saved roster, but accepts an initial fileless placeholder', async () => {
+        const placeholder = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'live-team', flowData: makePlainFlowData() })
+        canWaitForRoster.mockReturnValue(false)
+        await expect(syncHarnessCanvas(placeholder as any, { via: 'session' })).rejects.toMatchObject({ statusCode: 400 })
+        canWaitForRoster.mockReturnValue(true)
+        await expect(syncHarnessCanvas(placeholder as any, { via: 'session' })).resolves.toBeUndefined()
         expect(mockRepo.save).not.toHaveBeenCalled()
     })
 

@@ -643,26 +643,32 @@ export const SETTINGS: SettingDef[] = [
         key: 'CUTTLELY_WARM_HERMES',
         section: 'runtime',
         group: 'Warm-up',
-        label: 'Warm up the agent runtime at start',
-        help: 'Makes the first answer faster. Each warm-up is one short model call per specialist.',
-        type: 'switch',
-        ...TRUE_FALSE,
-        defaultLabel: 'On',
-        defaultValue: 'true',
+        label: 'Warm-up mode',
+        help: 'Probe checks one idle specialist and warms cold profiles when needed. Timed full warmup calls every specialist at each interval.',
+        type: 'select',
+        options: [
+            { value: 'false', label: 'Off' },
+            { value: 'probe', label: 'Probe periodically' },
+            { value: 'true', label: 'Timed full warmup' }
+        ],
+        defaultLabel: 'Probe periodically',
+        defaultValue: 'probe',
         risk: 'low'
     },
     {
         key: 'CUTTLELY_HERMES_KEEP_WARM_MINUTES',
         section: 'runtime',
         group: 'Warm-up',
-        label: 'Keep warm every',
-        help: 'Repeat the warm-up on a timer. Each one costs a few tokens. Empty turns it off.',
+        label: 'Interval',
+        help: 'Minutes between probe or full warmup cycles. Active user work takes priority. Save and restart to apply.',
         type: 'number',
         unit: 'minutes',
         min: 1,
         max: 1440,
-        defaultLabel: 'Off',
-        risk: 'low'
+        defaultLabel: '5 minutes',
+        defaultValue: '5',
+        risk: 'low',
+        showWhen: { key: 'CUTTLELY_WARM_HERMES', equals: ['probe', 'true'] }
     },
 
     // Analyst

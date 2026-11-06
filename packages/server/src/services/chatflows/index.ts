@@ -1023,7 +1023,13 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
 
 // An empty canvas is stored before it can run. The name is still checked, including a file that has no team,
 // and nothing is claimed or written. Publish sends the real canvas through the roster write.
-async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assertSavedHarnessName: (name: string) => void }) {
+async function assertPlaceholderHarnessName(
+    chatflow: ChatFlow,
+    engine: {
+        assertSavedHarnessName: (name: string) => void
+        harnessCanvasCanWaitForRoster: (flow: { name: string; flowData: string }) => boolean
+    }
+) {
     try {
         engine.assertSavedHarnessName(chatflow.name)
     } catch (error) {
@@ -1043,13 +1049,21 @@ async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assert
         )
     }
     await harnessesService.withNameLock(chatflow.name, () =>
-        harnessesService.withProfileLock(() =>
-            harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
+        harnessesService.withProfileLock(async () => {
+            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
                 claiming: true,
                 readOnly: true,
                 record: { chatflowId: chatflow.id }
             })
-        )
+            // Only a new, fileless harness can wait for its roster. An empty Publish or API save
+            // must not replace a live canvas while leaving its previous runnable roster behind.
+            if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
+                throw new AppError(
+                    StatusCodes.BAD_REQUEST,
+                    'A saved harness needs a runnable canvas. Add Harness Prime before saving Live.'
+                )
+            }
+        })
     )
 }
 

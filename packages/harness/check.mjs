@@ -299,11 +299,21 @@ check(
     adaptiveEvidenceTests.stdout + adaptiveEvidenceTests.stderr
 )
 
-const capacityWaitTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/capacity-wait.test.mjs')], {
-    encoding: 'utf8',
-    timeout: 60000
-})
-check('opt-in admission capacity wait tests', capacityWaitTests.status === 0, capacityWaitTests.stdout + capacityWaitTests.stderr)
+const capacityWaitTests = spawnSync(
+    process.execPath,
+    [
+        '--test',
+        path.join(root, 'packages/harness/capacity-wait.test.mjs'),
+        path.join(root, 'packages/harness/client.test.mjs'),
+        path.join(root, 'packages/harness/run-budget.test.mjs'),
+        path.join(root, 'packages/harness/warmup.test.mjs')
+    ],
+    {
+        encoding: 'utf8',
+        timeout: 60000
+    }
+)
+check('runtime admission and cleanup tests', capacityWaitTests.status === 0, capacityWaitTests.stdout + capacityWaitTests.stderr)
 
 saveHarness(
     {
@@ -3712,6 +3722,12 @@ check(
     polled.agents.every((agent) => agent.status === 'completed') &&
         contract.seen.slice(polledFrom).filter((entry) => entry.kind === 'status').length > teamRuns.length
 )
+check(
+    'recent specialist requests skip warm-up model calls',
+    (await warmHarnessProfiles({ names: ['team'], baseUrl: contract.url })).length === 0
+)
+// A recompile invalidates evidence for the prior compiled profiles.
+forgetCompiledProfile('team')
 const warmFrom = contract.seen.length
 const warmed = await warmHarnessProfiles({ names: ['team'], baseUrl: contract.url })
 const warmRuns = contract.seen.slice(warmFrom).filter((entry) => entry.kind === 'run')

@@ -623,6 +623,7 @@ const warmHarnesses = (names?: string[]) => {
         .then((engine) =>
             engine.warmHarnessProfiles({
                 names,
+                mode: process.env.CUTTLELY_WARM_HERMES === 'true' ? 'full' : 'probe',
                 lock: (compile: () => unknown) => withProfileLock(() => Promise.resolve(compile()))
             })
         )
