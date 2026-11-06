@@ -151,6 +151,14 @@ it('requires stream and upload independently, charges an admitted HTTP request o
     multipart.headers['content-type'] = 'multipart/form-data; boundary=fixture'
     await expect(authorizeFlowKey(multipart, flow)).rejects.toMatchObject({ statusCode: 403 })
 })
+it('checks multipart stream scope before charging even when the principal retains its legacy bearer value', async () => {
+    grant()
+    mockKeys.set('fixture-token', key({ scopes: ['predict', 'upload'] }))
+    const multipart = req()
+    multipart.headers['content-type'] = 'multipart/form-data; boundary=fixture'
+    await expect(authorizeFlowKey(multipart, flow)).rejects.toMatchObject({ statusCode: 403 })
+    expect(mockConsume).not.toHaveBeenCalled()
+})
 it('refuses caller policies and never trusts forwarded headers directly', async () => {
     grant()
     mockKeys.set(

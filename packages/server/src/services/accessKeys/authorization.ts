@@ -137,8 +137,11 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
         throw new AppError(401, 'Unauthorized')
     const operation = flowOperation(req)
     const key = await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), false)
-    if (req.headers['content-type']?.toLowerCase().startsWith('multipart/form-data'))
+    if (req.headers['content-type']?.toLowerCase().startsWith('multipart/form-data')) {
         await authorizeKey(req, 'upload', flow.workspaceId, flowResource(flow), false)
+        // Fields arrive after file storage starts. Apply the same conservative check to retained legacy bearer values.
+        if (operation === 'predict') await authorizeKey(req, 'stream', flow.workspaceId, flowResource(flow), false)
+    }
     // Streaming is an additional scope. Check again after multipart parsing before starting SSE.
     const external = (req as Request & { orchestrate?: { stream?: unknown; method?: unknown } }).orchestrate
     if (

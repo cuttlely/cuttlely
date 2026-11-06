@@ -208,6 +208,7 @@ const STEPS = [
             '--watchAll=false',
             'src/views/serversettings',
             'src/views/serversetup',
+            'src/views/apikey',
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/canvas/cardActions.test.js',

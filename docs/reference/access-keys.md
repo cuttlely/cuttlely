@@ -62,7 +62,7 @@ Authorization requires an active credential, the resource's owning workspace, cu
 | Attachments, vector upsert and authenticated file reads                              | `upload` and the parent flow grant; existing conversation ownership and exact expiring signed-file links still apply |
 | Feedback reads/writes                                                                | `feedback:read` / `feedback:write` and the parent flow grant                                                         |
 | Chat-message reads/deletes/abort and leads                                           | `feedback:read` / `feedback:write`, the parent flow grant and existing route RBAC                                    |
-| Chatflow item CRUD, draft CRUD/publish/rollback, version item/diff/restore           | `api:read` / `api:write`, the exact resource grant and existing route RBAC                                           |
+| Flow item/draft/version reads and flow name/category edits                           | `api:read` / `api:write`, the exact resource grant and existing route RBAC                                           |
 | Flow streaming/upload capability reads                                               | `api:read` and the exact flow grant                                                                                  |
 | Harness runs, async starts, status, result and diagnostics                           | `harness:run` / `harness:read`, the stable Harness canvas grant and existing run-ownership checks                    |
 | Dashflows published snapshot, refresh status and owned report reads                  | `dashflow:read` and the dashboard grant                                                                              |
