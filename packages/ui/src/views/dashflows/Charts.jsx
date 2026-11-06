@@ -10,8 +10,12 @@ export function sortedRows(rows, field, order) {
         })
     return list
 }
+/** Trends always keep returned observation order, including legacy saved value-sort configs. */
+export function chartOrderedRows(card, rows) {
+    return sortedRows(rows, card.valueField, card.kind === 'trend' ? 'source' : card.sort)
+}
 export default function Chart({ card, rows, inspect }) {
-    const ordered = sortedRows(rows, card.valueField, card.sort)
+    const ordered = chartOrderedRows(card, rows)
     const numeric = ordered.filter(({ row }) => row[card.valueField] !== null)
     const values = numeric.map(({ row }) => Number(row[card.valueField]))
     const max = Math.max(1, ...values.map(Math.abs))

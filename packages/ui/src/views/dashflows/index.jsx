@@ -767,7 +767,7 @@ export function DashFlowsEnabled({ published = false }) {
                                     )
                                 })}
                             </div>
-                            {['bar', 'trend', 'donut'].includes(editor.kind) && (
+                            {['bar', 'donut'].includes(editor.kind) && (
                                 <TextField
                                     label='Display sort'
                                     select
