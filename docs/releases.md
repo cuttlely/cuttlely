@@ -101,7 +101,7 @@ The steps, in order:
 5. Commit `Release vX.Y.Z` on `release/vX.Y.Z`, push that branch, and open a pull request into `main` with the changelog section as its body. Phase 1 stops there.
 6. A human founder reviews the release pull request and squash-merges it once the required checks pass. A bot never merges it. The merge is a push to `main`, so it deploys (see [Branches, merges and deploys](#branches-merges-and-deploys)).
 7. Phase 2, `pnpm release X.Y.Z`, runs the checks above, creates the annotated tag `vX.Y.Z` on the merge commit, and pushes only that tag (`git push origin refs/tags/vX.Y.Z`). It never pushes `main`. A tag already on `origin` at that commit is reused. The `release tags` ruleset on `refs/tags/v*` stops a pushed release tag from being moved or deleted. The tag starts `.github/workflows/release-image.yml`.
-8. Phase 2 opens a pull request from `main` into `dev` titled `Sync main into dev after vX.Y.Z`, so `dev` gets the release commit. It never merges it; a person reviews and merges it. It skips this, and says why, when such a pull request is already open or `dev` already has everything on `main`. A failure to open it is printed and does not stop the release.
+8. Phase 2 opens a pull request from `main` into `dev` titled `Sync main into dev after vX.Y.Z`, so `dev` gets the release commit. It never merges it; a person reviews it and merges it with a merge commit or by fast-forward, never a squash. It skips this, and says why, when such a pull request is already open or `dev` already has everything on `main`. A failure to open it is printed and does not stop the release.
 9. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
 10. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
@@ -122,10 +122,13 @@ The release commit reaches `main` only through the release pull request, which n
 
 ### Branches, merges and deploys
 
--   Day-to-day work branches off `dev` and lands in `dev` by squash merge. `dev` is the staging branch.
+-   Day-to-day work branches off `dev` and lands in `dev` by squash merge. `dev` is the staging branch. There is no Render staging service for now; `dev` is not deployed.
 -   `main` changes only through pull requests: release pull requests and promotes of `dev` into `main`. Only a human founder merges a release pull request.
--   Promotes of `dev` into `main` are planned to use **Create a merge commit**. That is pending a decision: the repository allows squash merges only today, and that setting has not changed.
+-   Promotes of `dev` into `main` use **Create a merge commit**.
+-   A `main` to `dev` sync pull request is merged with a merge commit or by fast-forward, never squashed, so `dev` keeps the commits that are on `main`.
 -   Everything else is squash-merged.
+-   Bring a pull request into `main` up to date with `main` before it merges.
+-   Pull requests into `main` also run the `docker-build` image check from `.github/workflows/test_docker_build.yml`. It is not a required check on `main`; making it required is a founder decision.
 -   Render deploys `main`. `render.yaml` sets `branch: main` and `autoDeployTrigger: commit`, so a push to `main` starts a deploy unless it changes only paths in `buildFilter.ignoredPaths`. Merging a release pull request or a promote is a deploy. The Blueprint does not deploy `dev`.
 
 ## Docs and site sync

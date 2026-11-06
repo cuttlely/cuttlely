@@ -31,6 +31,7 @@ import {
     pickReleasePr,
     releaseBranch,
     remoteTagCommit,
+    syncPrBody,
     syncPrDecision,
     syncPrTitle,
     tagProblems,
@@ -720,6 +721,7 @@ test('phase 2 helpers: the merged pull request, the peeled remote tag, the sync 
     assert.equal(remoteTagCommit('c2\trefs/tags/v1.0.0\n', 'v1.0.0'), 'c2')
     assert.equal(remoteTagCommit('', 'v1.0.0'), null)
     assert.equal(syncPrTitle('1.2.3'), 'Sync main into dev after v1.2.3')
+    assert.match(syncPrBody('1.2.3'), /merge commit or by fast-forward\. Do not squash it/)
     assert.deepEqual(syncPrDecision({ devExists: true, openSyncPrs: [], missingCommits: 2 }), { open: true, reason: null })
     assert.match(syncPrDecision({ devExists: true, openSyncPrs: [{ url: 'p' }], missingCommits: 2 }).reason, /already open: p/)
     assert.match(syncPrDecision({ devExists: true, openSyncPrs: [], missingCommits: 0 }).reason, /already has everything/)

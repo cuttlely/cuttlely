@@ -135,7 +135,7 @@ export function syncPrTitle(version) {
     return `Sync main into dev after v${version}`
 }
 export function syncPrBody(version) {
-    return `Brings the v${version} release commit (version bump and CHANGELOG) from main back into dev.\n\nOpened by pnpm release after the v${version} tag. A person reviews and merges it.\n`
+    return `Brings the v${version} release commit (version bump and CHANGELOG) from main back into dev.\n\nOpened by pnpm release after the v${version} tag. A person reviews and merges it with a merge commit or by fast-forward. Do not squash it: dev needs the commits that are on main.\n`
 }
 export function syncPrDecision({ devExists, openSyncPrs, missingCommits }) {
     if (!devExists) return { open: false, reason: `origin has no ${SYNC_PR_BASE} branch, so there is nothing to sync.` }

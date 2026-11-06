@@ -236,7 +236,7 @@ Two checks guard what a pull request can add:
 
 The project notes in [`.projects/cuttlely/`](./.projects/cuttlely/README.md) say where the work stands, what is planned and open, the settled design decisions, and the commands to check and ship a change. Read them before a larger change. A code change updates them in the same pull request; the pre-push hook checks this. If you work with an AI agent, the `take-over` skill reads the notes and resumes from them.
 
-Branch names in this repository are short and descriptive (`feature/…`, `bugfix/…`, or a maintainer prefix such as `flowbit/…`). Branch from `dev` and open the pull request against `dev`. If `dev` moves while your pull request is open, merge `origin/dev` into your branch and run the checks again; do not force-push. Pull requests into `dev` are squash-merged. `dev` is the staging branch. A maintainer promotes `dev` to `main` by hand, and every push to `main` deploys.
+Branch names in this repository are short and descriptive (`feature/…`, `bugfix/…`, or a maintainer prefix such as `flowbit/…`). Branch from `dev` and open the pull request against `dev`. If `dev` moves while your pull request is open, merge `origin/dev` into your branch and run the checks again; do not force-push. Pull requests into `dev` are squash-merged. `dev` is the staging branch. A maintainer promotes `dev` to `main` by hand with a merge commit, and every push to `main` deploys. There is no Render staging service for now.
 
 ## How releases work
 
