@@ -940,19 +940,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     // or a name that had to be kept off the file). The id is still checked, and no harness file is written.
     // Publish sends the real canvas through the roster checks below, including a required credential.
     if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
-        try {
-            engine.assertSavedHarnessName(chatflow.name)
-        } catch (error) {
-            throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
-        }
-        await harnessesService.withNameLock(chatflow.name, () =>
-            harnessesService.withProfileLock(() =>
-                harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
-                    claiming: true,
-                    readOnly: true
-                })
-            )
-        )
+        await assertPlaceholderHarnessName(chatflow, engine)
         return
     }
     // The roster is read first so a new name is checked for leftovers under every profile name it compiles into;
@@ -985,11 +973,33 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     if (rosterError) throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(rosterError))
 }
 
+// An empty canvas is stored before it can run. The name is still checked, including a file that has no team,
+// and nothing is claimed or written. Publish sends the real canvas through the roster write.
+async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assertSavedHarnessName: (name: string) => void }) {
+    try {
+        engine.assertSavedHarnessName(chatflow.name)
+    } catch (error) {
+        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+    }
+    await harnessesService.withNameLock(chatflow.name, () =>
+        harnessesService.withProfileLock(() =>
+            harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
+                claiming: true,
+                readOnly: true
+            })
+        )
+    )
+}
+
 export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     const engine = await loadHarnessSync()
     // The placeholder row has no roster. Writing it would fail the credential and name checks and delete the canvas.
-    if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) return
+    // The name check still runs: a file with no team, or one owned by another team, is refused and left unchanged.
+    if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
+        await assertPlaceholderHarnessName(chatflow, engine)
+        return
+    }
     const appServer = getRunningExpressApp()
     const componentNodes = appServer.nodesPool.componentNodes
     let orgId: string | undefined

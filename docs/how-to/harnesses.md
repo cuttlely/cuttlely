@@ -73,7 +73,7 @@ The list shows the new credential and the message `New Credential added`. The ke
 
 If you saved a chat model key before opening the template, the template already uses it. With an OpenAI key and no xAI key, the **xAI Grok** card becomes **ChatOpenAI** (`gpt-4.1-mini`) in the same place, joined to Harness Prime, and a message says so: `This template now uses ChatOpenAI (gpt-4.1-mini) instead of xAI Grok, with your key. Save to keep it.` With an xAI key, the card stays and your key is filled in. Your key is picked only when exactly one fits; with several, pick one on the card. Any model card does the same: with no key picked and exactly one saved key that fits, it picks that key.
 
-With no key saved yet, the template's xAI Grok node has no credential, so a save is refused with `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.` Replace it with OpenAI. If you have an xAI key, you can instead select an xAI credential on that node and keep it.
+With no key saved yet, the template's xAI Grok node has no credential. The first save keeps that canvas as a draft on an empty Live row and names the missing credential. It does not write the harness file. Replace the node with OpenAI, or select an xAI credential if you have one, then **Publish**. Publish still refuses the canvas until that chat model has a credential: `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.`
 
 ![The template canvas in the dark theme with a red message at the bottom: The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.](../images/harnesses/save-rejected-grok-credential.png)
 
