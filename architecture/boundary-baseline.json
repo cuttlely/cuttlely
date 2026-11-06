@@ -2247,6 +2247,11 @@
             "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."
         },
         {
+            "from": "packages/ui/src/views/dashflows/index.jsx",
+            "to": "packages/ui/src/store/context/ConfigContext.jsx",
+            "reason": "Dashflows BETA reads the public DASH_FLOWS config flag; public settings reuses dashFlowsEnabled."
+        },
+        {
             "from": "packages/ui/src/views/etl/index.jsx",
             "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
         },
@@ -2654,6 +2659,11 @@
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        },
+        {
+            "from": "packages/server/src/services/settings/index.ts",
+            "to": "packages/server/src/services/dashflows/enabled.ts",
+            "reason": "Dashflows BETA reads the public DASH_FLOWS config flag; public settings reuses dashFlowsEnabled."
         },
         {
             "from": "packages/ui/src/utils/migrationScan.test.js",
