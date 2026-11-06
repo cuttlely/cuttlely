@@ -15212,7 +15212,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "principalId",
@@ -15220,7 +15220,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "digest",
@@ -15228,7 +15228,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "displayPrefix",
@@ -15236,7 +15236,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "lastFour",
@@ -15244,7 +15244,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "createdAt",
@@ -15298,7 +15298,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "resourceType",
@@ -15306,7 +15306,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "resourceId",
@@ -15314,7 +15314,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 }
             ],
             "foreignKeys": [],
@@ -15334,7 +15334,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "period",
@@ -15342,7 +15342,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "operation",
@@ -15350,7 +15350,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "accepted",
@@ -15386,7 +15386,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "principalId",
@@ -15394,7 +15394,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "dashboardId",
@@ -15402,7 +15402,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_general_ci"
                 },
                 {
                     "name": "createdAt",
