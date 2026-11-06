@@ -204,7 +204,7 @@ export function DashFlowsEnabled({ published = false }) {
         () => () => {
             refreshAbort.current?.abort()
         },
-        []
+        [id, workspaceId]
     )
     const [building, setBuilding] = useState(false)
     const [pipelineFilters, setPipelineFilters] = useState({
