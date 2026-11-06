@@ -1487,6 +1487,31 @@ describe('harnesses a saved canvas names', () => {
         expect(mockRepo.save).not.toHaveBeenCalled()
     })
 
+    it('refuses Publish of a nonempty canvas with no Harness Prime or specialist so draft and Live stay unchanged', async () => {
+        // Models or notes alone used to skip roster sync as a "placeholder". Publish must refuse instead.
+        const flowData = JSON.stringify({
+            nodes: [
+                { id: 'note', data: { name: 'stickyNote', inputs: {} } },
+                { id: 'model', data: { name: 'chatOpenAI', category: 'Chat Models', inputs: {} } }
+            ],
+            edges: []
+        })
+        const stored = makeChatflow({
+            type: EnumChatflowType.HARNESS,
+            name: 'partial-import',
+            flowData: makePlainFlowData()
+        })
+        await expect(
+            chatflowsService.updateChatflow(stored as any, { flowData } as any, 'org-1', 'ws-1', 'sub-1', {
+                caller: { via: 'session' },
+                expectedFlowData: stored.flowData,
+                versionRecord: { kind: 'publish' }
+            })
+        ).rejects.toMatchObject({ statusCode: 400 })
+        expect(mockRepo.save).not.toHaveBeenCalled()
+        expect(flowVersionsService.recordFlowVersion).not.toHaveBeenCalled()
+    })
+
     it('stores an incomplete first canvas as part of the create operation', async () => {
         const draftFlowData = JSON.stringify({
             nodes: [{ id: 'chief', data: { name: 'harnessChief', inputs: {} } }],
