@@ -6,9 +6,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Dashflows is available as a BETA under **Admin** > **Server Settings** > **Experimental**. It is off by default and hidden until an administrator turns it on.
+
+-   **Experimental** has a restart control for startup settings such as Dashflows BETA, with a warning and confirmation before the existing in-place restart or manual steps path.
+
 -   Version history can copy to a GitHub Enterprise host. On **Admin** > **Version History**, **GitHub host** stays `github.com` unless you set the host you open in a browser. GitHub Enterprise Cloud with data residency (`example.ghe.com`) uses `https://api.example.ghe.com`. Any other host, including GitHub Enterprise Server, uses `https://<host>/api/v3`. The token is a personal access token from that host. A saved sign-in is not sent to a different host, redirects are not followed, and private-network addresses stay blocked by the outbound check. See [Which GitHub host](./docs/how-to/versioning.md#which-github-host).
 
 ### Changed
+
+-   Dashflows schedules are weekly or on demand, and manual refresh returns immediately while the dashboard updates in the background.
 
 -   Admin runtime settings offer Off, Probe periodically (default), and Timed full warmup. Both active modes use a configurable interval, defaulting to five minutes. Existing explicit false and true settings select Off and full warmup respectively. Save and restart to apply.
 

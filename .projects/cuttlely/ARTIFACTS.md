@@ -82,3 +82,13 @@ The optional Web Browser source-text reader is `packages/components/nodes/tools/
 Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-index comparator and sanitized-DOM controls; `packages/ui/src/ui-component/markdown/SortableTable.jsx` applies it to React Markdown rows. Focused checks live in the adjacent UI test and `packages/chat-widget/test/tables.test.js` and `widget.test.js`. Sorting changes presentation only; model context, exports and original answer text retain source order.
 
 -   `packages/harness/run-budget.test.mjs`: dependency-aware timeout replies, independent successes, and completed deliverables surviving handoff timeout.
+
+## Dashflows BETA
+
+-   `docs/how-to/dashflows.md`: builder, source contracts, refresh, team publication and operating limits.
+-   `packages/harness/dashflows.mjs` and its co-located tests: typed materialization and SQLite snapshot storage.
+-   `packages/server/src/services/dashflows/` and `routes/dashflows/`: authenticated workspace API and schedule polling.
+-   `packages/ui/src/views/dashflows/`: canvas, source binding, evidence, team view and source-field preset.
+
+-   `scripts/live-e2e/dashflows-ui.mjs`: Chromium acceptance with synthetic fixtures, including account report action and period filtering.
+-   `docs/images/dashflows/supreme-showcase.png`: synthetic-data showcase of the implemented canvas.

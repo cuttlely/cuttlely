@@ -21,6 +21,7 @@ export type SectionId =
     | 'security'
     | 'integrations'
     | 'testing'
+    | 'experimental'
     | 'advanced'
 
 export interface SettingOption {
@@ -146,6 +147,12 @@ export const SECTIONS: SectionDef[] = [
         afterRestart: 'The publish check and these limits apply on the next use.'
     },
     {
+        id: 'experimental',
+        label: 'Experimental',
+        summary: 'Features that are still being tested and are off until an administrator turns them on.',
+        afterRestart: 'Experimental features use these choices from the next start.'
+    },
+    {
         id: 'advanced',
         label: 'Advanced',
         summary: 'Logging, schedules, ETL and agent runtime health checks.',
@@ -157,6 +164,20 @@ const TRUE_FALSE = { on: 'true', off: 'false' }
 const RENDER_DASHBOARD = 'Render (Environment page)'
 
 export const SETTINGS: SettingDef[] = [
+    // Experimental
+    {
+        key: 'CUTTLELY_DASH_FLOWS',
+        section: 'experimental',
+        label: 'Dashflows BETA',
+        help: 'Turns on the Dashflows BETA for signed-in teams. Only 1 or true turns it on. Any other value leaves it off.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        onValues: ['1', 'true'],
+        defaultLabel: 'Off',
+        defaultValue: '',
+        risk: 'medium'
+    },
+
     // Sign-in & identity
     {
         key: 'CUTTLELY_LOCAL_ADMIN',

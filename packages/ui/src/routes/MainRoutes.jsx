@@ -7,6 +7,8 @@ import Loadable from '@/ui-component/loading/Loadable'
 import { DefaultRedirect } from '@/routes/DefaultRedirect'
 import { RequireAuth } from '@/routes/RequireAuth'
 
+const DashFlows = Loadable(lazy(() => import('@/views/dashflows')))
+
 // chatflows routing
 const Chatflows = Loadable(lazy(() => import('@/views/chatflows')))
 const Promote = Loadable(lazy(() => import('@/views/promote')))
@@ -74,6 +76,14 @@ const MainRoutes = {
     path: '/',
     element: <MainLayout />,
     children: [
+        ...['/dashflows', '/dashflows/:id', '/dashboards/:id'].map((path) => ({
+            path,
+            element: (
+                <RequireAuth permission={path.startsWith('/dashboards') ? 'chatflows:view' : 'chatflows:update'}>
+                    <DashFlows published={path.startsWith('/dashboards')} />
+                </RequireAuth>
+            )
+        })),
         {
             path: '/',
             element: <DefaultRedirect />

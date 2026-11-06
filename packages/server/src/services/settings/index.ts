@@ -5,9 +5,10 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { canvasCardLook } from './canvasCardLook'
 import { IT_WORKED_DISABLE_ENV } from '../../utils/constants'
 import { pinnedQueriesEnabled } from '../pinned-queries/sql'
+import { dashFlowsEnabled } from '../dashflows/enabled'
 
 const getSettings = async () => {
-    const look = { CANVAS_CARD_LOOK: canvasCardLook(), PINNED_QUERIES: pinnedQueriesEnabled() }
+    const look = { CANVAS_CARD_LOOK: canvasCardLook(), PINNED_QUERIES: pinnedQueriesEnabled(), DASH_FLOWS: dashFlowsEnabled() }
     try {
         const appServer = getRunningExpressApp()
         const platformType = appServer.identityManager.getPlatformType()

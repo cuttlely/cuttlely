@@ -20,3 +20,5 @@ export const menuItemAllowed = (item, permissions, isGlobal) => {
     const grants = Array.isArray(permissions) ? permissions : []
     return item.permission.split(',').some((key) => grants.includes(key.trim()))
 }
+
+export const menuConfigAllowed = (item, config) => !item?.configFlag || config?.[item.configFlag] === true
