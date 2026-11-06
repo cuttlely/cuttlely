@@ -1,3 +1,5 @@
+Placeholder harness validation checks name ownership before refusing an existing roster, with both checks under the name/profile locks. The full workspace-isolation regression retains the teamless-harness 409 contract and matches the current incomplete-Live rejection message.
+
 An emptied live harness is refused on Publish, direct API save, and direct canvas sync. The placeholder exception checks for an absent harness file under the name and profile locks, preserving the existing live canvas and roster. Initial fileless placeholders remain supported: read-only ownership checks do not compile their incomplete roster. Service regressions and the real workspace-isolation test cover these paths.
 
 Admin runtime Warm-up now offers Off, Probe periodically (default), and Timed full warmup. The existing mode key retains explicit false/off and true/full values, with probe as the new default; the interval defaults to five minutes and hides for Off. Runtime and settings/UI tests cover mode selection and execution.
