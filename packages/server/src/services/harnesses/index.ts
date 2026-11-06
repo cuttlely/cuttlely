@@ -5,7 +5,6 @@ import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
 import { DataSource } from 'typeorm'
 import { User, Workspace } from '../../database/entities/identity'
-import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceId } from '../../identity/workspaceScope'
@@ -142,6 +141,7 @@ const listHarnesses = async (workspaceId?: string | null, opts: { includeIncompl
         if (typeof marked.chatflowId === 'string' && marked.chatflowId) canvasIds.add(marked.chatflowId)
     }
     if (opts.includeIncomplete) {
+        const { ChatFlow, EnumChatflowType } = await import('../../database/entities/ChatFlow')
         const canvases = await getRunningExpressApp()
             .AppDataSource.getRepository(ChatFlow)
             .find({

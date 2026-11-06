@@ -1266,6 +1266,11 @@
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "list incomplete HARNESS canvases on Agent Teams without a harness file"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
         },
