@@ -10,7 +10,18 @@ const chief = { id: 'chief', data: { name: 'harnessChief' } }
 test('an empty canvas is a placeholder and is not written as a harness file', () => {
     assert.equal(harnessCanvasIsPlaceholder(''), true)
     assert.equal(harnessCanvasIsPlaceholder('{"nodes":[],"edges":[]}'), true)
-    assert.equal(harnessCanvasIsPlaceholder({ nodes: [{ id: 'note', data: { name: 'stickyNote' } }], edges: [] }), true)
+    assert.equal(harnessCanvasIsPlaceholder({ nodes: [], edges: [] }), true)
+})
+
+test('a nonempty canvas without a Harness Prime or specialist is not a placeholder', () => {
+    assert.equal(harnessCanvasIsPlaceholder({ nodes: [{ id: 'note', data: { name: 'stickyNote' } }], edges: [] }), false)
+    assert.equal(
+        harnessCanvasIsPlaceholder({
+            nodes: [{ id: 'model', data: { name: 'chatOpenAI', category: 'Chat Models' } }],
+            edges: []
+        }),
+        false
+    )
 })
 
 test('a canvas with a Harness Prime or a specialist is not a placeholder', () => {

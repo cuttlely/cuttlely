@@ -481,7 +481,8 @@ const Canvas = () => {
                     const planned = planNewHarnessSave({
                         name: chatflowName,
                         flowData,
-                        nodeDefinitions: canvas.componentNodes
+                        nodeDefinitions: canvas.componentNodes,
+                        draftsOff: draftStatusRef.current?.reason === 'off'
                     })
                     if (planned.error) {
                         errorFailed(planned.error)
@@ -490,7 +491,6 @@ const Canvas = () => {
                     newChatflowBody.name = planned.name
                     newChatflowBody.flowData = planned.liveFlowData
                     if (planned.draftFlowData) newChatflowBody.draftFlowData = planned.draftFlowData
-                    if (planned.retainIncompleteHarness) newChatflowBody.retainIncompleteHarness = true
                     pendingHarnessNoteRef.current = planned.notice || ''
                 }
                 createNewChatflowApi.request(newChatflowBody)
@@ -513,13 +513,20 @@ const Canvas = () => {
                     }
                 }
                 if (plan.live?.flowData) {
-                    pendingHarnessLiveSaveRef.current = isHarnessCanvas
-                        ? planHarnessDraftFallback({
-                              flowData: plan.live.flowData,
-                              nodeDefinitions: canvas.componentNodes,
-                              draftsOff: draftStatusRef.current?.reason === 'off'
-                          })
-                        : null
+                    if (isHarnessCanvas) {
+                        const retained = planHarnessDraftFallback({
+                            flowData: plan.live.flowData,
+                            nodeDefinitions: canvas.componentNodes,
+                            draftsOff: draftStatusRef.current?.reason === 'off'
+                        })
+                        if (retained?.error) {
+                            errorFailed(retained.error)
+                            return
+                        }
+                        pendingHarnessLiveSaveRef.current = retained
+                    } else {
+                        pendingHarnessLiveSaveRef.current = null
+                    }
                     setChatflowName(plan.live.name)
                     setFlowData(plan.live.flowData)
                     getHasChatflowChangedApi.request(chatflow.id, lastUpdatedDateTime)
@@ -788,6 +795,10 @@ const Canvas = () => {
                       draftsOff: draftSaveWasTurnedOff(draftError)
                   })
                 : null
+            if (retained?.error) {
+                errorFailed(retained.error)
+                return
+            }
             if (isHarnessCanvas && !retained) {
                 errorFailed(apiErrorMessage(draftError, 'Save failed'))
                 return
@@ -795,9 +806,6 @@ const Canvas = () => {
             try {
                 const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
                 dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                if (retained) {
-                    setDraftStatus({ enabled: false, mode: 'live', reason: 'off', publishInstantly: false, draft: null })
-                }
                 saveChatflowSuccess(retained?.notice)
             } catch (error) {
                 errorFailed(apiErrorMessage(error, 'Save failed'))
@@ -1070,7 +1078,6 @@ const Canvas = () => {
                 name: chatflowName,
                 flowData
             }
-            if (pendingHarnessLiveSaveRef.current?.body?.retainIncompleteHarness) updateBody.retainIncompleteHarness = true
             updateChatflowApi.request(chatflow.id, updateBody)
         }
 

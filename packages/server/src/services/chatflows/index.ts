@@ -434,18 +434,19 @@ const saveChatflow = async (
     actor?: VersionActor,
     // Promote labels the first version of a flow it creates, and gets the result of that record.
     // `caller` is who saves: a HARNESS canvas, or a canvas that names a harness, is refused without one.
-    record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller' | 'draftFlowData' | 'retainIncompleteHarness'>
+    record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller' | 'draftFlowData'>
 ): Promise<any> => {
     const initialDraft = newChatFlow.type === EnumChatflowType.HARNESS ? record?.draftFlowData : undefined
+    if (typeof initialDraft === 'string' && !flowDraftsService.isDraftsEnabled()) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            'This harness is not ready to go Live, and drafts are off on this server. Finish the roster (credentials and unique specialist ids), then save again.'
+        )
+    }
     const saveInitialDraft = typeof initialDraft === 'string' && flowDraftsService.isDraftsEnabled()
-    if (typeof initialDraft === 'string' && !saveInitialDraft) newChatFlow.flowData = initialDraft
     if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
-    const skipHarnessSync = await validateHarnessCanvas(
-        newChatFlow,
-        record?.caller,
-        record?.retainIncompleteHarness === true || (typeof initialDraft === 'string' && !saveInitialDraft)
-    )
+    const skipHarnessSync = await validateHarnessCanvas(newChatFlow, record?.caller)
     await validateReferencedHarnesses(newChatFlow, record?.caller)
     await validateEtlCanvas(newChatFlow)
     const appServer = getRunningExpressApp()
@@ -594,9 +595,7 @@ export interface UpdateChatflowOptions {
     // the save returns 409 instead of overwriting it. Publish writes only flowData. A version put Live
     // writes the whole row, still only while this canvas is the one stored.
     expectedFlowData?: string
-    // Keeps an incomplete harness canvas when drafts are off. It is allowed only before a harness file exists.
-    retainIncompleteHarness?: boolean
-    // A new harness can save its first canvas in this create operation while Live stays empty.
+    // A new harness can save its first canvas as a draft in this create operation while Live stays empty.
     draftFlowData?: unknown
 }
 
@@ -791,7 +790,7 @@ const updateChatflow = async (
     const previousRow = Object.assign(new ChatFlow(), chatflow)
     const newDbChatflow = appServer.AppDataSource.getRepository(ChatFlow).merge(chatflow, updateChatFlow)
     newDbChatflow.workspaceId = workspaceId // defense-in-depth: use trusted param, not chatflow.workspaceId (merge mutates in-place)
-    const skipHarnessSync = await validateHarnessCanvas(newDbChatflow, options.caller, options.retainIncompleteHarness === true)
+    const skipHarnessSync = await validateHarnessCanvas(newDbChatflow, options.caller)
     // The caller's list applies when the canvas changes or the flow is rebound to another key (or to none), because the
     // stored cards then run under a different key. Another field alone, such as the category, does not need it.
     const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (previousRow.apikeyid ?? null)
@@ -968,25 +967,21 @@ export async function validateReferencedHarnesses(
     }
 }
 
-async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined, retainIncomplete = false): Promise<boolean> {
+async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined): Promise<boolean> {
     if (chatflow.type !== EnumChatflowType.HARNESS) return false
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
     const engine = await loadHarnessSync()
-    // An empty canvas is how a new harness is stored before it can run (an import with no credential yet,
-    // or a name that had to be kept off the file). The id is still checked, and no harness file is written.
-    // Publish sends the real canvas through the roster checks below, including a required credential.
+    // An empty canvas is how a new incomplete harness is stored as draft-only Live before it can run.
+    // The id is still checked, and no harness file is written. If a harness file already exists, emptying
+    // Live is refused so a rejected Publish leaves the prior Live unchanged.
     if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
-        await assertPlaceholderHarnessName(chatflow, engine)
-        return true
-    }
-    // This mode follows a readiness check that found an incomplete roster. The server additionally
-    // requires drafts to be off, a readable graph, and no existing harness file.
-    if (
-        retainIncomplete &&
-        !flowDraftsService.isDraftsEnabled() &&
-        engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })
-    ) {
+        if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
+            throw new AppError(
+                StatusCodes.BAD_REQUEST,
+                'This harness is not ready to go Live. Keep editing the draft until the roster can run. Live stays as it is.'
+            )
+        }
         await assertPlaceholderHarnessName(chatflow, engine)
         return true
     }
@@ -1023,13 +1018,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
 
 // An empty canvas is stored before it can run. The name is still checked, including a file that has no team,
 // and nothing is claimed or written. Publish sends the real canvas through the roster write.
-async function assertPlaceholderHarnessName(
-    chatflow: ChatFlow,
-    engine: {
-        assertSavedHarnessName: (name: string) => void
-        harnessCanvasCanWaitForRoster: (flow: { name: string; flowData: string }) => boolean
-    }
-) {
+async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assertSavedHarnessName: (name: string) => void }) {
     try {
         engine.assertSavedHarnessName(chatflow.name)
     } catch (error) {
@@ -1049,21 +1038,13 @@ async function assertPlaceholderHarnessName(
         )
     }
     await harnessesService.withNameLock(chatflow.name, () =>
-        harnessesService.withProfileLock(async () => {
-            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
+        harnessesService.withProfileLock(() =>
+            harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
                 claiming: true,
                 readOnly: true,
                 record: { chatflowId: chatflow.id }
             })
-            // Only a new, fileless harness can wait for its roster. An empty Publish or API save
-            // must not replace a live canvas while leaving its previous runnable roster behind.
-            if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
-                throw new AppError(
-                    StatusCodes.BAD_REQUEST,
-                    'A saved harness needs a runnable canvas. Add Harness Prime before saving Live.'
-                )
-            }
-        })
+        )
     )
 }
 
@@ -1073,6 +1054,12 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
     // The placeholder row has no roster. Writing it would fail the credential and name checks and delete the canvas.
     // The name check still runs: a file with no team, or one owned by another team, is refused and left unchanged.
     if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
+        if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
+            throw new AppError(
+                StatusCodes.BAD_REQUEST,
+                'This harness is not ready to go Live. Keep editing the draft until the roster can run. Live stays as it is.'
+            )
+        }
         await assertPlaceholderHarnessName(chatflow, engine)
         return
     }

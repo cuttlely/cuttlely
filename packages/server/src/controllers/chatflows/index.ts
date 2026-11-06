@@ -174,7 +174,6 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''
         const body = { ...req.body }
         const draftFlowData = body.draftFlowData
-        const retainIncompleteHarness = body.retainIncompleteHarness
         delete body.draftFlowData
         delete body.retainIncompleteHarness
 
@@ -195,8 +194,7 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
             actorFromUser(req.user),
             {
                 caller: await harnessCallerFor(req),
-                draftFlowData,
-                retainIncompleteHarness: retainIncompleteHarness === true
+                draftFlowData
             }
         )
 
@@ -224,7 +222,8 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
             throw new AppError(StatusCodes.NOT_FOUND, `Error: chatflowsController.saveChatflow - organization ${orgId} not found!`)
         }
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''
-        const { retainIncompleteHarness, ...body } = req.body
+        const body = { ...req.body }
+        delete body.retainIncompleteHarness
         const updateChatFlow = new ChatFlow()
         Object.assign(updateChatFlow, stripProtectedFields(body))
 
@@ -234,8 +233,7 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
 
         const apiResponse = await chatflowsService.updateChatflow(chatflow, updateChatFlow, orgId, workspaceId, subscriptionId, {
             actor: actorFromUser(req.user),
-            caller: await harnessCallerFor(req),
-            retainIncompleteHarness: retainIncompleteHarness === true
+            caller: await harnessCallerFor(req)
         })
         return res.json(apiResponse)
     } catch (error) {
