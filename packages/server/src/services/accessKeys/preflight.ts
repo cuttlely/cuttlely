@@ -1,10 +1,11 @@
+import { assertCapacity } from './limiter'
 import { requireAccessRollout } from './rollout'
 import { RequestHandler } from 'express'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
 import { bearerApiKey } from '../../utils/apiKey'
 import { normalizeApiPath } from '../../identity/apiGate'
-import { authenticateRequest, authorizeFlowKey } from './authorization'
+import { authenticateRequest, authorizeFlowKey, flowOperation } from './authorization'
 import { accessData } from './data'
 import { callerPolicyAllows } from './policy'
 
@@ -15,7 +16,7 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
         return next()
     void (async () => {
         const token = bearerApiKey(req.headers.authorization)
-        if (!token.startsWith('ctu_')) return // compatibility is resolved by the established route gates
+        if (!/^ctu_(live|test)_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(token)) return // compatibility is resolved by the established route gates
         requireAccessRollout()
         const key = await authenticateRequest(req)
         if (!key) throw new AppError(401, 'Unauthorized')
@@ -32,7 +33,8 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
                 !key.accessPolicy.scopes.includes('stream')
             )
                 throw new AppError(403, 'Multipart prediction requires stream scope as well as predict and upload.')
-            await authorizeFlowKey(req, flow)
+            await authorizeFlowKey(req, flow, false)
+            await assertCapacity(await accessData(), key, flowOperation(req), req.res)
         }
     })().then(() => next(), next)
 }

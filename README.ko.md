@@ -131,7 +131,7 @@ Node 20+ 및 Docker
 
 <a id="use-a-team-from-your-app"></a>
 
-**Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 그 키의 **Harnesses this key may run**에서 하네스를 체크하세요. 새 키는 어떤 하네스도 실행하지 못하며, 체크하기 전까지 호출은 `403`이 됩니다. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
+[액세스 키 적용을 활성화한 뒤](./docs/reference/access-keys.md) **Access Keys**에서 주체를 만들고 챗플로우와 참조하는 하네스를 허용합니다. `predict`와 `harness:run` 범위를 선택하고 **API Endpoint**에서 플로우를 비공개로 설정합니다. 새 키에는 리소스 권한이 없습니다.
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \

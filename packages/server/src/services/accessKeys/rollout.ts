@@ -14,16 +14,24 @@ export function requireAccessRollout(): void {
     if (accessRollout() !== 'on') throw new AppError(503, 'Enable INBOUND_ACCESS_V2=on before issuing or editing access key policies.')
 }
 const comparisons = new Map<string, number>()
-export async function compareLegacy(req: Request, key: ApiKey | undefined, legacy: boolean, next: boolean) {
-    if (legacy === next || !key) return
-    const id = `${key.id}:${legacy}:${next}`
+export async function compareLegacy(
+    req: Request,
+    key: ApiKey | undefined,
+    legacy: boolean,
+    next: boolean,
+    workspaceId: string,
+    resourceId: string
+) {
+    if (legacy === next) return
+    const id = `${workspaceId}:${resourceId}:${key?.id || 'public'}:${legacy}:${next}`
     const now = Date.now()
     if ((comparisons.get(id) || 0) > now - 300000) return
     for (const [name, stamp] of comparisons) if (stamp <= now - 300000) comparisons.delete(name)
     if (comparisons.size >= 10000) return
     comparisons.set(id, now)
-    await recordKeyUse(req, key, 'predict', next ? 'accepted' : 'denied', {
+    await recordKeyUse(req, key || ({ id: '', workspaceId } as ApiKey), 'predict', next ? 'accepted' : 'denied', {
         shadowMismatch: true,
+        resourceId,
         legacyAllowed: legacy,
         scopedAllowed: next
     })

@@ -6,3 +6,10 @@ export class AccessKeyPolicyError extends AppError {
         super(403, message)
     }
 }
+
+/** Retains prediction's existing plain-text streaming Origin refusal without confusing it with key scope errors. */
+export class FlowOriginPolicyError extends AppError {
+    constructor(message: string) {
+        super(403, message)
+    }
+}

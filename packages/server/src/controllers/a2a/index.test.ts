@@ -1,3 +1,4 @@
+import { parsePolicy } from '../../services/accessKeys/policy'
 /**
  * HTTP contract for GET /api/v1/a2a/:id/.well-known/agent-card.json and POST /api/v1/a2a/:id.
  * buildChatflow is mocked at the service boundary.
@@ -534,6 +535,22 @@ describe('A2A context isolation and continuity', () => {
 
         await post(K2, sendBody('Hi', ctx), { Authorization: `Bearer ${KEY_K2}` })
         expect(mockBuildChatflow.mock.calls[1][0].body.chatId).not.toBe(bound.chatId)
+    })
+
+    it('isolates two principals on the same flow, thread, task reads and task cancellation', async () => {
+        const second = mockApiKeys.get('apikey-k2') as any
+        second.permissions = ['chatflows:view']
+        second.accessPolicy = parsePolicy({ scopes: ['predict', 'stream'], rpm: 0 })
+        mockDb.chatflows.get(K).fixtureGrantIds = ['apikey-k2']
+        const first = await post(K, sendBody('Hi', { contextId: 'shared-thread' }), withKey())
+        const other = await post(K, sendBody('Hi', { contextId: 'shared-thread' }), { Authorization: `Bearer ${KEY_K2}` })
+        expect(first.status).toBe(200)
+        expect(other.status).toBe(200)
+        expect(mockBuildChatflow.mock.calls[0][0].body.chatId).not.toBe(mockBuildChatflow.mock.calls[1][0].body.chatId)
+        for (const method of ['tasks/get', 'tasks/cancel']) {
+            const response = await post(K, rpc(method, { id: first.body.result.id }), { Authorization: `Bearer ${KEY_K2}` })
+            expectRpcError(response, A2A_RPC_CODES.taskNotFound)
+        }
     })
 
     it('reuses context from taskId and referenceTaskIds, and refuses empty or overlong contextId', async () => {

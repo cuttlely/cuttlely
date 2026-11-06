@@ -1,3 +1,4 @@
+import { sqlFromDataSource } from '../../identity/directory'
 import { Request } from 'express'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { Workspace } from '../../database/entities/identity'
@@ -12,10 +13,12 @@ export async function recordKeyUse(
     key: ApiKey,
     operation: Operation,
     outcome: 'accepted' | 'denied',
-    comparison: Record<string, boolean> = {}
+    comparison: Record<string, string | boolean> = {}
 ): Promise<void> {
     const now = Date.now()
-    const id = `${key.id}:${operation}:${outcome}`
+    const id = `${key.workspaceId}:${key.id}:${operation}:${outcome}:${comparison.shadowMismatch ? 'shadow' : 'enforced'}:${
+        comparison.resourceId || ''
+    }`
     if ((events.get(id) || 0) > now - 300000) return
     for (const [name, timestamp] of events) if (timestamp <= now - 300000) events.delete(name)
     if (events.size >= 10000) return
@@ -23,14 +26,13 @@ export async function recordKeyUse(
     const data = await accessData()
     const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
     if (!workspace) return
-    const { applicationSql } = await import('../../identity/production')
-    await safeRecordAudit(applicationSql(), {
+    await safeRecordAudit(sqlFromDataSource(data), {
         type: 'api_key_use',
         organizationId: workspace.organizationId,
         workspaceId: key.workspaceId,
         userId: null,
-        actorId: key.id,
+        actorId: key.id || null,
         summary: `Access key request ${outcome}`,
-        detail: { keyId: key.id, operation, outcome, aggregated: true, ...comparison }
+        detail: { keyId: key.id || null, operation, outcome, aggregated: true, ...comparison }
     })
 }

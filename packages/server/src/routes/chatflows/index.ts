@@ -1,3 +1,4 @@
+import { scopedFlowMetadataUpdate } from '../../services/accessKeys/managementBoundary'
 import express from 'express'
 import apikeyController from '../../controllers/apikey'
 import chatflowsController from '../../controllers/chatflows'
@@ -35,6 +36,7 @@ router.get(
 router.put(
     ['/', '/:id'],
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
+    scopedFlowMetadataUpdate,
     requireHarnessCanvasAccess(),
     chatflowsController.updateChatflow
 )

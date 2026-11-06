@@ -8,14 +8,41 @@ const mockKeys = new Map<string, ApiKey>()
 const mockFlows = new Map<string, any>()
 const mockGrants = new Set<string>()
 const mockConsume = jest.fn(async () => undefined)
+const mockMetadataUpdate = jest.fn(async (where: any, patch: any) => {
+    const row = mockFlows.get(where.id)
+    if (row?.workspaceId === where.workspaceId) Object.assign(row, patch)
+    return { affected: row ? 1 : 0 }
+})
 let mockOwnerPermissions: string[] | null = ['chatflows:view', 'chatflows:update']
 let mockOwnerStatus = 'active'
+jest.mock('../harnesses', () => ({
+    __esModule: true,
+    default: {
+        getHarness: async (name: string) => {
+            const row = [...mockFlows.values()].find((flow) => flow.type === 'HARNESS' && flow.name === name)
+            return row ? { chatflowId: row.id } : undefined
+        }
+    }
+}))
 jest.mock('../apikey', () => ({ __esModule: true, default: { getApiKey: async (token: string) => mockKeys.get(token) } }))
 jest.mock('./limiter', () => ({ consume: (...args: unknown[]) => (mockConsume as any)(...args) }))
 jest.mock('./audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
 jest.mock('./data', () => ({
     accessData: async () => ({
         getRepository: (entity: { name: string }) => ({
+            update: mockMetadataUpdate,
+            findBy: async (where: any) => {
+                if (entity.name === 'ChatFlow')
+                    return [...mockFlows.values()].filter((row) => Object.entries(where).every(([k, v]) => row[k] === v))
+                if (entity.name === 'ApiKeyResource')
+                    return [...mockGrants]
+                        .map((value) => {
+                            const [principalId, resourceType, resourceId] = value.split(':')
+                            return { principalId, resourceType, resourceId }
+                        })
+                        .filter((row: any) => Object.entries(where).every(([k, v]) => row[k] === v))
+                return []
+            },
             findOneBy: async (where: any) => {
                 if (entity.name === 'Workspace') return { id: where.id, organizationId: 'org' }
                 if (entity.name === 'Organization') return { id: where.id }
@@ -33,6 +60,7 @@ jest.mock('./data', () => ({
 import { authorizeFlowKey, authorizeKey, setAccessContext } from './authorization'
 import { accessKeyRouteGuard } from './routes'
 import { accessKeyPreflight } from './preflight'
+import { scopedFlowMetadataUpdate } from './managementBoundary'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 
 const FLOW = '11111111-1111-4111-8111-111111111111'
@@ -63,6 +91,7 @@ beforeEach(() => {
     mockFlows.clear()
     mockGrants.clear()
     mockConsume.mockClear()
+    mockMetadataUpdate.mockClear()
     mockOwnerPermissions = ['chatflows:view', 'chatflows:update']
     mockOwnerStatus = 'active'
     mockFlows.set(FLOW, flow)
@@ -177,7 +206,7 @@ it('preflight refuses before JSON parsing and file storage; inactive and malform
     app.use(express.json())
     app.post('/api/v1/prediction/:id', (_req, res) => res.json({ ok: true }))
     app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
-    const token = 'ctu_live_fixture-token'
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
     mockKeys.set(token, key({ scopes: ['predict'] }))
     const response = await request(app)
         .post('/api/v1/prediction/' + FLOW)
@@ -222,4 +251,124 @@ it('off and shadow preserve legacy integration decisions but never admit new pri
     } finally {
         process.env.INBOUND_ACCESS_V2 = 'on'
     }
+})
+
+it('redacts execution transports and keeps canvas, publication and schedule mutations session-only', async () => {
+    const app = express()
+    app.use(express.json())
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) =>
+        res.json({
+            id: FLOW,
+            mcpServerConfig: { token: 'fixture-transport' },
+            webhookSecret: 'fixture-signature',
+            nested: { mcpServerConfig: 'fixture' }
+        })
+    )
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+        res.status(error.statusCode || 500).json({ message: error.message })
+    )
+    mockKeys.set('fixture-token', key({ scopes: ['api:read', 'api:write'] }))
+    grant()
+    const read = await request(app)
+        .get('/api/v1/chatflows/' + FLOW)
+        .set('Authorization', 'Bearer fixture-token')
+    expect(read.status).toBe(200)
+    expect(read.body.mcpServerConfig).toBeUndefined()
+    expect(read.body.webhookSecret).toBeUndefined()
+    expect(read.body.nested).toEqual({})
+    for (const body of [{ mcpServerConfig: '{}' }, { flowData: '{"schedule":true}' }, { apiConfig: '{}' }])
+        expect(
+            (
+                await request(app)
+                    .put('/api/v1/chatflows/' + FLOW)
+                    .set('Authorization', 'Bearer fixture-token')
+                    .send(body)
+            ).status
+        ).toBe(403)
+    for (const path of [`flow-drafts/${FLOW}/publish`, `flow-drafts/${FLOW}/rollback`, `flow-versions/${FLOW}/fixture/restore`])
+        expect(
+            (
+                await request(app)
+                    .post('/api/v1/' + path)
+                    .set('Authorization', 'Bearer fixture-token')
+                    .send({})
+            ).status
+        ).toBe(403)
+    expect(
+        (
+            await request(app)
+                .put('/api/v1/chatflows/' + FLOW)
+                .set('Authorization', 'Bearer fixture-token')
+                .send({ category: 'Fixture' })
+        ).status
+    ).toBe(200)
+})
+it('edits metadata without entering the canvas save path or changing an existing schedule', async () => {
+    const canvasSave = jest.fn((_req: Request, res: express.Response) => res.json({ canvas: true }))
+    const app = express()
+    app.use(express.json())
+    app.use('/api/v1', accessKeyRouteGuard)
+    app.put('/api/v1/chatflows/:id', scopedFlowMetadataUpdate, canvasSave)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    mockKeys.set('fixture-token', key({ scopes: ['api:write'] }))
+    grant()
+    const scheduled = { ...flow, flowData: '{"existingSchedule":true}', mcpServerConfig: '{"enabled":true}' }
+    mockFlows.set(FLOW, scheduled)
+    const response = await request(app)
+        .put('/api/v1/chatflows/' + FLOW)
+        .set('Authorization', 'Bearer fixture-token')
+        .send({ name: 'Updated name', category: 'Fixture' })
+    expect(response.status).toBe(200)
+    expect(canvasSave).not.toHaveBeenCalled()
+    expect(mockMetadataUpdate).toHaveBeenCalledWith({ id: FLOW, workspaceId: 'one' }, { name: 'Updated name', category: 'Fixture' })
+    expect(scheduled.flowData).toBe('{"existingSchedule":true}')
+    expect(response.body.mcpServerConfig).toBeUndefined()
+})
+it('attaches a downstream key identity for whitelisted lead and abort routes', async () => {
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (req, res) => res.json({ workspace: req.user?.activeWorkspaceId, key: req.user?.apiKeyId }))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    mockKeys.set('fixture-token', key({ scopes: ['feedback:read', 'feedback:write'] }))
+    grant()
+    for (const response of [
+        await request(app)
+            .get('/api/v1/leads/' + FLOW)
+            .set('Authorization', 'Bearer fixture-token'),
+        await request(app)
+            .put('/api/v1/chatmessage/abort/' + FLOW + '/fixture-chat')
+            .set('Authorization', 'Bearer fixture-token')
+    ]) {
+        expect(response.status).toBe(200)
+        expect(response.body).toEqual({ workspace: 'one', key: 'key' })
+    }
+})
+it('keeps legacy non-flow management bound to its own endpoint RBAC rather than unrelated flow permissions', async () => {
+    const legacy = {
+        ...key({ scopes: ['api:read'] }),
+        ownerUserId: 'creator',
+        permissions: ['credentials:view'],
+        accessPolicy: { ...parsePolicy({ scopes: ['api:read'] }), legacy: true }
+    }
+    mockOwnerPermissions = ['credentials:view']
+    mockKeys.set('fixture-token', legacy)
+    await expect(authorizeKey(req(), 'api:read', 'one')).resolves.toMatchObject({ id: 'key', permissions: ['credentials:view'] })
+})
+it('checks external streaming before admission, even after the adapter clears req.body', async () => {
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    grant()
+    for (const external of [{ stream: true }, { method: 'message/stream' }]) {
+        const r = req() as Request & { orchestrate?: unknown }
+        r.orchestrate = external
+        await expect(authorizeFlowKey(r, flow)).rejects.toMatchObject({ statusCode: 403 })
+    }
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it('allows Harness status/result access with read scope alone and never turns it into run authority', async () => {
+    const { keyHarnessNames } = await import('./resources')
+    const reader = key({ scopes: ['harness:read'] })
+    mockFlows.set(HARNESS, { id: HARNESS, name: 'baker', type: 'HARNESS', workspaceId: 'one' })
+    grant(HARNESS, 'HARNESS')
+    expect(await keyHarnessNames(reader, false)).toEqual(['baker'])
+    expect(await keyHarnessNames(reader, true)).toEqual([])
 })

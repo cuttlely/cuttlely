@@ -173,7 +173,7 @@ const getAllApiKeys = async (user: ApiKeyActor, page: number = -1, limit: number
 
 const presentApiKeyRow = (key: ApiKey & { chatFlows?: unknown }) => {
     const { apiKey: _lookup, apiSecret: _secret, ...safe } = key
-    return { ...safe, harnesses: Array.isArray(key.harnesses) ? key.harnesses : [] }
+    return { ...safe, hasLegacyCredential: Boolean(key.apiSecret), harnesses: Array.isArray(key.harnesses) ? key.harnesses : [] }
 }
 
 const presentApiKeys = (keys: Array<ApiKey & { chatFlows?: unknown }>) => keys.map((key) => presentApiKeyRow(key))
@@ -189,7 +189,6 @@ const findBySuppliedKey = async (suppliedKey: string): Promise<ApiKey | undefine
     const appServer = getRunningExpressApp()
     const modern = await findCredential(appServer.AppDataSource, suppliedKey)
     if (modern) return (await apiKeyOwnerActive(modern.key)) ? modern.key : undefined
-    if (/^ctu_(live|test)_[0-9a-f]{16}_/.test(suppliedKey)) return undefined
     const repo = appServer.AppDataSource.getRepository(ApiKey)
     const lookup = storedApiKeyLookup(suppliedKey)
     const hashed = await repo.findOneBy({ apiKey: lookup })

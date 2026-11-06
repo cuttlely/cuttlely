@@ -24,11 +24,15 @@ const toUuidV8 = (bytes: Buffer): string => {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-const callerKeyFor = (flow: { id: string; apikeyid?: string | null }): string =>
-    typeof flow.apikeyid === 'string' && flow.apikeyid ? `key:${flow.apikeyid}` : `public:${flow.id}`
+const callerKeyFor = (flow: { id: string; apikeyid?: string | null }, principalId?: string): string =>
+    principalId ? `key:${principalId}` : typeof flow.apikeyid === 'string' && flow.apikeyid ? `key:${flow.apikeyid}` : `public:${flow.id}`
 
-export function threadChatId(flow: { id: string; apikeyid?: string | null }, threadId: string): { chatId: string; sessionToken: string } {
-    const callerKey = callerKeyFor(flow)
+export function threadChatId(
+    flow: { id: string; apikeyid?: string | null },
+    threadId: string,
+    principalId?: string
+): { chatId: string; sessionToken: string } {
+    const callerKey = callerKeyFor(flow, principalId)
     const secret = ownershipSecret()
     const digest = createHmac('sha256', secret)
         .update('orchestrate-thread-v1')

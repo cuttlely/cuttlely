@@ -131,7 +131,7 @@ Node 20+ と Docker
 
 <a id="use-a-team-from-your-app"></a>
 
-**Harness** カードを一枚置いたチャットフローの後ろにチームを置いて公開し、**API Keys** でキーを発行します。そのキーの **Harnesses this key may run** でハーネスにチェックを入れてください。新しいキーはどのハーネスも実行できず、チェックするまで呼び出しは `403` になります。アプリが質問を送ると、チームの答えが返ってきます。以下は、`baker` と `orders` という二つのスペシャリストを持つ小さなパン屋のチームへの、実際の呼び出しです。
+[アクセスキーの適用を有効にした後](./docs/reference/access-keys.md)、**Access Keys** でプリンシパルを作成し、チャットフローと参照するハーネスを許可します。`predict` と `harness:run` のスコープを選び、**API Endpoint** でフローを非公開にします。新しいキーにはリソースへの権限がありません。
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \

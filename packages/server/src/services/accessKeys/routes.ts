@@ -1,3 +1,5 @@
+import { resolveHarnessFlow } from './resources'
+import { assertSafeManagementWrite, redactTransportSecrets } from './managementBoundary'
 import { accessRollout } from './rollout'
 import { RequestHandler } from 'express'
 import { ChatFlow } from '../../database/entities/ChatFlow'
@@ -48,6 +50,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             /^POST \/dashflows\/[^/]+\/refresh$/,
             /^POST \/dashflows\/[^/]+\/accounts\/[^/]+\/report$/
         ].some((pattern) => pattern.test(method + ' ' + route))
+        if (!key.accessPolicy?.legacy && ['chatflows', 'flow-drafts', 'flow-versions'].includes(root))
+            assertSafeManagementWrite(root, req.method, parts, req.body)
         if (!key.accessPolicy?.legacy && !registered) throw new AppError(403, 'This endpoint is not available to scoped access keys.')
 
         let operation: Operation = read ? 'api:read' : 'api:write'
@@ -71,7 +75,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             if (['chatmessage', 'leads'].includes(root)) operation = read ? 'feedback:read' : 'feedback:write'
         } else if (root === 'harnesses' && parts[1]) {
             const name = decodeURIComponent(req.path.split('/').filter(Boolean)[1])
-            const flow = await data.getRepository(ChatFlow).findOneBy({ name, type: 'HARNESS', workspaceId: key.workspaceId })
+            const flow = await resolveHarnessFlow(name, key.workspaceId)
             if (!flow || flow.name !== name) throw new AppError(403, 'Resource is not available to this access key.')
             resource = flowResource(flow)
             if (parts[2] === 'runs') operation = read ? 'harness:read' : 'harness:run'
@@ -81,9 +85,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             const { runtime } = await import('../dashflows')
             const dashboard = (await runtime()).dashStore().get(parts[1], key.workspaceId)
             if (!read) {
-                const harness = await data
-                    .getRepository(ChatFlow)
-                    .findOneBy({ name: dashboard.definition.harness, type: 'HARNESS', workspaceId: key.workspaceId })
+                const harness = await resolveHarnessFlow(dashboard.definition.harness, key.workspaceId)
                 if (!harness) throw new AppError(403, 'Referenced harness is unavailable.')
                 await authorizeKey(req, 'harness:run', key.workspaceId, flowResource(harness), false)
             }
@@ -103,14 +105,40 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                 throw new AppError(403, 'Sign in to change a flow’s public access or legacy binding.')
             if (root === 'harnesses' && parts[2] !== 'runs') throw new AppError(403, 'Scoped access keys use the Harness runs API.')
         }
+        if (!key.accessPolicy?.legacy && operation === 'api:read') {
+            const json = _res.json.bind(_res)
+            _res.json = (body) => json(redactTransportSecrets(body))
+        }
+        const additionalPermissions =
+            root === 'chatmessage' && !read
+                ? req.method === 'DELETE'
+                    ? ['chatflows:delete', 'agentflows:delete', 'assistants:delete']
+                    : ['chatflows:create', 'chatflows:update', 'agentflows:create', 'agentflows:update']
+                : root === 'harnesses' && parts[4] === 'diagnostics'
+                ? ['chatflows:update', 'agentflows:create']
+                : undefined
+        if (additionalPermissions && !additionalPermissions.some((permission) => key.permissions.includes(permission)))
+            throw new AppError(403, 'This operation requires additional workspace permissions.')
         // Legacy management retains its existing RBAC and resource behavior, explicitly flagged by migration.
         await authorizeKey(
             req,
             operation,
             key.workspaceId,
-            key.accessPolicy?.legacy && !['harness:run', 'harness:read', 'dashflow:read', 'dashflow:report'].includes(operation)
-                ? undefined
-                : resource
+            key.accessPolicy?.legacy && ['api:read', 'api:write'].includes(operation) ? undefined : resource
         )
+        if (!req.user?.id && !req.user?.apiKeyId) {
+            const { OPEN_SOURCE_FEATURES } = await import('../../identity/constants')
+            const { OSS_PRODUCT_ID } = await import('../../identity/ossPlatform')
+            req.user = {
+                permissions: key.permissions,
+                features: { ...OPEN_SOURCE_FEATURES },
+                activeWorkspaceId: key.workspaceId,
+                activeOrganizationId: undefined,
+                activeOrganizationProductId: OSS_PRODUCT_ID,
+                isOrganizationAdmin: false,
+                apiKeyId: key.id,
+                apiKeyOwnerUserId: key.ownerUserId || undefined
+            }
+        }
     })().then(() => next(), next)
 }

@@ -78,5 +78,39 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
         for (const id of ids) minutes.set(id, { minute, count: (minutes.get(id)?.count || 0) + 1 })
         if (policy.rpm) res?.setHeader('X-RateLimit-Remaining', String(Math.max(0, policy.rpm - (minutes.get(ids[0])?.count || 0))))
         res?.setHeader('X-RateLimit-Reset', String((minute + 1) * 60))
+    }).catch((error) => {
+        if (error instanceof AppError) throw error
+        throw new AppError(503, 'Access key quota store is unavailable.')
     })
+}
+
+/** Reject already-exhausted budgets before parsing without charging until body-dependent scopes are resolved. */
+export async function assertCapacity(data: DataSource, key: ApiKey, operation: Operation, res?: Response, now = Date.now()): Promise<void> {
+    const policy = key.accessPolicy
+    if (!policy) throw new AppError(403, 'Access policy unavailable.')
+    if (Number(process.env.CUTTLELY_API_KEY_INSTANCES || '1') !== 1)
+        throw new AppError(503, 'A shared limiter is required for multiple API instances.')
+    const minute = Math.floor(now / 60000)
+    if (
+        policy.rpm &&
+        [`${key.id}:*`, `${key.id}:${operation}`].some((id) => {
+            const bucket = minutes.get(id)
+            return bucket?.minute === minute && bucket.count >= policy.rpm
+        })
+    )
+        limited(res, (minute + 1) * 60000, now)
+    const w = utcWindows(now)
+    try {
+        for (const [period, limit, reset] of [
+            [w.day, policy.daily, w.dayReset],
+            [w.month, policy.monthly, w.monthReset]
+        ] as const) {
+            if (!limit) continue
+            const row = await data.getRepository(ApiKeyUsage).findOneBy({ principalId: key.id, period, operation: '*' })
+            if ((row?.accepted || 0) >= limit) limited(res, reset, now)
+        }
+    } catch (error) {
+        if (error instanceof AppError) throw error
+        throw new AppError(503, 'Access key quota store is unavailable.')
+    }
 }

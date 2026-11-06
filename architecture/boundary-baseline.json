@@ -992,6 +992,11 @@
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
         {
+            "from": "packages/server/src/services/accessKeys/authorization.ts",
+            "to": "packages/server/src/utils/domainValidation.ts",
+            "reason": "Access key authorization adapters enforce canonical Harness identities, safe metadata-only management, and flow-origin admission before charging."
+        },
+        {
             "from": "packages/server/src/services/accessKeys/credentials.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
@@ -1030,6 +1035,16 @@
             "from": "packages/server/src/services/accessKeys/management.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/managementBoundary.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access key authorization adapters enforce canonical Harness identities, safe metadata-only management, and flow-origin admission before charging."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/managementBoundary.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access key authorization adapters enforce canonical Harness identities, safe metadata-only management, and flow-origin admission before charging."
         },
         {
             "from": "packages/server/src/services/accessKeys/policy.ts",

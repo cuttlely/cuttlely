@@ -1,3 +1,4 @@
+import { FlowOriginPolicyError } from '../services/accessKeys/errors'
 import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { isPathTraversal, isValidUUID } from '@cuttlely/components'
@@ -121,6 +122,8 @@ export const authorizeFlowAccess =
             res.locals.chatflow = chatflow
             next()
         } catch (error) {
+            if (error instanceof FlowOriginPolicyError && options.checkOrigin && isStreamingRequest(req))
+                return res.status(403).send(error.message)
             // No stream has started here, so the error handler answers with the JSON error (it only stays silent once headers are sent).
             next(error)
         }

@@ -101,6 +101,9 @@ export default function AccessPolicyEditor({
                 Operations and workspace permissions must both allow a request. Management operations never grant prediction or Harness
                 execution.
             </Typography>
+            <Typography variant='body2'>
+                API write edits names and categories only. Sign in to change canvases, schedules, publication or execution transports.
+            </Typography>
             <Box>
                 {(options.scopes || []).map((scope) => (
                     <FormControlLabel

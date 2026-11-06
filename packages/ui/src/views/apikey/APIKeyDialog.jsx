@@ -586,7 +586,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                         Rotate and reveal successor once
                                     </Button>
                                 )}
-                                {dialogProps.key.accessPolicy?.legacy && (
+                                {dialogProps.key.hasLegacyCredential && (
                                     <Button onClick={() => revokeCredential('legacy')}>Revoke legacy credential</Button>
                                 )}
                                 {(dialogProps.key.credentials || []).map((credential) => (

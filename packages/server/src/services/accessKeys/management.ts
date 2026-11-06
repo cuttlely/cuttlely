@@ -1,3 +1,6 @@
+import { safeRecordAudit } from '../../identity/auditLog'
+import { sqlFromDataSource } from '../../identity/directory'
+import { Workspace } from '../../database/entities/identity'
 import { accessRollout, requireAccessRollout } from './rollout'
 import { randomUUID } from 'crypto'
 import { Request, RequestHandler } from 'express'
@@ -10,7 +13,7 @@ import { AppError } from '../../errors/appError'
 import { hasAnyPermission } from '../../identity/rbac'
 import { accessData } from './data'
 import apikeyService, { validatePermissions } from '../apikey'
-import { noteHarnessAudit, referencedHarnessNames } from '../harnesses/apiAccess'
+import { referencedHarnessNames } from '../harnesses/apiAccess'
 import { mintCredential, rotateCredential } from './credentials'
 import { expiry, OPERATIONS, parseGrants, parsePolicy } from './policy'
 import { serial } from './limiter'
@@ -62,7 +65,7 @@ async function choices(req: Request) {
             resources.push({
                 resourceType: 'DASHFLOW',
                 resourceId: row.id,
-                name: row.definition?.name || row.name || row.id,
+                name: row.definition?.title || row.definition?.name || row.name || row.id,
                 requiredHarnesses: row.definition?.harness ? [row.definition.harness] : []
             })
     }
@@ -110,7 +113,18 @@ export async function presentAccessKey(row: ApiKey) {
     }
 }
 async function audit(req: Request, key: ApiKey, event: string, detail: Record<string, unknown> = {}) {
-    await noteHarnessAudit(req, 'api_key_change', `Access key ${event}`, { keyId: key.id, event, ...detail })
+    const data = await accessData()
+    const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
+    if (!workspace) throw new AppError(401, 'Workspace unavailable.')
+    await safeRecordAudit(sqlFromDataSource(data), {
+        type: 'api_key_change',
+        organizationId: workspace.organizationId,
+        workspaceId: key.workspaceId,
+        userId: req.user?.id || null,
+        actorId: req.user?.id || null,
+        summary: `Access key ${event}`,
+        detail: { keyId: key.id, event, ...detail }
+    })
 }
 export const createAccessKey: RequestHandler = action(async (req) => {
     const user = interactive(req)
@@ -204,13 +218,27 @@ export const revokeAccessKey: RequestHandler = action(async (req) => {
 })
 export const revokeAccessCredential: RequestHandler = action(async (req) => {
     const key = await target(req)
-    const repo = (await accessData()).getRepository(ApiKeyCredential)
-    if (req.params.credentialId === 'legacy') {
-        await (await accessData()).getRepository(ApiKey).update({ id: key.id }, { legacyRevokedAt: new Date() })
-    } else {
-        const result = await repo.update({ id: req.params.credentialId, principalId: key.id }, { revokedAt: new Date() })
-        if (!result.affected) throw new AppError(404, 'Credential not found.')
-    }
+    const data = await accessData()
+    await serial(() =>
+        data.transaction(async (manager) => {
+            if (req.params.credentialId === 'legacy') {
+                const now = new Date()
+                await manager
+                    .getRepository(ApiKey)
+                    .createQueryBuilder()
+                    .update()
+                    .set({ legacyRevokedAt: now })
+                    .where('id = :id', { id: key.id })
+                    .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :now)', { now })
+                    .execute()
+            } else {
+                const result = await manager
+                    .getRepository(ApiKeyCredential)
+                    .update({ id: req.params.credentialId, principalId: key.id }, { revokedAt: new Date() })
+                if (!result.affected) throw new AppError(404, 'Credential not found.')
+            }
+        })
+    )
     await audit(req, key, 'credential revoked', { credentialId: req.params.credentialId })
     return { revoked: true }
 })

@@ -78,6 +78,27 @@
                     "nullable": true,
                     "default": null,
                     "pk": 0
+                },
+                {
+                    "name": "accessPolicy",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "legacyRevokedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [
@@ -313,6 +334,13 @@
                     "type": "BOOLEAN",
                     "nullable": true,
                     "default": "FALSE",
+                    "pk": 0
+                },
+                {
+                    "name": "apiAccessMode",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null,
                     "pk": 0
                 }
             ],
@@ -4860,6 +4888,210 @@
                     "origin": "pk"
                 }
             ]
+        },
+        "apikey_credential": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "digest",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "displayPrefix",
+                    "type": "varchar(40)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "lastFour",
+                    "type": "varchar(4)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "revokedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_apikey_credential_digest",
+                    "unique": true,
+                    "columns": ["digest"],
+                    "origin": "c"
+                },
+                {
+                    "name": "idx_apikey_credential_principal",
+                    "unique": false,
+                    "columns": ["principalId"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_apikey_credential_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "apikey_report": {
+            "columns": [
+                {
+                    "name": "runId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "dashboardId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_apikey_report_1",
+                    "unique": true,
+                    "columns": ["runId"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "apikey_resource": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "resourceType",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 2
+                },
+                {
+                    "name": "resourceId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 3
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_apikey_resource_1",
+                    "unique": true,
+                    "columns": ["principalId", "resourceType", "resourceId"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "apikey_usage": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "period",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 2
+                },
+                {
+                    "name": "operation",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 3
+                },
+                {
+                    "name": "accepted",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
+                },
+                {
+                    "name": "lastUsedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_apikey_usage_1",
+                    "unique": true,
+                    "columns": ["principalId", "period", "operation"],
+                    "origin": "pk"
+                }
+            ]
         }
     },
     "postgres": {
@@ -4921,6 +5153,24 @@
                 },
                 {
                     "name": "disabledAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "accessPolicy",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "legacyRevokedAt",
                     "type": "timestamp",
                     "nullable": true,
                     "default": null
@@ -5140,6 +5390,12 @@
                     "type": "boolean",
                     "nullable": true,
                     "default": "false"
+                },
+                {
+                    "name": "apiAccessMode",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [
@@ -9230,6 +9486,184 @@
                     "columns": ["userId"]
                 }
             ]
+        },
+        "apikey_credential": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "digest",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "displayPrefix",
+                    "type": "varchar(40)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "lastFour",
+                    "type": "varchar(4)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "revokedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_apikey_credential_digest",
+                    "unique": true,
+                    "columns": ["digest"]
+                },
+                {
+                    "name": "idx_apikey_credential_principal",
+                    "unique": false,
+                    "columns": ["principalId"]
+                },
+                {
+                    "name": "PK_f40fb3b44620d323b94212e58b9",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "apikey_resource": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "resourceType",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "resourceId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PK_149c9e8f3b14679e5f6b2a296f8",
+                    "unique": true,
+                    "columns": ["principalId", "resourceType", "resourceId"]
+                }
+            ]
+        },
+        "apikey_usage": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "period",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "operation",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "accepted",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": "0"
+                },
+                {
+                    "name": "lastUsedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PK_b530c2f30d6279ab551c2864caa",
+                    "unique": true,
+                    "columns": ["principalId", "period", "operation"]
+                }
+            ]
+        },
+        "apikey_report": {
+            "columns": [
+                {
+                    "name": "runId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "dashboardId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PK_62f7b3640fce8d5e62fa47eb257",
+                    "unique": true,
+                    "columns": ["runId"]
+                }
+            ]
         }
     },
     "mariadb": {
@@ -9310,6 +9744,30 @@
                 {
                     "name": "disabledAt",
                     "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "accessPolicy",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "legacyRevokedAt",
+                    "type": "timestamp",
                     "nullable": true,
                     "default": null,
                     "extra": "",
@@ -9586,6 +10044,14 @@
                     "default": "0",
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "apiAccessMode",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
                 }
             ],
             "foreignKeys": [
@@ -14737,10 +15203,228 @@
                     "columns": ["id"]
                 }
             ]
+        },
+        "apikey_credential": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "digest",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "displayPrefix",
+                    "type": "varchar(40)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "lastFour",
+                    "type": "varchar(4)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "revokedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_apikey_credential_digest",
+                    "unique": true,
+                    "columns": ["digest"]
+                },
+                {
+                    "name": "idx_apikey_credential_principal",
+                    "unique": false,
+                    "columns": ["principalId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "apikey_resource": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "resourceType",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "resourceId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["principalId", "resourceType", "resourceId"]
+                }
+            ]
+        },
+        "apikey_usage": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "period",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "operation",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "accepted",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "lastUsedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["principalId", "period", "operation"]
+                }
+            ]
+        },
+        "apikey_report": {
+            "columns": [
+                {
+                    "name": "runId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "dashboardId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["runId"]
+                }
+            ]
         }
     },
     "roles": {
-        "admin": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"audit:view\",\"authentication:manage\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"logs:view\",\"roles:manage\",\"templates:custom\",\"templates:custom-delete\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"users:manage\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\",\"workspace:add-user\",\"workspace:create\",\"workspace:delete\",\"workspace:unlink-user\",\"workspace:update\",\"workspace:view\"]",
+        "admin": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:grant-all\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"audit:view\",\"authentication:manage\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"logs:view\",\"roles:manage\",\"templates:custom\",\"templates:custom-delete\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"users:manage\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\",\"workspace:add-user\",\"workspace:create\",\"workspace:delete\",\"workspace:unlink-user\",\"workspace:update\",\"workspace:view\"]",
         "builder": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"templates:custom\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\"]",
         "member": "[]",
         "owner": "[\"organization\",\"workspace\"]",
@@ -14825,6 +15509,30 @@
                 {
                     "name": "disabledAt",
                     "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "accessPolicy",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "legacyRevokedAt",
+                    "type": "timestamp",
                     "nullable": true,
                     "default": null,
                     "extra": "",
@@ -15101,6 +15809,14 @@
                     "default": "0",
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "apiAccessMode",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [
@@ -20250,6 +20966,224 @@
                     "name": "PRIMARY",
                     "unique": true,
                     "columns": ["id"]
+                }
+            ]
+        },
+        "apikey_credential": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "digest",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "displayPrefix",
+                    "type": "varchar(40)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "lastFour",
+                    "type": "varchar(4)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "revokedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "idx_apikey_credential_digest",
+                    "unique": true,
+                    "columns": ["digest"]
+                },
+                {
+                    "name": "idx_apikey_credential_principal",
+                    "unique": false,
+                    "columns": ["principalId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "apikey_resource": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "resourceType",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "resourceId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["principalId", "resourceType", "resourceId"]
+                }
+            ]
+        },
+        "apikey_usage": {
+            "columns": [
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "period",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "operation",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "accepted",
+                    "type": "int",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "lastUsedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["principalId", "period", "operation"]
+                }
+            ]
+        },
+        "apikey_report": {
+            "columns": [
+                {
+                    "name": "runId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "principalId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "dashboardId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["runId"]
                 }
             ]
         }

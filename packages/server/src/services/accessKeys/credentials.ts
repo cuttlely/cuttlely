@@ -48,15 +48,29 @@ export async function rotateCredential(manager: EntityManager, key: ApiKey, grac
     if (!principalActive(key)) throw new AppError(409, 'A revoked or expired access key cannot rotate.')
     const cutoff = new Date(Date.now() + graceSeconds * 1000)
     const repo = manager.getRepository(ApiKeyCredential)
-    for (const old of await repo.findBy({ principalId: key.id })) {
-        // Repeated rotations never extend any existing grace window.
-        if (!old.expiresAt || new Date(old.expiresAt) > cutoff) old.expiresAt = cutoff
-        if (!graceSeconds) old.revokedAt = new Date()
-        await repo.save(old)
-    }
-    if (!key.legacyRevokedAt || key.legacyRevokedAt > cutoff) {
-        key.legacyRevokedAt = cutoff
-        await manager.getRepository(ApiKey).update({ id: key.id }, { legacyRevokedAt: cutoff })
-    }
+    // Conditional partial updates make retirement monotonic even across processes. Never save a stale revokedAt.
+    await repo
+        .createQueryBuilder()
+        .update()
+        .set({ expiresAt: cutoff })
+        .where('principalId = :id', { id: key.id })
+        .andWhere('(expiresAt IS NULL OR expiresAt > :cutoff)', { cutoff })
+        .execute()
+    if (!graceSeconds)
+        await repo
+            .createQueryBuilder()
+            .update()
+            .set({ revokedAt: new Date() })
+            .where('principalId = :id', { id: key.id })
+            .andWhere('revokedAt IS NULL')
+            .execute()
+    await manager
+        .getRepository(ApiKey)
+        .createQueryBuilder()
+        .update()
+        .set({ legacyRevokedAt: cutoff })
+        .where('id = :id', { id: key.id })
+        .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :cutoff)', { cutoff })
+        .execute()
     return mintCredential(manager, key)
 }

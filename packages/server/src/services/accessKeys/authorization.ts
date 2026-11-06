@@ -1,5 +1,7 @@
+import { checkChatflowOrigin } from '../../utils/domainValidation'
+import { resolveHarnessFlow } from './resources'
 import { accessRollout, compareLegacy } from './rollout'
-import { AccessKeyPolicyError } from './errors'
+import { AccessKeyPolicyError, FlowOriginPolicyError } from './errors'
 import { recordKeyUse } from './audit'
 import { Request } from 'express'
 import { DataSource } from 'typeorm'
@@ -76,7 +78,11 @@ async function checkKey(req: Request, operation: Operation, workspaceId: string,
     const policy = key.accessPolicy ? readPolicy(key.accessPolicy) : undefined
     if (!policy) throw new AccessKeyPolicyError('Access policy unavailable. Run database migrations.')
     const ownerPermissions = accessContext(req)?.ownerPermissions
-    if (ownerPermissions && !operationPermissions(operation, resource).some((p) => ownerPermissions.includes(p)))
+    if (
+        ownerPermissions &&
+        !(policy.legacy && !resource && ['api:read', 'api:write'].includes(operation)) &&
+        !operationPermissions(operation, resource).some((p) => ownerPermissions.includes(p))
+    )
         throw new AccessKeyPolicyError('The access key owner no longer has permission for this operation.')
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError('Operation is not allowed by this access key.')
     const data = await accessData()
@@ -134,7 +140,14 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
     if (req.headers['content-type']?.toLowerCase().startsWith('multipart/form-data'))
         await authorizeKey(req, 'upload', flow.workspaceId, flowResource(flow), false)
     // Streaming is an additional scope. Check again after multipart parsing before starting SSE.
-    if (req.body?.streaming === true || req.body?.streaming === 'true' || req.headers.accept?.includes('text/event-stream'))
+    const external = (req as Request & { orchestrate?: { stream?: unknown; method?: unknown } }).orchestrate
+    if (
+        external?.stream === true ||
+        external?.method === 'message/stream' ||
+        req.body?.streaming === true ||
+        req.body?.streaming === 'true' ||
+        req.headers.accept?.includes('text/event-stream')
+    )
         await authorizeKey(req, 'stream', flow.workspaceId, flowResource(flow), false)
     // Nested execution uses the presenting principal, never the flow's old bound key.
     if (typeof flow.flowData === 'string') {
@@ -147,20 +160,22 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
     const { referencedHarnessNames } = await import('../harnesses/apiAccess')
     const names = referencedHarnessNames(flow.flowData)
     for (const name of names) {
-        const harness = await (await accessData())
-            .getRepository(ChatFlow)
-            .findOneBy({ name, workspaceId: flow.workspaceId, type: 'HARNESS' })
+        const harness = await resolveHarnessFlow(name, flow.workspaceId)
         if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
         await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
+    }
+    if (operation === 'predict') {
+        const origin = checkChatflowOrigin(flow.chatbotConfig, req.headers.origin)
+        if (!origin.allowed) throw new FlowOriginPolicyError(origin.error)
     }
     await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), charge)
     setAccessContext(req, key)
     return true
 }
 
-export async function authorizeFlowKey(req: Request, flow: ChatFlow): Promise<boolean> {
+export async function authorizeFlowKey(req: Request, flow: ChatFlow, charge = true): Promise<boolean> {
     const mode = accessRollout()
-    if (mode === 'on') return authorizeFlowV2(req, flow)
+    if (mode === 'on') return authorizeFlowV2(req, flow, charge)
     const key = req.headers.authorization ? await authenticateRequest(req) : undefined
     if (key && !key.accessPolicy?.legacy) throw new AppError(503, 'Scoped access keys require INBOUND_ACCESS_V2=on.')
     const allowed =
@@ -172,7 +187,7 @@ export async function authorizeFlowKey(req: Request, flow: ChatFlow): Promise<bo
         } catch {
             /* Shadow computes a decision without admitting scoped work. */
         }
-        void compareLegacy(req, key, allowed, scoped).catch(() => undefined)
+        void compareLegacy(req, key, allowed, scoped, flow.workspaceId, flow.id).catch(() => undefined)
     }
     return allowed
 }

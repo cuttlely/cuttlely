@@ -161,7 +161,11 @@ test('credentials rotate with bounded grace, never extend old grace, and revoke 
         assert.equal(await findCredential(data, first.secret), undefined)
         await data.getRepository(ApiKeyCredential).update({ id: second.credential.id }, { revokedAt: new Date() })
         assert.equal(await findCredential(data, second.secret), undefined)
+        const retiredLegacy = new Date(Date.now() - 1000)
+        await data.getRepository(ApiKey).update({ id: key.id }, { legacyRevokedAt: retiredLegacy })
         const final = await data.transaction((m) => rotateCredential(m, key, 0))
+        assert.equal((await data.getRepository(ApiKey).findOneByOrFail({ id: key.id })).legacyRevokedAt.getTime(), retiredLegacy.getTime())
+        assert.ok((await data.getRepository(ApiKeyCredential).findOneByOrFail({ id: second.credential.id })).revokedAt)
         assert.equal((await findCredential(data, final.secret)).key.id, key.id)
         await data.getRepository(ApiKey).update({ id: key.id }, { disabledAt: new Date() })
         assert.equal(await findCredential(data, final.secret), undefined)
@@ -273,6 +277,41 @@ test('management API creates deny-by-default principals, validates grants and pr
             ).status,
             200
         )
+        // Real bearer verification + shared authorization against the migrated database, without model calls.
+        const { accessKeyPreflight } = serverRequire('./src/services/accessKeys/preflight.ts')
+        const { authorizePrediction } = serverRequire('./src/utils/authorizeFlowAccess.ts')
+        const runtimeApp = express()
+        runtimeApp.use(accessKeyPreflight)
+        runtimeApp.use(express.json())
+        runtimeApp.post('/api/v1/prediction/:id', authorizePrediction, (_req, res) => res.json({ ok: true }))
+        runtimeApp.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+        const bearer = () =>
+            request(runtimeApp)
+                .post('/api/v1/prediction/' + flow.id)
+                .set('Authorization', 'Bearer ' + row.apiKey)
+        assert.equal((await bearer().send({ question: 'Fixture' })).status, 200)
+        const countBefore = await data.getRepository(ApiKeyUsage).findBy({ principalId: row.id })
+        assert.equal((await bearer().send({ streaming: true })).status, 403)
+        assert.deepEqual(await data.getRepository(ApiKeyUsage).findBy({ principalId: row.id }), countBefore)
+        const publicFlow = { ...flow, id: undefined, name: 'Public fixture', apiAccessMode: 'public' }
+        const publishedPublic = await data.getRepository(ChatFlow).save(data.getRepository(ChatFlow).create(publicFlow))
+        assert.equal(
+            (
+                await request(runtimeApp)
+                    .post('/api/v1/prediction/' + publishedPublic.id)
+                    .send({})
+            ).status,
+            200
+        )
+        assert.equal(
+            (
+                await request(runtimeApp)
+                    .post('/api/v1/prediction/' + publishedPublic.id)
+                    .set('Authorization', 'Bearer wrong-fixture')
+                    .send({})
+            ).status,
+            401
+        )
         const cross = await request(app)
             .put('/apikey/' + row.id)
             .send({ ...scoped, resources: [{ resourceType: 'CHATFLOW', resourceId: 'does-not-exist' }] })
@@ -311,6 +350,11 @@ test('management API creates deny-by-default principals, validates grants and pr
         const stored = await data.getRepository(ApiKey).findOneByOrFail({ id: row.id })
         assert.equal(stored.apiSecret, '')
         assert.equal(stored.apiKey, '')
+        const audits = await data.query("SELECT detail FROM audit_event WHERE type = 'api_key_change'")
+        assert.ok(audits.length >= 4)
+        assert.ok(audits.some((event) => String(event.detail).includes(row.id)))
+        assert.equal(JSON.stringify(audits).includes(row.apiKey), false)
+        assert.equal(JSON.stringify(audits).includes(rotated.body.apiKey), false)
     } finally {
         dataModule.accessData = accessData
         appModule.getRunningExpressApp = oldApp

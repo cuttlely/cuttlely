@@ -78,6 +78,12 @@ function APIKeyRow(props) {
     const theme = useTheme()
 
     const permissions = props.apiKey.permissions || []
+    const credential = [...(props.apiKey.credentials || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
+    const dayUsage = props.apiKey.usage?.find((row) => row.operation === '*' && row.period === moment.utc().format('YYYY-MM-DD'))
+    const lastUsed = props.apiKey.usage
+        ?.filter((row) => row.lastUsedAt)
+        .map((row) => new Date(row.lastUsedAt).getTime())
+        .sort((a, b) => b - a)[0]
 
     return (
         <>
@@ -119,8 +125,10 @@ function APIKeyRow(props) {
                                 {props.showApiKeys.includes(props.apiKey.apiKey) ? <IconEyeOff /> : <IconEye />}
                             </IconButton>
                         </>
+                    ) : credential ? (
+                        `${credential.displayPrefix}…${credential.lastFour}`
                     ) : (
-                        'Hidden'
+                        'Legacy credential'
                     )}
                     <Popover
                         open={props.open}
@@ -164,14 +172,17 @@ function APIKeyRow(props) {
                     </Stack>
                 </StyledTableCell>
                 <StyledTableCell>
-                    {props.apiKey.chatFlows.length}{' '}
+                    <Typography>{dayUsage?.accepted || 0} today (UTC)</Typography>
+                    <Typography variant='caption'>
+                        {lastUsed ? `Last used ${moment(lastUsed).utc().format('YYYY-MM-DD HH:mm')} UTC` : 'Never used'}
+                    </Typography>{' '}
                     {props.apiKey.chatFlows.length > 0 && (
                         <IconButton aria-label='expand row' size='small' color='inherit' onClick={() => setOpen(!open)}>
                             {props.apiKey.chatFlows.length > 0 && open ? <IconChevronsUp /> : <IconChevronsDown />}
                         </IconButton>
                     )}
                 </StyledTableCell>
-                <StyledTableCell>{moment(props.apiKey.createdAt).format('MMMM Do, YYYY')}</StyledTableCell>
+                <StyledTableCell>{moment(props.apiKey.updatedDate).format('MMMM Do, YYYY')}</StyledTableCell>
                 <Available permission={'apikeys:update,apikeys:create'}>
                     <StyledTableCell>
                         <IconButton title='Edit' color='primary' onClick={props.onEditClick}>
@@ -309,7 +320,7 @@ const APIKey = () => {
 
     const addNew = () => {
         const dialogProp = {
-            title: 'Add New API Key',
+            title: 'Add access key',
             type: 'ADD',
             cancelButtonName: 'Cancel',
             confirmButtonName: 'Add',
@@ -321,7 +332,7 @@ const APIKey = () => {
 
     const edit = (key) => {
         const dialogProp = {
-            title: 'Edit API Key',
+            title: 'Edit access key',
             type: 'EDIT',
             cancelButtonName: 'Cancel',
             confirmButtonName: 'Save',
@@ -460,7 +471,7 @@ const APIKey = () => {
                                         >
                                             <TableRow>
                                                 <StyledTableCell>Key Name</StyledTableCell>
-                                                <StyledTableCell>API Key</StyledTableCell>
+                                                <StyledTableCell>Credential preview</StyledTableCell>
                                                 <StyledTableCell>Permissions</StyledTableCell>
                                                 <StyledTableCell>Usage</StyledTableCell>
                                                 <StyledTableCell>Updated</StyledTableCell>

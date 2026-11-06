@@ -5,12 +5,20 @@ import { QueryRunner, Table, TableColumn, TableIndex } from 'typeorm'
 export async function addAccessKeys(runner: QueryRunner): Promise<void> {
     const type = runner.connection.options.type
     const date = type === 'sqlite' ? 'datetime' : 'timestamp'
-    await runner.addColumn('chat_flow', new TableColumn({ name: 'apiAccessMode', type: 'varchar', length: '16', isNullable: true }))
-    await runner.addColumns('apikey', [
-        new TableColumn({ name: 'accessPolicy', type: 'text', isNullable: true }),
-        new TableColumn({ name: 'expiresAt', type: date, isNullable: true }),
-        new TableColumn({ name: 'legacyRevokedAt', type: date, isNullable: true })
-    ])
+    if (type === 'sqlite') {
+        // Native ALTER preserves expression indexes, original FK names and legacy column types.
+        await runner.query('ALTER TABLE "chat_flow" ADD COLUMN "apiAccessMode" varchar(16)')
+        await runner.query('ALTER TABLE "apikey" ADD COLUMN "accessPolicy" text')
+        await runner.query('ALTER TABLE "apikey" ADD COLUMN "expiresAt" datetime')
+        await runner.query('ALTER TABLE "apikey" ADD COLUMN "legacyRevokedAt" datetime')
+    } else {
+        await runner.addColumn('chat_flow', new TableColumn({ name: 'apiAccessMode', type: 'varchar', length: '16', isNullable: true }))
+        await runner.addColumns('apikey', [
+            new TableColumn({ name: 'accessPolicy', type: 'text', isNullable: true }),
+            new TableColumn({ name: 'expiresAt', type: date, isNullable: true }),
+            new TableColumn({ name: 'legacyRevokedAt', type: date, isNullable: true })
+        ])
+    }
     await runner.createTable(
         new Table({
             name: 'apikey_credential',
@@ -110,7 +118,11 @@ export async function addAccessKeys(runner: QueryRunner): Promise<void> {
 }
 
 export async function removeAccessKeys(runner: QueryRunner): Promise<void> {
-    await runner.dropColumn('chat_flow', 'apiAccessMode')
+    if (runner.connection.options.type === 'sqlite') await runner.query('ALTER TABLE "chat_flow" DROP COLUMN "apiAccessMode"')
+    else await runner.dropColumn('chat_flow', 'apiAccessMode')
     for (const name of ['apikey_report', 'apikey_usage', 'apikey_resource', 'apikey_credential']) await runner.dropTable(name)
-    for (const name of ['legacyRevokedAt', 'expiresAt', 'accessPolicy']) await runner.dropColumn('apikey', name)
+    for (const name of ['legacyRevokedAt', 'expiresAt', 'accessPolicy']) {
+        if (runner.connection.options.type === 'sqlite') await runner.query(`ALTER TABLE "apikey" DROP COLUMN "${name}"`)
+        else await runner.dropColumn('apikey', name)
+    }
 }

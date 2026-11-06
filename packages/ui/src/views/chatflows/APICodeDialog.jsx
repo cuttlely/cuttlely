@@ -119,6 +119,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     }, [isWebhookFlow, isScheduleFlow])
     const [value, setValue] = useState(0)
     const [apiKeys, setAPIKeys] = useState([])
+    const [rollout, setRollout] = useState('off')
     const [chatflowApiKeyId, setChatflowApiKeyId] = useState('')
     const [selectedApiKey, setSelectedApiKey] = useState({})
     const exampleApiKey = selectedApiKey?.apiKey || '<your-api-key>'
@@ -134,13 +135,26 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     const getConfigApi = useApi(configApi.getConfig)
     const getAllVariablesApi = useApi(variablesApi.getAllVariables)
 
-    // The selector changes the flow's public/private posture. Resource grants live on Access Keys.
+    // Off/shadow preserve the legacy binding workflow; enforced access uses many principal grants.
     const keyOptions = useMemo(
-        () => [
-            { label: 'Public (no key required)', name: '' },
-            { label: 'Private (selected access keys)', name: 'accesskeys' }
-        ],
-        []
+        () =>
+            rollout === 'on'
+                ? [
+                      { label: 'Public (no key required)', name: '' },
+                      { label: 'Private (selected access keys)', name: 'accesskeys' }
+                  ]
+                : [
+                      { label: 'Public (no key required)', name: '' },
+                      ...apiKeys
+                          .filter(
+                              (key) =>
+                                  key.accessPolicy?.legacy &&
+                                  !key.disabledAt &&
+                                  (!key.legacyRevokedAt || new Date(key.legacyRevokedAt) > new Date())
+                          )
+                          .map((key) => ({ label: key.keyName, name: key.id }))
+                  ],
+        [rollout, apiKeys]
     )
 
     const onCheckBoxChanged = (newVal) => {
@@ -159,10 +173,10 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
         setChatflowApiKeyId(keyValue)
         const selectedKey = apiKeys.find((key) => key.id === keyValue)
         setSelectedApiKey(selectedKey || {})
-        const updateBody = {
-            apiAccessMode: keyValue ? 'private' : 'public',
-            ...(keyValue ? {} : { apikeyid: '' })
-        }
+        const updateBody =
+            rollout === 'on'
+                ? { apiAccessMode: keyValue ? 'private' : 'public', ...(keyValue ? {} : { apikeyid: '' }) }
+                : { apikeyid: keyValue, apiAccessMode: keyValue ? 'private' : 'public' }
         updateChatflowApi.request(dialogProps.chatflowid, updateBody)
     }
 
@@ -309,7 +323,7 @@ print(response.json())
 `
         } else if (codeLang === 'JavaScript') {
             const headers = [`"Content-Type": "${webhookContentType}"`]
-            if (apiKey) headers.push(`Authorization: "Bearer ${apiKey}"`)
+            if (apiKey) headers.push(`Authorization: "Bearer " + process.env.CUTTLELY_API_KEY`)
             if (webhookEnableAuth) headers.push(`"${webhookSignatureHeader}": "<signature>"`)
             const bodyLine = sendsBody ? `,\n        body: ${isJson ? `JSON.stringify(${sampleBodyJs})` : sampleBodyJs}` : ''
             return `const response = await fetch(
@@ -348,7 +362,8 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
@@ -393,12 +408,13 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
             headers: {
-                Authorization: "Bearer ${exampleApiKey}",
+                Authorization: "Bearer " + process.env.CUTTLELY_API_KEY,
                 "Content-Type": "application/json"
             },
             method: "POST",
@@ -534,7 +550,7 @@ async function query(formData) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
-            headers: { Authorization: "Bearer ${exampleApiKey}" },
+            headers: { Authorization: "Bearer " + process.env.CUTTLELY_API_KEY },
             method: "POST",
             body: formData
         }
@@ -575,7 +591,8 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
@@ -627,12 +644,13 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
             headers: {
-                Authorization: "Bearer ${exampleApiKey}",
+                Authorization: "Bearer " + process.env.CUTTLELY_API_KEY,
                 "Content-Type": "application/json"
             },
             method: "POST",
@@ -734,18 +752,22 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
             setAPIKeys(getAllAPIKeysApi.data)
 
             if (dialogProps.apiAccessMode === 'private' || (dialogProps.apiAccessMode !== 'public' && dialogProps.chatflowApiKeyId)) {
-                setChatflowApiKeyId('accesskeys')
+                setChatflowApiKeyId(rollout === 'on' ? 'accesskeys' : dialogProps.chatflowApiKeyId || '')
                 setSelectedApiKey(getAllAPIKeysApi.data.find((key) => key.id === dialogProps.chatflowApiKeyId))
             } else {
                 setChatflowApiKeyId('')
                 setSelectedApiKey({})
             }
         }
-    }, [dialogProps, getAllAPIKeysApi.data])
+    }, [dialogProps, getAllAPIKeysApi.data, rollout])
 
     useEffect(() => {
         if (show) {
             getAllAPIKeysApi.request()
+            apiKeyApi
+                .options()
+                .then((result) => setRollout(result.data.rollout))
+                .catch(() => setRollout('off'))
             getIsChatflowStreamingApi.request(dialogProps.chatflowid)
         }
 
@@ -832,7 +854,7 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                             }
                                             iconPosition='start'
                                             key={index}
-                                            label={codeLang}
+                                            label={codeLang === 'JavaScript' ? 'JavaScript (server)' : codeLang}
                                             {...a11yProps(index)}
                                         ></Tab>
                                     ))}

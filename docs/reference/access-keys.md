@@ -36,7 +36,7 @@ The default expiry is 90 days. Presets include 30 days, 90 days, a custom absolu
 
 Creation and rotation reveal a secret once. New credentials use `ctu_live_` or `ctu_test_`, a public token ID and 32 random bytes. Only an indexed HMAC digest, display prefix and final four characters are stored. Lists never return the digest, legacy verifier or bearer value.
 
-Revoke a principal to block new requests using any of its credentials. Revoke an individual credential to retire only that value. Rotation defaults to one hour of overlap; choose 0 for immediate retirement or up to 86,400 seconds. Repeated rotations never extend an earlier credential's cutoff. Revoked credentials do not become valid during grace. Admitted streams and background runs may finish; new requests see the changed policy without a cross-request cache.
+Revoke a principal to block new requests using any of its credentials. Revoke an individual credential to retire only that value. Rotation defaults to one hour of overlap; choose 0 for immediate retirement or up to 86,400 seconds. Repeated rotations never extend an earlier credential's cutoff. Revoked credentials do not become valid during grace. Changing principal expiry never revives or extends an already issued credential; rotate to inherit the new expiry. Admitted streams and background runs may finish; new requests see the changed policy without a cross-request cache.
 
 ## Caller policies and counters
 
@@ -48,9 +48,9 @@ RPM is principal-wide, with operation buckets, and is shared by rotating credent
 
 Current UTC day/month totals and per-operation counts are persisted atomically. Old windows are removed; no request payload or per-request history is stored. SQL quota failures fail closed. A rejected limit returns `429` and `Retry-After`, with reset timestamps and remaining day/month quota headers. Minute admission uses bounded process memory and resets on restart. Configure `CUTTLELY_API_KEY_INSTANCES=1`; any other value refuses admission. Do not promise globally exact limits across replicas: the shared Redis limiter is a follow-on.
 
-Modern caller policy checks run before JSON parsing. URL-resolved prediction, attachments and vector admission also run before parsers and file writes. Multipart prediction requires `predict`, `upload` and `stream` scopes up front so a later multipart field cannot widen access after storage starts. JSON streaming additionally requires `stream` and is refused before SSE headers. Body-resolved feedback and lead operations are checked after the bounded JSON parser. Existing flow/IP abuse limits and Harness/report caps still apply.
+Modern caller policy and exhausted-budget checks run before JSON parsing. Final admission waits until body-dependent scopes are known. URL-resolved prediction, attachments and vector admission also run before parsers and file writes. Multipart prediction requires `predict`, `upload` and `stream` scopes up front so a later multipart field cannot widen access after storage starts. JSON streaming additionally requires `stream` and is refused before SSE headers. Body-resolved feedback and lead operations are checked after the bounded JSON parser. Existing flow/IP abuse limits and Harness/report caps still apply.
 
-Lifecycle changes and policy/resource diffs appear in **Admin > Audit log**. Usage/refusal events are aggregated to at most one event per principal, operation and outcome per five minutes. They contain IDs and policy data, never bearer values, IPs, origins, prompts, files or report contents.
+Lifecycle changes and policy/resource diffs appear in **Admin > Audit log**. Usage/refusal events are aggregated to at most one event per principal, operation and outcome per five minutes. They contain IDs and policy data, never bearer values, request IPs or origins, prompts, files or report contents.
 
 ## API route matrix
 
@@ -71,7 +71,7 @@ Authorization requires an active credential, the resource's owning workspace, cu
 | Unregistered/scoped workspace list APIs, scheduler changes and public-access changes | Refused for new scoped principals; explicit legacy management compatibility remains                                  |
 | Public embeds and Dashflows UUID share links                                         | Existing public transport, without a required bearer; existing public abuse/report limits remain                     |
 
-The registry is closed: adding a handler beneath a route prefix does not automatically expose it to scoped keys. New management operations must be explicitly registered. Management scopes do not imply prediction or Harness execution. A scoped key cannot change a flow's public/private setting or legacy binding, or invoke draft test/check routes through a management scope.
+The registry is closed: adding a handler beneath a route prefix does not automatically expose it to scoped keys. New management operations must be explicitly registered. Management scopes do not imply prediction or Harness execution. A scoped key cannot change execution configuration, publish/restore a canvas, change a schedule, change public/private access or legacy bindings, or invoke draft test/check routes through a management scope. Metadata edits bypass the canvas-save path so an existing schedule cannot be re-enabled as a side effect.
 
 ### Management requests
 

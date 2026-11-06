@@ -19,6 +19,12 @@ export function planLegacyAccess(keys: LegacyKey[], flows: LegacyFlow[]) {
         unresolvedHarnessNames: 0
     }
     const keyIds = new Set(keys.map((key) => key.id))
+    const harnessCounts = new Map<string, number>()
+    for (const flow of flows)
+        if (flow.type === 'HARNESS') {
+            const label = `${flow.workspaceId}:${flow.name}`
+            harnessCounts.set(label, (harnessCounts.get(label) || 0) + 1)
+        }
     for (const flow of flows) {
         if (flow.apikeyid) {
             report.protectedFlows++
@@ -36,7 +42,10 @@ export function planLegacyAccess(keys: LegacyKey[], flows: LegacyFlow[]) {
         const resolved = new Set<string>()
         for (const flow of flows) {
             const bound = flow.apikeyid === key.id
-            const named = flow.type === 'HARNESS' && requested.includes(flow.name || '')
+            const named =
+                flow.type === 'HARNESS' &&
+                requested.includes(flow.name || '') &&
+                harnessCounts.get(`${flow.workspaceId}:${flow.name}`) === 1
             if (!bound && !named) continue
             if (!flow.workspaceId || flow.workspaceId !== key.workspaceId) {
                 if (bound) report.crossWorkspaceBindings++
