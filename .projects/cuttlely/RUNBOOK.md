@@ -1,3 +1,5 @@
+Warm-up uses process-local evidence. Successful real specialist calls count as warm; evidence expires for probe decisions after `CUTTLELY_HERMES_KEEP_WARM_MINUTES` (five minutes when unset). Cold or recompiled profiles still need their own warm-up. A failed health check clears that evidence; an unsuccessful probe ends the cycle. External worker processes do not share this in-memory evidence.
+
 # Runbook
 
 Contributor and maintainer commands. People installing Cuttlely use the root README, `docs/how-to/docker.md`, `docs/how-to/from-source.md`, `docs/how-to/render.md` and `docs/how-to/sign-in.md`. Commands here come from the root `package.json`, `packages/*/package.json` and `scripts/`.

@@ -1,3 +1,4 @@
+import { warmupCoordinator } from './warmup.mjs'
 import { evidenceBudget, specialistContextModel } from './evidence-budget.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -3203,6 +3204,7 @@ async function runHermesSpecialist(context, specialist, task) {
     if (context.workSignal?.aborted) cancel()
     const onAbort = () => cancel()
     context.workSignal?.addEventListener('abort', onAbort, { once: true })
+    const finishActivity = context.warmup ? () => {} : warmupCoordinator.begin(context.baseUrl || hermesBaseUrl())
     const specialistStarted = Date.now()
     const retrievalScope = { harness: context.name, specialist: specialist.name, sourceTurn: body.session_id }
     beginRetrievedSources(retrievalScope)
@@ -3245,7 +3247,8 @@ async function runHermesSpecialist(context, specialist, task) {
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
         remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
-        noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
+        const specialistEnded = Date.now()
+        noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: specialistEnded })
         forwardDelta(context, specialist, '', true)
         if (hermesRunFailed(status.status)) {
             const failure = status.error || status.message
@@ -3259,12 +3262,15 @@ async function runHermesSpecialist(context, specialist, task) {
         const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir, specialistWorkspaceRoot()) : ''
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
         const sources = takeRetrievedSources(retrievalScope)
+        warmupCoordinator.succeeded(context.baseUrl || hermesBaseUrl(), specialist.profileName, specialist, specialistEnded)
         return { text, ...(sources.length ? { sources } : {}) }
     } catch (error) {
+        warmupCoordinator.failed(context.baseUrl || hermesBaseUrl(), specialist.profileName)
         // Losing status transport does not mean the admitted worker stopped.
         if (runId && !remoteFinished) stopCurrentRun()
         throw error
     } finally {
+        finishActivity()
         startCapture.flush()
         // Capture source failures too; they must not fall back to conflicting model output.
         if (specialist.trustedOutputs?.length) attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
@@ -3946,13 +3952,16 @@ export async function warmHarnessProfiles({
             continue
         }
         for (const specialist of roster.specialists || []) {
-            if (specialist.profileName && needsAgentLoop(specialist)) targets.push({ name: record.name, roster, specialist, record })
+            if (specialist.profileName && needsAgentLoop(specialist))
+                targets.push({ name: record.name, roster, specialist, record, profile: specialist.profileName, version: specialist })
         }
     }
-    if (!targets.length || !(await hermesHealthy(baseUrl, fetchImpl, healthWaitMs))) return []
     const chatId = `cuttlely-warmup-${Date.now()}`
-    const results = await Promise.all(
-        targets.map(async ({ name, roster, specialist, record }) => {
+    const results = await warmupCoordinator.run({
+        url: baseUrl,
+        targets,
+        healthy: () => hermesHealthy(baseUrl, fetchImpl, healthWaitMs),
+        warm: async ({ name, roster, specialist, record }) => {
             const started = Date.now()
             const moduleOptions = await runtimeModuleOptions(record)
             const context = {
@@ -3962,6 +3971,7 @@ export async function warmHarnessProfiles({
                 baseUrl,
                 fetchImpl,
                 limit: 120000,
+                warmup: true,
                 ...(moduleOptions ? { moduleOptions } : {})
             }
             try {
@@ -3975,8 +3985,9 @@ export async function warmHarnessProfiles({
                     error: hideTurnImageDir(String(error?.message ?? ''), '', specialistWorkspaceRoot())
                 }
             }
-        })
-    )
+        }
+    })
+    if (!results.length) return results
     console.info(
         '[harness] Hermes warm-up: ' +
             results
@@ -3990,9 +4001,13 @@ async function hermesHealthy(baseUrl, fetchImpl, waitMs) {
     const deadline = Date.now() + waitMs
     while (Date.now() < deadline) {
         try {
-            const response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/health`)
+            const response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/health`, {
+                signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now())))
+            })
             if (response.ok) return true
+            warmupCoordinator.unavailable(baseUrl)
         } catch {
+            warmupCoordinator.unavailable(baseUrl)
             // Hermes is still starting.
         }
         const pause = Math.min(HEALTH_POLL_MS, deadline - Date.now())

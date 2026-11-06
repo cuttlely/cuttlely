@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   Agent runtime warm-up checks health, skips model calls during active work or after recent successful requests, and probes one specialist on idle cycles. Cold or changed profiles warm with at most two calls at once. Concurrent warm-up requests are serialized.
+
 -   Dependency updates for open Dependabot alerts: undici 6.29.1 and 7.30.1, follow-redirects 1.16.2, multer 2.5.0, body-parser 2.4.0, zod 4.6.6, and fast-uri 3.1.9 (through ajv).
 
 -   Dependency update for an open Dependabot alert (#255) in the bundled agent runtime: `hermes/uv.lock` moves opentelemetry-api to 1.45.1. The optional `otlp` extra now pins opentelemetry-sdk and opentelemetry-exporter-otlp-proto-http 1.45.1, and the optional `mistral` extra pins mistralai 2.10.1, because 2.4.8 does not allow the newer OpenTelemetry packages.

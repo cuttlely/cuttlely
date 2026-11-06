@@ -484,3 +484,9 @@ Missed health checks in the first 60 seconds after a start (`CUTTLELY_HERMES_HEA
 `X-Cuttlely-Analyst` is `ready` when the analyst tool is registered, `missing` when the bridge recorded 0 tools, and `unknown` before that file exists.
 
 Harness Prime can ask a fixed clarification for missing essential record selection, entity, measure, period, region, record type or comparison scope. It first uses the current request, conversation, source-backed selections and documented defaults. Before it asks, it reviews the proposed question once against that same text: a supplied name, abbreviation, misspelling or identifier counts as provided scope, so the request goes to the specialist that can resolve it. The corrected plan must quote the request, conversation, selection or defaults and name an existing specialist; otherwise, or if the review fails, the fixed question is asked. Earlier clarification questions do not count as evidence that the input is still missing. A clarification runs no specialist or query; ordinary fulfillable requests continue through the planner.
+
+## Runtime warm-up
+
+Startup warm-up checks runtime health, then probes one specialist before warming other cold profiles. At most two remaining profiles warm at once. Later idle cycles probe one specialist rather than calling the whole roster again. Successful recent specialist requests skip the probe, and background warm-up pauses while user specialist work is active.
+
+A saved change that recompiles a profile makes it cold again. One successful probe confirms the shared runtime can answer; it does not initialize every specialist’s tools. Warm-up evidence is local to each server process. The keep-warm interval is configured in **Admin** > **Server Settings** > **Agent runtime** > **Warm-up**.

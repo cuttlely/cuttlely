@@ -1,3 +1,5 @@
+-   `packages/harness/warmup.mjs` and `warmup.test.mjs`: health/probe decisions, recent activity, per-profile invalidation, bounded concurrency and overlapping save/timer coverage.
+
 # Artifacts
 
 Harness client lifecycle: `packages/harness/client.test.mjs` covers shutdown-interrupted status, bounded stop confirmation, transient stop failures, and repeated top-level/nested status-transport failures without consuming another chat's slot. It runs with the runtime admission checks in `packages/harness/check.mjs`.
