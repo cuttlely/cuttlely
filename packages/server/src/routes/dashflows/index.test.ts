@@ -10,7 +10,14 @@ const published = jest.fn((_id: string, workspace: string) => {
     return { definition: { harness: 'synthetic-contract' }, snapshot: { id: 'stored-data' } }
 })
 const startRefresh = jest.fn(async (id: string, _workspace: string, _preferCache = false) => ({ id, refreshing: true }))
-const store = { published, get: jest.fn(), list: jest.fn(() => []), publish: jest.fn(), unpublish: jest.fn() }
+const store = {
+    status: jest.fn(() => ({ refreshing: true, refreshProgress: { phase: 'views', completed: 12, total: 20 } })),
+    published,
+    get: jest.fn(),
+    list: jest.fn(() => []),
+    publish: jest.fn(),
+    unpublish: jest.fn()
+}
 jest.mock('../../services/dashflows', () => ({
     runtime: async () => ({ dashStore: () => store, DashFlowError: class extends Error {} }),
     startDashboardRefresh: (id: string, workspace: string, preferCache: boolean) => startRefresh(id, workspace, preferCache),
@@ -83,7 +90,7 @@ it('serves only stored published data to viewers without executing the source', 
     expect(startRefresh).not.toHaveBeenCalled()
 })
 it('keeps drafts, source catalog and writes unavailable to viewers', async () => {
-    for (const endpoint of ['/dashflows', '/dashflows/demo', '/dashflows/sources/synthetic-contract'])
+    for (const endpoint of ['/dashflows', '/dashflows/demo', '/dashflows/demo/refresh-status', '/dashflows/sources/synthetic-contract'])
         expect((await request(app(viewer)).get(endpoint)).status).toBe(403)
     for (const endpoint of ['/dashflows/demo/refresh', '/dashflows/demo/publish'])
         expect((await request(app(viewer)).post(endpoint).send({})).status).toBe(403)
@@ -111,4 +118,12 @@ it('only an explicit cache preference reuses source results for an authorized ra
     expect(startRefresh).toHaveBeenLastCalledWith('demo', 'team-a', true)
     await request(app(editor)).post('/dashflows/demo/refresh').send({ preferCache: 'true' }).expect(202)
     expect(startRefresh).toHaveBeenLastCalledWith('demo', 'team-a', false)
+})
+
+it('returns scoped refresh progress without retransmitting dashboard snapshots', async () => {
+    const response = await request(app(editor)).get('/dashflows/demo/refresh-status').expect(200)
+    expect(store.status).toHaveBeenCalledWith('demo', 'team-a')
+    expect(response.body.refreshProgress.completed).toBe(12)
+    expect(response.body.snapshot).toBeUndefined()
+    expect(startRefresh).not.toHaveBeenCalled()
 })
