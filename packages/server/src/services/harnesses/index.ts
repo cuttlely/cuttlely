@@ -339,7 +339,7 @@ export async function backfillHarnessWorkspaces() {
     return { harnesses: rows.length, fromFlow, fromDefault, unassigned }
 }
 
-async function contextFor(record: { chatflowId?: string; workspaceId?: string | null } | null) {
+export async function contextFor(record: { chatflowId?: string; workspaceId?: string | null } | null) {
     const appServer = getRunningExpressApp()
     const componentNodes = appServer.nodesPool.componentNodes
     return {

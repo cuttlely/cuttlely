@@ -76,6 +76,15 @@ const dashboard = {
                     permission: 'chatflows:view'
                 },
                 {
+                    id: 'dashflows',
+                    title: 'Dash Flows',
+                    type: 'item',
+                    url: '/dashflows',
+                    icon: icons.IconChartBar,
+                    breadcrumbs: true,
+                    permission: 'chatflows:update'
+                },
+                {
                     id: 'chatflows',
                     title: 'Chatflows',
                     type: 'item',
