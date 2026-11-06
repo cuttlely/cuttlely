@@ -54,7 +54,8 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
         try {
             if (!store.heartbeat(id, workspace, claim)) clearInterval(heartbeat)
         } catch {
-            clearInterval(heartbeat)
+            // A transient SQLite lock must not disable every subsequent renewal.
+            logger.warn('[dashflows] Refresh heartbeat write failed; retrying on the next tick.')
         }
     }, 15000)
     heartbeat.unref()
@@ -90,7 +91,8 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
             (progress: unknown) => {
                 assertActive()
                 store.progress(id, workspace, claim, progress)
-            }
+            },
+            claim.resumeSince
         )
         return store.settle(id, workspace, claim, snapshot, null)
     } catch (error) {

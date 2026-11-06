@@ -295,7 +295,15 @@ export function pipelinePeriods(now = new Date()) {
             { start_date: iso(new Date(Date.UTC(year, quarter + 3, 1))), end_date: iso(new Date(Date.UTC(year, quarter + 6, 1))) }
         ])
 }
-export async function materializeCached(definition, record, execute, cache, preferCache = false, onProgress = () => {}) {
+export async function materializeCached(
+    definition,
+    record,
+    execute,
+    cache,
+    preferCache = false,
+    onProgress = () => {},
+    resumeSince = null
+) {
     const pending = new Map()
     const inflight = new Map()
     const keyFor = (item, args) =>
@@ -308,7 +316,10 @@ export async function materializeCached(definition, record, execute, cache, pref
             inflight.set(
                 key,
                 (async () => {
-                    const cached = preferCache ? cache.get(key) : null
+                    const candidate = preferCache || resumeSince ? cache.get(key) : null
+                    // A retry may reuse only validated results fetched during this refresh chain.
+                    const cached =
+                        candidate && (preferCache || Date.parse(candidate.fetchedAt) >= Date.parse(resumeSince)) ? candidate : null
                     pending.set(key, cached || { raw: await execute(item, args), fetchedAt: new Date().toISOString() })
                 })()
             )
@@ -392,9 +403,10 @@ export async function materializeCached(definition, record, execute, cache, pref
                 }
             }
         }
+        // Prewarm serially to limit database connections and peak server load.
         // Await every worker even on failure: do not release the refresh lease
         // while other source queries from this generation are still running.
-        const outcomes = await Promise.allSettled(Array.from({ length: 4 }, worker))
+        const outcomes = await Promise.allSettled(Array.from({ length: 1 }, worker))
         if (outcomes.some((result) => result.status === 'rejected'))
             fail('The period/region snapshot is incomplete. Last good data was kept; retry Refresh.', 422)
         snapshot.pipelineViews = { periods, regions, views }
@@ -634,7 +646,13 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             })
         },
         progress(id, workspace, claim, detail) {
-            const progress = { ...detail, status: 'running', startedAt: claim.startedAt, updatedAt: new Date().toISOString() }
+            const progress = {
+                ...detail,
+                ...(claim.resumeSince ? { resumeSince: claim.resumeSince } : {}),
+                status: 'running',
+                startedAt: claim.startedAt,
+                updatedAt: new Date().toISOString()
+            }
             db.prepare(
                 `UPDATE dash_flow_refresh_status SET progress=? WHERE dashboard=? AND workspace=? AND token=?
                 AND EXISTS (SELECT 1 FROM dash_flow WHERE id=? AND workspace=? AND lease=? AND revision=?)`
@@ -643,6 +661,12 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         claim(id, workspace) {
             return writeTransaction(() => {
                 const row = rowFor(id, workspace)
+                const previous = db
+                    .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=?')
+                    .get(id, workspace)
+                const prior = previous ? JSON.parse(previous.progress) : null
+                // A dead worker can be replaced; retain its validated checkpoints across repeated restarts.
+                const resumeSince = prior && ['running', 'interrupted'].includes(prior.status) ? prior.resumeSince || prior.startedAt : null
                 const token = randomUUID()
                 // A live worker renews every 15 seconds. A killed process becomes recoverable within 90 seconds.
                 const changed = db
@@ -656,6 +680,7 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
                     token,
                     JSON.stringify({
                         status: 'running',
+                        ...(resumeSince ? { resumeSince } : {}),
                         phase: 'starting',
                         completed: 0,
                         total: 0,
@@ -664,7 +689,7 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
                         updatedAt: startedAt
                     })
                 )
-                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner, startedAt }
+                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner, startedAt, resumeSince }
             })
         },
         settle(id, workspace, claim, snapshot, error) {
