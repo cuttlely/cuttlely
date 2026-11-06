@@ -295,7 +295,15 @@ export function pipelinePeriods(now = new Date()) {
             { start_date: iso(new Date(Date.UTC(year, quarter + 3, 1))), end_date: iso(new Date(Date.UTC(year, quarter + 6, 1))) }
         ])
 }
-export async function materializeCached(definition, record, execute, cache, preferCache = false, onProgress = () => {}) {
+export async function materializeCached(
+    definition,
+    record,
+    execute,
+    cache,
+    preferCache = false,
+    onProgress = () => {},
+    resumeSince = null
+) {
     const pending = new Map()
     const inflight = new Map()
     const keyFor = (item, args) =>
@@ -308,7 +316,10 @@ export async function materializeCached(definition, record, execute, cache, pref
             inflight.set(
                 key,
                 (async () => {
-                    const cached = preferCache ? cache.get(key) : null
+                    const candidate = preferCache || resumeSince ? cache.get(key) : null
+                    // A retry may reuse only validated results fetched during this refresh chain.
+                    const cached =
+                        candidate && (preferCache || Date.parse(candidate.fetchedAt) >= Date.parse(resumeSince)) ? candidate : null
                     pending.set(key, cached || { raw: await execute(item, args), fetchedAt: new Date().toISOString() })
                 })()
             )
@@ -392,9 +403,10 @@ export async function materializeCached(definition, record, execute, cache, pref
                 }
             }
         }
+        // Prewarm serially to limit database connections and peak server load.
         // Await every worker even on failure: do not release the refresh lease
         // while other source queries from this generation are still running.
-        const outcomes = await Promise.allSettled(Array.from({ length: 4 }, worker))
+        const outcomes = await Promise.allSettled(Array.from({ length: 1 }, worker))
         if (outcomes.some((result) => result.status === 'rejected'))
             fail('The period/region snapshot is incomplete. Last good data was kept; retry Refresh.', 422)
         snapshot.pipelineViews = { periods, regions, views }
@@ -430,6 +442,11 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         if (!row) fail('Dashboard not found.', 404)
         return row
     }
+    const assertActive = (id, workspace, claim) => {
+        const row = db.prepare('SELECT lease,revision,lease_until FROM dash_flow WHERE id=? AND workspace=?').get(id, workspace)
+        if (!row || row.lease !== claim.token || row.revision !== claim.revision || row.lease_until <= Date.now())
+            fail('This refresh was cancelled, replaced or interrupted.', 409)
+    }
     // Acquire the shared-volume writer lock before reading state used by a write.
     // These transactions contain only local SQLite work, never source queries.
     const writeTransaction = (work) => {
@@ -445,10 +462,10 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
     }
     const progressFor = (row) => {
         const stored = db
-            .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=?')
+            .prepare('SELECT token,progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=?')
             .get(row.id, row.workspace)
         if (!stored) return null
-        const progress = JSON.parse(stored.progress)
+        const progress = { ...JSON.parse(stored.progress), runId: stored.token }
         return progress.status === 'running' && row.lease_until <= Date.now() ? { ...progress, status: 'interrupted' } : progress
     }
     const decode = (row) => ({
@@ -465,29 +482,33 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
     })
     return {
         close: () => db.close(),
-        queryCache(id, workspace) {
+        queryCache(id, workspace, claim) {
             rowFor(id, workspace)
             return {
                 get(key) {
+                    if (claim) assertActive(id, workspace, claim)
                     const row = db
                         .prepare('SELECT value FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? AND cache_key=? AND expires>?')
                         .get(id, workspace, key, Date.now())
                     return row ? JSON.parse(row.value) : null
                 },
                 put(key, value) {
-                    const json = JSON.stringify(value)
-                    if (Buffer.byteLength(json) > 2 * 1024 * 1024) return
-                    db.prepare('INSERT OR REPLACE INTO dash_flow_query_cache VALUES(?,?,?,?,?)').run(
-                        id,
-                        workspace,
-                        key,
-                        json,
-                        Date.parse(value.fetchedAt) + 6 * 3600000
-                    )
-                    db.prepare('DELETE FROM dash_flow_query_cache WHERE expires<=?').run(Date.now())
-                    db.prepare(
-                        'DELETE FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? AND cache_key NOT IN (SELECT cache_key FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? ORDER BY expires DESC LIMIT 32)'
-                    ).run(id, workspace, id, workspace)
+                    return writeTransaction(() => {
+                        if (claim) assertActive(id, workspace, claim)
+                        const json = JSON.stringify(value)
+                        if (Buffer.byteLength(json) > 2 * 1024 * 1024) return
+                        db.prepare('INSERT OR REPLACE INTO dash_flow_query_cache VALUES(?,?,?,?,?)').run(
+                            id,
+                            workspace,
+                            key,
+                            json,
+                            Date.parse(value.fetchedAt) + 6 * 3600000
+                        )
+                        db.prepare('DELETE FROM dash_flow_query_cache WHERE expires<=?').run(Date.now())
+                        db.prepare(
+                            'DELETE FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? AND cache_key NOT IN (SELECT cache_key FROM dash_flow_query_cache WHERE dashboard=? AND workspace=? ORDER BY expires DESC LIMIT 32)'
+                        ).run(id, workspace, id, workspace)
+                    })
                 }
             }
         },
@@ -596,8 +617,42 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             rowFor(id, workspace)
             db.prepare('UPDATE dash_flow SET published=NULL WHERE id=? AND workspace=?').run(id, workspace)
         },
+        assertActive,
+        heartbeat(id, workspace, claim) {
+            return !!db
+                .prepare('UPDATE dash_flow SET lease_until=? WHERE id=? AND workspace=? AND lease=? AND revision=? AND lease_until>?')
+                .run(Date.now() + 90000, id, workspace, claim.token, claim.revision, Date.now()).changes
+        },
+        cancel(id, workspace, runId, status = 'cancelled') {
+            return writeTransaction(() => {
+                const row = rowFor(id, workspace)
+                if (!runId || row.lease !== runId)
+                    fail('The refresh changed or already finished. Reload its status before cancelling.', 409)
+                db.prepare(
+                    'UPDATE dash_flow SET lease=NULL,lease_until=0,next_refresh=?,error=NULL WHERE id=? AND workspace=? AND lease=?'
+                ).run(JSON.parse(row.definition).intervalSeconds === 604800 ? Date.now() + 604800000 : 0, id, workspace, runId)
+                const stored = db
+                    .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=? AND token=?')
+                    .get(id, workspace, runId)
+                const now = new Date().toISOString()
+                const progress = { ...(stored ? JSON.parse(stored.progress) : {}), status, active: [], finishedAt: now, updatedAt: now }
+                db.prepare('INSERT OR REPLACE INTO dash_flow_refresh_status VALUES(?,?,?,?)').run(
+                    id,
+                    workspace,
+                    runId,
+                    JSON.stringify(progress)
+                )
+                return { id, refreshing: false, refreshProgress: { ...progress, runId }, error: null }
+            })
+        },
         progress(id, workspace, claim, detail) {
-            const progress = { ...detail, status: 'running', startedAt: claim.startedAt, updatedAt: new Date().toISOString() }
+            const progress = {
+                ...detail,
+                ...(claim.resumeSince ? { resumeSince: claim.resumeSince } : {}),
+                status: 'running',
+                startedAt: claim.startedAt,
+                updatedAt: new Date().toISOString()
+            }
             db.prepare(
                 `UPDATE dash_flow_refresh_status SET progress=? WHERE dashboard=? AND workspace=? AND token=?
                 AND EXISTS (SELECT 1 FROM dash_flow WHERE id=? AND workspace=? AND lease=? AND revision=?)`
@@ -606,12 +661,17 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         claim(id, workspace) {
             return writeTransaction(() => {
                 const row = rowFor(id, workspace)
+                const previous = db
+                    .prepare('SELECT progress FROM dash_flow_refresh_status WHERE dashboard=? AND workspace=?')
+                    .get(id, workspace)
+                const prior = previous ? JSON.parse(previous.progress) : null
+                // A dead worker can be replaced; retain its validated checkpoints across repeated restarts.
+                const resumeSince = prior && ['running', 'interrupted'].includes(prior.status) ? prior.resumeSince || prior.startedAt : null
                 const token = randomUUID()
-                // Up to 12 active queries, then 20 presets in four workers (each query <=125s).
-                // The 45-minute lease outlives that bound, including materialization.
+                // A live worker renews every 15 seconds. A killed process becomes recoverable within 90 seconds.
                 const changed = db
                     .prepare('UPDATE dash_flow SET lease=?,lease_until=? WHERE id=? AND workspace=? AND lease_until<=?')
-                    .run(token, Date.now() + 2700000, id, workspace, Date.now())
+                    .run(token, Date.now() + 90000, id, workspace, Date.now())
                 if (!changed.changes) fail('A refresh is already running.', 409)
                 const startedAt = new Date().toISOString()
                 db.prepare('INSERT OR REPLACE INTO dash_flow_refresh_status VALUES(?,?,?,?)').run(
@@ -620,6 +680,7 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
                     token,
                     JSON.stringify({
                         status: 'running',
+                        ...(resumeSince ? { resumeSince } : {}),
                         phase: 'starting',
                         completed: 0,
                         total: 0,
@@ -628,7 +689,7 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
                         updatedAt: startedAt
                     })
                 )
-                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner, startedAt }
+                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner, startedAt, resumeSince }
             })
         },
         settle(id, workspace, claim, snapshot, error) {

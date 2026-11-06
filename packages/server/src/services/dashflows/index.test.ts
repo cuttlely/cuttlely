@@ -1,5 +1,8 @@
 const claim = { token: 'lease', revision: 1, definition: { harness: 'synthetic-contract' } }
 const store = {
+    assertActive: jest.fn(),
+    heartbeat: jest.fn(() => true),
+    cancel: jest.fn(),
     status: jest.fn(() => ({ refreshProgress: undefined })),
     progress: jest.fn(),
     queryCache: jest.fn(() => ({ get: jest.fn(), put: jest.fn() })),
@@ -63,7 +66,8 @@ it('routes a refresh through the exact harness specialist binding and preserves 
         {
             harness: { name: 'synthetic-contract', workspaceId: 'team-a' },
             bindingIndex: 2,
-            flowOptions: { workspaceId: 'team-a' }
+            flowOptions: { workspaceId: 'team-a' },
+            assertCall: expect.any(Function)
         }
     )
     expect(store.settle).toHaveBeenCalledWith('dashboard', 'team-a', claim, { id: 'new' }, null)
@@ -115,4 +119,56 @@ it('claims a manual refresh and returns before materialization settles', async (
     finish({ id: 'later' })
     await new Promise((resolve) => setImmediate(resolve))
     expect(store.settle).toHaveBeenCalledWith('dashboard', 'team-a', claim, { id: 'later' }, null)
+})
+it('invalidates its own refresh when a drain begins without cancelling another worker', async () => {
+    let release: (value: any) => void = () => {}
+    materialize.mockImplementationOnce(
+        () =>
+            new Promise((resolve) => {
+                release = resolve
+            })
+    )
+    const running = refreshDashboard('dashboard', 'team-a')
+    await new Promise((resolve) => setImmediate(resolve))
+    const listener = drainStart.mock.calls[0][0] as () => void
+    listener()
+    expect(store.cancel).toHaveBeenCalledWith('dashboard', 'team-a', claim.token, 'interrupted')
+    release({ id: 'late' })
+    await running
+})
+
+it('keeps heartbeats running through a transient write failure and a query longer than the lease', async () => {
+    jest.useFakeTimers()
+    let release!: (value: any) => void
+    materialize.mockImplementationOnce(
+        () =>
+            new Promise((resolve) => {
+                release = resolve
+            })
+    )
+    store.heartbeat.mockImplementationOnce(() => {
+        throw new Error('temporary database lock')
+    })
+    try {
+        const running = refreshDashboard('dashboard', 'team-a')
+        await jest.advanceTimersByTimeAsync(120000)
+        expect(store.heartbeat).toHaveBeenCalledTimes(8)
+        expect(store.settle).not.toHaveBeenCalled()
+        release({ id: 'complete' })
+        await running
+        expect(store.settle).toHaveBeenCalledWith('dashboard', 'team-a', claim, { id: 'complete' }, null)
+        await jest.advanceTimersByTimeAsync(15000)
+        expect(store.heartbeat).toHaveBeenCalledTimes(8)
+    } finally {
+        jest.useRealTimers()
+    }
+})
+it('passes the interrupted generation boundary to validated cache recovery', async () => {
+    const resumed = { ...claim, resumeSince: '2026-11-06T12:00:00.000Z' }
+    await refreshDashboard('dashboard', 'team-a', {
+        store,
+        claim: resumed,
+        mod: { materializeCached: materialize, DashFlowError }
+    })
+    expect((materialize.mock.calls[0] as unknown[])[6]).toBe(resumed.resumeSince)
 })

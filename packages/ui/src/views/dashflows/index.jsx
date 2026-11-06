@@ -18,6 +18,7 @@ import ExecutiveTooltip from './ExecutiveTooltip'
 import { RANGE_OPTIONS, rangeDates } from './ranges'
 import { selectPipelineView } from './cachedViews'
 import RefreshStatus from './RefreshStatus'
+import { formatValue, isAcvAmount } from './presentation'
 export { default as SourceTable } from './SourceTable'
 import Chart from './Charts'
 
@@ -52,6 +53,7 @@ export async function pollDashboard(
         await pause()
         if (signal?.aborted) throw new DOMException('Refresh polling stopped.', 'AbortError')
         const { data } = await fetchRecord()
+        if (signal?.aborted) throw new DOMException('Refresh polling stopped.', 'AbortError')
         onUpdate(data)
         if (!data.refreshing) return data
     }
@@ -107,10 +109,13 @@ export function DashboardCard({ data }) {
                     >
                         <span data-exact-value={cell(rows[0][card.valueField])}>
                             {Number.isFinite(Number(rows[0][card.valueField])) && rows[0][card.valueField] !== null
-                                ? new Intl.NumberFormat('en-US', {
-                                      notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
-                                      maximumFractionDigits: 2
-                                  }).format(Number(rows[0][card.valueField]))
+                                ? isAcvAmount(card.valueField) && Math.abs(Number(rows[0][card.valueField])) < 1000000
+                                    ? formatValue(rows[0][card.valueField], card.valueField)
+                                    : new Intl.NumberFormat('en-US', {
+                                          minimumFractionDigits: isAcvAmount(card.valueField) ? 2 : 0,
+                                          notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
+                                          maximumFractionDigits: 2
+                                      }).format(Number(rows[0][card.valueField]))
                                 : cell(rows[0][card.valueField])}
                         </span>
                     </button>
@@ -169,6 +174,9 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
     const [harnesses, setHarnesses] = useState([])
     const [sources, setSources] = useState([])
     const [busy, setBusy] = useState(false)
+    const [cancelling, setCancelling] = useState(false)
+    const operationSequence = useRef(0)
+    const cancelSequence = useRef(0)
     const refreshAbort = useRef(null)
     useEffect(
         () => () => {
@@ -216,6 +224,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         setDirty(false)
     }
     const run = async (fn) => {
+        const operation = ++operationSequence.current
         setBusy(true)
         setError('')
         setNotice('')
@@ -223,9 +232,9 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
             await fn()
         } catch (e) {
             if (e?.name === 'AbortError') return
-            setError(e.response?.data?.message || e.message || 'Request failed. Try again.')
+            if (operation === operationSequence.current) setError(e.response?.data?.message || e.message || 'Request failed. Try again.')
         } finally {
-            setBusy(false)
+            if (operation === operationSequence.current) setBusy(false)
         }
     }
     useEffect(() => {
@@ -370,6 +379,30 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
             })
         return () => controller.abort()
     }, [id, workspaceId, published, busy, record?.refreshing, fetchRefreshStatus])
+    const cancelRefresh = async (restart = false) => {
+        const request = ++cancelSequence.current
+        ++operationSequence.current
+        refreshAbort.current?.abort()
+        setBusy(true)
+        setCancelling(true)
+        setError('')
+        try {
+            await client.post(`${path(id)}/cancel-refresh`, { runId: record?.refreshProgress?.runId })
+            const { data } = await client.get(path(id))
+            adopt(data)
+            setCancelling(false)
+            if (restart) await run(refresh)
+            else {
+                setBusy(false)
+                setNotice('Refresh cancelled. Previous successful data is preserved.')
+            }
+        } catch (error) {
+            setError(error.response?.data?.message || 'Could not cancel this refresh. Reload its status and try again.')
+            setBusy(false)
+        } finally {
+            if (request === cancelSequence.current) setCancelling(false)
+        }
+    }
     const source = sources.find((s) => s.key === editor?.source)
     const supremeReady =
         definition.harness === 'honeybadger-supreme' && sources.some((s) => s.name === dashSourceName('quarter_account_risk_patterns'))
@@ -399,7 +432,7 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
         const { data } = await client.put(path(id), { definition: next, revision: record.revision })
         adopt(data)
         const refreshed = await refresh(true)
-        if (!refreshed?.error)
+        if (refreshed && !refreshed.error)
             setNotice('Pipeline range updated. Cached source results are reused for up to six hours; missing ranges refresh automatically.')
     }
     const choosePreset = (key, region) => {
@@ -472,7 +505,15 @@ export function DashFlowsEnabled({ published = false, publicLink = false }) {
                     {notice}
                 </Alert>
             )}
-            {!published && <RefreshStatus record={record} disabled={busy || dirty || !id} onRetry={() => run(refresh)} />}
+            {!published && (
+                <RefreshStatus
+                    record={record}
+                    disabled={busy || dirty || !id}
+                    onRetry={() => run(refresh)}
+                    cancelling={cancelling}
+                    onCancel={editable && record?.refreshProgress?.runId ? cancelRefresh : undefined}
+                />
+            )}
             {record?.error && !record.refreshProgress && <Alert severity='warning'>{record.error}</Alert>}
             {record?.snapshot &&
                 !record.snapshot.pipelineViews &&

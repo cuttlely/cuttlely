@@ -12,6 +12,7 @@ const published = jest.fn((_id: string, workspace: string) => {
 const startRefresh = jest.fn(async (id: string, _workspace: string, _preferCache = false) => ({ id, refreshing: true }))
 const store = {
     status: jest.fn(() => ({ refreshing: true, refreshProgress: { phase: 'views', completed: 12, total: 20 } })),
+    cancel: jest.fn(() => ({ refreshing: false, refreshProgress: { status: 'cancelled' } })),
     published,
     get: jest.fn(),
     list: jest.fn(() => []),
@@ -92,7 +93,7 @@ it('serves only stored published data to viewers without executing the source', 
 it('keeps drafts, source catalog and writes unavailable to viewers', async () => {
     for (const endpoint of ['/dashflows', '/dashflows/demo', '/dashflows/demo/refresh-status', '/dashflows/sources/synthetic-contract'])
         expect((await request(app(viewer)).get(endpoint)).status).toBe(403)
-    for (const endpoint of ['/dashflows/demo/refresh', '/dashflows/demo/publish'])
+    for (const endpoint of ['/dashflows/demo/refresh', '/dashflows/demo/publish', '/dashflows/demo/cancel-refresh'])
         expect((await request(app(viewer)).post(endpoint).send({})).status).toBe(403)
     expect((await request(app(viewer)).delete('/dashflows/demo/publish')).status).toBe(403)
     expect(startRefresh).not.toHaveBeenCalled()
@@ -126,4 +127,9 @@ it('returns scoped refresh progress without retransmitting dashboard snapshots',
     expect(response.body.refreshProgress.completed).toBe(12)
     expect(response.body.snapshot).toBeUndefined()
     expect(startRefresh).not.toHaveBeenCalled()
+})
+
+it('cancels only the requested refresh in the builder workspace', async () => {
+    await request(app(editor)).post('/dashflows/demo/cancel-refresh').send({ runId: 'current-run' }).expect(200)
+    expect(store.cancel).toHaveBeenCalledWith('demo', 'team-a', 'current-run')
 })

@@ -30,6 +30,22 @@ export const fieldLabel = (key) =>
         .replaceAll('_', ' ')
         .replace(/\b(acv|racv|nacv|id|utc)\b/gi, (v) => v.toUpperCase())
         .replace(/^./, (v) => v.toUpperCase())
+export const isAcvAmount = (field) =>
+    /(^|_)(acv|racv|nacv)(_|$)/i.test(field) &&
+    !/(^|_)(count|counts|pct|percent|percentage|ratio|rate|score|band|bucket|flag)(_|$)/i.test(field)
+// Round decimal source strings directly, without losing cents through Number conversion.
+function formatAmount(text) {
+    const negative = text.startsWith('-')
+    const [whole, fraction = ''] = text.replace(/^-/, '').split('.')
+    let cents = BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2))
+    if ((fraction[2] || '0') >= '5') cents += 1n
+    return (
+        (negative && cents !== 0n ? '-' : '') +
+        (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') +
+        '.' +
+        (cents % 100n).toString().padStart(2, '0')
+    )
+}
 export function formatValue(value, field = '') {
     if (value === null || value === undefined || value === '') return 'Not provided'
     if (typeof value === 'object') return 'Structured evidence'
@@ -40,6 +56,7 @@ export function formatValue(value, field = '') {
             return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
     }
     if (!/(^|_)id$/.test(field) && /^-?\d+(\.\d+)?$/.test(text)) {
+        if (isAcvAmount(field)) return formatAmount(text)
         const [whole, fraction] = text.split('.')
         return (
             whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction ? '.' + fraction : '') + (/_pct$|^percent_of_/.test(field) ? '%' : '')

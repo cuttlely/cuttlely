@@ -424,10 +424,10 @@ test('refresh freezes all twenty period/region views and refuses incomplete gene
     const updates = []
     const frozen = await materializeCached(def, record, execute, cache, false, (progress) => updates.push(progress))
     assert.ok(updates.some((p) => p.phase === 'views' && p.completed === 20))
-    assert.ok(updates.every((p) => p.active.length <= 4))
+    assert.ok(updates.every((p) => p.active.length <= 1))
     assert.equal(updates.at(-1).phase, 'saving')
     assert.equal(calls, 20)
-    assert.ok(maximum <= 4)
+    assert.ok(maximum <= 1)
     assert.equal(values.size, 20)
     assert.equal(Object.keys(frozen.pipelineViews.views).length, 20)
     assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].source.params.region, 'EMEA')
@@ -452,6 +452,12 @@ test('refresh freezes all twenty period/region views and refuses incomplete gene
         true
     )
     assert.equal(calls, 20)
+    // Simulate losing the process after thirteen durable views: execute only the seven missing results.
+    const resumeSince = [...values.values()].map((value) => value.fetchedAt).sort()[0]
+    for (const key of [...values.keys()].slice(0, 7)) values.delete(key)
+    const recovered = await materializeCached(def, record, execute, cache, false, () => {}, resumeSince)
+    assert.equal(calls, 27)
+    assert.equal(Object.keys(recovered.pipelineViews.views).length, 20)
     await assert.rejects(
         materializeCached(
             def,
@@ -516,4 +522,75 @@ test('refresh progress persists across connections, rejects stale workers and re
         assert.equal(peer.status(saved.id, 'team-a').refreshProgress.status, 'interrupted')
         peer.close()
     })
+})
+test('force cancel fences late snapshots, progress and cache writes, and permits an immediate restart', () => {
+    storeTest((store) => {
+        const saved = store.save(null, 'team-a', 'owner', definition)
+        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), { id: 'last-good', cards: [] }, null)
+        store.publish(saved.id, 'team-a', saved.revision)
+        const old = store.claim(saved.id, 'team-a')
+        assert.equal(store.status(saved.id, 'team-a').refreshProgress.runId, old.token)
+        assert.throws(() => store.cancel(saved.id, 'team-b', old.token), /not found/)
+        assert.throws(() => store.cancel(saved.id, 'team-a', 'stale-token'), /refresh changed/)
+        const cache = store.queryCache(saved.id, 'team-a', old)
+        store.cancel(saved.id, 'team-a', old.token)
+        assert.equal(store.status(saved.id, 'team-a').refreshProgress.status, 'cancelled')
+        assert.ok(store.get(saved.id, 'team-a').nextRefresh > Date.now())
+        assert.equal(store.heartbeat(saved.id, 'team-a', old), false)
+        const next = store.claim(saved.id, 'team-a')
+        assert.throws(() => store.assertActive(saved.id, 'team-a', old), /cancelled/)
+        assert.throws(() => cache.put('old-result', { raw: result(), fetchedAt: new Date().toISOString() }), /cancelled/)
+        store.progress(saved.id, 'team-a', old, { phase: 'old-run' })
+        store.settle(saved.id, 'team-a', old, { id: 'stale', cards: [] }, null)
+        assert.equal(store.status(saved.id, 'team-a').refreshProgress.runId, next.token)
+        assert.equal(store.get(saved.id, 'team-a').snapshot.id, 'last-good')
+        assert.equal(store.published(saved.id, 'team-a').snapshot.id, 'last-good')
+        assert.equal(store.heartbeat(saved.id, 'team-a', next), true)
+        store.settle(saved.id, 'team-a', next, { id: 'fresh', cards: [] }, null)
+        assert.equal(store.get(saved.id, 'team-a').snapshot.id, 'fresh')
+    })
+})
+test('a lost worker expires without waiting for the old long lease and cannot renew itself after expiry', () => {
+    storeTest((store, file) => {
+        const saved = store.save(null, 'team-a', 'owner', definition)
+        const claim = store.claim(saved.id, 'team-a')
+        const db = new DatabaseSync(file)
+        const lease = db.prepare('SELECT lease_until FROM dash_flow WHERE id=?').get(saved.id).lease_until
+        assert.ok(lease <= Date.now() + 90000)
+        db.prepare('UPDATE dash_flow SET lease_until=0 WHERE id=?').run(saved.id)
+        db.close()
+        assert.equal(store.status(saved.id, 'team-a').refreshProgress.status, 'interrupted')
+        assert.equal(store.heartbeat(saved.id, 'team-a', claim), false)
+        assert.throws(() => store.assertActive(saved.id, 'team-a', claim), /interrupted/)
+        const retry = store.claim(saved.id, 'team-a')
+        assert.notEqual(retry.token, claim.token)
+        assert.equal(retry.resumeSince, claim.startedAt)
+        store.progress(saved.id, 'team-a', retry, { phase: 'views', completed: 4, total: 20 })
+        store.cancel(saved.id, 'team-a', retry.token, 'interrupted')
+        const next = store.claim(saved.id, 'team-a')
+        assert.equal(next.resumeSince, claim.startedAt)
+        store.settle(saved.id, 'team-a', next, { id: 'complete', cards: [] }, null)
+        assert.equal(store.claim(saved.id, 'team-a').resumeSince, null)
+    })
+})
+
+test('restart recovery reuses only this refresh chain and revalidates cached receipts', async () => {
+    const values = new Map()
+    const cache = { get: (key) => values.get(key), put: (key, value) => values.set(key, value) }
+    let calls = 0
+    const execute = async () => {
+        calls++
+        return result()
+    }
+    const since = new Date().toISOString()
+    await materializeCached(definition, harness, execute, cache)
+    await materializeCached(definition, harness, execute, cache, false, () => {}, since)
+    assert.equal(calls, 1)
+    for (const value of values.values()) value.fetchedAt = '2000-01-01T00:00:00.000Z'
+    await materializeCached(definition, harness, execute, cache, false, () => {}, since)
+    assert.equal(calls, 2)
+    for (const value of values.values()) value.raw = { ...result(), pinned: { ...result().pinned, hash: 'changed' } }
+    await assert.rejects(materializeCached(definition, harness, execute, cache, false, () => {}, since))
+    await materializeCached(definition, harness, execute, cache)
+    assert.equal(calls, 3)
 })
