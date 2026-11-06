@@ -12,16 +12,17 @@ New to the code? [Build from source and run the dev server](../../docs/how-to/fr
 
 ```bash
 git fetch origin
-git switch -c <short-topic> origin/main     # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
+git switch -c <short-topic> origin/dev      # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
 pnpm install --frozen-lockfile
 pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
 pnpm --filter './packages/node-pack-*' build   # verify-test also loads the built node packs (components package alias test)
 ```
 
--   One concern per pull request, against `main`. Commit messages are one plain sentence describing the user-visible change, then a short body.
+-   One concern per pull request, against `dev`. Commit messages are one plain sentence describing the user-visible change, then a short body.
 -   **Gate (D27).** A docs-only change runs `pnpm --filter @cuttlely/components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
--   **Keep up with `main`.** If `main` moved while your pull request was open, merge `origin/main` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
--   **Merge.** Squash-merge, pinned to the head you verified: `gh pr merge <n> --squash --match-head-commit <sha>`.
+-   **Keep up with `dev`.** If `dev` moved while your pull request was open, merge `origin/dev` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
+-   **Merge.** Squash-merge into `dev`, pinned to the head you verified: `gh pr merge <n> --squash --match-head-commit <sha>`.
+-   **Promote to `main`.** A maintainer promotes `dev` to `main` by hand. Do not merge `dev` into `main` or open a `dev`-to-`main` pull request as part of a change.
 -   **Hooks stay on.** Do not use `git push --no-verify`. `CUTTLELY_SKIP_VERIFY=1` and `CUTTLELY_SKIP_HANDOFF_CHECK=1` exist for emergencies and never replace the gate.
 -   **Project notes.** A code change updates `.projects/cuttlely/` in the same pull request. Run the `refresh-project-handoff` skill once before the push.
 -   **One heavy job at a time.** On a shared or small machine, run full verifies, builds, live servers and Docker checks one after another. Parallel runs push the load up until timing tests (`rateLimit`, `clientAbort`, flow versions, promote) time out or Jest workers are killed; those are not code failures. Re-run once on a quiet machine before you debug.
