@@ -5,6 +5,7 @@ const getHarness = (name) => client.get(`/harnesses/${encodeURIComponent(name)}`
 const saveHarness = (body) => client.post('/harnesses', body)
 const updateHarnessCategory = (name, category) => client.put(`/harnesses/${encodeURIComponent(name)}/category`, { category })
 const deleteHarness = (name) => client.delete(`/harnesses/${encodeURIComponent(name)}`)
+const deleteIncompleteHarness = (chatflowId) => client.delete(`/chatflows/${encodeURIComponent(chatflowId)}`)
 const listRuns = (name) => client.get(`/harnesses/${encodeURIComponent(name)}/runs`)
 const getRun = (name, runId) => client.get(`/harnesses/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}`)
 const getSchedule = (name) => client.get(`/harnesses/${encodeURIComponent(name)}/schedule`)
@@ -19,6 +20,7 @@ export default {
     getHarness,
     saveHarness,
     deleteHarness,
+    deleteIncompleteHarness,
     listRuns,
     getRun,
     getSchedule,

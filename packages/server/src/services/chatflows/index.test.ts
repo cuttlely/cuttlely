@@ -1487,6 +1487,11 @@ describe('harnesses a saved canvas names', () => {
             })
             expect(result.flowData).toBe(flowData)
             expect(mockRepo.save).toHaveBeenCalledWith(saved)
+            expect(assertNameAvailable).toHaveBeenCalledWith(stored.name, 'ws-1', {
+                claiming: true,
+                readOnly: true,
+                record: { chatflowId: stored.id }
+            })
         } finally {
             if (previous === undefined) delete process.env.CUTTLELY_DRAFTS
             else process.env.CUTTLELY_DRAFTS = previous

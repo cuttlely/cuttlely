@@ -1006,7 +1006,8 @@ async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assert
         harnessesService.withProfileLock(() =>
             harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
                 claiming: true,
-                readOnly: true
+                readOnly: true,
+                record: { chatflowId: chatflow.id }
             })
         )
     )

@@ -13,10 +13,22 @@ jest.mock('./apiAccess', () => ({
 
 // The install default team: none unless a test names one.
 const defaultTeams: { id: string }[] = []
+const harnessCanvases: Array<{
+    id: string
+    name: string
+    workspaceId: string
+    type: string
+    category?: string
+    createdDate: Date
+    updatedDate: Date
+}> = []
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
         AppDataSource: {
-            getRepository: () => ({ find: async () => defaultTeams, findOneBy: async () => null })
+            getRepository: (entity: { name?: string }) =>
+                entity?.name === 'ChatFlow'
+                    ? { find: async () => harnessCanvases }
+                    : { find: async () => defaultTeams, findOneBy: async () => null }
         }
     })
 }))
@@ -140,6 +152,7 @@ beforeEach(() => {
     expectedProfiles = []
     takenProfiles = []
     claimedNames = []
+    harnessCanvases.length = 0
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -543,6 +556,24 @@ describe('a reused name never sees an earlier harness data', () => {
         defaultTeams.length = 0
     })
 
+    it('refuses an incomplete create under a same-team canvas name and allows that canvas to update', async () => {
+        write({ name: 'same-team', chatflowId: 'canvas-one', workspaceId: TEAM, specialists: [{ name: 'scout' }] })
+        await expect(
+            harnessesService.assertNameAvailable('same-team', TEAM, {
+                claiming: true,
+                readOnly: true,
+                record: { chatflowId: undefined }
+            })
+        ).rejects.toMatchObject({ statusCode: 409 })
+        await expect(
+            harnessesService.assertNameAvailable('same-team', TEAM, {
+                claiming: true,
+                readOnly: true,
+                record: { chatflowId: 'canvas-one' }
+            })
+        ).resolves.toBeUndefined()
+    })
+
     it('saves of different names hold the shared profile lock from the conflict check through the save', async () => {
         const warm = process.env.CUTTLELY_WARM_HERMES
         process.env.CUTTLELY_WARM_HERMES = 'false'
@@ -691,6 +722,29 @@ describe('orphan cleanup migration', () => {
 })
 
 describe('orphan on the list and when opened', () => {
+    it('adds a fileless harness canvas and leaves a ready harness unchanged', async () => {
+        const now = new Date('2026-11-05T12:00:00.000Z')
+        harnessCanvases.push({
+            id: '33333333-3333-4333-8333-333333333333',
+            name: 'unfinished-team',
+            workspaceId: TEAM,
+            type: 'HARNESS',
+            category: 'drafts',
+            createdDate: now,
+            updatedDate: now
+        })
+        const list = await harnessesService.listHarnesses(TEAM, { includeIncomplete: true })
+        const ready = list.filter((row: { incomplete?: boolean }) => !row.incomplete)
+        expect(ready.length).toBeGreaterThan(0)
+        expect(ready.every((row: { incomplete?: boolean }) => row.incomplete !== true)).toBe(true)
+        expect(list.find((row: { name: string }) => row.name === 'unfinished-team')).toMatchObject({
+            chatflowId: '33333333-3333-4333-8333-333333333333',
+            category: 'drafts',
+            incomplete: true,
+            updatedAt: now
+        })
+    })
+
     it('marks the orphan on the list and keeps it deletable', async () => {
         const list = await harnessesService.listHarnesses(TEAM)
         expect(list.find((row: { name: string }) => row.name === 'navi-harness')).toMatchObject({ orphaned: true })

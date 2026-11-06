@@ -7,6 +7,7 @@ export function harnessDeleteTitle(name) {
 }
 
 export function harnessDeleteBody(harness) {
+    if (harness?.incomplete) return `The incomplete canvas for "${harness.name}" will be deleted. This cannot be undone.`
     const parts = [`"${harness?.name}" and its roster, specialists, playbooks and run history will be deleted.`]
     if (harness?.chatflowId && !harness?.orphaned) parts.push('Its canvas and chat messages go with it.')
     parts.push('This cannot be undone.')
@@ -29,8 +30,14 @@ export function harnessOpenProblem(harness, error) {
 }
 
 export function harnessCardDescription(harness) {
+    if (harness?.incomplete) return 'Incomplete. Open the canvas to finish this team.'
     if (harness?.orphaned) return 'Canvas deleted. This team cannot run.'
     return harness?.description || `${harness?.specialists?.length || 0} specialists`
+}
+
+export function harnessListPath(harness) {
+    if (harness?.incomplete && harness?.chatflowId) return `/harnesscanvas/${encodeURIComponent(harness.chatflowId)}`
+    return `/harnesses/${encodeURIComponent(harness?.name || '')}`
 }
 
 // One icon per distinct model or tool node on the team: the chief's models, then each specialist's
