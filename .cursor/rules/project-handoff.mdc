@@ -10,6 +10,7 @@ Project notes live in `.projects/cuttlely/` and ship with the repository. They a
 - Read `.projects/cuttlely/README.md` and `.projects/cuttlely/STATUS.md` before other work, and continue from that state. A new person runs the `take-over` skill.
 - `.projects/cuttlely/DECISIONS.md` is settled. Do not reinvent it; supersede a decision with a new entry and a reason.
 - Use `.projects/cuttlely/RUNBOOK.md` for commands and gotchas, `MEMORY.md` for conventions, `PLAN.md` for the next tasks, `OPEN.md` for blockers, and `ARTIFACTS.md` for where docs, samples, and fixtures live.
+- Branch from `dev` and open pull requests against `dev`. Only a human founder merges a release pull request into `main`, and every push to `main` deploys. `docs/releases.md` has the release and branch rules.
 - When project state changes, update the affected files in `.projects/cuttlely/` in the same change. To refresh the notes and agent files against git, run the `refresh-project-handoff` skill.
 - Keep the notes public-safe: no secrets, personal names or accounts, private hosts, internal links, machine paths, customer data, or business notes. Link issues instead of restating their status.
 - If `.projects/cuttlely/` is missing from a checkout (a stripped export), follow the root `AGENTS.md`, `README.md`, and `CONTRIBUTING.md`. Do not invent the notes.

@@ -54,7 +54,7 @@ When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A pl
 
 ## Cutting a release
 
-Releases are cut from a maintainer machine with `pnpm release`. The release image is built and pushed by `.github/workflows/release-image.yml` after the release tag is pushed.
+Releases are cut from a maintainer machine with `pnpm release`, run twice with the same version. The first run opens the release pull request into `main`. A human founder merges that pull request; a bot never does. The second run tags the merged commit. The release image is built and pushed by `.github/workflows/release-image.yml` after the release tag is pushed.
 
 You need Node 24, pnpm and the GitHub CLI signed in (`gh auth status`). Docker is needed only for the `--local-image` fallback.
 
@@ -72,25 +72,38 @@ You need Node 24, pnpm and the GitHub CLI signed in (`gh auth status`). Docker i
 1. Run it for real:
 
     ```bash
-    pnpm release                          # push commit and tag, wait for the image, create a draft
-    pnpm release X.Y.Z --publish          # wait for the image and publish the GitHub release
+    pnpm release                          # phase 1: verify, bump, open the release pull request into main
+    # a human founder squash-merges the release pull request
+    pnpm release X.Y.Z                    # phase 2: tag the merged commit, open the dev sync pull request, wait for the image, draft the release
+    pnpm release X.Y.Z --publish          # phase 2 again, publishing the GitHub release
+    git checkout vX.Y.Z                   # npm publish reads this tag
     pnpm release X.Y.Z --npm              # from the tag: publish the npm packages
     ```
 
     npm publish is the last step. It runs only from the annotated tag, after the image and the GitHub release for that version are public. [Publish the npm packages](#publish-the-npm-packages) is the check list.
 
-`pnpm release` refuses unless the working tree is clean (untracked files included), the checkout is on `main`, and `main` matches `origin/main`. It also refuses when the tag or the `release/vX.Y.Z` branch already exists, when the version is not newer than the last tag, or when `CHANGELOG.md` has nothing to release.
+Phase 1 refuses unless the working tree is clean (untracked files included), the checkout is on `main`, and `main` matches `origin/main`. It also refuses when the tag or the `release/vX.Y.Z` branch already exists, when the version is not newer than the last tag, or when `CHANGELOG.md` has nothing to release.
 
-It then runs these steps, in order:
+`pnpm release X.Y.Z` looks up the pull request from `release/vX.Y.Z` into `main` with `gh` and picks the phase. No pull request means phase 1. An open pull request prints its URL and exits without changing anything. A merged pull request means phase 2, which refuses unless every one of these is true:
+
+-   The working tree is clean.
+-   The pull request's merge commit (the squash commit on `main`) is on `origin/main`.
+-   That commit has the same tree as the reviewed pull request head. A different tree means `main` moved after the release branch was cut; cut the release again with a new version.
+-   The four version files at that commit are `X.Y.Z`.
+-   A `vX.Y.Z` tag on `origin` or on this machine, if there is one, already points at that commit. Phase 2 never moves a tag.
+
+The steps, in order:
 
 1. Run the full `pnpm verify`.
 2. Create the branch `release/vX.Y.Z` from `main`.
 3. Set the version in `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`.
 4. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
-5. Commit `Release vX.Y.Z` on `release/vX.Y.Z`, push that branch, and open a pull request into `main` with the changelog section as its body. The command stops there.
-6. **Tag step: tag timing pending decision.** The release does not create the `vX.Y.Z` tag yet; the placeholder is the TAG STEP in `scripts/release.mjs`. Until the timing is decided, a maintainer merges the release pull request, creates the annotated tag `vX.Y.Z` on that commit on `main`, and runs `pnpm release X.Y.Z` from it. That run pushes the tag and continues from step 7. The tag starts `.github/workflows/release-image.yml`.
-7. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
-8. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
+5. Commit `Release vX.Y.Z` on `release/vX.Y.Z`, push that branch, and open a pull request into `main` with the changelog section as its body. Phase 1 stops there.
+6. A human founder reviews the release pull request and squash-merges it once the required checks pass. A bot never merges it. The merge is a push to `main`, so it deploys (see [Branches, merges and deploys](#branches-merges-and-deploys)).
+7. Phase 2, `pnpm release X.Y.Z`, runs the checks above, creates the annotated tag `vX.Y.Z` on the merge commit, and pushes only that tag (`git push origin refs/tags/vX.Y.Z`). It never pushes `main`. A tag already on `origin` at that commit is reused. The `release tags` ruleset on `refs/tags/v*` stops a pushed release tag from being moved or deleted. The tag starts `.github/workflows/release-image.yml`.
+8. Phase 2 opens a pull request from `main` into `dev` titled `Sync main into dev after vX.Y.Z`, so `dev` gets the release commit. It never merges it; a person reviews and merges it. It skips this, and says why, when such a pull request is already open or `dev` already has everything on `main`. A failure to open it is printed and does not stop the release.
+9. The workflow builds and starts a `linux/amd64` image and waits for its ping. Only after that passes, it builds the root `Dockerfile` for `linux/amd64`, pushes `ghcr.io/cuttlely/cuttlely:X.Y.Z`, records provenance and an SBOM, and also pushes `:latest` for a stable version. A pre-release such as `1.1.0-rc.1` never moves `:latest`.
+10. Wait, with a bounded timeout and progress lines, for the release-image workflow run for `vX.Y.Z` at the release commit to pass and for the versioned image to be available in the registry. An existing versioned image alone does not complete this wait. A local `--push` has already completed, so that path does not wait again. Then create a draft GitHub release with the changelog section as its notes, or publish it when `--publish` is present.
 
 The image flags are:
 
@@ -99,12 +112,21 @@ The image flags are:
 -   `--image <name>` and `--skip-image-check` also apply only to the local image path. The workflow publishes only to `ghcr.io/<owner>/<repo>`, so a custom `--image` requires `--push`.
 -   `--publish` publishes the GitHub release after the workflow registry wait or the completed local push instead of leaving a draft.
 -   `--local` implies `--local-image` and stops after the local build and check, so nothing leaves the machine.
+-   In phase 2, `--local-image` builds from the checkout, so check out the merged commit first (`git switch main && git pull`). Phase 2 refuses when `HEAD` is not that commit.
 
 For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or start `workflow_dispatch` with a tag beginning `ci-` or matching `X.Y.Z-rc.N`. A manual rc tag must equal the version in the checked-out root `package.json`; manual `ci-` tags and pushed `ci-dryrun-*` tags do not use that comparison. Every planned image tag must match the Docker tag grammar `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`. A manual run can select another `ref`; an empty value uses the branch where the run starts. Its `platforms` input defaults to `linux/amd64`; choose `linux/amd64,linux/arm64` only when the slower emulated arm64 build is wanted.
 
-A run that stopped part way can be started again with the same version. When the release commit on `main` is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
+A run that stopped part way can be started again with the same version. Phase 2 reuses a tag that already points at the merged commit and a GitHub release that already exists, and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
-The release commit reaches `main` only through the release pull request, so no maintainer needs to bypass the rule that `main` requires pull requests.
+The release commit reaches `main` only through the release pull request, which needs the required checks like any other pull request. No one bypasses a rule to release.
+
+### Branches, merges and deploys
+
+-   Day-to-day work branches off `dev` and lands in `dev` by squash merge. `dev` is the staging branch.
+-   `main` changes only through pull requests: release pull requests and promotes of `dev` into `main`. Only a human founder merges a release pull request.
+-   Promotes of `dev` into `main` are planned to use **Create a merge commit**. That is pending a decision: the repository allows squash merges only today, and that setting has not changed.
+-   Everything else is squash-merged.
+-   Render deploys `main`. `render.yaml` sets `branch: main` and `autoDeployTrigger: commit`, so a push to `main` starts a deploy unless it changes only paths in `buildFilter.ignoredPaths`. Merging a release pull request or a promote is a deploy. The Blueprint does not deploy `dev`.
 
 ## Docs and site sync
 
@@ -132,8 +154,8 @@ No output means they match. A difference means the package was not packed from t
 GitHub Actions does not publish to npm. Publish from the annotated tag, after the image is in the registry and the GitHub release is published:
 
 ```bash
-pnpm release                          # bump and open the release pull request into main
-pnpm release X.Y.Z                    # after the merge, on the tagged main commit: wait for the image, draft the GitHub release
+pnpm release                          # phase 1: bump and open the release pull request into main
+pnpm release X.Y.Z                    # phase 2, after a founder merges it: tag the merged commit, wait for the image, draft the GitHub release
 pnpm release X.Y.Z --publish          # publish after the image workflow completes
 git checkout vX.Y.Z                   # npm publish reads this tag
 pnpm release X.Y.Z --npm              # publish cuttlely and @cuttlely/chat

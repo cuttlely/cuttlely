@@ -22,7 +22,8 @@ pnpm --filter './packages/node-pack-*' build   # verify-test also loads the buil
 -   **Gate (D27).** A docs-only change runs `pnpm --filter @cuttlely/components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
 -   **Keep up with `dev`.** If `dev` moved while your pull request was open, merge `origin/dev` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
 -   **Merge.** Squash-merge into `dev`, pinned to the head you verified: `gh pr merge <n> --squash --match-head-commit <sha>`.
--   **Promote to `main`.** A maintainer promotes `dev` to `main` by hand. Do not merge `dev` into `main` or open a `dev`-to-`main` pull request as part of a change.
+-   **Promote to `main`.** A maintainer promotes `dev` to `main` by hand. Do not merge `dev` into `main` or open a `dev`-to-`main` pull request as part of a change. Promotes are planned to use **Create a merge commit**; that is pending a decision, and the repository allows squash merges only today. A promote is a push to `main`, so it deploys (Render, below).
+-   **`dev` is staging.** Day-to-day work lands on `dev`; only release pull requests and promotes reach `main`.
 -   **Hooks stay on.** Do not use `git push --no-verify`. `CUTTLELY_SKIP_VERIFY=1` and `CUTTLELY_SKIP_HANDOFF_CHECK=1` exist for emergencies and never replace the gate.
 -   **Project notes.** A code change updates `.projects/cuttlely/` in the same pull request. Run the `refresh-project-handoff` skill once before the push.
 -   **One heavy job at a time.** On a shared or small machine, run full verifies, builds, live servers and Docker checks one after another. Parallel runs push the load up until timing tests (`rateLimit`, `clientAbort`, flow versions, promote) time out or Jest workers are killed; those are not code failures. Re-run once on a quiet machine before you debug.
@@ -220,7 +221,7 @@ CUTTLELY_HARNESS_QUEUE=external CUTTLELY_HARNESS_WORKERS=1 bash scripts/start-cu
 
 ## Render
 
-The Blueprint is `render.yaml` (D29). Apply it from the Render Dashboard; this repository never calls the Render API, and `pnpm verify` only checks the file. The full steps, including sign-in, are in `docs/how-to/render.md` and `docs/identity/workos-authkit-setup.md`.
+The Blueprint is `render.yaml` (D29). Apply it from the Render Dashboard; this repository never calls the Render API, and `pnpm verify` only checks the file. It deploys `main`: `branch: main` with `autoDeployTrigger: commit`, so every push to `main` deploys unless it changes only `buildFilter.ignoredPaths`. A merged release pull request and a `dev` to `main` promote are both deploy events. Nothing deploys `dev`. The full steps, including sign-in, are in `docs/how-to/render.md` and `docs/identity/workos-authkit-setup.md`.
 
 -   A `render.yaml` change is server config: run the full `pnpm verify`.
 -   The first sync asks for the `sync: false` identity values and `CUTTLELY_BOOTSTRAP_EMAIL`. For generic OIDC, set `APP_URL` and the secret variable named on the setup card on every server. Never put their values in git, chat or shell history. Do not add model-provider credentials; harness models use in-app credentials.
@@ -255,16 +256,16 @@ The website source is `website/` (Astro 7.4.0 and Starlight, static, with its ow
 
 ## Release
 
-`pnpm release` (D30) runs from a clean `main` that matches `origin/main`. It commits the release on a `release/vX.Y.Z` branch and opens a pull request into `main`. Tag timing pending decision: the release does not create the `vX.Y.Z` tag yet (the TAG STEP placeholder in `scripts/release.mjs`). Steps and flags are in `docs/releases.md` under Cutting a release.
+`pnpm release` (D30, D111) runs in two phases with the same version. Phase 1 runs from a clean `main` that matches `origin/main`, commits the release on a `release/vX.Y.Z` branch and opens a pull request into `main`. A human founder merges that pull request; a bot never does. Phase 2 finds the merged pull request, checks the squash commit has the reviewed tree and the release version, tags it, pushes only the tag, and opens a `main` to `dev` sync pull request that it never merges. Steps and flags are in `docs/releases.md` under Cutting a release.
 
 ```bash
 pnpm release --dry-run                # changes nothing: checks, plan, release notes
-pnpm release                          # verify, bump, commit on release/vX.Y.Z, push it, open a PR into main
-pnpm release X.Y.Z                    # on the tagged main commit: push the tag, wait for the image, draft release
-pnpm release X.Y.Z --publish          # on the tagged main commit: wait for the image, publish the GitHub release
+pnpm release                          # phase 1: verify, bump, commit on release/vX.Y.Z, push it, open a PR into main
+pnpm release X.Y.Z                    # phase 2, after a founder merges the PR: tag the merge commit, push the tag, open the dev sync PR, wait for the image, draft release
+pnpm release X.Y.Z --publish          # phase 2, publishing the GitHub release
 pnpm release X.Y.Z --local-image      # fallback: build and ping the image on this machine
 pnpm release X.Y.Z --local-image --push --publish # fallback: push that build and publish
-pnpm release X.Y.Z --npm              # from the annotated tag: publish the npm packages
+git checkout vX.Y.Z && pnpm release X.Y.Z --npm # from the annotated tag: publish the npm packages
 pnpm release X.Y.Z --npm --dry-run    # the same npm checks and plan, no publish
 ```
 
@@ -275,7 +276,9 @@ pnpm release X.Y.Z --npm --dry-run    # the same npm checks and plan, no publish
 -   A `ci-dryrun-*` tag and a manual workflow run publish only their requested test tag and never move `:latest`. Manual tags must begin `ci-` or match `X.Y.Z-rc.N`. The manual `platforms` input defaults to `linux/amd64`; `linux/amd64,linux/arm64` opts into an arm64 build that is slow under emulation. Apple silicon runs the amd64 image under emulation.
 -   `--local-image` is the fallback that keeps the local Docker build and start-and-ping check. `--push` is accepted only with that flag. `--local` implies it and keeps all work on the machine.
 -   The release commit reaches `main` only through the release pull request, which needs the required checks like any other. The push of `release/vX.Y.Z` uses the hook skips, because the full verify already ran on that tree.
--   Tag timing pending decision. Until it is decided, a maintainer creates the annotated `vX.Y.Z` tag by hand on the merged release commit on `main`, then runs `pnpm release X.Y.Z` to continue.
+-   Phase 2 refuses when the merge commit's tree differs from the reviewed pull request head (cut a new release), when a version file at that commit is not `X.Y.Z`, or when a `vX.Y.Z` tag already points elsewhere. It never moves a tag; the `release tags` ruleset on `refs/tags/v*` also blocks moving or deleting one.
+-   The sync pull request is titled `Sync main into dev after vX.Y.Z`. Phase 2 skips it when one is already open or `dev` already has `main`, and never merges it.
+-   Merging the release pull request deploys (Render above).
 -   After a release, refresh the upgrade fixture (D31): build the release tag in its own checkout, run `node scripts/upgrade-fixture.mjs --server-root <that checkout> --out scripts/fixtures/upgrade`, and ship it as a pull request.
 -   Model list updates need no release: edit `packages/components/models.json` and follow `docs/reference/model-list.md`.
 
