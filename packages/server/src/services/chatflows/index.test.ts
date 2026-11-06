@@ -1472,9 +1472,10 @@ describe('harnesses a saved canvas names', () => {
             ],
             edges: []
         })
+        const waitingName = `ZZ-TEST-waiting-${process.pid}`
         const stored = makeChatflow({
             type: EnumChatflowType.HARNESS,
-            name: `ZZ-TEST-waiting-${process.pid}`,
+            name: waitingName,
             flowData: makePlainFlowData()
         })
         const saved = { ...stored, flowData }
@@ -1487,7 +1488,7 @@ describe('harnesses a saved canvas names', () => {
             })
             expect(result.flowData).toBe(flowData)
             expect(mockRepo.save).toHaveBeenCalledWith(saved)
-            expect(assertNameAvailable).toHaveBeenCalledWith(stored.name, 'ws-1', {
+            expect(assertNameAvailable).toHaveBeenCalledWith(waitingName, 'ws-1', {
                 claiming: true,
                 readOnly: true,
                 record: { chatflowId: stored.id }
