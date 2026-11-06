@@ -38,6 +38,7 @@ async function database() {
     await data.query(`CREATE TABLE apikey (id varchar PRIMARY KEY, apiKey text NOT NULL, apiSecret text NOT NULL, keyName text NOT NULL,
         permissions text NOT NULL DEFAULT '[]', updatedDate datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, workspaceId text NOT NULL,
         ownerUserId varchar, disabledAt datetime, harnesses text)`)
+    await data.query('CREATE TABLE role (id varchar PRIMARY KEY, name varchar, organizationId varchar, permissions text)')
     await data.query('CREATE TABLE chat_flow (id varchar PRIMARY KEY, name text, type text, workspaceId text, apikeyid varchar)')
     return data
 }
@@ -90,6 +91,27 @@ test('new principal denies every resource until an exact grant; many keys share 
         assert.equal(await hasGrant(data, b, resource), true)
         assert.equal(await hasGrant(data, a, { ...resource, resourceType: 'AGENTFLOW' }), false)
         assert.equal(await hasGrant(data, a, { ...resource, resourceId: 'other' }), false)
+    } finally {
+        await data.destroy()
+    }
+})
+test('an already-migrated directory receives grant-all only on the canonical built-in Admin', async () => {
+    const { sqliteMigrations } = serverRequire('./src/database/migrations/sqlite/index.ts')
+    const data = new DataSource({ type: 'sqlite', database: ':memory:', migrations: sqliteMigrations.slice(0, -1) })
+    await data.initialize()
+    try {
+        await data.runMigrations()
+        const adminId = '00000000-0000-4000-8000-000000000004'
+        await data.query('UPDATE role SET permissions = ? WHERE id = ?', ['["apikeys:create"]', adminId])
+        await data.query('INSERT INTO role (id, name, permissions, organizationId) VALUES (?, ?, ?, NULL)', [
+            'custom-admin-fixture',
+            'admin',
+            '["apikeys:create"]'
+        ])
+        await addAccessKeys(data.createQueryRunner())
+        const rows = await data.query('SELECT id, permissions FROM role WHERE id IN (?, ?)', [adminId, 'custom-admin-fixture'])
+        assert.equal(JSON.parse(rows.find((r) => r.id === adminId).permissions).includes('apikeys:grant-all'), true)
+        assert.equal(JSON.parse(rows.find((r) => r.id === 'custom-admin-fixture').permissions).includes('apikeys:grant-all'), false)
     } finally {
         await data.destroy()
     }
@@ -194,10 +216,11 @@ test('management API creates deny-by-default principals, validates grants and pr
     process.env.CUTTLELY_VERSIONS = 'false'
     const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
     let owner = true
+    let actorPermissions = ['apikeys:view', 'apikeys:create', 'apikeys:update', 'apikeys:delete', 'chatflows:view']
     setTeamPermissionLookup({
         accessFor: async () => ({
             owner,
-            permissions: ['apikeys:view', 'apikeys:create', 'apikeys:update', 'apikeys:delete', 'chatflows:view']
+            permissions: actorPermissions
         })
     })
     const appModule = serverRequire('./src/utils/getRunningExpressApp.ts')
@@ -241,7 +264,7 @@ test('management API creates deny-by-default principals, validates grants and pr
             req.user = {
                 id: 'fixture-person',
                 activeWorkspaceId: 'workspace-a',
-                permissions: ['apikeys:view', 'apikeys:create', 'apikeys:update', 'apikeys:delete', 'chatflows:view'],
+                permissions: actorPermissions,
                 features: {}
             }
             next()
@@ -355,6 +378,43 @@ test('management API creates deny-by-default principals, validates grants and pr
         assert.ok(audits.some((event) => String(event.detail).includes(row.id)))
         assert.equal(JSON.stringify(audits).includes(row.apiKey), false)
         assert.equal(JSON.stringify(audits).includes(rotated.body.apiKey), false)
+        const compatibility = { ...parsePolicy({ scopes: ['predict', 'harness:run', 'api:read', 'api:write'] }), legacy: true }
+        for (const id of ['legacy-a', 'legacy-b', 'explicit-key'])
+            await data.getRepository(ApiKey).save({
+                id,
+                apiKey: '',
+                apiSecret: '',
+                keyName: id,
+                workspaceId: 'workspace-a',
+                permissions: [],
+                accessPolicy: id === 'explicit-key' ? parsePolicy({ scopes: ['predict'] }) : compatibility
+            })
+        const { saveLegacyBoundFlow } = serverRequire('./src/services/accessKeys/legacyBinding.ts')
+        const bindingFlow = await saveLegacyBoundFlow(data, { ...flow, id: undefined, name: 'Binding fixture', apikeyid: 'legacy-a' })
+        await data.getRepository(ApiKeyResource).save({ principalId: 'explicit-key', resourceType: 'CHATFLOW', resourceId: bindingFlow.id })
+        const rebound = await saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-b' }, bindingFlow)
+        assert.equal(await hasGrant(data, { id: 'legacy-a' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), false)
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
+        assert.equal(await hasGrant(data, { id: 'explicit-key' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
+        await assert.rejects(saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-a' }, bindingFlow), { statusCode: 409 })
+        // A missing target rolls back both the row change and retirement of B's grant.
+        await assert.rejects(saveLegacyBoundFlow(data, { ...rebound, apikeyid: 'missing-fixture' }, rebound), { statusCode: 403 })
+        assert.equal((await data.getRepository(ChatFlow).findOneByOrFail({ id: rebound.id })).apikeyid, 'legacy-b')
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
+        await data.getRepository(ApiKey).save({
+            id: 'narrow-legacy',
+            apiKey: '',
+            apiSecret: '',
+            keyName: 'Narrow fixture',
+            workspaceId: 'workspace-a',
+            permissions: ['credentials:view'],
+            accessPolicy: compatibility
+        })
+        owner = false
+        actorPermissions = ['apikeys:update', 'apikeys:delete', 'credentials:view']
+        assert.equal((await request(app).post('/apikey/narrow-legacy/rotate').send({ graceSeconds: 0 })).status, 200)
+        assert.equal((await request(app).delete('/apikey/narrow-legacy')).status, 200)
+        assert.equal((await request(app).delete('/apikey/' + row.id)).status, 403)
     } finally {
         dataModule.accessData = accessData
         appModule.getRunningExpressApp = oldApp
@@ -407,7 +467,10 @@ for (const dialect of ['sqlite', 'postgres', 'mysql', 'mariadb'])
             addColumn: async (table, column) => columns.push([table, column]),
             addColumns: async (table, list) => list.forEach((column) => columns.push([table, column])),
             createTable: async (table) => tables.set(table.name, table),
-            query: async (sql, params) => statements.push({ sql, params }),
+            query: async (sql, params) => {
+                statements.push({ sql, params })
+                return []
+            },
             dropColumn: async (table, name) => {
                 const i = columns.findIndex(([t, c]) => t === table && c.name === name)
                 if (i >= 0) columns.splice(i, 1)

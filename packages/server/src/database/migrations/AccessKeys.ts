@@ -71,6 +71,25 @@ export async function addAccessKeys(runner: QueryRunner): Promise<void> {
             ]
         })
     )
+    // Previously-run directory migrations do not reseed roles on upgrade. Only the canonical built-in Admin gains this privilege.
+    const quote = (name: string) => (type === 'mysql' || type === 'mariadb' ? '`' + name + '`' : '"' + name + '"')
+    const admins = await runner.query(
+        `SELECT ${quote('permissions')} FROM ${quote('role')} WHERE ${quote('id')} = '00000000-0000-4000-8000-000000000004' AND ${quote(
+            'organizationId'
+        )} IS NULL AND ${quote('name')} = 'admin'`
+    )
+    for (const admin of admins) {
+        const permissions: unknown = typeof admin.permissions === 'string' ? JSON.parse(admin.permissions) : admin.permissions
+        if (!Array.isArray(permissions) || !permissions.every((p) => typeof p === 'string'))
+            throw new Error('Invalid built-in Admin permissions during access-key migration.')
+        const next = JSON.stringify([...new Set([...permissions, 'apikeys:grant-all'])].sort())
+        await runner.query(
+            `UPDATE ${quote('role')} SET ${quote('permissions')} = ${type === 'postgres' ? '$1' : '?'} WHERE ${quote(
+                'id'
+            )} = '00000000-0000-4000-8000-000000000004' AND ${quote('organizationId')} IS NULL`,
+            [next]
+        )
+    }
     const keys = await runner.manager.createQueryBuilder().select('*').from('apikey', 'k').getRawMany()
     const flows = await runner.manager.createQueryBuilder().select('*').from('chat_flow', 'f').getRawMany()
     const { grants, report } = planLegacyAccess(keys, flows)

@@ -118,6 +118,15 @@ it('accepts many keys for the same resource and refuses a different resource or 
         await expect(authorizeFlowKey(req(id), { ...flow, type: 'AGENTFLOW' })).rejects.toMatchObject({ statusCode: 403 })
     }
 })
+it('never lets a stale migration grant override a replacement legacy binding', async () => {
+    mockKeys.set('fixture-token', {
+        ...key({ scopes: ['predict'] }),
+        accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+    })
+    grant()
+    await expect(authorizeFlowKey(req(), { ...flow, apikeyid: 'replacement-key' })).rejects.toMatchObject({ statusCode: 401 })
+    expect(mockConsume).not.toHaveBeenCalled()
+})
 it('checks expiry, revoke and the owner’s current workspace membership and permissions', async () => {
     grant()
     const valid = key({ scopes: ['predict'] })

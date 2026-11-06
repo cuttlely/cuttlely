@@ -1400,7 +1400,8 @@
                 "packages/server/src/database/migrations/mysql/1801300000000-AccessKeys.ts",
                 "packages/server/src/database/migrations/mariadb/1801300000000-AccessKeys.ts",
                 "packages/server/src/services/accessKeys/credentials.ts",
-                "packages/server/src/services/accessKeys/managementBoundary.ts"
+                "packages/server/src/services/accessKeys/managementBoundary.ts",
+                "packages/server/src/services/accessKeys/legacyBinding.ts"
             ]
         }
     ]

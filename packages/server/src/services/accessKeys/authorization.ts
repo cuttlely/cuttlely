@@ -1,4 +1,3 @@
-import { checkChatflowOrigin } from '../../utils/domainValidation'
 import { resolveHarnessFlow } from './resources'
 import { accessRollout, compareLegacy } from './rollout'
 import { AccessKeyPolicyError, FlowOriginPolicyError } from './errors'
@@ -132,7 +131,7 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
     if (
         presenting.accessPolicy?.legacy &&
         (presenting.workspaceId !== flow.workspaceId ||
-            (flow.apikeyid && !(await hasGrant(await accessData(), presenting, flowResource(flow)))))
+            (flow.apikeyid && (flow.apikeyid !== presenting.id || !(await hasGrant(await accessData(), presenting, flowResource(flow))))))
     )
         throw new AppError(401, 'Unauthorized')
     const operation = flowOperation(req)
@@ -168,6 +167,7 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
         await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
     }
     if (operation === 'predict') {
+        const { checkChatflowOrigin } = await import('../../utils/domainValidation')
         const origin = checkChatflowOrigin(flow.chatbotConfig, req.headers.origin)
         if (!origin.allowed) throw new FlowOriginPolicyError(origin.error)
     }

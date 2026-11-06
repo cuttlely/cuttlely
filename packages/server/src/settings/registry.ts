@@ -1956,6 +1956,11 @@ export interface KeptOutGroup {
 
 export const KEPT_OUT: KeptOutGroup[] = [
     {
+        group: 'Inbound access rollout',
+        keys: ['INBOUND_ACCESS_V2', 'CUTTLELY_API_KEY_INSTANCES'],
+        why: 'Authorization rollout and replica admission must be configured by the deployment operator, outside browser settings.'
+    },
+    {
         group: 'Encryption and sign-in secrets',
         keys: [
             'FLOWISE_SECRETKEY_OVERWRITE',

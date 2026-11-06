@@ -1,7 +1,5 @@
 import { ApiKey } from '../../database/entities/ApiKey'
-import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
 import { principalActive } from '../../services/accessKeys/credentials'
-import { flowResource } from '../../services/accessKeys/authorization'
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { QueryRunner } from 'typeorm'
@@ -172,12 +170,6 @@ async function legacyBindingTarget(req: Request, keyId: unknown, previousId?: st
         throw new AppError(403, 'Choose an active legacy key in this workspace, or enable scoped access-key enforcement.')
     return key.id
 }
-async function grantLegacyBinding(keyId: string | undefined, flow: ChatFlow): Promise<void> {
-    if (keyId)
-        await getRunningExpressApp()
-            .AppDataSource.getRepository(ApiKeyResource)
-            .upsert({ principalId: keyId, ...flowResource(flow) }, ['principalId', 'resourceType', 'resourceId'])
-}
 
 const saveChatflow = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -202,7 +194,7 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
         const newChatflowCount = 1
         await checkUsageLimit('flows', subscriptionId, getRunningExpressApp().usageCacheManager, existingChatflowCount + newChatflowCount)
 
-        const boundKey = await legacyBindingTarget(req, body.apikeyid)
+        await legacyBindingTarget(req, body.apikeyid)
         const newChatFlow = new ChatFlow()
         Object.assign(newChatFlow, stripProtectedFields(body))
 
@@ -220,7 +212,6 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
             }
         )
 
-        await grantLegacyBinding(boundKey, apiResponse)
         return res.json(apiResponse)
     } catch (error) {
         next(error)
@@ -247,7 +238,7 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''
         const body = { ...req.body }
         delete body.retainIncompleteHarness
-        const boundKey = await legacyBindingTarget(req, body.apikeyid, chatflow.apikeyid)
+        await legacyBindingTarget(req, body.apikeyid, chatflow.apikeyid)
         const updateChatFlow = new ChatFlow()
         Object.assign(updateChatFlow, stripProtectedFields(body))
 
@@ -259,7 +250,6 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
             actor: actorFromUser(req.user),
             caller: await harnessCallerFor(req)
         })
-        await grantLegacyBinding(boundKey, apiResponse)
         return res.json(apiResponse)
     } catch (error) {
         next(error)

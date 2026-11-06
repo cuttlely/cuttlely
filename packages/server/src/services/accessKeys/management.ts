@@ -15,7 +15,7 @@ import { accessData } from './data'
 import apikeyService, { validatePermissions } from '../apikey'
 import { referencedHarnessNames } from '../harnesses/apiAccess'
 import { mintCredential, rotateCredential } from './credentials'
-import { expiry, OPERATIONS, parseGrants, parsePolicy } from './policy'
+import { expiry, OPERATIONS, operationPermissions, parseGrants, parsePolicy } from './policy'
 import { serial } from './limiter'
 
 const action =
@@ -37,9 +37,24 @@ export async function target(req: Request): Promise<ApiKey> {
     if (row.accessPolicy?.allResources && !permitted) throw new AppError(403, 'Managing a workspace-wide grant requires apikeys:grant-all.')
     for (const permission of row.permissions)
         if (!(await hasAnyPermission(req, permission))) throw new AppError(403, 'Access key exceeds your current permissions.')
-    for (const operation of row.accessPolicy?.scopes || [])
-        if (!(await hasAnyPermission(req, ...OPERATIONS[operation])))
-            throw new AppError(403, 'Access key operations exceed your current permissions.')
+    if (row.accessPolicy?.legacy) {
+        // Compatibility scopes include operations that are not independently usable. Check only actual resource authority.
+        const grants = await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: row.id })
+        for (const grant of grants) {
+            const resource = parseGrants([grant])[0]
+            for (const operation of row.accessPolicy.scopes) {
+                if (operation.startsWith('api:')) continue // endpoint-specific RBAC is already checked above
+                if (operation.startsWith('harness:') && grant.resourceType !== 'HARNESS') continue
+                if (operation.startsWith('dashflow:') !== (grant.resourceType === 'DASHFLOW')) continue
+                if (!(await hasAnyPermission(req, ...operationPermissions(operation, resource))))
+                    throw new AppError(403, 'Access key operations exceed your current permissions.')
+            }
+        }
+    } else {
+        for (const operation of row.accessPolicy?.scopes || [])
+            if (!(await hasAnyPermission(req, ...OPERATIONS[operation])))
+                throw new AppError(403, 'Access key operations exceed your current permissions.')
+    }
     return row
 }
 async function choices(req: Request) {

@@ -1,3 +1,4 @@
+import { saveLegacyBoundFlow } from '../accessKeys/legacyBinding'
 import { randomBytes } from 'crypto'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
@@ -463,7 +464,9 @@ const saveChatflow = async (
         const incomingFlowData = newChatFlow.flowData
         newChatFlow.flowData = JSON.stringify({})
         const chatflow = appServer.AppDataSource.getRepository(ChatFlow).create(newChatFlow)
-        const step1Results = await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        const step1Results = newChatFlow.apikeyid
+            ? await saveLegacyBoundFlow(appServer.AppDataSource, chatflow)
+            : await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
 
         // step 2 - convert base64 to file paths and update the chatflow
         step1Results.flowData = stampNodePack(
@@ -473,7 +476,9 @@ const saveChatflow = async (
         dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(step1Results)
     } else {
         const chatflow = appServer.AppDataSource.getRepository(ChatFlow).create(newChatFlow)
-        dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        dbResponse = newChatFlow.apikeyid
+            ? await saveLegacyBoundFlow(appServer.AppDataSource, chatflow)
+            : await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
     }
     // A taken harness name is refused before this insert. If the sync still fails, the new row is removed
     // before history or telemetry, so the caller does not keep a canvas for another team's harness.
@@ -810,6 +815,7 @@ const updateChatflow = async (
     // on the canvas that was checked. A type change is conditional on there being no draft.
     const canvasOnly = options.expectedFlowData !== undefined && !typeChanging && updateChatFlow.name == null
     const conditional = options.expectedFlowData !== undefined || typeChanging
+    if (rebinding && conditional) throw new AppError(400, 'Change legacy bindings separately from canvas restoration or type changes.')
     // Document store usage is updated before the save on both paths, so a later save's update always lands last,
     // as between two ordinary saves.
     await _checkAndUpdateDocumentStoreUsage(newDbChatflow, workspaceId)
@@ -826,7 +832,9 @@ const updateChatflow = async (
                 options.versionRecord?.kind === 'publish' ? PUBLISH_CONFLICT : SAVE_CONFLICT
             )
         } else {
-            dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(newDbChatflow)
+            dbResponse = rebinding
+                ? await saveLegacyBoundFlow(appServer.AppDataSource, newDbChatflow, previousRow)
+                : await appServer.AppDataSource.getRepository(ChatFlow).save(newDbChatflow)
         }
     } catch (error) {
         if (conditional) await restoreDocumentStoreUsage(chatflow.id, workspaceId)
@@ -837,9 +845,11 @@ const updateChatflow = async (
         dbResponse,
         options.caller,
         async () => {
-            await inTransaction(async (manager) => {
-                await manager.getRepository(ChatFlow).save(previousRow)
-            })
+            if (rebinding) await saveLegacyBoundFlow(appServer.AppDataSource, previousRow, dbResponse)
+            else
+                await inTransaction(async (manager) => {
+                    await manager.getRepository(ChatFlow).save(previousRow)
+                })
             await restoreDocumentStoreUsage(chatflow.id, workspaceId)
         },
         skipHarnessSync
