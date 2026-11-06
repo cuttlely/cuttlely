@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.6.1] - Unreleased
+
+### Fixed
+
+-   Dashflows BETA (Experimental, default off): evidence panel, cached date ranges, and public reports polish for the demo path.
+
 ## [1.6.0] - 2026-11-06
 
 ### Added
