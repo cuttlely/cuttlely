@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Dependency update for an open Dependabot alert in the bundled agent runtime: `hermes/uv.lock` moves oauthlib to 4.0.1.
+
 ## [1.6.1] - 2026-11-06
 
 ### Fixed
