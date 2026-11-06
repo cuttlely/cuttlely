@@ -299,11 +299,20 @@ check(
     adaptiveEvidenceTests.stdout + adaptiveEvidenceTests.stderr
 )
 
-const capacityWaitTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/capacity-wait.test.mjs')], {
-    encoding: 'utf8',
-    timeout: 60000
-})
-check('opt-in admission capacity wait tests', capacityWaitTests.status === 0, capacityWaitTests.stdout + capacityWaitTests.stderr)
+const capacityWaitTests = spawnSync(
+    process.execPath,
+    [
+        '--test',
+        path.join(root, 'packages/harness/capacity-wait.test.mjs'),
+        path.join(root, 'packages/harness/client.test.mjs'),
+        path.join(root, 'packages/harness/run-budget.test.mjs')
+    ],
+    {
+        encoding: 'utf8',
+        timeout: 60000
+    }
+)
+check('runtime admission and cleanup tests', capacityWaitTests.status === 0, capacityWaitTests.stdout + capacityWaitTests.stderr)
 
 saveHarness(
     {
