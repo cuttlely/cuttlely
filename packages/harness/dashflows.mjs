@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { dataRoot } from './paths.mjs'
+import { reviewedAggregate } from './dashflow-source-contracts.mjs'
 import { parsePinnedQueries, validPinnedQueryName } from './pinned-names.mjs'
 import { compilePinned, pinnedStatementLimit, validateArgs } from './runtime/pinned-query.mjs'
 
@@ -182,7 +183,11 @@ export function validateSnapshot(raw, pin, card) {
     const limit = pinnedStatementLimit(compiled.runText)
     // A one-row aggregate envelope may declare its own completeness. This is an
     // explicit source contract, not a claim that every LIMIT 1 query is complete.
-    const aggregate = limit === 1 && result.rows.length === 1 && card.completePath && sourcePath(result.rows[0], card.completePath) === true
+    const aggregate =
+        limit === 1 &&
+        result.rows.length === 1 &&
+        ((card.completePath && sourcePath(result.rows[0], card.completePath) === true) ||
+            reviewedAggregate(pin.name, compiled.statementHash, result.rows[0], card.rowsPath))
     const selectedRows = card.rowsPath && result.rows.length === 1 ? sourcePath(result.rows[0], card.rowsPath) : null
     const selectedCount = card.selectionCountPath ? sourcePath(result.rows[0], card.selectionCountPath) : null
     const selectionTotal = card.selectionTotalPath ? sourcePath(result.rows[0], card.selectionTotalPath) : null

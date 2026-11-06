@@ -10,7 +10,7 @@ import client from '@/api/client'
 import harnessesApi from '@/api/harnesses'
 import { useAuth } from '@/hooks/useAuth'
 import './dashflows.css'
-import { supremeRiskTemplate } from './supreme'
+import { supremeCommandTemplate } from './supreme'
 import AccountReport, { accountIdentity } from './AccountReport'
 import Chart from './Charts'
 
@@ -76,7 +76,16 @@ export function DashboardCard({ data }) {
         <article className={`df-card df-card-${card.kind}`}>
             <div className='df-card-top'>
                 <span>
-                    <IconChartBar size={16} /> {card.kind === 'metric' ? 'KEY METRIC' : card.kind === 'bar' ? 'BREAKDOWN' : 'SOURCE TABLE'}
+                    <IconChartBar size={16} />{' '}
+                    {
+                        {
+                            metric: 'KEY METRIC',
+                            bar: 'BREAKDOWN',
+                            trend: 'TRAJECTORY',
+                            donut: 'COMPOSITION',
+                            table: 'ACCOUNT INTELLIGENCE'
+                        }[card.kind]
+                    }
                 </span>
                 {edit && (
                     <button className='nodrag df-edit' aria-label={`Filters and settings for ${card.title}`} onClick={() => edit(card)}>
@@ -102,7 +111,14 @@ export function DashboardCard({ data }) {
                 <div className='df-await'>No rows in this scope</div>
             ) : card.kind === 'metric' ? (
                 <div className='df-value'>
-                    {cell(rows[0][card.valueField])}
+                    <span title={cell(rows[0][card.valueField])}>
+                        {Number.isFinite(Number(rows[0][card.valueField])) && rows[0][card.valueField] !== null
+                            ? new Intl.NumberFormat('en-US', {
+                                  notation: Math.abs(Number(rows[0][card.valueField])) >= 1000000 ? 'compact' : 'standard',
+                                  maximumFractionDigits: 2
+                              }).format(Number(rows[0][card.valueField]))
+                            : cell(rows[0][card.valueField])}
+                    </span>
                     <small>{card.valueField}</small>
                 </div>
             ) : card.kind === 'table' ? (
@@ -133,6 +149,12 @@ export default function DashFlows({ published = false }) {
     const [harnesses, setHarnesses] = useState([])
     const [sources, setSources] = useState([])
     const [busy, setBusy] = useState(false)
+    const [building, setBuilding] = useState(false)
+    const [pipelineFilters, setPipelineFilters] = useState({
+        region: 'ALL',
+        start_date: new Date().toISOString().slice(0, 10),
+        end_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+    })
     const [dirty, setDirty] = useState(false)
     const [error, setError] = useState('')
     const [notice, setNotice] = useState('')
@@ -263,9 +285,10 @@ export default function DashFlows({ published = false }) {
     }
     const source = sources.find((s) => s.key === editor?.source)
     const supremeReady = definition.harness === 'honeybadger-supreme' && sources.some((s) => s.name === 'pq_quarter_account_risk_patterns')
+    const pipelineSource = sources.find((s) => s.name === 'pq_pipeline_window' && definition.cards.some((c) => c.source === s.key))
     const shareUrl = id ? `${window.location.origin}/dashboards/${id}` : ''
     return (
-        <main className='df-root'>
+        <main className={`df-root ${!building ? 'df-command' : ''}`}>
             <div className='df-eyebrow'>
                 <span className='df-dot' /> {definition.harness === 'honeybadger-supreme' ? 'SUPREME / DASH FLOWS' : 'DASH FLOWS'}{' '}
                 <span className='df-beta'>SKUNKWORKS / MVP</span>
@@ -277,11 +300,12 @@ export default function DashFlows({ published = false }) {
                         {published
                             ? 'A published snapshot. Every number has a source.'
                             : definition.harness === 'honeybadger-supreme'
-                            ? 'Renewal risk, made visible. Every account, one click from the evidence.'
+                            ? 'See the business. Find the risk. Make the next move.'
                             : 'Pin the truth. Shape the story. Share the view.'}
                     </p>
                 </div>
                 <div className='df-actions'>
+                    {editable && <Button onClick={() => setBuilding(!building)}>{building ? 'View dashboard' : 'Edit canvas'}</Button>}
                     {!published && (
                         <Button
                             disabled={!id || dirty || busy || !definition.cards.length}
@@ -322,16 +346,16 @@ export default function DashFlows({ published = false }) {
                 <Alert
                     severity='info'
                     action={
-                        <Button disabled={busy} onClick={() => change(supremeRiskTemplate(sources))}>
-                            Use Supreme risk view
+                        <Button disabled={busy} onClick={() => change(supremeCommandTemplate(sources))}>
+                            Use Supreme command center
                         </Button>
                     }
                 >
-                    Start with Supreme’s current-quarter renewal risk: cohort metrics, recorded-driver categories and a clickable priority
-                    renewal watchlist.
+                    Start with Supreme’s GTM command center: pipeline, bookings, retention, forecast churn, risk signals and actionable
+                    accounts.
                 </Alert>
             )}
-            <section className='df-toolbar'>
+            <section className={`df-toolbar ${!building && id ? 'df-toolbar-collapsed' : ''}`}>
                 {published ? (
                     <span className='df-tag'>Team access · published {date(record?.publishedAt)}</span>
                 ) : (
@@ -388,115 +412,198 @@ export default function DashFlows({ published = false }) {
                     </>
                 )}
             </section>
-            {definition.harness === 'honeybadger-supreme' && record?.snapshot && (
-                <div className='df-supreme-context'>
-                    <span>PINNED SOURCE</span>
-                    <strong>Current-quarter renewal risk</strong>
-                    <span>
-                        {cell(record.snapshot.cards[0]?.rows[0]?.window_start)} →{' '}
-                        {cell(record.snapshot.cards[0]?.rows[0]?.window_end_exclusive)} UTC · end excluded
-                    </span>
-                    <span>Source as of {cell(record.snapshot.cards[0]?.rows[0]?.source_as_of)}</span>
+            {!building && editable && pipelineSource && (
+                <div className='df-window-filter'>
+                    <div>
+                        <strong>Pipeline lens</strong>
+                        <small>Filters open-pipeline cards only · YTD and renewal cohorts retain their own periods</small>
+                    </div>
+                    <label>
+                        Region
+                        <select
+                            value={pipelineFilters.region}
+                            onChange={(e) => setPipelineFilters({ ...pipelineFilters, region: e.target.value })}
+                        >
+                            {['ALL', 'AMER', 'EMEA', 'APJ'].map((region) => (
+                                <option key={region}>{region}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label>
+                        From
+                        <input
+                            type='date'
+                            value={pipelineFilters.start_date}
+                            onChange={(e) => setPipelineFilters({ ...pipelineFilters, start_date: e.target.value })}
+                        />
+                    </label>
+                    <label>
+                        Until (excluded)
+                        <input
+                            type='date'
+                            value={pipelineFilters.end_date}
+                            onChange={(e) => setPipelineFilters({ ...pipelineFilters, end_date: e.target.value })}
+                        />
+                    </label>
+                    <Button
+                        disabled={busy || !pipelineFilters.start_date || pipelineFilters.end_date <= pipelineFilters.start_date}
+                        onClick={() => {
+                            change({
+                                cards: definition.cards.map((card) =>
+                                    card.source === pipelineSource.key
+                                        ? {
+                                              ...card,
+                                              params: { ...card.params, ...pipelineFilters },
+                                              scope: `${pipelineFilters.region} · ${pipelineFilters.start_date} to ${pipelineFilters.end_date} excluded · open/non-omitted close-date cohort; unweighted source values`
+                                          }
+                                        : card
+                                )
+                            })
+                            if (record) setRecord({ ...record, snapshot: null })
+                            setNotice('Pipeline filters applied to all pipeline cards. Save and refresh to materialize this scope.')
+                        }}
+                    >
+                        Apply lens
+                    </Button>
                 </div>
             )}
-            <div className='df-workspace'>
-                {editable && (
-                    <aside className='df-palette'>
-                        <h2>BUILD YOUR VIEW</h2>
-                        <p>Drag a card onto the canvas, or click to add.</p>
-                        {[
-                            ['metric', '01', 'Key metric', 'One exact source value'],
-                            ['bar', '02', 'Bar chart', 'Compare returned values'],
-                            ['trend', '03', 'Trend line', 'Follow source observations'],
-                            ['donut', '04', 'Composition', 'Disjoint source categories'],
-                            ['table', '05', 'Evidence table', 'Sort and explore accounts']
-                        ].map(([kind, num, title, caption]) => (
-                            <button
-                                key={kind}
-                                draggable={!!sources.length && !busy}
-                                disabled={!sources.length || busy || definition.cards.length >= 12}
-                                onDragStart={(e) => e.dataTransfer.setData('application/dashflow', kind)}
-                                onClick={() => add(kind)}
+            {!building && nodes.length > 0 && (
+                <section className='df-command-board'>
+                    <div className='df-section-heading'>
+                        <h2>Executive snapshot</h2>
+                        <span>Stored results · {date(record?.snapshot?.refreshedAt || record?.snapshot?.cards[0]?.fetchedAt)}</span>
+                    </div>
+                    <div className='df-kpi-grid'>
+                        {nodes
+                            .filter((n) => n.data.card.kind === 'metric')
+                            .map((n) => (
+                                <DashboardCard key={n.id} data={n.data} />
+                            ))}
+                    </div>
+                    <div className='df-section-heading'>
+                        <h2>Business pulse</h2>
+                        <span>Hover to explore · click for evidence</span>
+                    </div>
+                    <div className='df-chart-grid'>
+                        {nodes
+                            .filter((n) => !['metric', 'table'].includes(n.data.card.kind))
+                            .map((n) => (
+                                <DashboardCard key={n.id} data={n.data} />
+                            ))}
+                    </div>
+                    <div className='df-section-heading'>
+                        <h2>Where to act</h2>
+                        <span>Click an account → inspect evidence → run full health</span>
+                    </div>
+                    <div className='df-action-grid'>
+                        {nodes
+                            .filter((n) => n.data.card.kind === 'table')
+                            .map((n) => (
+                                <DashboardCard key={n.id} data={n.data} />
+                            ))}
+                    </div>
+                </section>
+            )}
+            {(building || !nodes.length) && (
+                <div className='df-workspace'>
+                    {editable && (
+                        <aside className='df-palette'>
+                            <h2>BUILD YOUR VIEW</h2>
+                            <p>Drag a card onto the canvas, or click to add.</p>
+                            {[
+                                ['metric', '01', 'Key metric', 'One exact source value'],
+                                ['bar', '02', 'Bar chart', 'Compare returned values'],
+                                ['trend', '03', 'Trend line', 'Follow source observations'],
+                                ['donut', '04', 'Composition', 'Disjoint source categories'],
+                                ['table', '05', 'Evidence table', 'Sort and explore accounts']
+                            ].map(([kind, num, title, caption]) => (
+                                <button
+                                    key={kind}
+                                    draggable={!!sources.length && !busy}
+                                    disabled={!sources.length || busy || definition.cards.length >= 12}
+                                    onDragStart={(e) => e.dataTransfer.setData('application/dashflow', kind)}
+                                    onClick={() => add(kind)}
+                                >
+                                    <span>
+                                        {num}
+                                        <IconPlus size={15} />
+                                    </span>
+                                    <strong>{title}</strong>
+                                    <small>{caption}</small>
+                                </button>
+                            ))}
+                            <div className='df-source-note'>
+                                <IconShieldCheck size={20} />
+                                <strong>Grounded by design</strong>
+                                <p>Only saved, tested PostgreSQL pins. Exact inputs. No model-made numbers.</p>
+                            </div>
+                            {definition.harness && !sources.length && (
+                                <p className='df-help'>
+                                    No eligible pins found. Test and publish a PostgreSQL query in this harness first. Secure parameters are
+                                    excluded.
+                                </p>
+                            )}
+                        </aside>
+                    )}
+                    <div
+                        className={`df-canvas ${published && compact ? 'df-stacked' : ''}`}
+                        onDragOver={(e) => {
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                        }}
+                        onDrop={(e) => {
+                            e.preventDefault()
+                            const kind = e.dataTransfer.getData('application/dashflow')
+                            if (['metric', 'bar', 'trend', 'donut', 'table'].includes(kind))
+                                add(kind, flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY }))
+                        }}
+                    >
+                        {published && compact ? (
+                            nodes.map((node) => <DashboardCard key={node.id} data={node.data} />)
+                        ) : (
+                            <ReactFlow
+                                nodes={nodes}
+                                edges={[]}
+                                nodeTypes={nodeTypes}
+                                onInit={setFlow}
+                                fitView
+                                minZoom={0.25}
+                                maxZoom={1.5}
+                                nodesConnectable={false}
+                                deleteKeyCode={null}
+                                onNodeDragStop={(_e, node) =>
+                                    change({
+                                        cards: definition.cards.map((c) =>
+                                            c.id === node.id
+                                                ? {
+                                                      ...c,
+                                                      x: Math.max(0, Math.min(5000, node.position.x)),
+                                                      y: Math.max(0, Math.min(5000, node.position.y))
+                                                  }
+                                                : c
+                                        )
+                                    })
+                                }
                             >
-                                <span>
-                                    {num}
-                                    <IconPlus size={15} />
-                                </span>
-                                <strong>{title}</strong>
-                                <small>{caption}</small>
-                            </button>
-                        ))}
-                        <div className='df-source-note'>
-                            <IconShieldCheck size={20} />
-                            <strong>Grounded by design</strong>
-                            <p>Only saved, tested PostgreSQL pins. Exact inputs. No model-made numbers.</p>
-                        </div>
-                        {definition.harness && !sources.length && (
-                            <p className='df-help'>
-                                No eligible pins found. Test and publish a PostgreSQL query in this harness first. Secure parameters are
-                                excluded.
-                            </p>
+                                <Background color='#364446' gap={24} size={1} />
+                                <Controls showInteractive={false} />
+                            </ReactFlow>
                         )}
-                    </aside>
-                )}
-                <div
-                    className={`df-canvas ${published && compact ? 'df-stacked' : ''}`}
-                    onDragOver={(e) => {
-                        e.preventDefault()
-                        e.dataTransfer.dropEffect = 'move'
-                    }}
-                    onDrop={(e) => {
-                        e.preventDefault()
-                        const kind = e.dataTransfer.getData('application/dashflow')
-                        if (['metric', 'bar', 'trend', 'donut', 'table'].includes(kind))
-                            add(kind, flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY }))
-                    }}
-                >
-                    {published && compact ? (
-                        nodes.map((node) => <DashboardCard key={node.id} data={node.data} />)
-                    ) : (
-                        <ReactFlow
-                            nodes={nodes}
-                            edges={[]}
-                            nodeTypes={nodeTypes}
-                            onInit={setFlow}
-                            fitView
-                            minZoom={0.25}
-                            maxZoom={1.5}
-                            nodesConnectable={false}
-                            deleteKeyCode={null}
-                            onNodeDragStop={(_e, node) =>
-                                change({
-                                    cards: definition.cards.map((c) =>
-                                        c.id === node.id
-                                            ? {
-                                                  ...c,
-                                                  x: Math.max(0, Math.min(5000, node.position.x)),
-                                                  y: Math.max(0, Math.min(5000, node.position.y))
-                                              }
-                                            : c
-                                    )
-                                })
-                            }
-                        >
-                            <Background color='#364446' gap={24} size={1} />
-                            <Controls showInteractive={false} />
-                        </ReactFlow>
-                    )}
-                    {!nodes.length && (
-                        <div className='df-empty'>
-                            <IconLayoutDashboard size={42} stroke={1.2} />
-                            <h2>A clear view starts here.</h2>
-                            <p>
-                                {definition.harness
-                                    ? 'Add a card. Bind a tested source. Bring your data into focus.'
-                                    : 'Select a harness to discover its tested data sources.'}
-                            </p>
-                            <span>METRICS · BREAKDOWNS · EVIDENCE</span>
-                        </div>
-                    )}
+                        {!nodes.length && (
+                            <div className='df-empty'>
+                                <IconLayoutDashboard size={42} stroke={1.2} />
+                                <h2>A clear view starts here.</h2>
+                                <p>
+                                    {definition.harness
+                                        ? 'Add a card. Bind a tested source. Bring your data into focus.'
+                                        : 'Select a harness to discover its tested data sources.'}
+                                </p>
+                                <span>METRICS · BREAKDOWNS · EVIDENCE</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
             <footer className='df-footer'>
                 <span>
                     <span className='df-dot' />{' '}

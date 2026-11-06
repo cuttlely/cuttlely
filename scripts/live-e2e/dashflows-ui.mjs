@@ -3,7 +3,7 @@
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
-import { supremeRiskTemplate } from '../../packages/ui/src/views/dashflows/supreme.js'
+import { supremeCommandTemplate } from '../../packages/ui/src/views/dashflows/supreme.js'
 const output = process.env.DASHFLOWS_SHOTS || '/tmp/dashflows-showcase'
 fs.mkdirSync(output, { recursive: true })
 const browser = await chromium.launch({
@@ -37,7 +37,19 @@ const sources = [
         ]
     }
 ]
-const definition = { ...supremeRiskTemplate(sources), harness: 'honeybadger-supreme', intervalSeconds: 3600 }
+for (const name of ['pq_pipeline_window', 'pq_sales_ytd', 'pq_realized_retention', 'pq_forecast_churn_year', 'pq_acv_quarter_series'])
+    sources.push({
+        key: name,
+        name,
+        hash: 'ef'.repeat(32),
+        specialist: 'warehouse_sql_r25',
+        columns: [],
+        params: [
+            { name: 'start_date', type: 'date' },
+            { name: 'end_date', type: 'date' }
+        ]
+    })
+const definition = { ...supremeCommandTemplate(sources), harness: 'honeybadger-supreme', intervalSeconds: 3600 }
 const labels = [
     'Low consumption mentioned',
     'RACV composite flagged red',
@@ -71,7 +83,41 @@ const snapshot = {
     refreshedAt: '2026-11-06T03:00:00Z',
     cards: definition.cards.map((card) => ({
         cardId: card.id,
-        rows: card.kind === 'metric' ? [cohort] : card.kind === 'bar' ? patterns : accounts,
+        rows:
+            card.kind === 'metric'
+                ? [
+                      {
+                          ...cohort,
+                          total_known_deal_acv: '48624000',
+                          total_acv: '71839351',
+                          deal_count: 1285,
+                          retention_pct: '77.96',
+                          forecast_churn: '16200000',
+                          unknown_acv_count: 18,
+                          gross_racv: '52410800'
+                      }
+                  ]
+                : card.kind === 'donut'
+                ? [
+                      { opportunity_type: 'Renewal', deal_count: 670 },
+                      { opportunity_type: 'New business', deal_count: 380 },
+                      { opportunity_type: 'Expansion', deal_count: 235 }
+                  ]
+                : card.kind === 'trend'
+                ? [18.4, 24.6, 21.8, 31.2, 27.5, 38.1, 33.6, 22.4].map((v, i) => ({
+                      quarter_start: `${2025 + Math.floor(i / 4)} Q${(i % 4) + 1}`,
+                      total_acv: String(v * 1000000)
+                  }))
+                : card.title === 'Recorded pipeline risk'
+                ? [
+                      { recorded_risk: 'High risk', deal_count: 265 },
+                      { recorded_risk: 'Moderate risk', deal_count: 412 },
+                      { recorded_risk: 'Slight risk', deal_count: 328 },
+                      { recorded_risk: 'Unknown', deal_count: 280 }
+                  ]
+                : card.kind === 'bar'
+                ? patterns
+                : accounts,
         source: {
             harness: definition.harness,
             pin: card.kind === 'table' ? sources[1].name : sources[0].name,
@@ -88,6 +134,7 @@ const snapshot = {
 }
 const record = { id: 'demo', revision: 1, definition, snapshot, published: true, publishedAt: '2026-11-06T03:00:00Z' }
 let reports = 0
+let refreshes = 0
 await page.addInitScript(() => {
     localStorage.setItem('isAuthenticated', 'true')
     localStorage.setItem('isGlobal', 'true')
@@ -105,6 +152,7 @@ await page.addInitScript(() => {
 })
 await page.route('**/api/v1/**', async (route) => {
     const p = new URL(route.request().url()).pathname
+    if (p.endsWith('/refresh')) refreshes++
     let data = {}
     if (p.endsWith('/settings')) data = { PLATFORM_TYPE: 'open-source' }
     else if (p.endsWith('/authentication-settings')) data = { recovery: { available: true } }
@@ -129,14 +177,19 @@ await page.route('**/api/v1/**', async (route) => {
 try {
     const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:8080'
     await page.goto(`${base}/dashflows/demo`)
-    await page.getByRole('heading', { name: 'Supreme · Renewal intelligence' }).waitFor()
-    await page.locator('.df-value').filter({ hasText: '152' }).waitFor()
+    await page.getByRole('heading', { name: 'Supreme · GTM command center' }).waitFor()
+    await page.locator('.df-value').filter({ hasText: '48.62M' }).waitFor()
     await page.evaluate(() => {
         const badge = document.querySelector('.df-beta')
         if (badge) badge.textContent = 'SYNTHETIC DEMO DATA / MVP'
     })
     await page.screenshot({ path: path.join(output, 'supreme-builder.png'), fullPage: true })
-    if (reports !== 0) throw new Error('Passive dashboard view executed a report')
+    if (reports !== 0 || refreshes !== 0) throw new Error('Passive dashboard view executed a report or refresh')
+    await page.getByLabel('From', { exact: true }).fill('2026-10-01')
+    await page.getByRole('button', { name: 'Apply lens', exact: true }).click()
+    if (await page.locator('.df-value').count()) throw new Error('Pipeline lens retained stale values')
+    await page.goto(`${base}/dashflows/demo`)
+    await page.getByRole('heading', { name: 'Supreme · GTM command center' }).waitFor()
     await page.getByRole('button', { name: 'Demo account 01 ↗' }).click()
     await page.getByRole('button', { name: 'Run full health report', exact: true }).click()
     await page.getByRole('heading', { name: 'Synthetic account health' }).waitFor()
@@ -154,17 +207,20 @@ try {
     if (await page.getByRole('button', { name: 'Save draft' }).count()) throw new Error('Published view exposed author controls')
     await page.screenshot({ path: path.join(output, 'supreme-published.png'), fullPage: true })
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.locator('.df-stacked .df-card').first().waitFor()
+    await page.locator('.df-command-board .df-card').first().waitFor()
     await page.screenshot({ path: path.join(output, 'supreme-mobile.png'), fullPage: true })
     console.log(
         JSON.stringify({
             errors,
             reports,
+            refreshes,
             checks: [
-                'Supreme four-card showcase',
+                'Supreme twelve-card command center',
                 'account drill-in',
                 'explicit health report',
                 'source period filter',
+                'pipeline region/date lens',
+                'zero passive query executions',
                 'stale data cleared',
                 'published read-only',
                 'mobile stacked cards'

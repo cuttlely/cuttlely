@@ -24,7 +24,8 @@ it('retains decimal source bytes and opens the evidence for the exact snapshot',
     const inspect = jest.fn()
     const snapshot = { rows: [{ amount: '123456789.0123456789' }] }
     act(() => root.render(createElement(DashboardCard, { data: { card, snapshot, inspect } })))
-    expect(container.textContent).toContain('123456789.0123456789')
+    expect(container.querySelector('.df-value span').title).toBe('123456789.0123456789')
+    expect(container.textContent).toContain('123.46M')
     act(() => container.querySelector('button.df-evidence').click())
     expect(inspect).toHaveBeenCalledWith(card, snapshot)
 })

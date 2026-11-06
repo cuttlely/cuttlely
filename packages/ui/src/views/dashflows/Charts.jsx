@@ -35,7 +35,7 @@ export default function Chart({ card, rows, inspect }) {
                                     key={item.index}
                                     points={`${point(ordered[i], i)} ${point(item, i + 1)}`}
                                     fill='none'
-                                    stroke='#55865e'
+                                    stroke='#9b7aff'
                                     strokeWidth='3'
                                 />
                             ) : null
@@ -47,7 +47,7 @@ export default function Chart({ card, rows, inspect }) {
                                 cx={point(item, i).split(',')[0]}
                                 cy={point(item, i).split(',')[1]}
                                 r='5'
-                                fill='#315f45'
+                                fill='#b596ff'
                                 tabIndex={0}
                                 role='button'
                                 aria-label={`${text(item.row[card.labelField])}: ${text(item.row[card.valueField])}`}
@@ -72,7 +72,7 @@ export default function Chart({ card, rows, inspect }) {
     }
     if (card.kind === 'donut') {
         const total = values.reduce((a, b) => a + b, 0)
-        const colors = ['#315e45', '#628755', '#9eb879', '#c7c990', '#c69e6a', '#8f7762', '#7e9990']
+        const colors = ['#a17aff', '#42c9d9', '#f49d62', '#f06b99', '#6387ff', '#b2d566', '#9babc8']
         let offset = 0
         return (
             <div className='df-composition nodrag nowheel'>

@@ -612,3 +612,284 @@
 .df-card-metric .df-value {
     font-size: 54px;
 }
+
+/* Reading mode puts the information first; editing retains the drag/drop canvas. */
+.df-command {
+    background: radial-gradient(ellipse at 85% 0%, #25204c 0%, transparent 38%), #080d1b;
+    border: 1px solid #273049;
+    border-radius: 18px;
+    --df-mint: #bdb2ff;
+}
+.df-command .df-eyebrow,
+.df-command .df-root {
+    color: #b9b0ff;
+}
+.df-command .df-header h1 {
+    font-weight: 650;
+    letter-spacing: -1.8px;
+}
+.df-command .df-header p {
+    color: #98a6c2;
+}
+.df-command .MuiButton-contained {
+    background: #aa95ff;
+    color: #100b24;
+}
+.df-command .df-toolbar-collapsed {
+    display: none;
+}
+.df-command .df-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 30px 0 14px;
+}
+.df-command .df-section-heading h2 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: -0.3px;
+}
+.df-command .df-section-heading > span {
+    font-size: 11px;
+    color: #8b9bb8;
+}
+.df-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+.df-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+.df-action-grid {
+    display: grid;
+    gap: 16px;
+}
+.df-command-board .df-card {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    background: linear-gradient(135deg, #141c31, #101626);
+    color: #f0f3ff;
+    border: 1px solid #26334d;
+    border-radius: 13px;
+    padding: 20px;
+    box-shadow: 0 8px 22px #0002;
+}
+.df-command-board .df-card-metric {
+    border-top: 2px solid #a48aff;
+    min-height: 215px;
+}
+.df-command-board .df-card-metric:nth-child(2n) {
+    border-top-color: #42c9d9;
+}
+.df-command-board .df-card-metric:nth-child(3n) {
+    border-top-color: #ffb55e;
+}
+.df-command-board .df-card-metric:nth-child(5n) {
+    border-top-color: #f06b99;
+}
+.df-command-board .df-card-top {
+    color: #8291b0;
+    font-size: 9px;
+    letter-spacing: 1.3px;
+}
+.df-command-board .df-card h3 {
+    font-size: 16px;
+    color: #edf1ff;
+    margin-top: 14px;
+}
+.df-command-board .df-scope {
+    color: #98a6c2;
+    font-size: 11px;
+    min-height: 32px;
+    max-width: 95%;
+}
+.df-command-board .df-value {
+    color: #fff;
+    font-size: 37px;
+    letter-spacing: -1.3px;
+    margin: 16px 0;
+}
+.df-command-board .df-value small {
+    display: none;
+}
+.df-command-board .df-evidence {
+    border-top: 1px solid #29334b;
+    color: #a99be4;
+    font-size: 10px;
+    margin-top: 16px;
+    padding-top: 12px;
+}
+.df-command-board .df-edit,
+.df-command-board .df-remove {
+    color: #a99be4;
+}
+.df-command-board .df-chart-legend {
+    color: #c3cee6;
+}
+.df-command-board .df-chart-legend button {
+    color: #c3cee6;
+    border-color: #26334d;
+}
+.df-command-board .df-chart-ends {
+    color: #8d9ebf;
+}
+.df-command-board .df-trend svg {
+    height: 210px;
+    width: 100%;
+}
+.df-command-board .df-composition {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    min-height: 230px;
+}
+.df-command-board .df-composition svg {
+    width: 195px;
+    flex-shrink: 0;
+}
+.df-command-board .df-composition .df-chart-legend {
+    flex: 1;
+}
+.df-command-board .df-bars {
+    max-height: 240px;
+}
+.df-command-board .df-bar-label {
+    color: #bfcce5;
+}
+.df-command-board .df-bar-track {
+    background: #202c45;
+}
+.df-command-board .df-bar-fill {
+    background: linear-gradient(90deg, #7862ef, #c16ef0);
+}
+.df-command-board .df-selection {
+    color: #b8a9ee;
+    background: #a48aff12;
+    border: 1px solid #a48aff33;
+}
+.df-command-board .df-table-scroll {
+    max-height: 390px;
+}
+.df-command-board th {
+    color: #8d9ebf;
+    background: #141c31;
+}
+.df-command-board td {
+    color: #c3cee6;
+    border-color: #24304a;
+    padding: 14px 10px;
+}
+.df-command-board .df-sort-header {
+    color: #8d9ebf;
+}
+.df-command-board .df-account-link {
+    color: #c4b6ff;
+    border-color: #6e5ba0;
+}
+.df-command-board tr:hover td {
+    background: #a48aff0b;
+}
+@media (max-width: 1100px) {
+    .df-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 700px) {
+    .df-command {
+        padding: 18px;
+    }
+    .df-command .df-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .df-command .df-section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .df-kpi-grid {
+        gap: 9px;
+    }
+    .df-chart-grid {
+        grid-template-columns: 1fr;
+    }
+    .df-command-board .df-card {
+        padding: 14px;
+    }
+    .df-command-board .df-value {
+        font-size: 30px;
+    }
+    .df-command-board .df-composition {
+        gap: 8px;
+    }
+    .df-command-board .df-composition svg {
+        width: 150px;
+    }
+}
+.df-command-board .df-kpi-grid .df-card:last-child:nth-child(4n + 3) {
+    grid-column: span 2;
+}
+.df-command-board .df-bar-row {
+    color: #bfcee8;
+}
+.df-command-board .df-bar-row > i {
+    background: linear-gradient(90deg, #7862ef, #c16ef0);
+}
+@media (max-width: 700px) {
+    .df-command-board .df-kpi-grid .df-card:last-child {
+        grid-column: span 2;
+    }
+}
+.df-window-filter {
+    display: flex;
+    align-items: end;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid #29334b;
+    background: #11182b;
+    border-radius: 12px;
+    flex-wrap: wrap;
+}
+.df-window-filter > div {
+    flex: 1;
+    min-width: 220px;
+}
+.df-window-filter strong {
+    display: block;
+    font-size: 13px;
+    color: #d8d3f8;
+}
+.df-window-filter small {
+    display: block;
+    font-size: 10px;
+    color: #899abb;
+    max-width: 320px;
+    line-height: 1.6;
+    margin-top: 4px;
+}
+.df-window-filter label {
+    display: grid;
+    gap: 5px;
+    font-size: 10px;
+    color: #94a5c4;
+}
+.df-window-filter input,
+.df-window-filter select {
+    color-scheme: dark;
+    border: 1px solid #354361;
+    border-radius: 6px;
+    padding: 7px;
+    color: #dde4f7;
+    background: #1a2339;
+    font: inherit;
+    font-size: 12px;
+}
+.df-command-board .df-composition svg text {
+    fill: #a5b4d2;
+}

@@ -1,4 +1,4 @@
-import { supremeRiskTemplate } from './supreme'
+import { supremeRiskTemplate, supremeCommandTemplate } from './supreme'
 
 it('binds three risk cards to the actual catalog hash with explicit source completeness and no fabricated values', () => {
     global.crypto = { randomUUID: jest.fn().mockReturnValueOnce('one').mockReturnValueOnce('two').mockReturnValueOnce('three') }
@@ -24,4 +24,30 @@ it('adds the exact selected opportunity watchlist when its source is available',
     expect(template.cards[3].source).toBe('list')
     expect(template.cards[3].params.top_n).toBe(10)
     expect(template.cards[3].selectionTotalPath).toBe('risk_quarter_payload.total_eligible_renewal_opportunities')
+})
+
+it('builds a bounded command center from real source names and preserves separate period grains', () => {
+    global.crypto = { randomUUID: jest.fn(() => String(Math.random())) }
+    const names = [
+        'pq_pipeline_window',
+        'pq_sales_ytd',
+        'pq_realized_retention',
+        'pq_forecast_churn_year',
+        'pq_acv_quarter_series',
+        'pq_quarter_account_risk_patterns',
+        'pq_renewals_at_risk_quarter'
+    ]
+    const result = supremeCommandTemplate(
+        names.map((name) => ({ name, key: name, hash: 'a'.repeat(64), specialist: 'warehouse_sql' })),
+        new Date('2026-11-06T12:00:00Z')
+    )
+    expect(result.cards).toHaveLength(12)
+    expect(new Set(result.cards.map((card) => card.id)).size).toBe(12)
+    expect(result.cards.find((c) => c.title === 'Realized retention %').params).toEqual({
+        start_date: '2026-01-01',
+        end_date: '2026-11-07'
+    })
+    expect(result.cards.find((c) => c.kind === 'donut').rowsPath).toBe('full_cohort_type_summary')
+    expect(result.cards.every((c) => !c.rows && !c.value)).toBe(true)
+    expect(supremeCommandTemplate([])).toBeNull()
 })

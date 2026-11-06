@@ -216,3 +216,14 @@ test('selected opportunity tables disclose their subset and refuse inconsistent 
     assert.throws(() => validateSnapshot({ ...raw, rows: [{ packet: { rows: [], returned: 1, total: 28 } }] }, selectedPin, selectedCard))
     assert.throws(() => validateSnapshot({ ...raw, truncated: true }, selectedPin, selectedCard))
 })
+
+// Hash-bound aggregate exceptions cannot be borrowed by a different query or detail page.
+test('reviewed aggregate contracts are exact and never certify paged deal details', async () => {
+    const { reviewedAggregate } = await import('./dashflow-source-contracts.mjs')
+    const hash = 'fab02ec5995ae0bdcdc4957457e07f1f09236181e92fe56871e5d49f31140597'
+    assert.equal(reviewedAggregate('pq_pipeline_window', hash, { input_state: 'valid' }, 'full_cohort_type_summary'), true)
+    assert.equal(reviewedAggregate('pq_pipeline_window', hash, { input_state: 'invalid_window' }), false)
+    assert.equal(reviewedAggregate('pq_pipeline_window', hash, { input_state: 'valid' }, 'deal_details'), false)
+    assert.equal(reviewedAggregate('pq_pipeline_window', 'a'.repeat(64), { input_state: 'valid' }), false)
+    assert.equal(reviewedAggregate('unreviewed', hash, { input_state: 'valid' }), false)
+})
