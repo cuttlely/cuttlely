@@ -56,7 +56,7 @@ export async function addAccessKeys(runner: QueryRunner): Promise<void> {
         new Table({
             name: 'apikey_report',
             columns: [
-                { name: 'runId', type: 'varchar', length: '36', isPrimary: true },
+                { name: 'runId', type: 'varchar', length: '64', isPrimary: true },
                 { name: 'principalId', type: 'varchar', length: '36' },
                 { name: 'dashboardId', type: 'varchar', length: '64' },
                 { name: 'createdAt', type: date }

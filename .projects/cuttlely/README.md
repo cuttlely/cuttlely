@@ -105,3 +105,5 @@ These files are public. Keep them that way:
 Dashflows BETA: `packages/harness/dashflows.mjs`, `packages/server/src/services/dashflows/`, `packages/server/src/routes/dashflows/`, and `packages/ui/src/views/dashflows/`. [BETA guide](../../docs/how-to/dashflows.md).
 
 Inbound API and SDK authorization is in `packages/server/src/services/accessKeys/`; the stable `apikey` principal owns credential, resource, quota and report-receipt rows. The public [Access keys reference](../../docs/reference/access-keys.md) and `scripts/access-keys-migration-report.cjs` cover migration and rollout. Read that reference before changing inbound authorization. Model-provider credentials and public share links remain separate.
+
+`architecture/boundaries.json` assigns inbound access-key code and the existing key-management seam to the Access keys subsystem. Adapter crossings to flow/runtime/storage code are recorded with an explicit reason; `node scripts/check-boundaries.mjs` checks that boundary.
