@@ -52,3 +52,16 @@ it('reports completion and discloses first-sync state rather than inventing prev
     rerender(<RefreshStatus record={{ snapshot, refreshProgress: { status: 'completed' } }} />)
     expect(screen.getByText('20 cached views prepared · Ready to publish')).toBeTruthy()
 })
+it('keeps force cancel available during a busy refresh and distinguishes cancellation from success', () => {
+    const cancel = jest.fn()
+    const { rerender } = render(
+        <RefreshStatus disabled onCancel={cancel} record={{ refreshing: true, refreshProgress: { status: 'running' } }} />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel & restart' }))
+    expect(cancel).toHaveBeenCalledWith(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel refresh' }))
+    expect(cancel).toHaveBeenCalledWith(false)
+    rerender(<RefreshStatus record={{ refreshProgress: { status: 'cancelled' } }} />)
+    expect(screen.getByText('Refresh cancelled')).toBeTruthy()
+    expect(screen.queryByText(/Ready to publish/)).toBeNull()
+})

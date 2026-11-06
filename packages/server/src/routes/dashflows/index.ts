@@ -82,6 +82,11 @@ router.post(
     action(async (req, res, ws) => res.status(202).json(await startDashboardRefresh(req.params.id, ws, req.body?.preferCache === true)))
 )
 router.post(
+    '/:id/cancel-refresh',
+    edit,
+    action(async (req, res, ws) => res.json((await runtime()).dashStore().cancel(req.params.id, ws, req.body?.runId)))
+)
+router.post(
     '/:id/publish',
     edit,
     action(async (req, res, ws) =>

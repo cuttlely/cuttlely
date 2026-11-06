@@ -12,6 +12,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Existing bearer values migrate without forced rotation, and public embeds and share links remain available. Review the [Access keys rollout guide](./docs/reference/access-keys.md), run the migration dry-run, and use `INBOUND_ACCESS_V2=shadow` before enabling `on`. The default is `off`. Scoped key management requires an interactive session, and new keys cannot reach unregistered API endpoints or change public-access settings. Strict global limiting across replicas awaits the shared Redis limiter.
 
+### Changed
+
+-   Dependency update for an open Dependabot alert in the bundled agent runtime: `hermes/uv.lock` moves oauthlib to 4.0.1.
+
 ## [1.6.1] - 2026-11-06
 
 ### Fixed

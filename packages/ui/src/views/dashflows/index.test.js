@@ -117,3 +117,12 @@ it('aborts refresh polling when the signal is aborted', async () => {
     })
     await expect(pollDashboard(fetchRecord, pause, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
 })
+it('shows ACV cents while retaining the exact source value for evidence', () => {
+    const snapshot = { rows: [{ renewal_acv: '12345.6789' }] }
+    act(() =>
+        root.render(createElement(DashboardCard, { data: { card: { ...card, valueField: 'renewal_acv' }, snapshot, inspect: jest.fn() } }))
+    )
+    const value = container.querySelector('.df-value span')
+    expect(value.textContent).toBe('12,345.68')
+    expect(value.dataset.exactValue).toBe('12345.6789')
+})

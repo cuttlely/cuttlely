@@ -31,22 +31,66 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
     const mod = started?.mod ?? (await runtime())
     const store = started?.store ?? mod.dashStore()
     const claim = started?.claim ?? store.claim(id, workspace)
+    const interruptForRestart = () => {
+        try {
+            store.cancel(id, workspace, claim.token, 'interrupted')
+        } catch {
+            /* Already finished or superseded. */
+        }
+    }
+    const assertActive = () => {
+        if (isDraining() || isShuttingDown()) {
+            interruptForRestart()
+            throw new AppError(503, 'Refresh interrupted by server restart.')
+        }
+        store.assertActive(id, workspace, claim)
+    }
+    const heartbeat = setInterval(() => {
+        if (isDraining() || isShuttingDown()) {
+            interruptForRestart()
+            clearInterval(heartbeat)
+            return
+        }
+        try {
+            if (!store.heartbeat(id, workspace, claim)) clearInterval(heartbeat)
+        } catch {
+            clearInterval(heartbeat)
+        }
+    }, 15000)
+    heartbeat.unref()
+    const removeDrainListener = onDrainStart(() => {
+        try {
+            store.cancel(id, workspace, claim.token, 'interrupted')
+        } catch {
+            /* Already finished or superseded. */
+        }
+        clearInterval(heartbeat)
+    })
     try {
+        assertActive()
         const record = await harnessesService.getHarness(claim.definition.harness, workspace)
         const bridge = await loadHarness('bridge.mjs')
         const context = await contextFor(record)
         const snapshot = await mod.materializeCached(
             claim.definition,
             record,
-            (item: any, args: unknown) =>
-                bridge.executeSpecialistTool(record.name, item.specialist, item.name, args, {
+            async (item: any, args: unknown) => {
+                assertActive()
+                const result = await bridge.executeSpecialistTool(record.name, item.specialist, item.name, args, {
                     harness: record,
                     bindingIndex: item.bindingIndex,
-                    ...context
-                }),
-            store.queryCache(id, workspace),
+                    ...context,
+                    assertCall: assertActive
+                })
+                assertActive()
+                return result
+            },
+            store.queryCache(id, workspace, claim),
             preferCache,
-            (progress: unknown) => store.progress(id, workspace, claim, progress)
+            (progress: unknown) => {
+                assertActive()
+                store.progress(id, workspace, claim, progress)
+            }
         )
         return store.settle(id, workspace, claim, snapshot, null)
     } catch (error) {
@@ -54,6 +98,9 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
         store.settle(id, workspace, claim, null, 'Refresh failed. Last good snapshot retained. Check the tested source and parameters.')
         if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
         throw new AppError(422, 'Refresh failed. Check source availability, query validation and parameter types.')
+    } finally {
+        clearInterval(heartbeat)
+        removeDrainListener?.()
     }
 }
 

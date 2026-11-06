@@ -6,7 +6,7 @@ const elapsed = (ms) => {
     const seconds = Math.max(0, Math.floor(ms / 1000))
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
-export default function RefreshStatus({ record, onRetry, disabled }) {
+export default function RefreshStatus({ record, onRetry, disabled, onCancel, cancelling }) {
     const [now, setNow] = useState(Date.now())
     useEffect(() => {
         if (!record?.refreshing) return
@@ -17,7 +17,7 @@ export default function RefreshStatus({ record, onRetry, disabled }) {
     if (!progress && !record?.refreshing) return null
     const status = progress?.status || 'running'
     const running = record?.refreshing
-    const failed = status === 'failed' || status === 'interrupted'
+    const failed = status === 'failed' || status === 'interrupted' || status === 'cancelled'
     const ready = Object.keys(record?.snapshot?.pipelineViews?.views || {}).length
     const titles = {
         starting: 'Connecting to your sources',
@@ -27,6 +27,8 @@ export default function RefreshStatus({ record, onRetry, disabled }) {
     }
     const title = running
         ? titles[progress?.phase] || titles.starting
+        : status === 'cancelled'
+        ? 'Refresh cancelled'
         : failed
         ? status === 'interrupted'
             ? 'Refresh interrupted'
@@ -80,9 +82,27 @@ export default function RefreshStatus({ record, onRetry, disabled }) {
                 {failed && (
                     <span>
                         {status === 'interrupted'
-                            ? 'The refresh lease expired. Retry to start a new refresh.'
+                            ? 'The worker stopped or restarted. Retry to start a new refresh.'
+                            : status === 'cancelled'
+                            ? 'Old results cannot replace this dashboard. A source query already in flight may finish or time out.'
                             : record?.error || 'Check source availability, then retry.'}
                     </span>
+                )}
+                {running && onCancel && (
+                    <>
+                        <div className='df-refresh-controls'>
+                            <Button color='warning' disabled={cancelling} onClick={() => onCancel(false)}>
+                                Cancel refresh
+                            </Button>
+                            <Button variant='outlined' disabled={cancelling} onClick={() => onCancel(true)}>
+                                Cancel & restart
+                            </Button>
+                        </div>
+                        <span>
+                            Force-cancels this dashboard refresh and discards late results. Database calls already running may finish or
+                            time out.
+                        </span>
+                    </>
                 )}
                 {failed && onRetry && (
                     <Button disabled={disabled} onClick={onRetry}>
@@ -93,4 +113,10 @@ export default function RefreshStatus({ record, onRetry, disabled }) {
         </section>
     )
 }
-RefreshStatus.propTypes = { record: PropTypes.object, onRetry: PropTypes.func, disabled: PropTypes.bool }
+RefreshStatus.propTypes = {
+    record: PropTypes.object,
+    onRetry: PropTypes.func,
+    disabled: PropTypes.bool,
+    onCancel: PropTypes.func,
+    cancelling: PropTypes.bool
+}
