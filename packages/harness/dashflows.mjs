@@ -296,6 +296,19 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         if (!row) fail('Dashboard not found.', 404)
         return row
     }
+    // Acquire the shared-volume writer lock before reading state used by a write.
+    // These transactions contain only local SQLite work, never source queries.
+    const writeTransaction = (work) => {
+        db.exec('BEGIN IMMEDIATE')
+        try {
+            const result = work()
+            db.exec('COMMIT')
+            return result
+        } catch (error) {
+            db.exec('ROLLBACK')
+            throw error
+        }
+    }
     const decode = (row) => ({
         id: row.id,
         revision: row.revision,
@@ -354,29 +367,33 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
             return decode(rowFor(id, workspace))
         },
         publish(id, workspace, revision) {
-            const row = rowFor(id, workspace)
-            if (!row.snapshot || row.revision !== revision) fail('Refresh the saved draft before publishing.', 409)
-            const publication = {
-                definition: JSON.parse(row.definition),
-                snapshot: JSON.parse(row.snapshot),
-                publishedAt: new Date().toISOString()
-            }
-            db.prepare('UPDATE dash_flow SET published=? WHERE id=? AND workspace=?').run(JSON.stringify(publication), id, workspace)
-            return publication
+            return writeTransaction(() => {
+                const row = rowFor(id, workspace)
+                if (!row.snapshot || row.revision !== revision) fail('Refresh the saved draft before publishing.', 409)
+                const publication = {
+                    definition: JSON.parse(row.definition),
+                    snapshot: JSON.parse(row.snapshot),
+                    publishedAt: new Date().toISOString()
+                }
+                db.prepare('UPDATE dash_flow SET published=? WHERE id=? AND workspace=?').run(JSON.stringify(publication), id, workspace)
+                return publication
+            })
         },
         unpublish(id, workspace) {
             rowFor(id, workspace)
             db.prepare('UPDATE dash_flow SET published=NULL WHERE id=? AND workspace=?').run(id, workspace)
         },
         claim(id, workspace) {
-            const row = rowFor(id, workspace)
-            const token = randomUUID()
-            // At most 12 sequential bounded queries (each <=125s). Lease outlives that bound.
-            const changed = db
-                .prepare('UPDATE dash_flow SET lease=?,lease_until=? WHERE id=? AND workspace=? AND lease_until<=?')
-                .run(token, Date.now() + 1800000, id, workspace, Date.now())
-            if (!changed.changes) fail('A refresh is already running.', 409)
-            return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner }
+            return writeTransaction(() => {
+                const row = rowFor(id, workspace)
+                const token = randomUUID()
+                // At most 12 sequential bounded queries (each <=125s). Lease outlives that bound.
+                const changed = db
+                    .prepare('UPDATE dash_flow SET lease=?,lease_until=? WHERE id=? AND workspace=? AND lease_until<=?')
+                    .run(token, Date.now() + 1800000, id, workspace, Date.now())
+                if (!changed.changes) fail('A refresh is already running.', 409)
+                return { token, revision: row.revision, definition: JSON.parse(row.definition), owner: row.owner }
+            })
         },
         settle(id, workspace, claim, snapshot, error) {
             const next = claim.definition.intervalSeconds ? Date.now() + claim.definition.intervalSeconds * 1000 : 0

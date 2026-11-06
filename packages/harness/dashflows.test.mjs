@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -227,3 +228,97 @@ test('reviewed aggregate contracts are exact and never certify paged deal detail
     assert.equal(reviewedAggregate('pq_pipeline_window', 'a'.repeat(64), { input_state: 'valid' }), false)
     assert.equal(reviewedAggregate('unreviewed', hash, { input_state: 'valid' }), false)
 })
+
+// Pause precisely after the read using a test-only wrapper. A second real SQLite
+// connection attempts the write that used to fit between SELECT and UPDATE.
+// This is deterministic and exercises the shared-file lock, without sleeps.
+function attemptBetweenReadAndWrite(t, file, mutation, action) {
+    const other = new DatabaseSync(file)
+    other.exec('PRAGMA busy_timeout=0')
+    const prepare = DatabaseSync.prototype.prepare
+    let attempted = false
+    const stub = t.mock.method(DatabaseSync.prototype, 'prepare', function (sql) {
+        const statement = prepare.call(this, sql)
+        if (!sql.startsWith('SELECT * FROM dash_flow')) return statement
+        return {
+            get(...args) {
+                const row = statement.get(...args)
+                if (!attempted) {
+                    attempted = true
+                    assert.throws(() => mutation(other), /database is locked/)
+                }
+                return row
+            }
+        }
+    })
+    try {
+        const result = action()
+        assert.equal(attempted, true)
+        return result
+    } finally {
+        stub.mock.restore()
+        other.close()
+    }
+}
+
+test('claim locks the selected revision before a competing save can change it', (t) =>
+    storeTest((store, file) => {
+        const saved = store.save(null, 'team-a', 'owner', definition)
+        const claim = attemptBetweenReadAndWrite(
+            t,
+            file,
+            (db) =>
+                db
+                    .prepare('UPDATE dash_flow SET revision=revision+1,definition=? WHERE id=?')
+                    .run(JSON.stringify({ ...definition, title: 'Competing draft' }), saved.id),
+            () => store.claim(saved.id, 'team-a')
+        )
+        assert.equal(claim.revision, saved.revision)
+        assert.equal(claim.definition.title, definition.title)
+        store.settle(saved.id, 'team-a', claim, { id: 'first' }, null)
+        assert.equal(store.get(saved.id, 'team-a').refreshing, false)
+        const peer = openDashStore(file)
+        try {
+            const next = peer.save(saved.id, 'team-a', 'owner', { ...definition, title: 'New draft' }, saved.revision)
+            const nextClaim = store.claim(saved.id, 'team-a')
+            assert.equal(nextClaim.revision, next.revision)
+            assert.equal(nextClaim.definition.title, 'New draft')
+            store.settle(saved.id, 'team-a', nextClaim, { id: 'second' }, null)
+            assert.equal(peer.get(saved.id, 'team-a').refreshing, false)
+        } finally {
+            peer.close()
+        }
+    }))
+
+for (const mutation of ['save', 'unpublish']) {
+    test(`publication locks its read against a competing ${mutation}, and later revocation wins`, (t) =>
+        storeTest((store, file) => {
+            const saved = store.save(null, 'team-a', 'owner', definition)
+            store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), { id: 'materialized' }, null)
+            store.publish(saved.id, 'team-a', saved.revision)
+            const publication = attemptBetweenReadAndWrite(
+                t,
+                file,
+                (db) =>
+                    db
+                        .prepare(
+                            mutation === 'save'
+                                ? 'UPDATE dash_flow SET revision=revision+1,snapshot=NULL WHERE id=?'
+                                : 'UPDATE dash_flow SET published=NULL WHERE id=?'
+                        )
+                        .run(saved.id),
+                () => store.publish(saved.id, 'team-a', saved.revision)
+            )
+            assert.equal(publication.snapshot.id, 'materialized')
+            const peer = openDashStore(file)
+            try {
+                peer.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Later draft' }, saved.revision)
+                assert.throws(() => store.publish(saved.id, 'team-a', saved.revision), /Refresh/)
+                assert.equal(store.published(saved.id, 'team-a').definition.title, definition.title)
+                peer.unpublish(saved.id, 'team-a')
+                assert.throws(() => store.published(saved.id, 'team-a'), /not published/)
+            } finally {
+                peer.close()
+            }
+        }))
+}
