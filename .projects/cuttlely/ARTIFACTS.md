@@ -1,5 +1,7 @@
 # Artifacts
 
+Harness client lifecycle: `packages/harness/client.test.mjs` covers shutdown-interrupted status, bounded stop confirmation, transient stop failures, and repeated top-level/nested status-transport failures without consuming another chat's slot. It runs with the runtime admission checks in `packages/harness/check.mjs`.
+
 Shared chat download access: `packages/chat-widget/src/api.js` reads stored files with the chat session token and retries only a 403 without the browser cookie. `packages/chat-widget/test/widget.test.js` covers the public token conflict and the existing successful private download path.
 
 Prior-answer export inputs: `packages/harness/answer-inputs.mjs` builds a bounded recent-answer index and stages complete same-chat Markdown in each file-capable run's hidden input folder. `answer-inputs.test.mjs` covers exact bytes, source endings, UTF-8 limits, artifact exclusion, context fitting, concurrent chat isolation, replay, non-file behavior and cleanup. The harness check includes these tests; `docs/how-to/context-and-tokens.md` documents the handoff and limits.
@@ -76,3 +78,5 @@ Source-backed follow-ups: `packages/harness/answer-context.mjs` extracts bounded
 The optional Web Browser source-text reader is `packages/components/nodes/tools/WebBrowser/sourcePage.ts`, with source/protocol/size checks in `sourcePage.test.ts`. It belongs to Harnesses and the Analyst; the inherited node wrapper supplies the existing secure HTTP fetcher through this entry point.
 
 Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-index comparator and sanitized-DOM controls; `packages/ui/src/ui-component/markdown/SortableTable.jsx` applies it to React Markdown rows. Focused checks live in the adjacent UI test and `packages/chat-widget/test/tables.test.js` and `widget.test.js`. Sorting changes presentation only; model context, exports and original answer text retain source order.
+
+-   `packages/harness/run-budget.test.mjs`: dependency-aware timeout replies, independent successes, and completed deliverables surviving handoff timeout.

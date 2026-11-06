@@ -451,7 +451,9 @@ async function engineRun(extra = {}) {
                 if (init?.method === 'POST' && String(url).endsWith('/v1/runs')) return json({ run_id: 'one', status: 'started' })
                 if (init?.method === 'POST' && String(url).endsWith('/stop')) {
                     stops.push(new URL(url).pathname)
-                    return json({ status: 'stopping' })
+                    // This fixture ends work immediately. Deferred stop confirmation
+                    // is covered by client.test.mjs with an advancing real clock.
+                    return json({ status: 'cancelled' })
                 }
                 return gateway.fetch(url, init)
             },

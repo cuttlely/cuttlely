@@ -168,20 +168,47 @@ export async function createRun({
 }
 
 export async function stopRun({ harnessName, runId, baseUrl = hermesBaseUrl(), fetchImpl = fetch, timeoutMs = 2000 } = {}) {
-    if (!runId) return
+    if (!runId) return true
     assertLoopback(baseUrl)
     const env = readProfileEnv(harnessName)
-    const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs/${encodeURIComponent(runId)}/stop`
+    const runUrl = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs/${encodeURIComponent(runId)}`
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-        await fetchImpl(url, { method: 'POST', headers: runHeaders(harnessName, env.API_SERVER_KEY), signal: controller.signal })
+        let accepted = false
+        while (!controller.signal.aborted) {
+            try {
+                const response = await fetchImpl(accepted ? runUrl : `${runUrl}/stop`, {
+                    ...(accepted ? {} : { method: 'POST' }),
+                    headers: runHeaders(harnessName, env.API_SERVER_KEY),
+                    signal: controller.signal
+                })
+                const status = await readJson(response)
+                if (response.ok) {
+                    if (hermesRunFinished(status.status)) return true
+                    // "stopping" acknowledges the request, not the worker's exit.
+                    accepted = true
+                } else {
+                    if (response.status < 500 && response.status !== 429) return false
+                    accepted = false
+                }
+            } catch {
+                if (controller.signal.aborted) break
+                // A lost stop response is safe to retry for this same run only.
+                accepted = false
+            }
+            await sleep(100, controller.signal)
+        }
     } catch {
-        return
+        // Stop confirmation must not replace the caller's original failure.
     } finally {
         clearTimeout(timer)
     }
+    return false
 }
+
+export const hermesRunFinished = (status) => ['completed', 'failed', 'error', 'cancelled', 'interrupted'].includes(status)
+export const hermesRunFailed = (status) => ['failed', 'error', 'cancelled', 'interrupted'].includes(status)
 
 export async function waitForRun({
     harnessName,
@@ -212,7 +239,7 @@ export async function waitForRun({
                 const detail = payload?.error?.message || payload?.message || response.statusText
                 throw new HarnessError('run_failed', `Harness "${harnessName}" cannot run: ${detail}`)
             }
-            if (!payload.status || ['completed', 'failed', 'error', 'cancelled'].includes(payload.status)) return payload
+            if (!payload.status || hermesRunFinished(payload.status)) return payload
             await sleep(delay, controller.signal)
             delay = Math.min(delay * 2, POLL_MAX_MS)
         }

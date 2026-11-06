@@ -58,7 +58,7 @@ import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-ou
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
-import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
+import { createRun, hermesBaseUrl, hermesRunFailed, hermesRunFinished, stopRun, waitForRun } from './client.mjs'
 import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
@@ -747,7 +747,7 @@ async function runRoster(context, input) {
                 context.handoffSkipped = 'answerDirect'
             } else {
                 if (direct) context.answerDirectIneligible = direct.reason
-                text = await chiefHandoff(context, question, history, results)
+                text = await chiefHandoff(context, question, history, results, steps)
             }
         }
     }
@@ -3177,6 +3177,7 @@ async function runHermesSpecialist(context, specialist, task) {
         signal: context.workSignal
     }
     let runId
+    let remoteFinished = false
     const stops = []
     let stopping = false
     const stopCurrentRun = () => {
@@ -3188,7 +3189,11 @@ async function runHermesSpecialist(context, specialist, task) {
                 runId,
                 baseUrl: context.baseUrl,
                 fetchImpl: context.fetchImpl
-            }).catch(() => {})
+            })
+                .then((confirmed) => {
+                    if (!confirmed) console.warn(`[harness] Runtime stop was not confirmed for ${specialist.profileName}.`)
+                })
+                .catch(() => {})
         )
     }
     const cancel = () => {
@@ -3239,9 +3244,10 @@ async function runHermesSpecialist(context, specialist, task) {
                       runId: created.run_id,
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
+        remoteFinished = hermesRunFinished(status.status) || (!status.status && typeof status.output === 'string')
         noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
         forwardDelta(context, specialist, '', true)
-        if (['failed', 'error', 'cancelled'].includes(status.status)) {
+        if (hermesRunFailed(status.status)) {
             const failure = status.error || status.message
             throw new HarnessError(
                 'specialist_failed',
@@ -3255,8 +3261,8 @@ async function runHermesSpecialist(context, specialist, task) {
         const sources = takeRetrievedSources(retrievalScope)
         return { text, ...(sources.length ? { sources } : {}) }
     } catch (error) {
-        // The wait's own deadline stops only this remote run, leaving other chats on the same profile alone.
-        if (error.code === 'run_timeout') stopCurrentRun()
+        // Losing status transport does not mean the admitted worker stopped.
+        if (runId && !remoteFinished) stopCurrentRun()
         throw error
     } finally {
         startCapture.flush()
@@ -3642,7 +3648,7 @@ function preserveAnalystRows(answer, results, question) {
     return stripTrailingAnalystStatus(next)
 }
 
-async function chiefHandoff(context, input, history, results) {
+async function chiefHandoff(context, input, history, results, steps) {
     if ((results || []).some((result) => result.ungrounded)) {
         const parts = results
             .map((result) => {
@@ -3674,7 +3680,7 @@ async function chiefHandoff(context, input, history, results) {
     })
     noteTruncated(context, fitted.truncated)
     throwIfClient(context)
-    if (overBudget(context)) return budgetReply(results)
+    if (overBudget(context)) return budgetReply(results, steps)
     const handoffStarted = Date.now()
     emit(context, 'handoff', { phase: 'start', model: configuredModel(context, null) })
     try {
@@ -3703,16 +3709,19 @@ async function chiefHandoff(context, input, history, results) {
         return keepClosingLines(preserveAnalystRows(reply.content, results, input), results)
     } catch (error) {
         throwIfClient(context)
-        if (overBudget(context)) return budgetReply(results)
+        if (overBudget(context)) return budgetReply(results, steps)
         throw error
     }
 }
 
-function budgetReply(results) {
+function budgetReply(results, steps) {
+    // A completed prerequisite is input to later work, not a substitute for its
+    // unfinished deliverable. Independent successful steps remain usable.
+    const prerequisites = new Set((steps || []).map((step) => step.after).filter(Boolean))
     const lines = (results || [])
-        .filter((result) => result.status === 'completed' && String(result.text || '').trim())
+        .filter((result) => result.status === 'completed' && !prerequisites.has(result.name) && String(result.text || '').trim())
         .map((result) => result.text)
-    if (!lines.length) return 'The harness turn exceeded its time budget before a specialist finished.'
+    if (!lines.length) return 'The harness turn exceeded its time budget before the requested final work finished.'
     return lines.join('\n\n')
 }
 
