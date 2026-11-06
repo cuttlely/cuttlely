@@ -71,7 +71,13 @@ For an end-to-end run of the GitHub card without an account, two more settings w
 -   `CUTTLELY_GITHUB_TEST_ROOT=/absolute/folder` makes a repository named `owner/name` the bare repository `/absolute/folder/owner/name.git`.
 -   `CUTTLELY_GITHUB_TEST_API=http://127.0.0.1:PORT` sends the repository list and Make a new repository calls to a local stand-in instead of `https://api.github.com`. The stand-in answers `GET /user`, `GET /user/repos` and `POST /user/repos`.
 
-Both are ignored unless `CUTTLELY_GITHUB_ALLOW_FILE_REMOTES=on`. Leave all three unset on a real server. A connection made with the stand-in stops, and is never sent to github.com, if these settings are later removed.
+Both are ignored unless `CUTTLELY_GITHUB_ALLOW_FILE_REMOTES=on`. Leave all three unset on a real server. A connection made with the stand-in stops, and is never sent to github.com, if these settings are later removed. The stand-in replaces only the github.com API. A custom GitHub host is never sent to the stand-in.
+
+## GitHub Enterprise hosts
+
+The host is saved with the connection, not as an environment variable. An empty host, or `github.com`, keeps the public API at `https://api.github.com` and git at `https://github.com/owner/name.git`. How the other hosts are turned into API and git addresses is in [Which GitHub host](../how-to/versioning.md#which-github-host).
+
+Before a token is sent to a custom host, Cuttlely resolves the name and refuses a blocked address. Loopback, link-local and metadata addresses are always refused for this token, including when **Allow HTTP building blocks to call localhost** is on. Private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7`) are refused while `HTTP_SECURITY_CHECK` is unset or any value other than `false`. `HTTP_DENY_LIST` still applies. A GitHub Enterprise Server on a private network is not reachable with the default policy. There is no private-host list for version history. Git still does its own DNS lookup after that check. Redirects are disabled, and TLS hostname verification stays on, so a redirect cannot carry the token to another host.
 
 ## Where the history repo is
 

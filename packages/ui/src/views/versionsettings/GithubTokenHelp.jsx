@@ -7,8 +7,8 @@ import { IconBook2, IconExternalLink, IconInfoCircle } from '@tabler/icons-react
 
 import { TOKEN_GUIDE_URL, tokenCreateUrl, tokenHelp } from '@/utils/githubSync'
 
-export const TokenHelpCard = ({ reading, from = '' }) => {
-    const help = tokenHelp(reading, from)
+export const TokenHelpCard = ({ reading, from = '', host = '' }) => {
+    const help = tokenHelp(reading, from, host)
     return (
         <Box data-testid='github-token-help' sx={{ width: 380, maxWidth: 'calc(100vw - 32px)', p: 2.25 }}>
             <Stack direction='row' spacing={1} alignItems='center' sx={{ mb: 1.75 }}>
@@ -57,7 +57,7 @@ export const TokenHelpCard = ({ reading, from = '' }) => {
                 <Button
                     variant='contained'
                     size='small'
-                    href={tokenCreateUrl(reading)}
+                    href={tokenCreateUrl(reading, host)}
                     target='_blank'
                     rel='noopener noreferrer'
                     endIcon={<IconExternalLink size={16} />}
@@ -80,9 +80,9 @@ export const TokenHelpCard = ({ reading, from = '' }) => {
     )
 }
 
-TokenHelpCard.propTypes = { reading: PropTypes.bool, from: PropTypes.string }
+TokenHelpCard.propTypes = { reading: PropTypes.bool, from: PropTypes.string, host: PropTypes.string }
 
-const GithubTokenHelp = ({ reading, from = '' }) => {
+const GithubTokenHelp = ({ reading, from = '', host = '' }) => {
     const [anchor, setAnchor] = useState(null)
     const open = Boolean(anchor)
     return (
@@ -109,12 +109,12 @@ const GithubTokenHelp = ({ reading, from = '' }) => {
                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                 PaperProps={{ sx: { mt: 1, borderRadius: 2.5, boxShadow: 8 }, role: 'dialog', 'aria-label': 'Which token to use' }}
             >
-                <TokenHelpCard reading={reading} from={from} />
+                <TokenHelpCard reading={reading} from={from} host={host} />
             </Popover>
         </>
     )
 }
 
-GithubTokenHelp.propTypes = { reading: PropTypes.bool, from: PropTypes.string }
+GithubTokenHelp.propTypes = { reading: PropTypes.bool, from: PropTypes.string, host: PropTypes.string }
 
 export default GithubTokenHelp

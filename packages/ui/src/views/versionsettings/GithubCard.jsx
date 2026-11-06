@@ -61,7 +61,9 @@ import {
     syncLine,
     timeAgo,
     tokenCreateUrl,
-    tokenHint
+    tokenHint,
+    githubHostHelp,
+    githubHostInput
 } from '@/utils/githubSync'
 import GithubTokenHelp from './GithubTokenHelp'
 import {
@@ -166,6 +168,7 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
     const [savedTokens, setSavedTokens] = useState([])
     const [tokenChoice, setTokenChoice] = useState(NEW_TOKEN)
     const [token, setToken] = useState('')
+    const [host, setHost] = useState('github.com')
     const [account, setAccount] = useState('')
     const [repos, setRepos] = useState([])
     const [query, setQuery] = useState('')
@@ -235,7 +238,8 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
     const readsFrom = previousEnvironmentTitle(status)
     // Any server with a previous environment reads that repository, including one that also copies.
     const joinsExisting = Boolean(status?.promotes)
-    const tokenBody = tokenChoice === NEW_TOKEN ? { token } : { credentialId: tokenChoice }
+    const hostParsed = githubHostInput(host)
+    const tokenBody = tokenChoice === NEW_TOKEN ? { token, host } : { credentialId: tokenChoice, host }
     const shown = useMemo(() => filterRepos(repos, query), [repos, query])
 
     const startConnect = async () => {
@@ -264,6 +268,11 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
     const loadRepos = async () => {
         setBusy('repos')
         setError('')
+        if (hostParsed.error) {
+            setError(hostParsed.error)
+            setBusy('')
+            return
+        }
         try {
             const res = await flowVersionsApi.listGithubRepos(tokenBody)
             setAccount(res.data.account)
@@ -417,6 +426,7 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                     <StatusIcon status={status} play={play} />
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant='h5'>
+                                            {status.host && status.host !== 'github.com' ? `${status.host} · ` : ''}
                                             {'Connected to '}
                                             {status.url ? (
                                                 <Link href={status.url} target='_blank' rel='noopener' underline='hover'>
@@ -513,6 +523,17 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                         {status.state !== 'off' && !connected && step === 'token' && (
                             <Stack spacing={2}>
                                 <Typography variant='h5'>1. Sign in to GitHub</Typography>
+                                <TextField
+                                    label='GitHub host'
+                                    value={host}
+                                    onChange={(e) => setHost(e.target.value)}
+                                    size='small'
+                                    fullWidth
+                                    placeholder='github.com'
+                                    error={Boolean(hostParsed.error)}
+                                    helperText={githubHostHelp(host)}
+                                    inputProps={{ 'data-testid': 'github-host', spellCheck: 'false', autoCapitalize: 'none' }}
+                                />
                                 {savedTokens.length > 0 && (
                                     <TextField
                                         select
@@ -542,15 +563,19 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                             InputProps={{
                                                 endAdornment: (
                                                     <InputAdornment position='end'>
-                                                        <GithubTokenHelp reading={reading} from={joinsExisting ? readsFrom : ''} />
+                                                        <GithubTokenHelp
+                                                            reading={reading}
+                                                            from={joinsExisting ? readsFrom : ''}
+                                                            host={host}
+                                                        />
                                                     </InputAdornment>
                                                 )
                                             }}
                                         />
                                         <Typography variant='caption' color='text.secondary' data-testid='github-token-hint'>
-                                            {tokenHint(reading)}{' '}
+                                            {tokenHint(reading, host)}{' '}
                                             <Link
-                                                href={tokenCreateUrl(reading)}
+                                                href={tokenCreateUrl(reading, host)}
                                                 target='_blank'
                                                 rel='noopener noreferrer'
                                                 sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, whiteSpace: 'nowrap' }}
@@ -566,7 +591,9 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                     <Button
                                         variant='contained'
                                         onClick={loadRepos}
-                                        disabled={Boolean(busy) || (tokenChoice === NEW_TOKEN && !token.trim())}
+                                        disabled={
+                                            Boolean(busy) || Boolean(hostParsed.error) || (tokenChoice === NEW_TOKEN && !token.trim())
+                                        }
                                         startIcon={busy === 'repos' ? <CircularProgress size={16} color='inherit' /> : null}
                                     >
                                         Continue

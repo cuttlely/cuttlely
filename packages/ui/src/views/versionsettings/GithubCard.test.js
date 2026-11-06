@@ -178,6 +178,29 @@ describe('GithubCard environment names', () => {
         expect(repairListBody(three, null).error).toBe('Pick which row is this server.')
     })
 
+    test('the sign-in step offers a GitHub host and keeps github.com as the default', () => {
+        const html = wrap(status({ connected: false, role: 'copy', state: 'not-connected', environment: null, url: null }), {
+            initialStep: 'token'
+        })
+        expect(html).toContain('data-testid="github-host"')
+        expect(html).toContain('value="github.com"')
+        expect(html).toContain('github.com is the default')
+        expect(html).toContain('https://github.com/settings/personal-access-tokens/new')
+    })
+
+    test('a connected enterprise host is named on the card', () => {
+        const html = wrap(
+            status({
+                host: 'github.example.com',
+                url: 'https://github.example.com/acme/flows',
+                role: 'copy',
+                environment: null
+            })
+        )
+        expect(html).toContain('github.example.com')
+        expect(html).toContain('https://github.example.com/acme/flows')
+    })
+
     test('loadRepos leaves a middle environment with nothing picked', () => {
         const empty = [{ repo: 'acme/empty', private: true, empty: true }]
         expect(repoPickAfterLoad(empty, true)).toBe('')

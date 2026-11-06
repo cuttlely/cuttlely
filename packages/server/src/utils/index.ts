@@ -1707,6 +1707,9 @@ export const mergeCredentialUpdate = (
     const merged: ICredentialDataDecrypted = { ...stored }
     if (!incoming || typeof incoming !== 'object') return merged
     for (const name of Object.keys(incoming)) {
+        // The version-history copy records which GitHub host a token was issued for.
+        // A credential edit cannot move that token onto another host.
+        if (name === 'githubHost') continue
         const value = incoming[name]
         const current = stored[name]
         if (value === REDACTED_CREDENTIAL_VALUE) continue
@@ -1736,6 +1739,8 @@ export const redactCredentialWithPasswordType = (
             plainDataObj[cred] = REDACTED_CREDENTIAL_VALUE
         }
     }
+    // The GitHub host binding is not a field on the credential form. Leave it out of the response.
+    delete plainDataObj.githubHost
     return plainDataObj
 }
 
