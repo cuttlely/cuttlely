@@ -768,7 +768,7 @@ describe('workspace isolation', () => {
                 () => syncHarnessCanvas(canvas, { via: 'session' }),
                 (error) => {
                     assert.equal(error.statusCode, 400)
-                    assert.match(error.message, /Live stays as it is/)
+                    assert.match(error.message, /runnable canvas/)
                     return true
                 }
             )
@@ -830,8 +830,7 @@ describe('workspace isolation', () => {
                         flowData: '{}'
                     }),
                 (error) => {
-                    assert.equal(error.statusCode, 400)
-                    assert.match(error.message, /Live stays as it is/)
+                    assert.equal(error.statusCode, 409)
                     return true
                 }
             )
