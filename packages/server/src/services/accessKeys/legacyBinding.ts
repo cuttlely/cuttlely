@@ -17,7 +17,9 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
                 if (!current || (current.apikeyid || '') !== (previous.apikeyid || '') || current.apiAccessMode !== previous.apiAccessMode)
                     throw new AppError(409, 'The legacy binding changed. Reload before saving.')
             }
-            const saved = await flows.save(flow)
+            const { mcpServerConfig: _mcp, webhookSecret: _webhook, webhookSecretConfigured: _configured, ...patch } = flow
+            const written = await flows.save(patch)
+            const saved = await flows.findOneByOrFail({ id: written.id, workspaceId: flow.workspaceId })
             const resourceType =
                 saved.type === 'HARNESS' ? 'HARNESS' : ['AGENTFLOW', 'MULTIAGENT'].includes(saved.type || '') ? 'AGENTFLOW' : 'CHATFLOW'
             const grants = manager.getRepository(ApiKeyResource)
@@ -66,7 +68,14 @@ export async function saveFlowPreservingAccess(
                 )
                 if (!result.affected) throw new AppError(409, 'API access changed. Reload before saving.')
             }
-            const { apikeyid: _binding, apiAccessMode: _mode, ...patch } = flow
+            const {
+                apikeyid: _binding,
+                apiAccessMode: _mode,
+                mcpServerConfig: _mcp,
+                webhookSecret: _webhook,
+                webhookSecretConfigured: _configured,
+                ...patch
+            } = flow
             await repo.save(patch)
             return repo.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
         })

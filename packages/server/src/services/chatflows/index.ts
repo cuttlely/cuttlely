@@ -630,9 +630,6 @@ const ROW_KEYS = [
     'followUpPrompts',
     'category',
     'type',
-    'mcpServerConfig',
-    'webhookSecret',
-    'webhookSecretConfigured',
     'workspaceId'
 ] as const
 

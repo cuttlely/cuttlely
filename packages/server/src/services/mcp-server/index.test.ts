@@ -16,6 +16,7 @@ jest.mock(
         Column: () => () => {},
         CreateDateColumn: () => () => {},
         UpdateDateColumn: () => () => {},
+        IsNull: () => ({ _type: 'isNull' }),
         PrimaryGeneratedColumn: () => () => {}
     }),
     { virtual: true }
@@ -65,10 +66,19 @@ function makeConfig(overrides: Partial<IMcpServerConfig> = {}): IMcpServerConfig
 
 beforeEach(() => {
     jest.clearAllMocks()
-    mockUpdate.mockImplementation((entity: any) => Promise.resolve(entity))
+    mockUpdate.mockResolvedValue({ affected: 1 })
 })
 
 describe('mcpServerService', () => {
+    it('refuses a stale metadata update or token rotation after another MCP change', async () => {
+        mockFindOne.mockResolvedValue(makeChatflow({ mcpServerConfig: JSON.stringify(makeConfig()) }))
+        mockUpdate.mockResolvedValue({ affected: 0 })
+        await expect(mcpServerService.updateMcpServerConfig('chatflow-1', 'ws-1', { description: 'Updated' })).rejects.toMatchObject({
+            statusCode: 409
+        })
+        await expect(mcpServerService.refreshMcpToken('chatflow-1', 'ws-1')).rejects.toMatchObject({ statusCode: 409 })
+        expect(mockUpdate.mock.calls[0][0].mcpServerConfig).toBe(JSON.stringify(makeConfig()))
+    })
     describe('parseMcpConfig', () => {
         it('returns null when mcpServerConfig is undefined', () => {
             const chatflow = makeChatflow()

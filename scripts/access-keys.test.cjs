@@ -401,12 +401,31 @@ test('management API creates deny-by-default principals, validates grants and pr
         const rebound = await saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-b' }, bindingFlow)
         assert.equal(await hasGrant(data, { id: 'legacy-a' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), false)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
-        const staleCanvas = { ...bindingFlow, apikeyid: null, apiAccessMode: 'public', name: 'Stale canvas fixture' }
+        const staleCanvas = {
+            ...bindingFlow,
+            apikeyid: null,
+            apiAccessMode: 'public',
+            name: 'Stale canvas fixture',
+            mcpServerConfig: '{"enabled":true,"token":"retired-fixture"}',
+            webhookSecret: 'retired-fixture'
+        }
+        await data
+            .getRepository(ChatFlow)
+            .update(
+                { id: rebound.id },
+                { mcpServerConfig: '{"enabled":false,"token":"successor-fixture"}', webhookSecret: 'successor-fixture' }
+            )
         const privateBinding = await data.getRepository(ChatFlow).findOneByOrFail({ id: rebound.id })
         const afterOrdinarySave = await saveFlowPreservingAccess(data, staleCanvas, staleCanvas)
         assert.equal(afterOrdinarySave.apikeyid, privateBinding.apikeyid)
         assert.equal(afterOrdinarySave.apiAccessMode, privateBinding.apiAccessMode)
         assert.equal(afterOrdinarySave.name, staleCanvas.name)
+        assert.equal(JSON.parse(afterOrdinarySave.mcpServerConfig).enabled, false)
+        assert.equal(JSON.parse(afterOrdinarySave.mcpServerConfig).token, 'successor-fixture')
+        assert.equal(
+            (await data.query('SELECT webhookSecret FROM chat_flow WHERE id = ?', [rebound.id]))[0].webhookSecret,
+            'successor-fixture'
+        )
         await assert.rejects(saveFlowPreservingAccess(data, staleCanvas, staleCanvas, 'public'), { statusCode: 409 })
         assert.equal(await hasGrant(data, { id: 'explicit-key' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
         await assert.rejects(saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-a' }, bindingFlow), { statusCode: 409 })
@@ -414,6 +433,18 @@ test('management API creates deny-by-default principals, validates grants and pr
         await assert.rejects(saveLegacyBoundFlow(data, { ...rebound, apikeyid: 'missing-fixture' }, rebound), { statusCode: 403 })
         assert.equal((await data.getRepository(ChatFlow).findOneByOrFail({ id: rebound.id })).apikeyid, 'legacy-b')
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
+        const movedAgain = await saveLegacyBoundFlow(
+            data,
+            {
+                ...rebound,
+                apikeyid: 'legacy-a',
+                mcpServerConfig: staleCanvas.mcpServerConfig,
+                webhookSecret: staleCanvas.webhookSecret
+            },
+            rebound
+        )
+        assert.equal(JSON.parse(movedAgain.mcpServerConfig).enabled, false)
+        assert.equal(JSON.parse(movedAgain.mcpServerConfig).token, 'successor-fixture')
         await data.getRepository(ApiKey).save({
             id: 'narrow-legacy',
             apiKey: '',

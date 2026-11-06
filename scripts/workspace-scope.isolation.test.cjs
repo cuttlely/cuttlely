@@ -58,6 +58,9 @@ serverRequire('ts-node').register({
 
 const { DataSource } = serverRequire('typeorm')
 const { ApiKey } = serverRequire('./src/database/entities/ApiKey.ts')
+const { ApiKeyCredential } = serverRequire('./src/database/entities/ApiKeyCredential.ts')
+const { ApiKeyResource } = serverRequire('./src/database/entities/ApiKeyResource.ts')
+const { ApiKeyUsage } = serverRequire('./src/database/entities/ApiKeyUsage.ts')
 const { Assistant } = serverRequire('./src/database/entities/Assistant.ts')
 const { ChatFlow, EnumChatflowType } = serverRequire('./src/database/entities/ChatFlow.ts')
 const { ChatMessage } = serverRequire('./src/database/entities/ChatMessage.ts')
@@ -165,6 +168,9 @@ describe('workspace isolation', () => {
                 EvaluationRun,
                 Execution,
                 ApiKey,
+                ApiKeyCredential,
+                ApiKeyResource,
+                ApiKeyUsage,
                 User,
                 Organization,
                 Role,
@@ -442,8 +448,12 @@ describe('workspace isolation', () => {
         assert.deepEqual(idsOf(await apiKeys.getAllApiKeys(keyUser)), [own.apiKey])
         const orgWide = await apiKeys.getAllApiKeysByOrganization(ORG)
         assert.deepEqual(orgWide.map((row) => row.keyName).sort(), ['other key', 'own key'])
-        await denied(() => apiKeys.updateApiKey(owner, other.apiKey, 'stolen', ['chatflows:view']))
-        await apiKeys.deleteApiKey(other.apiKey, WS1)
+        const management = loadService('./src/services/accessKeys/management.ts')
+        const foreignTarget = { user: owner, params: { id: other.apiKey } }
+        await denied(() => management.target(foreignTarget))
+        await denied(
+            () => new Promise((resolve, reject) => management.revokeAccessKey(foreignTarget, { setHeader() {}, json: resolve }, reject))
+        )
         assert.equal((await ds.getRepository(ApiKey).findOneBy({ id: other.apiKey })).keyName, 'other key')
     })
 
@@ -599,7 +609,7 @@ describe('workspace isolation', () => {
                         work({
                             getRepository: () => ({
                                 findBy: async () => [{ id: own.apiKey, harnesses: ['OwnTeam'] }],
-                                save: async () => {
+                                update: async () => {
                                     throw new Error('made-up write failure')
                                 }
                             })

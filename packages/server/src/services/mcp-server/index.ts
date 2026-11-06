@@ -1,3 +1,4 @@
+import { IsNull } from 'typeorm'
 import { StatusCodes } from 'http-status-codes'
 import crypto from 'crypto'
 import { z } from 'zod/v3'
@@ -49,6 +50,17 @@ function parseMcpConfig(chatflow: ChatFlow): IMcpServerConfig | null {
     } catch {
         return null
     }
+}
+
+/** Reject stale transport writes so description edits cannot undo rotation or disablement. */
+async function persistMcpConfig(flow: ChatFlow, config: IMcpServerConfig): Promise<void> {
+    const result = await getRunningExpressApp()
+        .AppDataSource.getRepository(ChatFlow)
+        .update(
+            { id: flow.id, workspaceId: flow.workspaceId, mcpServerConfig: flow.mcpServerConfig ?? IsNull() },
+            { mcpServerConfig: JSON.stringify(config) }
+        )
+    if (!result.affected) throw new AppError(409, 'MCP configuration changed. Reload before saving.')
 }
 
 /**
@@ -103,11 +115,7 @@ const createMcpServerConfig = async (
             toolName: body.toolName
         }
 
-        chatflow.mcpServerConfig = JSON.stringify(config)
-        await appServer.AppDataSource.getRepository(ChatFlow).update(
-            { id: chatflowId, workspaceId },
-            { mcpServerConfig: chatflow.mcpServerConfig }
-        )
+        await persistMcpConfig(chatflow, config)
 
         return config
     } catch (error) {
@@ -144,11 +152,7 @@ const updateMcpServerConfig = async (
         if (body.toolName !== undefined) existing.toolName = body.toolName
         if (body.enabled !== undefined) existing.enabled = body.enabled
 
-        chatflow.mcpServerConfig = JSON.stringify(existing)
-        await appServer.AppDataSource.getRepository(ChatFlow).update(
-            { id: chatflowId, workspaceId },
-            { mcpServerConfig: chatflow.mcpServerConfig }
-        )
+        await persistMcpConfig(chatflow, existing)
 
         return existing
     } catch (error) {
@@ -174,11 +178,7 @@ const deleteMcpServerConfig = async (chatflowId: string, workspaceId: string): P
         if (!existing) return
 
         existing.enabled = false
-        chatflow.mcpServerConfig = JSON.stringify(existing)
-        await appServer.AppDataSource.getRepository(ChatFlow).update(
-            { id: chatflowId, workspaceId },
-            { mcpServerConfig: chatflow.mcpServerConfig }
-        )
+        await persistMcpConfig(chatflow, existing)
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: mcpServerService.deleteMcpServerConfig - ${getErrorMessage(error)}`)
@@ -204,11 +204,7 @@ const refreshMcpToken = async (chatflowId: string, workspaceId: string): Promise
         }
 
         existing.token = generateToken()
-        chatflow.mcpServerConfig = JSON.stringify(existing)
-        await appServer.AppDataSource.getRepository(ChatFlow).update(
-            { id: chatflowId, workspaceId },
-            { mcpServerConfig: chatflow.mcpServerConfig }
-        )
+        await persistMcpConfig(chatflow, existing)
 
         return existing
     } catch (error) {
