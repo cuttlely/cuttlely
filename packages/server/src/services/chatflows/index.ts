@@ -976,12 +976,6 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     // The id is still checked, and no harness file is written. If a harness file already exists, emptying
     // Live is refused so a rejected Publish leaves the prior Live unchanged.
     if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
-        if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
-            throw new AppError(
-                StatusCodes.BAD_REQUEST,
-                'This harness is not ready to go Live. Keep editing the draft until the roster can run. Live stays as it is.'
-            )
-        }
         await assertPlaceholderHarnessName(chatflow, engine)
         return true
     }
@@ -1018,7 +1012,13 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
 
 // An empty canvas is stored before it can run. The name is still checked, including a file that has no team,
 // and nothing is claimed or written. Publish sends the real canvas through the roster write.
-async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assertSavedHarnessName: (name: string) => void }) {
+async function assertPlaceholderHarnessName(
+    chatflow: ChatFlow,
+    engine: {
+        assertSavedHarnessName: (name: string) => void
+        harnessCanvasCanWaitForRoster: (flow: { name: string; flowData: string }) => boolean
+    }
+) {
     try {
         engine.assertSavedHarnessName(chatflow.name)
     } catch (error) {
@@ -1038,13 +1038,19 @@ async function assertPlaceholderHarnessName(chatflow: ChatFlow, engine: { assert
         )
     }
     await harnessesService.withNameLock(chatflow.name, () =>
-        harnessesService.withProfileLock(() =>
-            harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
+        harnessesService.withProfileLock(async () => {
+            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
                 claiming: true,
                 readOnly: true,
                 record: { chatflowId: chatflow.id }
             })
-        )
+            if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
+                throw new AppError(
+                    StatusCodes.BAD_REQUEST,
+                    'This harness is not ready to go Live. Keep editing the draft until the roster can run. Live stays as it is.'
+                )
+            }
+        })
     )
 }
 
@@ -1054,12 +1060,6 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
     // The placeholder row has no roster. Writing it would fail the credential and name checks and delete the canvas.
     // The name check still runs: a file with no team, or one owned by another team, is refused and left unchanged.
     if (engine.harnessCanvasIsPlaceholder(chatflow.flowData)) {
-        if (!engine.harnessCanvasCanWaitForRoster({ name: chatflow.name, flowData: chatflow.flowData })) {
-            throw new AppError(
-                StatusCodes.BAD_REQUEST,
-                'This harness is not ready to go Live. Keep editing the draft until the roster can run. Live stays as it is.'
-            )
-        }
         await assertPlaceholderHarnessName(chatflow, engine)
         return
     }

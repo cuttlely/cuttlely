@@ -768,7 +768,7 @@ describe('workspace isolation', () => {
                 () => syncHarnessCanvas(canvas, { via: 'session' }),
                 (error) => {
                     assert.equal(error.statusCode, 400)
-                    assert.match(error.message, /runnable canvas/)
+                    assert.match(error.message, /not ready to go Live.*Live stays as it is/)
                     return true
                 }
             )
