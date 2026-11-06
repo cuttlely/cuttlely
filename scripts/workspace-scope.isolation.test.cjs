@@ -739,6 +739,47 @@ describe('workspace isolation', () => {
         }
     })
 
+    it('syncs a new placeholder but refuses an emptied live harness without changing its roster', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-empty-live-'))
+        const previous = process.env.CUTTLELY_DATA_DIR
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        const canvas = {
+            name: 'placeholder-team',
+            id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            workspaceId: WS2,
+            type: 'HARNESS',
+            flowData: JSON.stringify({ nodes: [], edges: [] })
+        }
+        const file = path.join(dataDir, 'harnesses', `${canvas.name}.json`)
+        try {
+            const { syncHarnessCanvas } = serverRequire('./src/services/chatflows/index.ts')
+            await syncHarnessCanvas(canvas, { via: 'session' })
+            assert.equal(fs.existsSync(file), false)
+            fs.mkdirSync(path.dirname(file), { recursive: true })
+            const roster = JSON.stringify({
+                name: canvas.name,
+                chatflowId: canvas.id,
+                workspaceId: WS2,
+                chief: { model: { nodeName: 'chatOpenAI', inputs: { modelName: 'gpt-4.1-mini' } } },
+                specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+            })
+            fs.writeFileSync(file, roster)
+            await assert.rejects(
+                () => syncHarnessCanvas(canvas, { via: 'session' }),
+                (error) => {
+                    assert.equal(error.statusCode, 400)
+                    assert.match(error.message, /runnable canvas/)
+                    return true
+                }
+            )
+            assert.equal(fs.readFileSync(file, 'utf8'), roster)
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previous
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('refuses to adopt a harness that has no team', async () => {
         const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-payroll-'))
         const previous = process.env.CUTTLELY_DATA_DIR

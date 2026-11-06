@@ -5,7 +5,13 @@ const mockAllowed = { delete: true }
 
 jest.mock('@/api/harnesses', () => ({
     __esModule: true,
-    default: { listHarnesses: jest.fn(), deleteHarness: jest.fn(), getHarness: jest.fn(), listRuns: jest.fn() }
+    default: {
+        listHarnesses: jest.fn(),
+        deleteHarness: jest.fn(),
+        deleteIncompleteHarness: jest.fn(),
+        getHarness: jest.fn(),
+        listRuns: jest.fn()
+    }
 }))
 jest.mock('@/store/context/ErrorContext', () => ({ useError: () => ({ setError: () => {}, handleError: () => {} }) }))
 jest.mock('react-router-dom', () => ({ useNavigate: () => jest.fn(), useParams: () => ({ name: 'navi-harness' }) }))
@@ -73,6 +79,7 @@ const teams = [
     { name: 'NAVI-B', specialists: [{}] },
     { name: 'navi-harness', chatflowId: 'c2', orphaned: true, specialists: [{}] }
 ]
+teams.push({ name: 'unfinished-team', chatflowId: 'c3', incomplete: true })
 
 let container
 let root
@@ -93,6 +100,7 @@ beforeEach(() => {
     mockAllowed.delete = true
     harnessesApi.listHarnesses.mockResolvedValue({ data: teams })
     harnessesApi.deleteHarness.mockReset()
+    harnessesApi.deleteIncompleteHarness.mockReset()
 })
 
 afterEach(() => {
@@ -133,6 +141,19 @@ describe('Agent Team card delete', () => {
         await render(Harnesses)
         expect(container.textContent).toContain('navi-harness Canvas deleted. This team cannot run.')
         expect(button('Delete navi-harness')).toBeDefined()
+    })
+
+    it('deletes an incomplete team through its canvas id', async () => {
+        harnessesApi.deleteIncompleteHarness.mockResolvedValue({ data: { id: 'c3' } })
+        await render(Harnesses)
+        expect(container.textContent).toContain('unfinished-team Incomplete. Open the canvas to finish this team.')
+        await act(async () => fireEvent.click(button('Delete unfinished-team')))
+        expect(document.body.textContent).toContain('The incomplete canvas for "unfinished-team" will be deleted.')
+        harnessesApi.listHarnesses.mockResolvedValue({ data: teams.filter((team) => team.chatflowId !== 'c3') })
+        await act(async () => fireEvent.click(button('Delete')))
+        expect(harnessesApi.deleteIncompleteHarness).toHaveBeenCalledWith('c3')
+        expect(harnessesApi.deleteHarness).not.toHaveBeenCalledWith('unfinished-team')
+        expect(container.textContent).not.toContain('unfinished-team')
     })
 })
 

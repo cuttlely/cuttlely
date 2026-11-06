@@ -146,14 +146,15 @@ jest.mock('http-status-codes', () => ({
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
-import chatflowsService, { liveWriteHooks, validateReferencedHarnesses } from './index'
-import harnessesService from '../../services/harnesses'
+import chatflowsService, { liveWriteHooks, syncHarnessCanvas, validateReferencedHarnesses } from './index'
+import harnessesService, { setHarnessModuleLoader } from '../../services/harnesses'
 import scheduleService from '../../services/schedule'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import { containsBase64File } from '../../utils/fileRepository'
 import { EnumChatflowType } from '../../database/entities/ChatFlow'
 import { ScheduleTriggerType } from '../../database/entities/ScheduleRecord'
 import flowVersionsService from '../flow-versions'
+import flowDraftsService from '../flow-drafts'
 import documentStoreService from '../../services/documentstore'
 
 const mockContainsBase64File = containsBase64File as jest.Mock
@@ -1330,11 +1331,27 @@ describe('harnesses a saved canvas names', () => {
         })
     const keyCaller = { via: 'api_key' as const, apiKeyId: 'key-1', harnesses: ['bakery'] }
     let assertNameAvailable: jest.SpyInstance
+    const canWaitForRoster = jest.fn()
 
     beforeEach(() => {
+        canWaitForRoster.mockReturnValue(true)
         assertNameAvailable = jest.spyOn(harnessesService, 'assertNameAvailable').mockResolvedValue(undefined)
+        setHarnessModuleLoader(async (file) => {
+            if (file !== 'sync-from-flow.mjs') throw new Error(`Unexpected harness module: ${file}`)
+            return {
+                assertSavedHarnessName: jest.fn(),
+                harnessCanvasIsPlaceholder: (flowData: string) => JSON.parse(flowData).nodes.length === 0,
+                harnessCanvasCanWaitForRoster: canWaitForRoster,
+                rosterFromFlow: jest.fn().mockImplementation(() => {
+                    throw new Error('The roster is incomplete.')
+                })
+            }
+        })
     })
-    afterEach(() => assertNameAvailable.mockRestore())
+    afterEach(() => {
+        setHarnessModuleLoader(null)
+        assertNameAvailable.mockRestore()
+    })
 
     it('collects a nested Agent harness tool and checks it against the key list and the team', async () => {
         await expect(validateReferencedHarnesses({ flowData: agentTool('payroll'), workspaceId: 'ws-1' }, keyCaller)).rejects.toMatchObject(
@@ -1446,6 +1463,191 @@ describe('harnesses a saved canvas names', () => {
             )
         ).rejects.toMatchObject({ statusCode: 403 })
         expect(mockRepo.save).not.toHaveBeenCalled()
+    })
+
+    it.each(['publish', 'api'])('refuses an emptied live harness on %s before changing Live or recording a version', async (mode) => {
+        const liveFlowData = JSON.stringify({ nodes: [{ id: 'chief', data: { name: 'harnessChief' } }], edges: [] })
+        const stored = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'live-team', flowData: liveFlowData })
+        const empty = makePlainFlowData()
+        mockRepo.merge.mockImplementation((existing: any, updates: any) => ({ ...existing, ...updates }))
+        canWaitForRoster.mockReturnValue(false)
+        const afterLiveSet = jest.spyOn(flowDraftsService, 'afterLiveSet')
+        try {
+            await expect(
+                chatflowsService.updateChatflow(stored as any, { flowData: empty } as any, 'org-1', 'ws-1', 'sub-1', {
+                    caller: { via: 'session' },
+                    ...(mode === 'publish' ? { expectedFlowData: liveFlowData, versionRecord: { kind: 'publish' as const } } : {})
+                })
+            ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('runnable canvas') })
+            expect(stored.flowData).toBe(liveFlowData)
+            expect(mockRepo.save).not.toHaveBeenCalled()
+            expect(mockRepo.update).not.toHaveBeenCalled()
+            expect(mockRepo.createQueryBuilder).not.toHaveBeenCalled()
+            expect(flowVersionsService.recordFlowVersion).not.toHaveBeenCalled()
+            expect(afterLiveSet).not.toHaveBeenCalled()
+        } finally {
+            afterLiveSet.mockRestore()
+        }
+    })
+
+    it('refuses direct empty sync over a saved roster, but accepts an initial fileless placeholder', async () => {
+        const placeholder = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'live-team', flowData: makePlainFlowData() })
+        canWaitForRoster.mockReturnValue(false)
+        await expect(syncHarnessCanvas(placeholder as any, { via: 'session' })).rejects.toMatchObject({ statusCode: 400 })
+        canWaitForRoster.mockReturnValue(true)
+        await expect(syncHarnessCanvas(placeholder as any, { via: 'session' })).resolves.toBeUndefined()
+        expect(mockRepo.save).not.toHaveBeenCalled()
+    })
+
+    it('keeps an incomplete harness canvas without syncing a file when drafts are off', async () => {
+        const previous = process.env.CUTTLELY_DRAFTS
+        process.env.CUTTLELY_DRAFTS = 'off'
+        const flowData = JSON.stringify({
+            nodes: [
+                { id: 'chief', data: { name: 'harnessChief', inputs: {} } },
+                { id: 'spec', data: { name: 'harnessSpecialist', inputs: { specialistName: 'researcher' } } }
+            ],
+            edges: []
+        })
+        const waitingName = `ZZ-TEST-waiting-${process.pid}`
+        const stored = makeChatflow({
+            type: EnumChatflowType.HARNESS,
+            name: waitingName,
+            flowData: makePlainFlowData()
+        })
+        const saved = { ...stored, flowData }
+        mockRepo.merge.mockReturnValue(saved)
+        mockRepo.save.mockResolvedValue(saved)
+        try {
+            const result = await chatflowsService.updateChatflow(stored as any, { flowData } as any, 'org-1', 'ws-1', 'sub-1', {
+                caller: { via: 'session' },
+                retainIncompleteHarness: true
+            })
+            expect(result.flowData).toBe(flowData)
+            expect(mockRepo.save).toHaveBeenCalledWith(saved)
+            expect(assertNameAvailable).toHaveBeenCalledWith(waitingName, 'ws-1', {
+                claiming: true,
+                readOnly: true,
+                record: { chatflowId: stored.id }
+            })
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_DRAFTS
+            else process.env.CUTTLELY_DRAFTS = previous
+        }
+    })
+
+    it('stores an incomplete first canvas as part of the create operation', async () => {
+        const draftFlowData = JSON.stringify({
+            nodes: [{ id: 'chief', data: { name: 'harnessChief', inputs: {} } }],
+            edges: []
+        })
+        const liveFlowData = makePlainFlowData()
+        const saved = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'create-draft', flowData: liveFlowData })
+        mockRepo.save.mockResolvedValue(saved)
+        const enabled = jest.spyOn(flowDraftsService, 'isDraftsEnabled').mockReturnValue(true)
+        const saveDraft = jest.spyOn(flowDraftsService, 'saveDraft').mockResolvedValue({} as any)
+        try {
+            const result = await chatflowsService.saveChatflow(
+                saved as any,
+                'org-1',
+                'ws-1',
+                'sub-1',
+                {} as any,
+                { id: 'user-1', name: 'Dana' },
+                { caller: { via: 'session' }, draftFlowData, retainIncompleteHarness: true }
+            )
+            expect(result.flowData).toBe(liveFlowData)
+            expect(saveDraft).toHaveBeenCalledWith(saved, draftFlowData, {
+                userId: 'user-1',
+                orgId: 'org-1',
+                subscriptionId: 'sub-1',
+                caller: { via: 'session' }
+            })
+        } finally {
+            saveDraft.mockRestore()
+            enabled.mockRestore()
+        }
+    })
+
+    it('keeps create-only cards in the created row when drafts are off', async () => {
+        const draftFlowData = JSON.stringify({
+            nodes: [{ id: 'chief', data: { name: 'harnessChief', inputs: {} } }],
+            edges: []
+        })
+        const incoming = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'create-live', flowData: makePlainFlowData() })
+        mockRepo.save.mockImplementation(async (row: any) => ({ ...row }))
+        const enabled = jest.spyOn(flowDraftsService, 'isDraftsEnabled').mockReturnValue(false)
+        const saveDraft = jest.spyOn(flowDraftsService, 'saveDraft')
+        try {
+            const result = await chatflowsService.saveChatflow(incoming as any, 'org-1', 'ws-1', 'sub-1', {} as any, undefined, {
+                caller: { via: 'session' },
+                draftFlowData
+            })
+            expect(result.flowData).toBe(draftFlowData)
+            expect(mockRepo.save).toHaveBeenCalledTimes(1)
+            expect(saveDraft).not.toHaveBeenCalled()
+        } finally {
+            saveDraft.mockRestore()
+            enabled.mockRestore()
+        }
+    })
+
+    it('refuses a fileless harness name used by another canvas', async () => {
+        const incoming = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'shared-name', flowData: makePlainFlowData() })
+        mockRepo.findOneBy.mockResolvedValue({ id: 'flow-2' })
+        await expect(
+            chatflowsService.saveChatflow(incoming as any, 'org-1', 'ws-1', 'sub-1', {} as any, undefined, {
+                caller: { via: 'session' }
+            })
+        ).rejects.toMatchObject({ statusCode: 409 })
+        expect(mockRepo.save).not.toHaveBeenCalled()
+    })
+
+    it('refuses the same fileless name on the retained-canvas create path', async () => {
+        const flowData = JSON.stringify({
+            nodes: [{ id: 'chief', data: { name: 'harnessChief', inputs: {} } }],
+            edges: []
+        })
+        const incoming = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'shared-live-name', flowData })
+        mockRepo.findOneBy.mockResolvedValue({ id: 'flow-2' })
+        const enabled = jest.spyOn(flowDraftsService, 'isDraftsEnabled').mockReturnValue(false)
+        try {
+            await expect(
+                chatflowsService.saveChatflow(incoming as any, 'org-1', 'ws-1', 'sub-1', {} as any, undefined, {
+                    caller: { via: 'session' },
+                    retainIncompleteHarness: true
+                })
+            ).rejects.toMatchObject({ statusCode: 409 })
+            expect(mockRepo.save).not.toHaveBeenCalled()
+        } finally {
+            enabled.mockRestore()
+        }
+    })
+
+    it('allows the same canvas to retain its harness name', async () => {
+        const previous = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'same-name', flowData: makePlainFlowData() })
+        const nextFlowData = JSON.stringify({
+            nodes: [{ id: 'chief', data: { name: 'harnessChief', inputs: {} } }],
+            edges: []
+        })
+        const saved = { ...previous, flowData: nextFlowData }
+        mockRepo.findOneBy.mockResolvedValue(undefined)
+        mockRepo.merge.mockReturnValue(saved)
+        mockRepo.save.mockResolvedValue(saved)
+        const enabled = jest.spyOn(flowDraftsService, 'isDraftsEnabled').mockReturnValue(false)
+        try {
+            await expect(
+                chatflowsService.updateChatflow(previous as any, { flowData: nextFlowData } as any, 'org-1', 'ws-1', 'sub-1', {
+                    caller: { via: 'session' },
+                    retainIncompleteHarness: true
+                })
+            ).resolves.toMatchObject({ id: previous.id, name: 'same-name' })
+            expect(mockRepo.findOneBy).toHaveBeenCalledWith(
+                expect.objectContaining({ name: 'same-name', workspaceId: 'ws-1', type: EnumChatflowType.HARNESS, id: expect.anything() })
+            )
+        } finally {
+            enabled.mockRestore()
+        }
     })
 })
 

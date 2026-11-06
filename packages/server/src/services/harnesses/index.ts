@@ -125,10 +125,11 @@ function inWorkspace(owner: string | null, workspaceId: string) {
     return Boolean(owner) && owner === workspaceId
 }
 
-const listHarnesses = async (workspaceId?: string | null) => {
+const listHarnesses = async (workspaceId?: string | null, opts: { includeIncomplete?: boolean } = {}) => {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     const visible = []
+    const canvasIds = new Set<string>()
     for (const row of store.listHarnesses()) {
         const owner = await ownerOf(row)
         if (!inWorkspace(owner, ws)) continue
@@ -137,6 +138,28 @@ const listHarnesses = async (workspaceId?: string | null) => {
         const marked = (await isOrphan(shown)) ? { ...shown, orphaned: true } : shown
         const failed = bootFailures.get(marked.name)
         visible.push(failed ? { ...marked, status: 'failed', error: failed } : marked)
+        if (typeof marked.chatflowId === 'string' && marked.chatflowId) canvasIds.add(marked.chatflowId)
+    }
+    if (opts.includeIncomplete) {
+        const { ChatFlow, EnumChatflowType } = await import('../../database/entities/ChatFlow')
+        const canvases = await getRunningExpressApp()
+            .AppDataSource.getRepository(ChatFlow)
+            .find({
+                select: { id: true, name: true, category: true, createdDate: true, updatedDate: true },
+                where: { workspaceId: ws, type: EnumChatflowType.HARNESS }
+            })
+        for (const canvas of canvases) {
+            if (canvasIds.has(canvas.id)) continue
+            visible.push({
+                name: canvas.name,
+                chatflowId: canvas.id,
+                workspaceId: ws,
+                category: canvas.category,
+                createdAt: canvas.createdDate,
+                updatedAt: canvas.updatedDate,
+                incomplete: true
+            })
+        }
     }
     return visible
 }
@@ -200,10 +223,15 @@ function assertNoProfileConflicts(profile: HarnessModule, record: Record<string,
 }
 
 // A record that belongs to another canvas is refused before it is claimed, as the store would refuse the save.
-function assertSameCanvas(existing: { chatflowId?: unknown } | null, record: { chatflowId?: unknown } | null | undefined, name: string) {
+function assertSameCanvas(
+    existing: { chatflowId?: unknown } | null,
+    record: { chatflowId?: unknown } | null | undefined,
+    name: string,
+    requireClaim = false
+) {
     const had = typeof existing?.chatflowId === 'string' ? existing.chatflowId : ''
     const given = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
-    if (had && given && had !== given) {
+    if (had && ((requireClaim && !given) || (given && had !== given))) {
         throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is already used. Choose a different name.`)
     }
 }
@@ -252,12 +280,14 @@ async function saveUnderName(
 export async function assertNameAvailable(
     name: string,
     workspaceId?: string | null,
-    opts: { claiming?: boolean; readOnly?: boolean; record?: { specialists?: Array<{ name?: unknown }> } | null } = {}
+    opts: { claiming?: boolean; readOnly?: boolean; record?: { chatflowId?: unknown; specialists?: Array<{ name?: unknown }> } | null } = {}
 ) {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     // A roster that would compile into another harness's profile is refused before anything is claimed or cleared.
-    if (opts.record) assertNoProfileConflicts(await loadHarness('profile.mjs'), opts.record as Record<string, unknown>, name)
+    // Read-only checks may carry only a canvas id, not a runnable roster. They claim or write no profiles.
+    if (opts.record && !opts.readOnly)
+        assertNoProfileConflicts(await loadHarness('profile.mjs'), opts.record as Record<string, unknown>, name)
     let existing
     try {
         existing = store.getHarness(name)
@@ -271,7 +301,10 @@ export async function assertNameAvailable(
     }
     const owner = await ownerOf(existing)
     if (!inWorkspace(owner, ws)) throw nameClash(name)
-    if (opts.readOnly) return
+    if (opts.readOnly) {
+        if (opts.claiming) assertSameCanvas(existing, opts.record as { chatflowId?: unknown } | null, name, true)
+        return
+    }
     assertSameCanvas(existing, opts.record as { chatflowId?: unknown } | null, name)
     if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
 }

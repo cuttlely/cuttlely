@@ -12,6 +12,7 @@ const SaveChatflowDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const [chatflowName, setChatflowName] = useState('')
     const [isReadyToSave, setIsReadyToSave] = useState(false)
     const nameError = typeof dialogProps?.nameError === 'function' ? dialogProps.nameError(chatflowName) : ''
+    const nameNote = typeof dialogProps?.nameNote === 'function' ? dialogProps.nameNote(chatflowName) : ''
 
     // A built chatflow arrives named after its title; the box starts with that name.
     useEffect(() => {
@@ -54,6 +55,11 @@ const SaveChatflowDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                 {nameError ? (
                     <Typography color='error' variant='body2' sx={{ mt: 1 }} data-testid='harness-name-error'>
                         {nameError}
+                    </Typography>
+                ) : null}
+                {nameNote ? (
+                    <Typography color='text.secondary' variant='body2' sx={{ mt: 1 }} data-testid='harness-name-note'>
+                        {nameNote}
                     </Typography>
                 ) : null}
             </DialogContent>

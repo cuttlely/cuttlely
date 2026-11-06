@@ -35,6 +35,7 @@ import {
     harnessCategories,
     harnessDeleteBody,
     harnessDeleteTitle,
+    harnessListPath,
     harnessNodeImages
 } from '@/utils/harnessCard'
 import { HARNESS_CATEGORY_PERMISSION } from '@/utils/flowCategoryPermission'
@@ -77,19 +78,21 @@ const Harnesses = () => {
 
     const renderRowActions = (harness) => (
         <>
-            <PermissionIconButton
-                permissionId={HARNESS_CATEGORY_PERMISSION}
-                aria-label={`Update Category ${harness.name}`}
-                title='Update Category'
-                size='small'
-                onClick={(event) => {
-                    event.stopPropagation()
-                    setCategoryDialogProps(harness.category ? { category: harness.category.split(';') } : {})
-                    setPendingCategory(harness)
-                }}
-            >
-                <IconTag size={18} />
-            </PermissionIconButton>
+            {!harness.incomplete && (
+                <PermissionIconButton
+                    permissionId={HARNESS_CATEGORY_PERMISSION}
+                    aria-label={`Update Category ${harness.name}`}
+                    title='Update Category'
+                    size='small'
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        setCategoryDialogProps(harness.category ? { category: harness.category.split(';') } : {})
+                        setPendingCategory(harness)
+                    }}
+                >
+                    <IconTag size={18} />
+                </PermissionIconButton>
+            )}
             <PermissionIconButton
                 permissionId={HARNESS_DELETE_PERMISSION}
                 aria-label={`Delete ${harness.name}`}
@@ -112,7 +115,8 @@ const Harnesses = () => {
         setDeleting(true)
         setDeleteError('')
         try {
-            await harnessesApi.deleteHarness(pendingDelete.name)
+            if (pendingDelete.incomplete) await harnessesApi.deleteIncompleteHarness(pendingDelete.chatflowId)
+            else await harnessesApi.deleteHarness(pendingDelete.name)
             setPendingDelete(null)
             listApi.request()
         } catch (error) {
@@ -141,7 +145,8 @@ const Harnesses = () => {
         )
     })
 
-    const images = Object.fromEntries(saved.map((harness) => [harness.name, harnessNodeImages(harness, baseURL)]))
+    const rowId = (harness) => (harness.incomplete && harness.chatflowId ? harness.chatflowId : harness.name)
+    const images = Object.fromEntries(saved.map((harness) => [rowId(harness), harnessNodeImages(harness, baseURL)]))
 
     const renderActions = (justify) => (
         <Stack
@@ -274,21 +279,21 @@ const Harnesses = () => {
                     <FlowListTable
                         data={harnesses.map((harness) => ({
                             ...harness,
-                            id: harness.name,
+                            id: rowId(harness),
                             name: harness.name,
                             category: harness.category || '',
                             updatedDate: harness.updatedAt
                         }))}
                         images={images}
                         filterFunction={() => true}
-                        getRowLink={(row) => `/harnesses/${encodeURIComponent(row.name)}`}
+                        getRowLink={harnessListPath}
                         renderActions={renderRowActions}
                         sortStorageKeyPrefix='harness'
                     />
                 ) : (
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 2 }}>
                         {harnesses.map((harness) => (
-                            <Box key={harness.name} sx={{ position: 'relative' }}>
+                            <Box key={rowId(harness)} sx={{ position: 'relative' }}>
                                 <ItemCard
                                     data={{
                                         name: harness.name,
@@ -296,9 +301,9 @@ const Harnesses = () => {
                                         type: 'HARNESS',
                                         updatedDate: harness.updatedAt || harness.updatedDate
                                     }}
-                                    images={images[harness.name]}
+                                    images={images[rowId(harness)]}
                                     categories={harnessCategories(harness)}
-                                    onClick={() => navigate(`/harnesses/${encodeURIComponent(harness.name)}`)}
+                                    onClick={() => navigate(harnessListPath(harness))}
                                 />
                                 <Stack direction='row' sx={{ position: 'absolute', top: 8, right: 8 }}>
                                     {renderRowActions(harness)}

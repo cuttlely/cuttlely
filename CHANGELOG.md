@@ -20,6 +20,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Publishing or saving an emptied live agent team now refuses the change and keeps the live canvas and roster together. New teams can still save an initial placeholder before their roster is ready.
+
 -   When a harness turn times out, completed research prerequisites no longer substitute for an unfinished deliverable. Independent completed work and completed final results remain available.
 
 -   Harnesses stop admitted specialist runs when their status connection fails, including nested specialist calls. Stop requests retry transient failures and briefly check that the run ended instead of treating a stopping acknowledgment as completion. Shutdown-interrupted runs also finish polling immediately rather than waiting for the run timeout.

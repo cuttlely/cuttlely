@@ -27,7 +27,7 @@ function activeWorkspace(req: Request): string {
 
 const listHarnesses = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const rows = await harnessesService.listHarnesses(activeWorkspace(req))
+        const rows = await harnessesService.listHarnesses(activeWorkspace(req), { includeIncomplete: !isApiKeyCaller(req) })
         const allowed = await callerKeyHarnesses(req)
         return res.json(allowed === null ? rows : rows.filter((row: { name: string }) => allowed.includes(row.name)))
     } catch (error) {

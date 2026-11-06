@@ -4,7 +4,7 @@
 
 jest.mock('@/api/harnesses', () => ({
     __esModule: true,
-    default: { listHarnesses: jest.fn(), deleteHarness: jest.fn(), updateHarnessCategory: jest.fn() }
+    default: { listHarnesses: jest.fn(), deleteHarness: jest.fn(), deleteIncompleteHarness: jest.fn(), updateHarnessCategory: jest.fn() }
 }))
 jest.mock('@/store/context/ErrorContext', () => ({ useError: () => ({ setError: () => {}, handleError: () => {} }) }))
 jest.mock('react-router-dom', () => ({
@@ -93,7 +93,13 @@ const teams = [
             { name: 'writer', model: { nodeName: 'chatOpenAI', label: 'ChatOpenAI' }, modules: [], mcpServers: [] }
         ]
     },
-    { name: 'ZZ-TEST-beta', updatedAt: '2026-02-01T00:00:00Z' }
+    { name: 'ZZ-TEST-beta', updatedAt: '2026-02-01T00:00:00Z' },
+    {
+        name: 'ZZ-TEST-incomplete',
+        chatflowId: '33333333-3333-4333-8333-333333333333',
+        incomplete: true,
+        updatedAt: '2025-12-01T00:00:00Z'
+    }
 ]
 let container
 let root
@@ -123,13 +129,16 @@ it('reuses the table sorting, category chips, search and category dialog', async
     expect(within(table).getByText('sales')).toBeTruthy()
     expect(within(table).getByText('ops')).toBeTruthy()
     const rowNames = () => [...table.querySelectorAll('tbody tr')].map((row) => row.querySelector('a').textContent)
-    expect(rowNames()).toEqual(['ZZ-TEST-beta', 'ZZ-TEST-alpha'])
+    expect(rowNames()).toEqual(['ZZ-TEST-beta', 'ZZ-TEST-alpha', 'ZZ-TEST-incomplete'])
     expect(within(table).getByRole('link', { name: 'ZZ-TEST-alpha' }).getAttribute('href')).toBe('/harnesses/ZZ-TEST-alpha')
+    expect(within(table).getByRole('link', { name: 'ZZ-TEST-incomplete' }).getAttribute('href')).toBe(
+        '/harnesscanvas/33333333-3333-4333-8333-333333333333'
+    )
     await act(async () => fireEvent.click(within(table).getByText('Name')))
-    expect(rowNames()).toEqual(['ZZ-TEST-alpha', 'ZZ-TEST-beta'])
+    expect(rowNames()).toEqual(['ZZ-TEST-alpha', 'ZZ-TEST-beta', 'ZZ-TEST-incomplete'])
     expect(localStorage.getItem('harnessOrderBy')).toBe('name')
     await act(async () => fireEvent.click(within(table).getByText('Name')))
-    expect(rowNames()).toEqual(['ZZ-TEST-beta', 'ZZ-TEST-alpha'])
+    expect(rowNames()).toEqual(['ZZ-TEST-incomplete', 'ZZ-TEST-beta', 'ZZ-TEST-alpha'])
     expect(localStorage.getItem('harnessOrder')).toBe('desc')
 
     await act(async () => fireEvent.change(within(container).getByLabelText('Search harnesses'), { target: { value: 'OPS' } }))

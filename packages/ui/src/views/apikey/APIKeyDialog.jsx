@@ -68,7 +68,12 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const listHarnessesApi = useApi(harnessesApi.listHarnesses)
     const { hasPermission } = useAuth()
     const canListHarnesses = hasPermission('chatflows:view,agentflows:view')
-    const harnessNames = Array.isArray(listHarnessesApi.data) ? listHarnessesApi.data.map((row) => row.name).sort() : []
+    const harnessNames = Array.isArray(listHarnessesApi.data)
+        ? listHarnessesApi.data
+              .filter((row) => !row.incomplete)
+              .map((row) => row.name)
+              .sort()
+        : []
 
     useEffect(() => {
         if (dialogProps.type === 'EDIT' && dialogProps.key) {

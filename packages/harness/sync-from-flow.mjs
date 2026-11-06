@@ -7,6 +7,8 @@ import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
 import { compileProfileCached, profileDestinationConflicts } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
+
+export { assertSavedHarnessName }
 import { toolCallingWarnings } from './tool-fallback.mjs'
 import { SPECIALIST_PRESETS, presetName } from './presets.mjs'
 import { assertPinnedQueryRoster } from './pinned-names.mjs'
@@ -139,6 +141,39 @@ function parseMaybeJson(value) {
         return Array.isArray(parsed) ? parsed : [parsed]
     } catch {
         return []
+    }
+}
+
+// A new harness can be stored before it has a Harness Prime. That canvas is not a roster and
+// must not be written to a harness file. Unreadable JSON is not a placeholder: the roster read reports it.
+export function harnessCanvasIsPlaceholder(flowData) {
+    let flow
+    try {
+        flow = parseFlow(flowData)
+    } catch {
+        return false
+    }
+    const nodes = Array.isArray(flow?.nodes) ? flow.nodes : []
+    return !nodes.some((node) => {
+        const name = node?.data?.name
+        return name === 'harnessChief' || name === 'harnessSpecialist'
+    })
+}
+
+// An incomplete canvas can wait in its database row only while no runnable harness file exists.
+// The graph still has to be readable so this path cannot retain arbitrary text as a canvas.
+export function harnessCanvasCanWaitForRoster({ name, flowData }) {
+    let flow
+    try {
+        flow = parseFlow(flowData)
+    } catch {
+        return false
+    }
+    if (!flow || !Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) return false
+    try {
+        return !getHarness(name)
+    } catch {
+        return false
     }
 }
 

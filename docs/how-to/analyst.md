@@ -45,13 +45,13 @@ The harness uses that credential. You do not have to unset `OPENAI_API_KEY` in t
 
 Open **Templates** and start **Chief of Staff Harness**.
 
-Saving the raw template is rejected until the **xAI Grok** node has a credential, or you delete that node. The message is: `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.`
+Saving the raw template before the **xAI Grok** node has a credential, or before you delete that node, keeps the canvas as a draft on an empty Live row. It is not a harness the API can run. **Publish** refuses it until that node has a credential: `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.`
 
-Save it as `chief-of-staff`. A harness id is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. The card title is not an id. Saving `Chief of Staff Harness` is rejected: `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".`
+Save it as `chief-of-staff`, or keep the template title. A harness id is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. The first save stores `Chief of Staff Harness` as `Chief-of-Staff-Harness` and the save dialog shows that id. Renaming it later still refuses a name that is not an id: `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".`
 
 On the canvas (`/harnesscanvas/:id`):
 
-1. The sample Harness Prime model is **xAI Grok**, model `grok-4.7`, with no credential. If you saved an OpenAI key first, the template already shows **ChatOpenAI** with your key instead (see [Connect a chat model](./harnesses.md#connect-a-chat-model-to-harness-prime)); go to step 3. Otherwise delete that node, or the save above is rejected.
+1. The sample Harness Prime model is **xAI Grok**, model `grok-4.7`, with no credential. If you saved an OpenAI key first, the template already shows **ChatOpenAI** with your key instead (see [Connect a chat model](./harnesses.md#connect-a-chat-model-to-harness-prime)); go to step 3. Otherwise delete that node. Until you do, the first save stays a draft and **Publish** is refused.
 2. Add **OpenAI** from Chat Models. Under **Model Name**, choose a model. Under **Connect Credential**, select the OpenAI credential. Connect the node to **Harness Prime**.
 3. Open **Postgres (MCP)**. Under **Tools it can use**, select **QUERY**. The sample stores no action. Until QUERY is selected, the node runs nothing. With QUERY selected, the line under the field is the action description. In auto mode that line starts with `Run one SQL statement in the isolated analyst store`. That sentence is the sign auto mode is on. Opening the list shows the same description under **QUERY**. `Run a read-only SQL query` means a Postgres URL or a Postgres URL credential is set. In auto mode, with no credential saved, **Database connection** reads `Auto mode: isolated analyst store, no credential needed`.
 4. Save.
@@ -672,7 +672,7 @@ Encode the password, restart, and select **QUERY** again.
 
 ## Troubleshooting
 
-**Harness name is not valid.** Save `chief-of-staff`, not the template title. The id is a letter, then letters, numbers, `_`, or `-`.
+**Harness name is not valid.** The first save of the template title is stored as `Chief-of-Staff-Harness`. A later name change still needs an id: a letter, then letters, numbers, `_`, or `-`, such as `chief-of-staff`.
 
 **The node runs nothing.** Select **QUERY** under **Tools it can use** and save. An empty action list means the `query` tool is filtered out.
 

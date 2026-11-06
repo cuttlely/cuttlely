@@ -1,4 +1,4 @@
-import { harnessCardDescription, harnessDeleteBody, harnessDeleteTitle, harnessOpenProblem } from './harnessCard'
+import { harnessCardDescription, harnessDeleteBody, harnessDeleteTitle, harnessListPath, harnessOpenProblem } from './harnessCard'
 
 describe('agent team card text', () => {
     it('names the harness in the delete confirmation', () => {
@@ -6,11 +6,15 @@ describe('agent team card text', () => {
         expect(harnessDeleteBody({ name: 'NAVI-B', chatflowId: 'c1' })).toContain('"NAVI-B"')
         expect(harnessDeleteBody({ name: 'NAVI-B', chatflowId: 'c1' })).toContain('canvas')
         expect(harnessDeleteBody({ name: 'navi', orphaned: true, chatflowId: 'c1' })).not.toContain('canvas and chat')
+        expect(harnessDeleteBody({ name: 'waiting', incomplete: true, chatflowId: 'c2' })).toContain('incomplete canvas')
     })
 
     it('marks an orphan card', () => {
         expect(harnessCardDescription({ name: 'navi', orphaned: true, specialists: [{}] })).toMatch(/Canvas deleted/)
         expect(harnessCardDescription({ name: 'navi', specialists: [{}, {}] })).toBe('2 specialists')
+        expect(harnessCardDescription({ name: 'waiting', incomplete: true })).toContain('Open the canvas')
+        expect(harnessListPath({ name: 'waiting', chatflowId: 'canvas 1', incomplete: true })).toBe('/harnesscanvas/canvas%201')
+        expect(harnessListPath({ name: 'ready team', chatflowId: 'c1' })).toBe('/harnesses/ready%20team')
     })
 })
 

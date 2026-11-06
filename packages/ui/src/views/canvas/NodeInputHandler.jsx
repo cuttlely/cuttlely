@@ -1080,11 +1080,11 @@ const NodeInputHandler = ({
                                 inputParam={inputParam}
                                 onHint={setCredentialHint}
                                 pickOnlyFit
-                                onSelect={(newValue, how) => {
+                                onSelect={(newValue) => {
                                     data.credential = newValue
                                     data.inputs[FLOWISE_CREDENTIAL_ID] = newValue // in case data.credential is not updated
-                                    // A key picked for the person (the only one that fits) is a change to save.
-                                    if (how?.picked) dispatch({ type: SET_DIRTY })
+                                    // A credential the person selects, or the only key that fits, is a change to save.
+                                    dispatch({ type: SET_DIRTY })
                                     onCredentialSelect?.(newValue)
                                     // Display only: the "Used by" and turned-off notes on the canvas read the pick again.
                                     if (data.name === POSTGRES_NODE) notifyConnectionPicked()

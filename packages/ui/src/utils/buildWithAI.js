@@ -1,3 +1,5 @@
+import { applyCredentialInput } from './canvasSave'
+
 // Plain-words decisions for Build with AI, shared by every canvas.
 
 export const BUILD_BUTTON = 'Build with AI'
@@ -159,11 +161,7 @@ export const pipelineNameFrom = (title, taken = []) => {
 // What the canvas does on save: a card's own credential moves from its inputs to data.credential.
 export const asSavedCards = (nodes = []) =>
     nodes.map((node) => {
-        const data = { ...node.data, inputs: { ...(node.data?.inputs || {}) } }
-        if (FLOWISE_CREDENTIAL_ID in data.inputs) {
-            data.credential = data.inputs[FLOWISE_CREDENTIAL_ID]
-            delete data.inputs[FLOWISE_CREDENTIAL_ID]
-        }
+        const data = applyCredentialInput({ ...node.data, inputs: { ...(node.data?.inputs || {}) } })
         return { ...node, data: { ...data, selected: false } }
     })
 
