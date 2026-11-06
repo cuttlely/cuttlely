@@ -349,9 +349,27 @@ Setup does not stop at a GitHub page: after **Sign Up** you land in Cuttlely, so
 
 When the environment list cannot be read, that card shows `The environment list could not be read. Save it again.` It does not offer Dev and Prod. It asks which row is this server, then saves that identity with the full list. The saved pair is dev then prod. Save stays off until a row is chosen. When the saved GitHub connection cannot be read, the card still shows the list and shows `The saved GitHub connection could not be read. Disconnect and connect again.` It does not ask you to save the list again. Saving the saved Dev and Prod pair in place of a named list that still parses, when that save would not change what this server reads or copies, is refused with `The environment list on this server is still valid, so it was not replaced.`
 
+### Which GitHub host
+
+The host box stays **github.com** unless you change it. That is GitHub's public service: repository calls use `https://github.com/owner/name`, and the API uses `https://api.github.com`. Leave the box as it is for that.
+
+For GitHub Enterprise, type the host you open in a browser:
+
+| Host you enter                                    | What it is                                  | Git address                                 | API                                 |
+| ------------------------------------------------- | ------------------------------------------- | ------------------------------------------- | ----------------------------------- |
+| `github.com`                                      | GitHub.com, the default                     | `https://github.com/owner/name.git`         | `https://api.github.com`            |
+| `example.ghe.com`                                 | GitHub Enterprise Cloud with data residency | `https://example.ghe.com/owner/name.git`    | `https://api.example.ghe.com`       |
+| any other host name, such as `github.example.com` | GitHub Enterprise Server                    | `https://github.example.com/owner/name.git` | `https://github.example.com/api/v3` |
+
+A port is allowed on Enterprise Server, for example `github.example.com:8443`. `ghe.com` and `github.com` do not take a custom port. Enter the host only, not a repository path, a username or a password. `http://` is refused. An IP address is refused.
+
+The token has to be issued by that host. A sign-in saved for `github.com` is not sent to another host, and a sign-in saved for an enterprise host is not sent to `github.com`. Changing the host means disconnecting and connecting again with a token from the new host. Cuttlely does not follow a redirect with the token, and it keeps TLS certificate checks on.
+
+A private-network, loopback or link-local address is refused while the outbound check is on, which is the default. **Allow HTTP building blocks to call localhost** does not open a GitHub host. There is no separate allow list for a private GitHub Enterprise Server. Turning `HTTP_SECURITY_CHECK` off drops the private-range block for other outbound calls and for this host as well; loopback, link-local and metadata addresses stay blocked, and that switch is not recommended. See [History settings](../reference/versioning-settings.md#github-enterprise-hosts).
+
 ### Which GitHub token to use
 
-The card asks for a GitHub token once. Make it a fine-grained token that reaches only the one repository you copy to, and only that repository's contents. Select the **i** at the end of the **GitHub token** box to see the same list in the card.
+The card asks for a GitHub token once. This is a personal access token, not an OAuth login. On github.com, make it a fine-grained token that reaches only the one repository you copy to, and only that repository's contents. Select the **i** at the end of the **GitHub token** box to see the same list in the card.
 
 ![Step 1, Sign in to GitHub, with the Which token to use card open under the GitHub token box. It reads Token type: Fine-grained. Repository access: Only select repositories, then just the one for Cuttlely. Permissions: Contents: Read and write. Nothing else. GitHub adds Metadata: Read-only on its own. Expiration: 90 days, or a date you choose. When it runs out, paste a new token into the saved sign-in in Credentials. A note says to create the empty private repository on GitHub first, so you can pick it there, and that the link below fills in the name, expiry and Contents. Buttons: Create A Token On GitHub and Read The Guide.](../images/versioning/github-token-help.png)
 
@@ -367,14 +385,16 @@ The card asks for a GitHub token once. Make it a fine-grained token that reaches
 
 4. Select **Generate token**, copy it, and paste it into the card.
 
-That is all Cuttlely needs. It uses the token to read your account name and the repositories the token can reach, to check the repository you pick, and to copy new versions into it. It never opens pull requests, never changes the repository's settings, issues or workflows, and never changes any other repository. A Prod server only reads, so its token needs **Contents**: **Read-only**; the card's link fills that in on a Prod server.
+That is all Cuttlely needs on github.com. It uses the token to read your account name and the repositories the token can reach, to check the repository you pick, and to copy new versions into it. It never opens pull requests, never changes the repository's settings, issues or workflows, and never changes any other repository. A Prod server only reads, so its token needs **Contents**: **Read-only**; the card's link fills that in on a Prod server.
+
+On a GitHub Enterprise host, create the token on that host, not on github.com. The card's link opens `https://<host>/settings/tokens`. GitHub Enterprise Server usually wants a personal access token with the **repo** scope, which is broader than a fine-grained token. If that host offers fine-grained tokens, **Contents** read and write on the one repository is enough, and **Contents** read-only is enough on a server that only reads. The token is stored as a **Github API** credential with the host recorded in the encrypted credential, and a later edit of that credential cannot change the host.
 
 **Make a new private repository** in the card is the one thing this token cannot do. GitHub only lets a fine-grained token create repositories when it can reach all of your repositories and has **Administration** set to **Read and write**, which is far more than Cuttlely needs. Create the repository on GitHub yourself instead. A classic token with the `repo` scope also works, but it can reach every repository you can, so prefer the fine-grained one.
 
 ### Connect
 
 1. Select **Connect GitHub**.
-2. Paste a GitHub token: a fine-grained token for just that one repository, with **Contents** set to **Read and write** (see [Which GitHub token to use](#which-github-token-to-use)). **Create a token on GitHub** under the box opens GitHub's token page already filled in, and the **i** in the box shows what to pick. If this workspace already has a GitHub sign-in in Credentials, pick it from the list instead.
+2. Leave **GitHub host** as `github.com`, or enter your GitHub Enterprise host (see [Which GitHub host](#which-github-host)). Then paste a token issued by that host: on github.com, a fine-grained token for just that one repository, with **Contents** set to **Read and write** (see [Which GitHub token to use](#which-github-token-to-use)). **Create a token on GitHub** under the box opens that host's token page, and the **i** in the box shows what to pick. If this workspace already has a GitHub sign-in for the same host in Credentials, pick it from the list instead. A sign-in for a different host is refused and the token is not sent.
 
     ![Step 1, Sign in to GitHub. The GitHub token box shows dots and an i button at its end. Under it: Use a fine-grained token for just one repository, with Contents set to Read and write. It is saved in Credentials. Create a token on GitHub. Then Continue and Cancel buttons.](../images/versioning/github-sign-in.png)
 

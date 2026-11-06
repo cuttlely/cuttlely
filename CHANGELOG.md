@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Version history can copy to a GitHub Enterprise host. On **Admin** > **Version History**, **GitHub host** stays `github.com` unless you set the host you open in a browser. GitHub Enterprise Cloud with data residency (`example.ghe.com`) uses `https://api.example.ghe.com`. Any other host, including GitHub Enterprise Server, uses `https://<host>/api/v3`. The token is a personal access token from that host. A saved sign-in is not sent to a different host, redirects are not followed, and private-network addresses stay blocked by the outbound check. See [Which GitHub host](./docs/how-to/versioning.md#which-github-host).
+
 ### Changed
 
 -   Admin runtime settings offer Off, Probe periodically (default), and Timed full warmup. Both active modes use a configurable interval, defaulting to five minutes. Existing explicit false and true settings select Off and full warmup respectively. Save and restart to apply.

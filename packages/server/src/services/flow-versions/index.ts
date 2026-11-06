@@ -68,14 +68,21 @@ const githubCredentials: GithubCredentialStore = {
             .findOne({ where: { id, workspaceId, credentialName: GITHUB_CREDENTIAL } })
         if (!row) return null
         const data = await (await import('../../utils')).decryptCredentialData(row.encryptedData)
-        return { id: row.id, name: row.name, token: typeof data?.accessToken === 'string' ? data.accessToken.trim() : '' }
+        const host = typeof data?.githubHost === 'string' ? data.githubHost.trim() : ''
+        return {
+            id: row.id,
+            name: row.name,
+            token: typeof data?.accessToken === 'string' ? data.accessToken.trim() : '',
+            // Absent on a credential saved before custom hosts. Those stay on github.com.
+            host: host || null
+        }
     },
-    async create({ name, token, workspaceId }) {
+    async create({ name, token, workspaceId, host }) {
         const credentialsService = (await import('../credentials')).default
         const saved = await credentialsService.createCredential({
             name,
             credentialName: GITHUB_CREDENTIAL,
-            plainDataObj: { accessToken: token },
+            plainDataObj: { accessToken: token, githubHost: host || 'github.com' },
             workspaceId
         })
         return { id: saved.id, name: saved.name }

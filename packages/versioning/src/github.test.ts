@@ -14,6 +14,7 @@ import {
     versionsDir
 } from './index'
 import { authEnv, checkToken, classifyFailure, GithubSync, parseRepo, scrub } from './github'
+import { githubEndpoint } from './githubHost'
 import { environmentListFingerprint } from './environments'
 import { gitEnv, runGit, VersionStore } from './store'
 import { useTestDeps, warnings } from './testDeps'
@@ -197,14 +198,14 @@ let bare: string
 let gitCalls: { args: string[]; env: Record<string, string> }[]
 let sync: GithubSync
 // Stands in for Credentials: Github API rows by id and workspace, values held as the app would decrypt them.
-let credentialRows: Map<string, { id: string; name: string; token: string; workspaceId: string }>
+let credentialRows: Map<string, { id: string; name: string; token: string; workspaceId: string; host?: string | null }>
 const WS = 'ws-1'
 const credentialStore = {
     async get(id: string, workspaceId: string) {
         const row = credentialRows.get(id)
-        return row && row.workspaceId === workspaceId ? { id: row.id, name: row.name, token: row.token } : null
+        return row && row.workspaceId === workspaceId ? { id: row.id, name: row.name, token: row.token, host: row.host ?? null } : null
     },
-    async create(input: { name: string; token: string; workspaceId: string }) {
+    async create(input: { name: string; token: string; workspaceId: string; host?: string }) {
         const id = `cred-${credentialRows.size + 1}`
         credentialRows.set(id, { id, ...input })
         return { id, name: input.name }
@@ -310,9 +311,13 @@ describe('repository and token input', () => {
 
     test('the token goes to git only as a header scoped to the repository, in the environment', () => {
         const env = authEnv('https://github.com/acme/flows.git', TOKEN)
-        expect(env.GIT_CONFIG_COUNT).toBe('1')
+        expect(env.GIT_CONFIG_COUNT).toBe('3')
         expect(env.GIT_CONFIG_KEY_0).toBe('http.https://github.com/acme/flows.git.extraHeader')
         expect(env.GIT_CONFIG_KEY_0).not.toContain(TOKEN)
+        expect(env.GIT_CONFIG_KEY_1).toBe('http.followRedirects')
+        expect(env.GIT_CONFIG_VALUE_1).toBe('false')
+        expect(env.GIT_CONFIG_KEY_2).toBe('http.https://github.com.sslVerify')
+        expect(env.GIT_CONFIG_VALUE_2).toBe('true')
         const header = env.GIT_CONFIG_VALUE_0.replace('Authorization: Basic ', '')
         expect(Buffer.from(header, 'base64').toString()).toBe(`x-access-token:${TOKEN}`)
         expect(authEnv(`file://${bare}`, TOKEN)).toEqual({})
@@ -780,6 +785,8 @@ describe('picking or creating a repository', () => {
             ]
         })
         expect(calls[0].init.headers.Authorization).toBe(`Bearer ${TOKEN}`)
+        expect(calls[0].init.redirect).toBe('manual')
+        expect(calls[0].url).toBe('https://api.github.com/user')
         for (const call of calls) expect(call.url).not.toContain(TOKEN)
         expect(JSON.stringify(warnings)).not.toContain(TOKEN)
     })
@@ -1873,5 +1880,234 @@ describe('local stand-in for GitHub (end-to-end runs without an account)', () =>
         process.env.CUTTLELY_GITHUB_TEST_ROOT = path.join(tmp, 'gh')
         await expect(sync.listRepos({ token: TOKEN }, WS)).rejects.toMatchObject({ status: 400 })
         expect(urls[1]).toBe('http://127.0.0.1:9/user')
+    })
+})
+
+const PUBLIC: { address: string; family: 4 }[] = [{ address: '203.0.113.10', family: 4 }]
+
+describe('custom GitHub host', () => {
+    function apiFetch(routes: Record<string, { status: number; body?: unknown }>) {
+        const calls: { url: string; init: any }[] = []
+        const fetchStub = (async (url: string, init: any) => {
+            calls.push({ url: String(url), init })
+            const hit = routes[`${init?.method || 'GET'} ${url}`] || { status: 404, body: {} }
+            return { status: hit.status, json: async () => hit.body ?? null } as any
+        }) as unknown as typeof fetch
+        return { fetchStub, calls }
+    }
+
+    test('github.com stays the default and does not resolve a custom host', async () => {
+        const { fetchStub, calls } = apiFetch({
+            'GET https://api.github.com/user': { status: 401 }
+        })
+        sync.stop()
+        sync = makeSync({
+            fetch: fetchStub,
+            lookup: async () => {
+                throw new Error('dns should not run for github.com')
+            }
+        })
+        await expect(sync.listRepos({ token: TOKEN }, WS)).rejects.toMatchObject({ status: 400 })
+        expect(calls.map((call) => call.url)).toEqual(['https://api.github.com/user'])
+        expect(calls[0].init.redirect).toBe('manual')
+    })
+
+    test.each([
+        ['github.example.com', 'https://github.example.com/api/v3/user', 'https://github.example.com/acme/flows.git'],
+        ['ibm.github.com', 'https://ibm.github.com/api/v3/user', 'https://ibm.github.com/acme/flows.git'],
+        ['octo.ghe.com', 'https://api.octo.ghe.com/user', 'https://octo.ghe.com/acme/flows.git']
+    ])('%s routes the API and the git remote to that host', (host, api, gitUrl) => {
+        const endpoint = githubEndpoint(host)
+        expect(parseRepo('acme/flows', endpoint).url).toBe(gitUrl)
+        expect(parseRepo(`${endpoint.gitOrigin}/acme/flows.git`, endpoint).url).toBe(gitUrl)
+        expect(`${endpoint.apiBase}/user`).toBe(api)
+        expect(() => parseRepo('https://github.com/acme/flows', endpoint)).toThrow()
+    })
+
+    test('lists repositories on the enterprise API and does not call api.github.com', async () => {
+        const { fetchStub, calls } = apiFetch({
+            'GET https://github.example.com/api/v3/user': { status: 200, body: { login: 'acme-bot' } },
+            'GET https://github.example.com/api/v3/user/repos?per_page=100&page=1&sort=pushed&affiliation=owner,collaborator,organization_member':
+                {
+                    status: 200,
+                    body: [{ full_name: 'acme/flows', private: true, size: 0, permissions: { push: true } }]
+                }
+        })
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub, lookup: async () => PUBLIC })
+        const list = await sync.listRepos({ token: TOKEN, host: 'https://github.example.com/' }, WS)
+        expect(list.account).toBe('acme-bot')
+        expect(list.repos.map((item) => item.repo)).toEqual(['acme/flows'])
+        const requested = calls.map((call) => new URL(call.url))
+        expect(requested.every((url) => url.origin === 'https://github.example.com')).toBe(true)
+        expect(requested.map((url) => url.pathname)).toEqual(['/api/v3/user', '/api/v3/user/repos'])
+        expect(requested.some((url) => url.hostname === 'api.github.com')).toBe(false)
+        expect(calls[0].init.headers.Authorization).toBe(`Bearer ${TOKEN}`)
+        expect(calls[0].init.redirect).toBe('manual')
+        for (const call of calls) expect(call.url).not.toContain(TOKEN)
+    })
+
+    test('a redirect is refused and the token is not sent again', async () => {
+        const { fetchStub, calls } = apiFetch({
+            'GET https://github.example.com/api/v3/user': { status: 302, body: { location: 'https://github.com/user' } }
+        })
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub, lookup: async () => PUBLIC })
+        await expect(sync.listRepos({ token: TOKEN, host: 'github.example.com' }, WS)).rejects.toMatchObject({
+            message: expect.stringContaining('redirect')
+        })
+        expect(calls).toHaveLength(1)
+        expect(calls[0].url).toBe('https://github.example.com/api/v3/user')
+    })
+
+    test('a saved github.com token is not sent to another host', async () => {
+        credentialRows.set('cred-9', { id: 'cred-9', name: 'GitHub', token: TOKEN, workspaceId: WS, host: 'github.com' })
+        const fetchStub = jest.fn()
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub as unknown as typeof fetch, lookup: async () => PUBLIC })
+        await expect(sync.listRepos({ credentialId: 'cred-9', host: 'github.example.com' }, WS)).rejects.toMatchObject({
+            message: expect.stringContaining('was not sent')
+        })
+        expect(fetchStub).not.toHaveBeenCalled()
+    })
+
+    test('a credential saved before custom hosts is github.com and is not sent to another host', async () => {
+        credentialRows.set('cred-9', { id: 'cred-9', name: 'GitHub', token: TOKEN, workspaceId: WS })
+        const fetchStub = jest.fn()
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub as unknown as typeof fetch, lookup: async () => PUBLIC })
+        await expect(sync.listRepos({ credentialId: 'cred-9', host: 'octo.ghe.com' }, WS)).rejects.toMatchObject({
+            message: expect.stringContaining('github.com')
+        })
+        expect(fetchStub).not.toHaveBeenCalled()
+    })
+
+    test('an enterprise token is not sent to github.com', async () => {
+        credentialRows.set('cred-9', { id: 'cred-9', name: 'GitHub', token: TOKEN, workspaceId: WS, host: 'github.example.com' })
+        const fetchStub = jest.fn()
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub as unknown as typeof fetch })
+        await expect(sync.listRepos({ credentialId: 'cred-9' }, WS)).rejects.toMatchObject({
+            message: expect.stringContaining('was not sent')
+        })
+        expect(fetchStub).not.toHaveBeenCalled()
+    })
+
+    test('a private address is refused before any request', async () => {
+        const fetchStub = jest.fn()
+        sync.stop()
+        sync = makeSync({
+            fetch: fetchStub as unknown as typeof fetch,
+            lookup: async () => [{ address: '10.1.2.3', family: 4 }]
+        })
+        await expect(sync.listRepos({ token: TOKEN, host: 'github.example.com' }, WS)).rejects.toMatchObject({
+            message: expect.stringContaining('outbound policy')
+        })
+        expect(fetchStub).not.toHaveBeenCalled()
+    })
+
+    test('loopback and link-local stay blocked when the HTTP security check is off', async () => {
+        process.env.HTTP_SECURITY_CHECK = 'false'
+        try {
+            for (const address of ['127.0.0.1', '169.254.169.254']) {
+                const fetchStub = jest.fn()
+                sync.stop()
+                sync = makeSync({
+                    fetch: fetchStub as unknown as typeof fetch,
+                    lookup: async () => [{ address, family: 4 }]
+                })
+                await expect(sync.listRepos({ token: TOKEN, host: 'github.example.com' }, WS)).rejects.toMatchObject({
+                    message: expect.stringContaining('outbound policy')
+                })
+                expect(fetchStub).not.toHaveBeenCalled()
+            }
+        } finally {
+            delete process.env.HTTP_SECURITY_CHECK
+        }
+    })
+
+    test('a private address is contacted only when the HTTP security check is turned off', async () => {
+        process.env.HTTP_SECURITY_CHECK = 'false'
+        try {
+            const { fetchStub, calls } = apiFetch({
+                'GET https://github.example.com/api/v3/user': { status: 401 }
+            })
+            sync.stop()
+            sync = makeSync({
+                fetch: fetchStub,
+                lookup: async () => [{ address: '10.1.2.3', family: 4 }]
+            })
+            await expect(sync.listRepos({ token: TOKEN, host: 'github.example.com' }, WS)).rejects.toMatchObject({ status: 400 })
+            expect(calls[0].url).toBe('https://github.example.com/api/v3/user')
+        } finally {
+            delete process.env.HTTP_SECURITY_CHECK
+        }
+    })
+
+    test('the test stand-in does not capture a custom host', async () => {
+        process.env.CUTTLELY_GITHUB_TEST_API = 'http://127.0.0.1:9'
+        process.env.CUTTLELY_GITHUB_TEST_ROOT = path.join(tmp, 'gh')
+        const { fetchStub, calls } = apiFetch({
+            'GET https://github.example.com/api/v3/user': { status: 401 }
+        })
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub, lookup: async () => PUBLIC })
+        await expect(sync.listRepos({ token: TOKEN, host: 'github.example.com' }, WS)).rejects.toMatchObject({ status: 400 })
+        expect(calls[0].url).toBe('https://github.example.com/api/v3/user')
+        delete process.env.CUTTLELY_GITHUB_TEST_API
+        delete process.env.CUTTLELY_GITHUB_TEST_ROOT
+    })
+
+    test('git refuses a private address before the token is used', async () => {
+        const command = jest.fn()
+        sync.stop()
+        sync = makeSync({
+            lookup: async () => [{ address: '10.1.2.3', family: 4 }],
+            command
+        })
+        await expect(sync.connect({ repo: 'acme/flows', token: TOKEN, host: 'github.example.com' }, WS)).rejects.toMatchObject({
+            message: expect.stringContaining('outbound policy')
+        })
+        expect(command).not.toHaveBeenCalled()
+        expect(credentialRows.size).toBe(0)
+    })
+
+    test('connect stores the host and aims git at it, with the token only in the scoped header', async () => {
+        const calls: { args: string[]; env: Record<string, string> }[] = []
+        sync.stop()
+        sync = makeSync({
+            lookup: async () => PUBLIC,
+            command: async (args, env) => {
+                calls.push({ args, env })
+                if (args[0] === 'ls-remote') return { ok: true, stdout: '', stderr: '', timedOut: false }
+                return { ok: false, stdout: '', stderr: 'could not resolve host', timedOut: false }
+            }
+        })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: 'acme/flows', token: TOKEN, host: 'GitHub.Example.com' }, WS)
+        const file = path.join(versionsDir(), '.git', 'versions-github.json')
+        const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+        expect(saved.host).toBe('github.example.com')
+        expect(saved.remote).toBe('https://github.example.com/acme/flows.git')
+        expect(JSON.stringify(saved)).not.toContain(TOKEN)
+        expect(credentialRows.get('cred-1')?.host).toBe('github.example.com')
+        expect(calls.length).toBeGreaterThan(0)
+        for (const call of calls) {
+            const urls = call.args.filter((arg) => arg.includes('://'))
+            expect(urls.every((url) => url.startsWith('https://github.example.com/'))).toBe(true)
+            expect(call.args.join(' ')).not.toContain('github.com/')
+            expect(call.args.join(' ')).not.toContain(TOKEN)
+            expect(call.env.GIT_CONFIG_KEY_0).toBe('http.https://github.example.com/acme/flows.git.extraHeader')
+            expect(call.env.GIT_CONFIG_VALUE_1).toBe('false')
+            expect(call.env.GIT_CONFIG_VALUE_2).toBe('true')
+        }
+        const before = calls.length
+        saved.host = 'other.example.com'
+        fs.writeFileSync(file, JSON.stringify(saved))
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('Disconnect and connect again')
+        expect(calls.length).toBe(before)
     })
 })
