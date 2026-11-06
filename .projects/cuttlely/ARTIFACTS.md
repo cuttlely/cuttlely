@@ -92,3 +92,12 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 -   `scripts/live-e2e/dashflows-ui.mjs`: Chromium acceptance with synthetic fixtures, including account report action and period filtering.
 -   `docs/images/dashflows/supreme-showcase.png`: synthetic-data showcase of the implemented canvas.
+
+## Access keys
+
+-   `docs/reference/access-keys.md`: policy, migration, rollout modes, endpoint matrix and explicit follow-ons.
+-   `packages/server/src/services/accessKeys/`: credential lifecycle, authorization, closed route registry, caller policy, admission, management and Dashflows reports.
+-   `packages/server/src/database/migrations/AccessKeys.ts` and `accessKeyGrants.ts`: portable schema migration and shared read-only grant planner.
+-   `scripts/access-keys-migration-report.cjs`: aggregate dry-run against deployment database configuration, without secrets or tenant content.
+-   `scripts/access-keys.test.cjs`: real SQLite migration/lifecycle/management/concurrency tests and four-dialect portable fixtures; included in `pnpm verify`.
+-   `packages/ui/src/views/apikey/`: principal editor, grouped resource/operation controls, policy preview and credential lifecycle.

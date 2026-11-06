@@ -14,3 +14,5 @@ Project notes live in `.projects/cuttlely/` and ship with the repository. They a
 - Keep the notes public-safe: no secrets, personal names or accounts, private hosts, internal links, machine paths, customer data, or business notes. Link issues instead of restating their status.
 - If `.projects/cuttlely/` is missing from a checkout (a stripped export), follow the root `AGENTS.md`, `README.md`, and `CONTRIBUTING.md`. Do not invent the notes.
 - Never commit or print secrets (model keys, tokens, `.cuttlely/`, `.env`).
+
+- Inbound API/SDK changes follow `docs/reference/access-keys.md`: explicit resource/operation grants, preserved legacy values, separate provider/share transports, and the access-key execution fixtures. `INBOUND_ACCESS_V2` defaults to `off`.
