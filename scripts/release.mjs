@@ -6,10 +6,13 @@
 // With no version, the version comes from a "## [X.Y.Z] - Unreleased" heading in CHANGELOG.md.
 //
 //   --dry-run   change nothing: run the checks, print the plan and the release notes
-//   (no flag)   verify, bump, update CHANGELOG, commit on a release/vX.Y.Z branch, push that branch and
-//               open a pull request into main. The tag step is pending a decision on tag timing.
-//               Once vX.Y.Z is tagged on main, the same command waits for the release-image workflow
-//               run to pass and its image to be available, and creates a draft GitHub release
+//   (no flag)   phase 1: verify, bump, update CHANGELOG, commit on a release/vX.Y.Z branch, push that
+//               branch, open a pull request into main, and exit. A human founder merges that pull request.
+//               phase 2: run the same command again after the merge. It finds the merged pull request,
+//               checks that its squash commit has the reviewed tree and the release version, puts the
+//               annotated tag vX.Y.Z on that commit and pushes only the tag, opens a main->dev sync pull
+//               request, waits for the release-image workflow run and its image, and creates a draft
+//               GitHub release
 //   --local     stop before anything leaves this machine and build and check the image locally
 //   --local-image  use the maintainer-machine image build and start-and-ping check as a fallback
 //   --push      with --local-image, also push that local build (multi-arch when available)
@@ -19,8 +22,8 @@
 // Other options: --image <name> (default ghcr.io/<owner>/<repo>), --skip-image-check (skip the
 // start-and-ping check of the local image), --help.
 //
-// A run that stopped part way can be started again with the same version: a release commit that
-// is already tagged on main is reused, and steps that are already done are skipped.
+// A run that stopped part way can be started again with the same version: a tag that already points
+// at the merged commit is reused, and steps that are already done are skipped.
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -69,11 +72,78 @@ export function releaseBranch(version) {
     return `release/v${version}`
 }
 
-// TAG STEP: tag timing pending decision. The release no longer creates the vX.Y.Z tag. When and
-// where it is created (for example on main after the release pull request merges) is not decided
-// yet. Until then, a maintainer creates the annotated tag by hand, and `pnpm release X.Y.Z` on that
-// tagged commit continues with the image wait and the GitHub release.
-export const TAG_STEP_PENDING = 'Tag timing pending decision: the release does not create the vX.Y.Z tag yet.'
+// The release pull request for a version: a merged one wins over an open one. `prs` is the JSON from
+// `gh pr list --head release/vX.Y.Z --base main --state all`.
+export function pickReleasePr(prs) {
+    const list = Array.isArray(prs) ? prs : []
+    return list.find((pr) => pr.state === 'MERGED' && pr.mergeCommit?.oid) || list.find((pr) => pr.state === 'OPEN') || null
+}
+
+// The commit a remote tag points at, from `git ls-remote origin refs/tags/vX.Y.Z*`. An annotated tag is
+// listed twice; the peeled `^{}` line is the commit.
+export function remoteTagCommit(lsRemote, tag) {
+    let plain = null
+    for (const line of (lsRemote || '').split('\n')) {
+        const [sha, ref] = line.trim().split(/\s+/)
+        if (ref === `refs/tags/${tag}^{}`) return sha
+        if (ref === `refs/tags/${tag}`) plain = sha
+    }
+    return plain
+}
+
+// Phase 2 refusals: the merged commit must be the reviewed tree, carry the release version, sit on
+// origin/main, and any existing tag must already point at it. A published tag is never moved.
+export function tagProblems(state) {
+    const { release, version, tag } = state
+    const problems = []
+    if (state.dirty.length)
+        problems.push(
+            `The working tree is not clean (${state.dirty.length} changed or untracked path(s), first: ${state.dirty[0]}). Commit or remove them.`
+        )
+    if (!release.onMain) problems.push(`The merged commit ${short(release.mergeSha)} is not on origin/main.`)
+    if (!release.sameTree)
+        problems.push(
+            `The merged commit ${short(release.mergeSha)} does not have the tree of the reviewed pull request head ${short(
+                release.prHead
+            )}. main moved after the release branch was cut; cut the release again.`
+        )
+    const wrong = release.versions.filter((v) => v.version !== version)
+    if (wrong.length)
+        problems.push(
+            `The merged commit ${short(release.mergeSha)} is not version ${version}: ${wrong
+                .map((v) => `${v.file} ${v.version}`)
+                .join(', ')}.`
+        )
+    if (release.remoteTagSha && release.remoteTagSha !== release.mergeSha)
+        problems.push(`Tag ${tag} on origin points at ${short(release.remoteTagSha)}, not the merged commit ${short(release.mergeSha)}.`)
+    if (release.localTagSha && release.localTagSha !== release.mergeSha)
+        problems.push(`Tag ${tag} here points at ${short(release.localTagSha)}, not the merged commit ${short(release.mergeSha)}.`)
+    if (state.localImage && state.head !== release.mergeSha)
+        problems.push(`--local-image builds this checkout. Check out the merged commit ${short(release.mergeSha)} first.`)
+    if (state.localImage && !state.docker) problems.push('docker was not found. --local-image builds the image on this machine.')
+    if (!state.gh)
+        problems.push('gh is not installed or not signed in (gh auth status). It tags the merged release and creates the GitHub release.')
+    if (!state.push && state.image !== state.workflowImage)
+        problems.push(`The release image workflow publishes only to ${state.workflowImage}. Use --push with a custom --image.`)
+    return problems
+}
+
+// The main->dev sync pull request after a release: skipped, not failed, when one is already open or
+// main has no commit that dev lacks.
+export const SYNC_PR_BASE = 'dev'
+export function syncPrTitle(version) {
+    return `Sync main into dev after v${version}`
+}
+export function syncPrBody(version) {
+    return `Brings the v${version} release commit (version bump and CHANGELOG) from main back into dev.\n\nOpened by pnpm release after the v${version} tag. A person reviews and merges it.\n`
+}
+export function syncPrDecision({ devExists, openSyncPrs, missingCommits }) {
+    if (!devExists) return { open: false, reason: `origin has no ${SYNC_PR_BASE} branch, so there is nothing to sync.` }
+    if (openSyncPrs.length)
+        return { open: false, reason: `A main to ${SYNC_PR_BASE} sync pull request is already open: ${openSyncPrs[0].url}` }
+    if (missingCommits === 0) return { open: false, reason: `${SYNC_PR_BASE} already has everything on main.` }
+    return { open: true, reason: null }
+}
 
 // ---------- pure helpers (tested in scripts/release.test.mjs) ----------
 
@@ -435,31 +505,24 @@ export function preflightProblems(state) {
             `The working tree is not clean (${state.dirty.length} changed or untracked path(s), first: ${state.dirty[0]}). Commit or remove them.`
         )
     if (state.branch !== 'main') problems.push(`Releases are cut from main. This checkout is on ${state.branch || 'a detached HEAD'}.`)
-    if (!state.resume && state.head !== state.originMain)
+    if (state.head !== state.originMain)
         problems.push(
             `main is not in sync with origin/main (${short(state.head)} here, ${short(state.originMain)} on origin). Pull or push first.`
         )
-    if (state.resume && state.resume.parent !== state.originMain && state.head !== state.originMain) {
-        problems.push(`The release commit ${short(state.head)} does not sit on origin/main (${short(state.originMain)}).`)
-    }
     if (state.versionMismatch) problems.push(state.versionMismatch)
-    if (!state.resume) {
-        if (state.localTag) problems.push(`Tag v${state.version} already exists here.`)
-        if (state.remoteTag) problems.push(`Tag v${state.version} already exists on origin.`)
-        if (state.latestTag && compareSemver(state.version, state.latestTag.replace(/^v/, '')) <= 0) {
-            problems.push(`${state.version} is not newer than the latest tag ${state.latestTag}.`)
-        }
-        if (compareSemver(state.version, state.currentVersion) < 0)
-            problems.push(`${state.version} is older than the current version ${state.currentVersion}.`)
-        if (state.changelogProblem) problems.push(state.changelogProblem)
-        if (state.localBranch) problems.push(`Branch ${releaseBranch(state.version)} already exists here.`)
-        if (state.remoteBranch && !state.local) problems.push(`Branch ${releaseBranch(state.version)} already exists on origin.`)
+    if (state.localTag) problems.push(`Tag v${state.version} already exists here.`)
+    if (state.remoteTag) problems.push(`Tag v${state.version} already exists on origin.`)
+    if (state.latestTag && compareSemver(state.version, state.latestTag.replace(/^v/, '')) <= 0) {
+        problems.push(`${state.version} is not newer than the latest tag ${state.latestTag}.`)
     }
+    if (compareSemver(state.version, state.currentVersion) < 0)
+        problems.push(`${state.version} is older than the current version ${state.currentVersion}.`)
+    if (state.changelogProblem) problems.push(state.changelogProblem)
+    if (state.localBranch) problems.push(`Branch ${releaseBranch(state.version)} already exists here.`)
+    if (state.remoteBranch && !state.local) problems.push(`Branch ${releaseBranch(state.version)} already exists on origin.`)
     if (state.localImage && !state.docker) problems.push('docker was not found. --local-image builds the image on this machine.')
     if (!state.local && !state.gh)
-        problems.push(
-            'gh is not installed or not signed in (gh auth status). It opens the release pull request and creates the GitHub release.'
-        )
+        problems.push('gh is not installed or not signed in (gh auth status). It opens the release pull request.')
     if (!state.push && state.image !== state.workflowImage)
         problems.push(`The release image workflow publishes only to ${state.workflowImage}. Use --push with a custom --image.`)
     return problems
@@ -675,9 +738,11 @@ branch and reaches main through a pull request.
   --image <name>      image name (default ghcr.io/<owner>/<repo>)
   --skip-image-check  do not start the local image to check /api/v1/ping
 
-By default, the command pushes release/vX.Y.Z and opens a pull request into main. Tag timing is
-pending a decision, so it does not create the tag. Once vX.Y.Z is tagged on main, the same command
-continues: the tag starts ${RELEASE_IMAGE_WORKFLOW}; the command waits for its image and then creates
+Phase 1 (by default) pushes release/vX.Y.Z, opens a pull request into main, and exits. A human
+founder merges that pull request; a bot never does. Phase 2 is the same command after the merge: it
+checks that the squash commit has the reviewed tree and the release version, tags it vX.Y.Z (annotated)
+and pushes only the tag, opens a main->dev sync pull request (skipped when one is open or dev already
+has main), then the tag starts ${RELEASE_IMAGE_WORKFLOW}; the command waits for its image and creates
 a draft GitHub release. --publish publishes after that wait. --push and --image require
 --local-image. The local image path retains the build, start-and-ping check, and optional local push.
 --npm is a later step, from that tag, after the image and the GitHub release are public.
@@ -758,18 +823,67 @@ function readState(root, opts) {
     const localBranch = git(root, ['rev-parse', '--verify', '--quiet', branchRef], { allowFail: true }).stdout.length > 0
     const remoteBranch = git(root, ['ls-remote', '--heads', 'origin', branchRef], { allowFail: true }).stdout.length > 0
 
-    // Resume: HEAD is the release commit, tagged here, with the versions already bumped.
-    let resume = null
-    if (localTag) {
-        const tagged = git(root, ['rev-list', '-n', '1', tag]).stdout
-        if (tagged === head && currentVersion === version) {
-            resume = { parent: git(root, ['rev-parse', 'HEAD^'], { allowFail: true }).stdout, pushed: remoteTag }
-            log.push(`Resuming: ${tag} is already on this commit.`)
+    const gh = has('gh', ['auth', 'status'])
+
+    // Phase 2: the release pull request for this version. Open: report it. Merged: tag its squash commit.
+    let releasePr = null
+    let release = null
+    if (gh && !opts.local) {
+        const listed = run(
+            'gh',
+            [
+                'pr',
+                'list',
+                '--repo',
+                slug,
+                '--base',
+                'main',
+                '--head',
+                releaseBranch(version),
+                '--state',
+                'all',
+                '--json',
+                'number,state,url,headRefOid,mergeCommit'
+            ],
+            { cwd: root, allowFail: true }
+        )
+        let prs = []
+        try {
+            prs = listed.status === 0 && listed.stdout ? JSON.parse(listed.stdout) : []
+        } catch {
+            prs = []
         }
+        releasePr = pickReleasePr(prs)
+    }
+    if (releasePr && releasePr.state === 'MERGED') {
+        const mergeSha = releasePr.mergeCommit.oid
+        const prHead = releasePr.headRefOid
+        // The release branch may be deleted after the merge; the pull request head stays fetchable.
+        if (git(root, ['cat-file', '-e', `${prHead}^{commit}`], { allowFail: true }).status !== 0)
+            git(root, ['fetch', '--quiet', 'origin', `refs/pull/${releasePr.number}/head`], { allowFail: true })
+        const onMain = git(root, ['merge-base', '--is-ancestor', mergeSha, 'origin/main'], { allowFail: true }).status === 0
+        const sameTree = git(root, ['diff', '--quiet', prHead, mergeSha], { allowFail: true }).status === 0
+        const versions = VERSION_FILES.map((file) => {
+            const shown = git(root, ['show', `${mergeSha}:${file}`], { allowFail: true })
+            let v = null
+            try {
+                v = shown.status === 0 ? readPackageVersion(shown.stdout) : null
+            } catch {
+                v = null
+            }
+            return { file, version: v }
+        })
+        const remoteTagSha = remoteTagCommit(
+            git(root, ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { allowFail: true }).stdout,
+            tag
+        )
+        const localTagSha = localTag ? git(root, ['rev-parse', `${tag}^{commit}`], { allowFail: true }).stdout || null : null
+        release = { number: releasePr.number, url: releasePr.url, mergeSha, prHead, onMain, sameTree, versions, remoteTagSha, localTagSha }
+        log.push(`Phase 2: release pull request #${releasePr.number} merged as ${short(mergeSha)}.`)
     }
 
     let changelogProblem = null
-    if (!resume) {
+    if (!release) {
         try {
             releaseSection(changelogText, version)
         } catch (error) {
@@ -780,7 +894,6 @@ function readState(root, opts) {
     const workflowImage = defaultImage(slug)
     const image = opts.image || workflowImage
     const docker = opts.localImage ? has('docker', ['version', '--format', '{{.Server.Version}}']) : null
-    const gh = has('gh', ['auth', 'status'])
     const builder =
         opts.localImage && docker
             ? buildxInfo(run('docker', ['buildx', 'inspect', '--bootstrap'], { allowFail: true }).stdout)
@@ -802,7 +915,8 @@ function readState(root, opts) {
         remoteTag,
         localBranch,
         remoteBranch,
-        resume,
+        releasePr,
+        release,
         changelogText,
         changelogProblem,
         image,
@@ -880,15 +994,22 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
     say(`Cuttlely release ${state.version} (${mode})`)
     for (const line of state.log) say(line)
 
+    if (state.releasePr && state.releasePr.state === 'OPEN') {
+        say(`\nThe release pull request for v${state.version} is still open: ${state.releasePr.url}`)
+        say('A human founder merges it. Then run this command again to tag the merged commit.')
+        return 0
+    }
+    if (state.release) return tagMergedRelease(state, opts, root, deps, { mode, created })
+
     step('Checks')
     const problems = preflightProblems(state)
     const checks = [
         ['working tree clean', state.dirty.length === 0],
         ['on main', state.branch === 'main'],
-        ['in sync with origin/main', state.resume ? true : state.head === state.originMain],
+        ['in sync with origin/main', state.head === state.originMain],
         ['product versions match', !state.versionMismatch],
-        [`tag v${state.version} is new`, state.resume ? 'resume' : !state.localTag && !state.remoteTag],
-        ['CHANGELOG.md has the release', state.resume ? 'resume' : !state.changelogProblem],
+        [`tag v${state.version} is new`, !state.localTag && !state.remoteTag],
+        ['CHANGELOG.md has the release', !state.changelogProblem],
         ['gh signed in', state.gh ? true : opts.local ? 'not needed with --local' : false]
     ]
     if (state.localImage) {
@@ -897,96 +1018,41 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
             'buildx builder for linux/amd64 and linux/arm64',
             state.multiArch ? true : 'no, a local push will use linux/amd64 only'
         ])
-    } else {
-        checks.splice(checks.length - 1, 0, [`${RELEASE_IMAGE_WORKFLOW} image build`, true])
     }
-    for (const [label, ok] of checks)
-        say(`  ${ok === true ? 'ok  ' : typeof ok === 'string' ? '--  ' : 'FAIL'} ${label}${typeof ok === 'string' ? `: ${ok}` : ''}`)
+    printChecks(checks)
 
-    const prevTag = state.latestTag
-    const nextChangelog = state.resume
-        ? state.changelogText
-        : state.changelogProblem
+    const nextChangelog = state.changelogProblem
         ? null
-        : updateChangelog(state.changelogText, { version: state.version, date, slug: state.slug, previousTag: prevTag })
+        : updateChangelog(state.changelogText, { version: state.version, date, slug: state.slug, previousTag: state.latestTag })
     const notes = nextChangelog ? releaseNotes(nextChangelog, state.version, { image: state.image, slug: state.slug }) : null
-    const plan = state.localImage
-        ? dockerPlan({
-              image: state.image,
-              version: state.version,
-              sha: state.resume ? state.head : '<release commit>',
-              slug: state.slug,
-              created,
-              multiArch: state.multiArch,
-              push: opts.push
-          })
-        : { tags: imageTags(state.image, state.version), local: null, push: [] }
+    const branch = releaseBranch(state.version)
 
     if (opts.dryRun) {
-        step('Plan (nothing below runs in a dry run)')
-        const lines = []
-        if (!state.resume) {
-            lines.push('pnpm verify')
-            lines.push(`set "version" to ${state.version} in ${formatList(VERSION_FILES)}`)
-            lines.push(formatCommand('git', ['switch', '-c', releaseBranch(state.version)]))
-            lines.push(`CHANGELOG.md: "## [${state.version}] - ${date}", a fresh "## [Unreleased]", compare links`)
-            lines.push(formatCommand('git', ['commit', '-m', `Release v${state.version}`]))
-            lines.push(`TAG STEP: ${TAG_STEP_PENDING}`)
-        }
+        step('Plan, phase 1 (nothing below runs in a dry run)')
+        const lines = [
+            'pnpm verify',
+            `set "version" to ${state.version} in ${formatList(VERSION_FILES)}`,
+            formatCommand('git', ['switch', '-c', branch]),
+            `CHANGELOG.md: "## [${state.version}] - ${date}", a fresh "## [Unreleased]", compare links`,
+            formatCommand('git', ['commit', '-m', `Release v${state.version}`])
+        ]
         if (state.localImage) {
+            const plan = dockerPlan({
+                image: state.image,
+                version: state.version,
+                sha: '<release commit>',
+                slug: state.slug,
+                created,
+                multiArch: state.multiArch,
+                push: false
+            })
             lines.push(formatCommand('docker', plan.local))
             if (!opts.skipImageCheck) lines.push(`start ${plan.tags[0]} with a temporary volume and wait for /api/v1/ping to answer pong`)
         }
-        if (!opts.local && !state.resume) {
-            lines.push(formatCommand('git', ['push', '-u', 'origin', releaseBranch(state.version)]))
-            lines.push(
-                formatCommand('gh', [
-                    'pr',
-                    'create',
-                    '--base',
-                    'main',
-                    '--head',
-                    releaseBranch(state.version),
-                    '--title',
-                    `Release v${state.version}`
-                ])
-            )
-            lines.push(
-                `then, once v${state.version} is tagged on main: pnpm release ${state.version} waits for the image and drafts the GitHub release`
-            )
-        }
-        if (!opts.local && state.resume) {
-            lines.push(formatCommand('git', ['push', 'origin', `refs/tags/v${state.version}`]))
-            for (const cmd of plan.push) lines.push(formatCommand('docker', cmd))
-            if (!opts.push)
-                lines.push(
-                    `wait for the ${RELEASE_IMAGE_WORKFLOW} run for v${state.version} to pass and ${state.workflowImage}:${state.version} to be available`
-                )
-            lines.push(
-                opts.publish
-                    ? formatCommand('gh', [
-                          'release',
-                          'create',
-                          `v${state.version}`,
-                          '--verify-tag',
-                          '--title',
-                          `Cuttlely ${state.version}`,
-                          '--notes-file',
-                          '<notes>',
-                          isPrerelease(state.version) ? '--prerelease' : '--latest'
-                      ])
-                    : formatCommand('gh', [
-                          'release',
-                          'create',
-                          `v${state.version}`,
-                          '--verify-tag',
-                          '--title',
-                          `Cuttlely ${state.version}`,
-                          '--notes-file',
-                          '<notes>',
-                          '--draft'
-                      ])
-            )
+        if (!opts.local) {
+            lines.push(formatCommand('git', ['push', '-u', 'origin', branch]))
+            lines.push(formatCommand('gh', ['pr', 'create', '--base', 'main', '--head', branch, '--title', `Release v${state.version}`]))
+            lines.push(`then a human founder merges the pull request, and pnpm release ${state.version} (phase 2) tags the merged commit`)
         }
         for (const line of lines) say(`  ${line}`)
         if (nextChangelog) {
@@ -1008,131 +1074,259 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
         return 1
     }
 
-    let sha = state.head
-    if (!state.resume) {
-        step('pnpm verify')
-        run('pnpm', ['verify'], { cwd: root, capture: false })
+    step('pnpm verify')
+    run('pnpm', ['verify'], { cwd: root, capture: false })
 
-        step(`Create ${releaseBranch(state.version)}`)
-        git(root, ['switch', '-c', releaseBranch(state.version)])
+    step(`Create ${branch}`)
+    git(root, ['switch', '-c', branch])
 
-        step(`Bump to ${state.version} and update CHANGELOG.md`)
-        for (const file of VERSION_FILES) {
-            const full = path.join(root, file)
-            fs.writeFileSync(full, setPackageVersion(fs.readFileSync(full, 'utf8'), state.version))
-            say(`  ${file}: ${state.version}`)
-        }
-        fs.writeFileSync(path.join(root, CHANGELOG), nextChangelog)
-        say(`  CHANGELOG.md: ## [${state.version}] - ${date}`)
-
-        step(`Commit Release v${state.version}`)
-        git(root, ['add', '--', ...VERSION_FILES, CHANGELOG])
-        git(root, ['commit', '--no-verify', '-m', `Release v${state.version}`])
-        // TAG STEP: tag timing pending decision. Do not create v${state.version} here; see TAG_STEP_PENDING.
-        sha = git(root, ['rev-parse', 'HEAD']).stdout
-        say(`  ${short(sha)} Release v${state.version}`)
+    step(`Bump to ${state.version} and update CHANGELOG.md`)
+    for (const file of VERSION_FILES) {
+        const full = path.join(root, file)
+        fs.writeFileSync(full, setPackageVersion(fs.readFileSync(full, 'utf8'), state.version))
+        say(`  ${file}: ${state.version}`)
     }
+    fs.writeFileSync(path.join(root, CHANGELOG), nextChangelog)
+    say(`  CHANGELOG.md: ## [${state.version}] - ${date}`)
 
-    const realPlan = state.localImage
-        ? dockerPlan({
-              image: state.image,
-              version: state.version,
-              sha,
-              slug: state.slug,
-              created,
-              multiArch: state.multiArch,
-              push: opts.push
-          })
-        : { tags: imageTags(state.image, state.version), local: null, push: [] }
-    if (state.localImage) {
-        step(`Build ${realPlan.tags.join(' and ')}`)
-        const existing = run(
-            'docker',
-            ['image', 'inspect', '-f', '{{ index .Config.Labels "org.opencontainers.image.revision" }}', realPlan.tags[0]],
-            { allowFail: true }
-        )
-        if (existing.status === 0 && existing.stdout === sha) {
-            say('  Already built from this commit.')
-        } else {
-            say(`  ${formatCommand('docker', realPlan.local)}`)
-            run('docker', realPlan.local, { cwd: root, capture: false })
-        }
-        if (!opts.skipImageCheck) {
-            step('Start the image and wait for /api/v1/ping')
-            await checkImage(realPlan.tags[0])
-            say('  pong')
-        }
-    }
+    step(`Commit Release v${state.version}`)
+    git(root, ['add', '--', ...VERSION_FILES, CHANGELOG])
+    git(root, ['commit', '--no-verify', '-m', `Release v${state.version}`])
+    const sha = git(root, ['rev-parse', 'HEAD']).stdout
+    say(`  ${short(sha)} Release v${state.version}`)
+
+    if (state.localImage) await buildLocalImage(state, opts, root, { sha, created })
 
     if (opts.local) {
-        say(`\nLocal release v${state.version} is ready on ${releaseBranch(state.version)}. Nothing left this machine.`)
-        say(`${TAG_STEP_PENDING}`)
-        say(`Next: push ${releaseBranch(state.version)} and open a pull request into main.`)
-        say(
-            `      Once v${state.version} is tagged on main: pnpm release ${state.version}   wait for the workflow run and image, draft the GitHub release`
-        )
-        say(`      pnpm release ${state.version} --local-image --push --publish   use the local fallback and publish`)
+        say(`\nLocal release v${state.version} is ready on ${branch}. Nothing left this machine, and there is no tag.`)
+        say(`Next: push ${branch} and open a pull request into main. A human founder merges it.`)
+        say(`      Then pnpm release ${state.version}   tag the merged commit, wait for the image, draft the GitHub release`)
         say(`      pnpm release ${state.version} --npm   publish the npm packages from the tag, after both are public`)
         return 0
     }
 
-    if (!state.resume) {
-        const branch = releaseBranch(state.version)
-        step(`Push ${branch} and open a pull request into main`)
-        // The full verify already ran on this tree, so the hook's fast verify and handoff check are skipped.
-        git(root, ['push', '-u', 'origin', branch], {
-            capture: false,
-            env: { CUTTLELY_SKIP_VERIFY: '1', CUTTLELY_SKIP_HANDOFF_CHECK: '1' }
+    step(`Push ${branch} and open a pull request into main`)
+    // The full verify already ran on this tree, so the hook's fast verify and handoff check are skipped.
+    git(root, ['push', '-u', 'origin', branch], {
+        capture: false,
+        env: { CUTTLELY_SKIP_VERIFY: '1', CUTTLELY_SKIP_HANDOFF_CHECK: '1' }
+    })
+    const notesFile = path.join(os.tmpdir(), `cuttlely-release-pr-${process.pid}.md`)
+    fs.writeFileSync(notesFile, releaseNotes(nextChangelog, state.version, { slug: state.slug }))
+    try {
+        run('gh', ['pr', 'create', '--base', 'main', '--head', branch, '--title', `Release v${state.version}`, '--body-file', notesFile], {
+            cwd: root
         })
-        const notesFile = path.join(os.tmpdir(), `cuttlely-release-pr-${process.pid}.md`)
-        fs.writeFileSync(notesFile, releaseNotes(nextChangelog, state.version, { slug: state.slug }))
-        try {
-            run(
-                'gh',
-                ['pr', 'create', '--base', 'main', '--head', branch, '--title', `Release v${state.version}`, '--body-file', notesFile],
-                {
-                    cwd: root
-                }
-            )
-        } finally {
-            fs.rmSync(notesFile, { force: true })
-        }
-        say(`\nRelease pull request for v${state.version} is open from ${branch} into main.`)
-        // TAG STEP: tag timing pending decision. The run stops here until the tag exists.
-        say(TAG_STEP_PENDING)
-        say(
-            `Once v${state.version} is tagged on main: pnpm release ${state.version}   wait for the workflow run and image, draft the GitHub release`
+    } finally {
+        fs.rmSync(notesFile, { force: true })
+    }
+    say(`\nPhase 1 done: the release pull request for v${state.version} is open from ${branch} into main.`)
+    say('A human founder merges it; a bot never does. Merging into main deploys.')
+    say(
+        `Then phase 2: pnpm release ${state.version}   tag the merged commit, open the main to dev sync pull request, draft the GitHub release`
+    )
+    return 0
+}
+
+function printChecks(checks) {
+    for (const [label, ok] of checks)
+        say(`  ${ok === true ? 'ok  ' : typeof ok === 'string' ? '--  ' : 'FAIL'} ${label}${typeof ok === 'string' ? `: ${ok}` : ''}`)
+}
+
+async function buildLocalImage(state, opts, root, { sha, created }) {
+    const plan = dockerPlan({
+        image: state.image,
+        version: state.version,
+        sha,
+        slug: state.slug,
+        created,
+        multiArch: state.multiArch,
+        push: opts.push
+    })
+    step(`Build ${plan.tags.join(' and ')}`)
+    const existing = run(
+        'docker',
+        ['image', 'inspect', '-f', '{{ index .Config.Labels "org.opencontainers.image.revision" }}', plan.tags[0]],
+        { allowFail: true }
+    )
+    if (existing.status === 0 && existing.stdout === sha) {
+        say('  Already built from this commit.')
+    } else {
+        say(`  ${formatCommand('docker', plan.local)}`)
+        run('docker', plan.local, { cwd: root, capture: false })
+    }
+    if (!opts.skipImageCheck) {
+        step('Start the image and wait for /api/v1/ping')
+        await checkImage(plan.tags[0])
+        say('  pong')
+    }
+    return plan
+}
+
+// After the tag: the main->dev sync pull request. It never fails the release; a skip or an error is logged.
+function openSyncPr(state, root) {
+    step(`Open the main to ${SYNC_PR_BASE} sync pull request`)
+    const fetched = git(root, ['fetch', '--quiet', 'origin', SYNC_PR_BASE], { allowFail: true })
+    const devRef = `refs/remotes/origin/${SYNC_PR_BASE}`
+    const devExists = fetched.status === 0 && git(root, ['rev-parse', '--verify', '--quiet', devRef], { allowFail: true }).status === 0
+    let openSyncPrs = []
+    let missingCommits = 0
+    if (devExists) {
+        const listed = run(
+            'gh',
+            ['pr', 'list', '--repo', state.slug, '--base', SYNC_PR_BASE, '--head', 'main', '--state', 'open', '--json', 'number,url'],
+            { cwd: root, allowFail: true }
         )
+        try {
+            openSyncPrs = listed.status === 0 && listed.stdout ? JSON.parse(listed.stdout) : []
+        } catch {
+            openSyncPrs = []
+        }
+        missingCommits = Number(git(root, ['rev-list', '--count', `${devRef}..origin/main`], { allowFail: true }).stdout || 0)
+    }
+    const decision = syncPrDecision({ devExists, openSyncPrs, missingCommits })
+    if (!decision.open) {
+        say(`  Skipped: ${decision.reason}`)
+        return
+    }
+    const bodyFile = path.join(os.tmpdir(), `cuttlely-sync-pr-${process.pid}.md`)
+    fs.writeFileSync(bodyFile, syncPrBody(state.version))
+    try {
+        const created = run(
+            'gh',
+            [
+                'pr',
+                'create',
+                '--repo',
+                state.slug,
+                '--base',
+                SYNC_PR_BASE,
+                '--head',
+                'main',
+                '--title',
+                syncPrTitle(state.version),
+                '--body-file',
+                bodyFile
+            ],
+            { cwd: root, allowFail: true }
+        )
+        if (created.status === 0) say(`  Opened ${created.stdout || 'the sync pull request'}. It is never merged by this command.`)
+        else say(`  Not opened (gh exit ${created.status}): ${created.stderr || created.stdout}. Open it by hand.`)
+    } finally {
+        fs.rmSync(bodyFile, { force: true })
+    }
+}
+
+// Phase 2: tag the squash commit of the merged release pull request, push only the tag, open the
+// sync pull request, wait for the workflow image, and create the GitHub release.
+async function tagMergedRelease(state, opts, root, deps, { mode, created }) {
+    const { release, tag, version } = state
+    const sha = release.mergeSha
+    step('Checks, phase 2')
+    const problems = tagProblems(state)
+    printChecks([
+        ['working tree clean', state.dirty.length === 0],
+        [`merged commit ${short(sha)} is on origin/main`, release.onMain],
+        [`merged tree equals the reviewed head ${short(release.prHead)}`, release.sameTree],
+        [`version files at the merged commit are ${version}`, release.versions.every((v) => v.version === version)],
+        [
+            `tag ${tag}`,
+            release.remoteTagSha
+                ? release.remoteTagSha === sha
+                    ? 'already on the merged commit'
+                    : false
+                : release.localTagSha && release.localTagSha !== sha
+                ? false
+                : true
+        ],
+        ['gh signed in', state.gh]
+    ])
+
+    const tagMessage = `Cuttlely ${version}`
+    const releaseCmd = [
+        'release',
+        'create',
+        tag,
+        '--verify-tag',
+        '--title',
+        `Cuttlely ${version}`,
+        '--notes-file',
+        '<notes>',
+        ...(opts.publish ? [isPrerelease(version) ? '--prerelease' : '--latest'] : ['--draft'])
+    ]
+    if (opts.dryRun) {
+        step('Plan, phase 2 (nothing below runs in a dry run)')
+        const plan = state.localImage
+            ? dockerPlan({ image: state.image, version, sha, slug: state.slug, created, multiArch: state.multiArch, push: opts.push })
+            : null
+        const lines = []
+        if (plan) {
+            lines.push(formatCommand('docker', plan.local))
+            if (!opts.skipImageCheck) lines.push(`start ${plan.tags[0]} with a temporary volume and wait for /api/v1/ping to answer pong`)
+        }
+        if (!release.remoteTagSha) {
+            if (!release.localTagSha) lines.push(formatCommand('git', ['tag', '-a', tag, sha, '-m', tagMessage]))
+            lines.push(formatCommand('git', ['push', 'origin', `refs/tags/${tag}`]))
+        }
+        lines.push(
+            `open a pull request from main into ${SYNC_PR_BASE} titled "${syncPrTitle(
+                version
+            )}", unless one is open or ${SYNC_PR_BASE} already has main`
+        )
+        if (plan) for (const cmd of plan.push) lines.push(formatCommand('docker', cmd))
+        if (!opts.push)
+            lines.push(
+                `wait for the ${RELEASE_IMAGE_WORKFLOW} run for ${tag} to pass and ${state.workflowImage}:${version} to be available`
+            )
+        lines.push(formatCommand('gh', releaseCmd))
+        for (const line of lines) say(`  ${line}`)
+        if (problems.length) {
+            step('A real run would refuse')
+            for (const p of problems) say(`  - ${p}`)
+            return 1
+        }
+        say('\nDry run passed. A real run would do the steps above.')
         return 0
     }
+    if (problems.length) {
+        step('Refused')
+        for (const p of problems) say(`  - ${p}`)
+        return 1
+    }
 
-    step('Push the release tag')
-    if (state.remoteTag) {
+    const plan = state.localImage
+        ? await buildLocalImage(state, opts, root, { sha, created })
+        : { tags: imageTags(state.image, version), push: [] }
+
+    step(`Tag the merged commit ${short(sha)} as ${tag}`)
+    if (release.remoteTagSha === sha) {
         say('  Already on origin.')
     } else {
-        git(root, ['push', 'origin', `refs/tags/v${state.version}`], {
+        if (!release.localTagSha) git(root, ['tag', '-a', tag, sha, '-m', tagMessage])
+        // Only the tag is pushed; main is never pushed here. The hook's checks are for branch pushes.
+        git(root, ['push', 'origin', `refs/tags/${tag}`], {
             capture: false,
             env: { CUTTLELY_SKIP_VERIFY: '1', CUTTLELY_SKIP_HANDOFF_CHECK: '1' }
         })
     }
 
+    openSyncPr(state, root)
+
     if (opts.push) {
-        step(`Push ${realPlan.tags.join(' and ')}${state.multiArch ? ' (linux/amd64 and linux/arm64)' : ' (linux/amd64)'}`)
-        for (const cmd of realPlan.push) {
+        step(`Push ${plan.tags.join(' and ')}${state.multiArch ? ' (linux/amd64 and linux/arm64)' : ' (linux/amd64)'}`)
+        for (const cmd of plan.push) {
             say(`  ${formatCommand('docker', cmd)}`)
             run('docker', cmd, { cwd: root, capture: false })
         }
-    }
-
-    if (!opts.push) {
-        step(`Wait for ${RELEASE_IMAGE_WORKFLOW} run for v${state.version}`)
+    } else {
+        step(`Wait for ${RELEASE_IMAGE_WORKFLOW} run for ${tag}`)
         await waitForRegistryImage(
             {
                 image: state.workflowImage,
-                version: state.version,
+                version,
                 sha,
                 cwd: root,
-                resumeCommand: `pnpm release ${state.version}${opts.localImage ? ' --local-image' : ''}${opts.publish ? ' --publish' : ''}`
+                resumeCommand: `pnpm release ${version}${opts.localImage ? ' --local-image' : ''}${opts.publish ? ' --publish' : ''}`
             },
             {
                 fetchImpl: deps.fetch || globalThis.fetch,
@@ -1147,54 +1341,35 @@ export async function main(argv = process.argv.slice(2), root = gitRoot(), deps 
     }
 
     step(opts.publish ? 'Publish the GitHub release' : 'Draft the GitHub release')
-    const finalChangelog = fs.readFileSync(path.join(root, CHANGELOG), 'utf8')
+    const changelogAtTag = git(root, ['show', `${sha}:${CHANGELOG}`]).stdout
     const notesFile = path.join(os.tmpdir(), `cuttlely-release-${process.pid}.md`)
-    fs.writeFileSync(notesFile, releaseNotes(finalChangelog, state.version, { image: state.image, slug: state.slug }))
+    fs.writeFileSync(notesFile, releaseNotes(changelogAtTag, version, { image: state.image, slug: state.slug }))
     try {
-        const view = run('gh', ['release', 'view', `v${state.version}`, '--json', 'isDraft', '--jq', '.isDraft'], {
-            cwd: root,
-            allowFail: true
-        })
+        const view = run('gh', ['release', 'view', tag, '--json', 'isDraft', '--jq', '.isDraft'], { cwd: root, allowFail: true })
         if (view.status === 0) {
             if (opts.publish && view.stdout === 'true') {
-                run(
-                    'gh',
-                    [
-                        'release',
-                        'edit',
-                        `v${state.version}`,
-                        '--draft=false',
-                        ...(isPrerelease(state.version) ? ['--prerelease'] : ['--latest'])
-                    ],
-                    { cwd: root }
-                )
+                run('gh', ['release', 'edit', tag, '--draft=false', ...(isPrerelease(version) ? ['--prerelease'] : ['--latest'])], {
+                    cwd: root
+                })
                 say('  Published the existing draft.')
             } else {
                 say(`  The release already exists (${view.stdout === 'true' ? 'draft' : 'published'}).`)
             }
         } else {
-            const args = [
-                'release',
-                'create',
-                `v${state.version}`,
-                '--verify-tag',
-                '--title',
-                `Cuttlely ${state.version}`,
-                '--notes-file',
-                notesFile
-            ]
-            if (opts.publish) args.push(isPrerelease(state.version) ? '--prerelease' : '--latest')
-            else args.push('--draft')
-            run('gh', args, { cwd: root })
+            run(
+                'gh',
+                releaseCmd.map((a) => (a === '<notes>' ? notesFile : a)),
+                { cwd: root }
+            )
             say(opts.publish ? '  Published.' : '  Draft created. Only people with access to the repository can see it.')
         }
     } finally {
         fs.rmSync(notesFile, { force: true })
     }
 
-    say(`\nRelease v${state.version} done (${mode}).`)
-    if (!opts.publish) say(`The GitHub release is a draft. Publish it with: pnpm release ${state.version} --publish`)
-    say(`After the image is in the registry and the GitHub release is published, from the tag: pnpm release ${state.version} --npm`)
+    say(`\nRelease ${tag} done (${mode}).`)
+    if (!opts.publish) say(`The GitHub release is a draft. Publish it with: pnpm release ${version} --publish`)
+    say(`After the image is in the registry and the GitHub release is published: git checkout ${tag} && pnpm release ${version} --npm`)
     return 0
 }
 

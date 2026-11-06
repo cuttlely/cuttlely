@@ -28,8 +28,12 @@ import {
     parseArgs,
     plannedVersion,
     preflightProblems,
+    pickReleasePr,
     releaseBranch,
-    TAG_STEP_PENDING,
+    remoteTagCommit,
+    syncPrDecision,
+    syncPrTitle,
+    tagProblems,
     redactSecret,
     releaseNotes,
     releaseSection,
@@ -277,7 +281,6 @@ test('preflight lists every reason to refuse', () => {
         branch: 'main',
         head: 'a',
         originMain: 'a',
-        resume: null,
         version: '1.0.0',
         currentVersion: '1.0.0',
         latestTag: null,
@@ -392,6 +395,7 @@ function fixture() {
     sh(repo, 'git', ['remote', 'add', 'origin', 'https://github.com/acme/cuttlely.git'])
     sh(repo, 'git', ['config', `url.${origin}.insteadOf`, 'https://github.com/acme/cuttlely.git'])
     sh(repo, 'git', ['push', '-q', 'origin', 'main'])
+    sh(repo, 'git', ['push', '-q', 'origin', 'main:dev'])
     sh(repo, 'git', ['fetch', '-q', 'origin'])
 
     const stub = (name, body) => {
@@ -416,7 +420,8 @@ exit 0`
   "release view") [ -f "${dir}/released" ] || exit 1; cat "${dir}/released" ;;
   "release create") case "$*" in *--draft*) echo true > "${dir}/released" ;; *) echo false > "${dir}/released" ;; esac ;;
   "release edit") echo false > "${dir}/released" ;;
-  "pr create") echo https://github.com/acme/cuttlely/pull/1 ;;
+  "pr list") case "$*" in *"--base dev"*) cat "${dir}/sync-prs.json" 2>/dev/null || echo '[]' ;; *) cat "${dir}/release-prs.json" 2>/dev/null || echo '[]' ;; esac ;;
+  "pr create") case "$*" in *"--base dev"*) echo https://github.com/acme/cuttlely/pull/2 ;; *) echo https://github.com/acme/cuttlely/pull/1 ;; esac ;;
 esac
 exit 0`
     )
@@ -447,17 +452,46 @@ exit 0`
         }
     }
     const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '')
-    // Tag timing is pending a decision, so the release does not tag. Tests stand in for the merged
-    // release pull request and a maintainer's tag: fast-forward main to the release branch, push it,
-    // and tag that commit.
-    const mergeAndTag = (version) => {
+    const writePrs = (prs) => fs.writeFileSync(path.join(dir, 'release-prs.json'), JSON.stringify(prs))
+    // Stands in for GitHub listing the release pull request as still open.
+    const openPr = (version) =>
+        writePrs([
+            {
+                number: 1,
+                state: 'OPEN',
+                url: 'https://github.com/acme/cuttlely/pull/1',
+                headRefOid: sh(repo, 'git', ['rev-parse', `release/v${version}`])
+            }
+        ])
+    // Stands in for a human squash-merging the release pull request on GitHub: one new commit on main
+    // with the release branch's changes, then GitHub lists the pull request as merged. With moveMain,
+    // main gets another commit first, so the squash has a tree nobody reviewed.
+    const squashMerge = (version, { moveMain = false } = {}) => {
+        const prHead = sh(repo, 'git', ['rev-parse', `release/v${version}`])
         sh(repo, 'git', ['switch', '-q', 'main'])
-        sh(repo, 'git', ['merge', '-q', '--ff-only', `release/v${version}`])
+        if (moveMain) {
+            fs.writeFileSync(path.join(repo, 'later.txt'), 'landed after the branch was cut\n')
+            sh(repo, 'git', ['add', 'later.txt'])
+            sh(repo, 'git', ['commit', '-q', '-m', 'later'])
+        }
+        sh(repo, 'git', ['merge', '-q', '--squash', `release/v${version}`])
+        sh(repo, 'git', ['commit', '-q', '-m', `Release v${version} (#1)`])
         sh(repo, 'git', ['push', '-q', 'origin', 'main'])
-        sh(repo, 'git', ['tag', '-a', `v${version}`, '-m', `Cuttlely ${version}`])
+        const mergeSha = sh(repo, 'git', ['rev-parse', 'HEAD'])
+        writePrs([
+            {
+                number: 1,
+                state: 'MERGED',
+                url: 'https://github.com/acme/cuttlely/pull/1',
+                headRefOid: prHead,
+                mergeCommit: { oid: mergeSha }
+            }
+        ])
+        return mergeSha
     }
+    const remoteTags = () => sh(repo, 'git', ['ls-remote', '--tags', origin])
     const cleanup = () => fs.rmSync(dir, { recursive: true, force: true })
-    return { repo, origin, runRelease, calls, cleanup, dir, mergeAndTag }
+    return { repo, origin, runRelease, calls, cleanup, dir, openPr, squashMerge, remoteTags }
 }
 
 test('dry run on a clean, synced main passes and changes nothing', (t) => {
@@ -470,7 +504,7 @@ test('dry run on a clean, synced main passes and changes nothing', (t) => {
     assert.match(res.out, /git switch -c release\/v1\.0\.0/)
     assert.match(res.out, /git push -u origin release\/v1\.0\.0/)
     assert.match(res.out, /gh pr create --base main --head release\/v1\.0\.0/)
-    assert.ok(res.out.includes(`TAG STEP: ${TAG_STEP_PENDING}`), res.out)
+    assert.match(res.out, /then a human founder merges the pull request, and pnpm release 1\.0\.0 \(phase 2\) tags the merged commit/)
     assert.doesNotMatch(res.out, /git tag|HEAD:main|gh release create/)
     assert.doesNotMatch(res.out, /docker build|docker push/)
     assert.match(res.out, /Dry run passed/)
@@ -497,10 +531,12 @@ test('--local-image --publish waits for the workflow image without a registry pr
     const f = fixture()
     t.after(f.cleanup)
     assert.equal(f.runRelease(['--local', '--skip-image-check']).code, 0)
-    f.mergeAndTag('1.0.0')
+    const mergeSha = f.squashMerge('1.0.0')
     const res = f.runRelease(['1.0.0', '--local-image', '--publish', '--dry-run'])
     assert.equal(res.code, 0, res.out)
+    assert.ok(res.out.includes(`git tag -a v1.0.0 ${mergeSha} -m "Cuttlely 1.0.0"`), res.out)
     assert.match(res.out, /git push origin refs\/tags\/v1\.0\.0/)
+    assert.equal(f.remoteTags(), '')
     assert.match(
         res.out,
         /wait for the \.github\/workflows\/release-image\.yml run for v1\.0\.0 to pass and ghcr\.io\/acme\/cuttlely:1\.0\.0 to be available/
@@ -513,7 +549,7 @@ test('a local push does not start an anonymous registry wait', (t) => {
     t.after(f.cleanup)
     const local = f.runRelease(['--local', '--skip-image-check'])
     assert.equal(local.code, 0, local.out)
-    f.mergeAndTag('1.0.0')
+    f.squashMerge('1.0.0')
     const pushed = f.runRelease(['1.0.0', '--local-image', '--push', '--skip-image-check'])
     assert.equal(pushed.code, 0, pushed.out)
     assert.doesNotMatch(pushed.out, /Wait for ghcr\.io/)
@@ -552,7 +588,7 @@ test('a real run with --local commits on the release branch without a tag, build
     assert.equal(sh(f.repo, 'git', ['branch', '--show-current']), 'release/v1.0.0')
     assert.equal(sh(f.repo, 'git', ['log', '-1', '--format=%s']), 'Release v1.0.0')
     assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/release/*', 'refs/tags/*']), '')
-    assert.ok(res.out.includes(TAG_STEP_PENDING), res.out)
+    assert.match(res.out, /there is no tag/)
     const calls = f.calls()
     assert.match(calls, /pnpm verify/)
     assert.match(calls, /docker build --platform linux\/amd64/)
@@ -560,7 +596,7 @@ test('a real run with --local commits on the release branch without a tag, build
     assert.doesNotMatch(calls, /docker push|gh release|gh pr/)
 })
 
-test('a release opens a pull request into main and stops at the tag step; a tagged main then drafts', (t) => {
+test('phase 1 opens a pull request into main and exits; phase 2 tags the merged squash commit and opens the dev sync', (t) => {
     const f = fixture()
     t.after(f.cleanup)
     const mainBefore = sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/main'])
@@ -568,21 +604,47 @@ test('a release opens a pull request into main and stops at the tag step; a tagg
     assert.equal(first.code, 0, first.out)
     assert.match(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/release/v1.0.0']), /refs\/heads\/release\/v1\.0\.0/)
     assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/main']), mainBefore)
-    assert.equal(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), '')
+    assert.equal(f.remoteTags(), '')
     assert.equal(sh(f.repo, 'git', ['tag']), '')
     assert.match(f.calls(), /gh pr create --base main --head release\/v1\.0\.0 --title Release v1\.0\.0 --body-file /)
-    assert.ok(first.out.includes(TAG_STEP_PENDING), first.out)
+    assert.match(first.out, /A human founder merges it; a bot never does/)
     assert.doesNotMatch(first.out, /Wait for /)
-    assert.doesNotMatch(f.calls(), /docker |gh release/)
+    assert.doesNotMatch(f.calls(), /docker |gh release|gh pr merge/)
     assert.equal(fs.existsSync(`${f.dir}/released`), false)
 
-    f.mergeAndTag('1.0.0')
+    // Still open: phase 2 reports it and changes nothing.
+    f.openPr('1.0.0')
+    const waiting = f.runRelease(['1.0.0'])
+    assert.equal(waiting.code, 0, waiting.out)
+    assert.match(waiting.out, /still open: https:\/\/github\.com\/acme\/cuttlely\/pull\/1/)
+    assert.equal(f.remoteTags(), '')
+
+    const mergeSha = f.squashMerge('1.0.0')
+    const mainMerged = sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/main'])
     const drafted = f.runRelease(['1.0.0'])
     assert.equal(drafted.code, 0, drafted.out)
-    assert.match(drafted.out, /Resuming: v1\.0\.0 is already on this commit/)
+    assert.match(drafted.out, /Phase 2: release pull request #1 merged as /)
     assert.match(drafted.out, /Wait for \.github\/workflows\/release-image\.yml run for v1\.0\.0/)
     assert.equal(fs.readFileSync(`${f.dir}/released`, 'utf8').trim(), 'true')
-    assert.match(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), /refs\/tags\/v1\.0\.0/)
+    // The annotated tag is on the squash commit, only the tag was pushed, and main did not move.
+    assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/tags/v1.0.0^{}']).split(/\s+/)[0], mergeSha)
+    assert.equal(sh(f.repo, 'git', ['cat-file', '-t', 'v1.0.0']), 'tag')
+    assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/heads/main']), mainMerged)
+    assert.match(
+        f.calls(),
+        /gh pr create --repo acme\/cuttlely --base dev --head main --title Sync main into dev after v1\.0\.0 --body-file /
+    )
+    assert.doesNotMatch(f.calls(), /gh pr merge/)
+
+    // A re-run reuses the tag and the release, and does not open a second sync pull request.
+    fs.writeFileSync(`${f.dir}/sync-prs.json`, JSON.stringify([{ number: 2, url: 'https://github.com/acme/cuttlely/pull/2' }]))
+    const again = f.runRelease(['1.0.0'])
+    assert.equal(again.code, 0, again.out)
+    assert.match(again.out, /Already on origin/)
+    assert.match(again.out, /Skipped: A main to dev sync pull request is already open: https:\/\/github\.com\/acme\/cuttlely\/pull\/2/)
+    assert.match(again.out, /The release already exists \(draft\)/)
+    assert.equal(f.calls().match(/--base dev --head main --title/g).length, 1)
+    fs.rmSync(`${f.dir}/sync-prs.json`)
 
     fs.writeFileSync(
         path.join(f.repo, 'CHANGELOG.md'),
@@ -598,14 +660,124 @@ test('a release opens a pull request into main and stops at the tag step; a tagg
     for (const file of VERSION_FILES) {
         assert.equal(JSON.parse(fs.readFileSync(path.join(f.repo, file), 'utf8')).version, '1.1.0', file)
     }
-    f.mergeAndTag('1.1.0')
+    f.squashMerge('1.1.0')
     res = f.runRelease(['1.1.0', '--local-image', '--push', '--publish', '--skip-image-check'])
     assert.equal(res.code, 0, res.out)
-    assert.match(res.out, /Resuming: v1\.1\.0 is already on this commit/)
     assert.match(f.calls(), /docker push ghcr\.io\/acme\/cuttlely:1\.1\.0/)
     assert.match(f.calls(), /gh release create v1\.1\.0 .*--latest/)
     assert.equal(fs.readFileSync(`${f.dir}/released`, 'utf8').trim(), 'false')
-    assert.match(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), /refs\/tags\/v1\.1\.0/)
+    assert.match(f.remoteTags(), /refs\/tags\/v1\.1\.0/)
+})
+
+test('phase 2 refuses a squash commit whose tree differs from the reviewed pull request head, and tags nothing', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    assert.equal(f.runRelease([]).code, 0)
+    f.squashMerge('1.0.0', { moveMain: true })
+    const res = f.runRelease(['1.0.0'])
+    assert.equal(res.code, 1, res.out)
+    assert.match(res.out, /does not have the tree of the reviewed pull request head/)
+    assert.equal(f.remoteTags(), '')
+    assert.equal(sh(f.repo, 'git', ['tag']), '')
+    assert.doesNotMatch(f.calls(), /gh release create|--base dev --head main --title/)
+})
+
+test('phase 2 never moves a tag that already points elsewhere', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    const init = sh(f.repo, 'git', ['rev-parse', 'HEAD'])
+    assert.equal(f.runRelease([]).code, 0)
+    f.squashMerge('1.0.0')
+    sh(f.repo, 'git', ['tag', '-a', 'v1.0.0', init, '-m', 'wrong'])
+    sh(f.repo, 'git', ['push', '-q', 'origin', 'refs/tags/v1.0.0'])
+    const res = f.runRelease(['1.0.0'])
+    assert.equal(res.code, 1, res.out)
+    assert.match(res.out, /Tag v1\.0\.0 on origin points at .*, not the merged commit/)
+    assert.equal(sh(f.repo, 'git', ['ls-remote', f.origin, 'refs/tags/v1.0.0^{}']).split(/\s+/)[0], init)
+    assert.doesNotMatch(f.calls(), /gh release create/)
+})
+
+test('phase 2 skips the dev sync pull request when dev already has main', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    assert.equal(f.runRelease([]).code, 0)
+    f.squashMerge('1.0.0')
+    sh(f.repo, 'git', ['push', '-q', 'origin', 'main:dev'])
+    const res = f.runRelease(['1.0.0'])
+    assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /Skipped: dev already has everything on main/)
+    assert.doesNotMatch(f.calls(), /--base dev --head main --title/)
+    assert.match(f.remoteTags(), /refs\/tags\/v1\.0\.0/)
+})
+
+test('phase 2 helpers: the merged pull request, the peeled remote tag, the sync decision, and every refusal', () => {
+    assert.equal(pickReleasePr([]), null)
+    const open = { state: 'OPEN', url: 'u' }
+    const merged = { state: 'MERGED', mergeCommit: { oid: 'm' } }
+    assert.equal(pickReleasePr([open, merged]), merged)
+    assert.equal(pickReleasePr([{ state: 'CLOSED' }, open]), open)
+    assert.equal(remoteTagCommit('t1\trefs/tags/v1.0.0\nc1\trefs/tags/v1.0.0^{}\n', 'v1.0.0'), 'c1')
+    assert.equal(remoteTagCommit('c2\trefs/tags/v1.0.0\n', 'v1.0.0'), 'c2')
+    assert.equal(remoteTagCommit('', 'v1.0.0'), null)
+    assert.equal(syncPrTitle('1.2.3'), 'Sync main into dev after v1.2.3')
+    assert.deepEqual(syncPrDecision({ devExists: true, openSyncPrs: [], missingCommits: 2 }), { open: true, reason: null })
+    assert.match(syncPrDecision({ devExists: true, openSyncPrs: [{ url: 'p' }], missingCommits: 2 }).reason, /already open: p/)
+    assert.match(syncPrDecision({ devExists: true, openSyncPrs: [], missingCommits: 0 }).reason, /already has everything/)
+    assert.match(syncPrDecision({ devExists: false, openSyncPrs: [], missingCommits: 0 }).reason, /no dev branch/)
+
+    const release = {
+        mergeSha: 'aaaaaaaa1',
+        prHead: 'bbbbbbbb1',
+        onMain: true,
+        sameTree: true,
+        versions: VERSION_FILES.map((file) => ({ file, version: '1.0.0' })),
+        remoteTagSha: null,
+        localTagSha: null
+    }
+    const ok = {
+        release,
+        version: '1.0.0',
+        tag: 'v1.0.0',
+        dirty: [],
+        head: 'cccccccc1',
+        localImage: false,
+        docker: true,
+        gh: true,
+        push: false,
+        image: 'ghcr.io/acme/cuttlely',
+        workflowImage: 'ghcr.io/acme/cuttlely'
+    }
+    assert.deepEqual(tagProblems(ok), [])
+    assert.deepEqual(tagProblems({ ...ok, release: { ...release, remoteTagSha: 'aaaaaaaa1' } }), [])
+    const bad = tagProblems({
+        ...ok,
+        dirty: [' M x'],
+        gh: false,
+        localImage: true,
+        release: {
+            ...release,
+            onMain: false,
+            sameTree: false,
+            versions: [{ file: 'package.json', version: '0.9.0' }],
+            remoteTagSha: 'dddddddd1',
+            localTagSha: 'eeeeeeee1'
+        }
+    })
+    for (const needle of [
+        'not clean',
+        'not on origin/main',
+        'does not have the tree',
+        'is not version 1.0.0: package.json 0.9.0',
+        'on origin points at',
+        'here points at',
+        'Check out the merged commit',
+        'gh is not'
+    ]) {
+        assert.ok(
+            bad.some((p) => p.includes(needle)),
+            needle
+        )
+    }
 })
 
 test('dry run of 1.0.1 plans one version for the product, the launcher and the widget', (t) => {
