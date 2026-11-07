@@ -1,3 +1,4 @@
+import { AccessKeyPolicyError } from './errors'
 import { assertCapacity } from './limiter'
 import { requireAccessRollout } from './rollout'
 import { RequestHandler } from 'express'
@@ -21,7 +22,7 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
         const key = await authenticateRequest(req)
         if (!key) throw new AppError(401, 'Unauthorized')
         if (!key.accessPolicy || !callerPolicyAllows(key.accessPolicy, req.headers.origin, req.ip || ''))
-            throw new AppError(403, 'Caller policy refused this request.')
+            throw new AccessKeyPolicyError('Caller policy refused this request.')
         const match = /^\/api\/v1\/(prediction|attachments|vector\/upsert)\/([0-9a-f-]{36})(?:\/|$)/.exec(path)
         if (match) {
             const flow = await (await accessData()).getRepository(ChatFlow).findOneBy({ id: match[2] })
@@ -36,5 +37,21 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
             await authorizeFlowKey(req, flow, false)
             await assertCapacity(await accessData(), key, flowOperation(req), req.res)
         }
-    })().then(() => next(), next)
+    })()
+        .then(
+            () => next(),
+            async (error) => {
+                // Preflight runs before these routers, so their error middleware has not been entered.
+                if (/^\/api\/v1\/orchestrate(\/|$)/.test(path)) {
+                    const { orchestrateErrorHandler } = await import('../../routes/orchestrate')
+                    return orchestrateErrorHandler(error, req, _res, next)
+                }
+                if (/^\/api\/v1\/a2a(\/|$)/.test(path)) {
+                    const { a2aErrorHandler } = await import('../../routes/a2a')
+                    return a2aErrorHandler(error, req, _res, next)
+                }
+                next(error)
+            }
+        )
+        .catch(next)
 }

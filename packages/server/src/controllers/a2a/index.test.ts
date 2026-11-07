@@ -1,3 +1,4 @@
+import { accessKeyPreflight } from '../../services/accessKeys/preflight'
 import { parsePolicy } from '../../services/accessKeys/policy'
 /**
  * HTTP contract for GET /api/v1/a2a/:id/.well-known/agent-card.json and POST /api/v1/a2a/:id.
@@ -132,6 +133,7 @@ const expectSchema = (fn: ValidateFunction | undefined, data: unknown) => {
 
 function makeApp() {
     const app = express()
+    app.use(accessKeyPreflight)
     app.set('trust proxy', 1)
     app.use('/api/v1/a2a', a2aContentTypeGuard)
     app.use('/api/v1/a2a', a2aJsonParser)
@@ -1093,4 +1095,35 @@ jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(asyn
 
 beforeEach(() => {
     for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
+})
+
+it.each(['inactive', 'caller policy'])('a2a preflight preserves the adapter error envelope for %s credentials', async (failure) => {
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    if (failure === 'caller policy')
+        mockApiKeys.set('preflight-key', {
+            id: 'preflight-key',
+            workspaceId: WS,
+            apiSecret: generateSecretHash(token),
+            permissions: ['chatflows:view'],
+            accessPolicy: parsePolicy({ scopes: ['predict'], origins: ['https://allowed.example'], allowNoOrigin: false })
+        } as any)
+    try {
+        const response = await request(app)
+            .post('/api/v1/a2a/' + K)
+            .set('Authorization', 'Bearer ' + token)
+            .set('Content-Type', 'application/json')
+            .send('{invalid')
+        expect(response.status).toBe(failure === 'inactive' ? 401 : 403)
+        expect(response.body).toEqual({
+            error: {
+                message: failure === 'inactive' ? 'Unauthorized' : 'Caller policy refused this request.',
+                type: failure === 'inactive' ? 'authentication_error' : 'permission_error',
+                code: failure === 'inactive' ? 'unauthorized' : 'access_denied'
+            }
+        })
+        expect(response.headers['content-type']).not.toContain('text/event-stream')
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
+    } finally {
+        mockApiKeys.delete('preflight-key')
+    }
 })

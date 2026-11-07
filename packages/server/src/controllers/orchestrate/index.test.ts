@@ -1,3 +1,5 @@
+import { parsePolicy } from '../../services/accessKeys/policy'
+import { accessKeyPreflight } from '../../services/accessKeys/preflight'
 /**
  * HTTP contract for POST /api/v1/orchestrate/:id and /:id/chat/completions.
  * buildChatflow is mocked at the service boundary except where a test names a real helper.
@@ -132,6 +134,7 @@ const streamBody = () => ({ model: 'any', messages: [{ role: 'user', content: 'H
 
 function makeApp() {
     const app = express()
+    app.use(accessKeyPreflight)
     app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
     app.use(express.json({ limit: '50mb' }))
     app.use(express.urlencoded({ limit: '50mb', extended: true }))
@@ -858,4 +861,35 @@ jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(asyn
 
 beforeEach(() => {
     for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
+})
+
+it.each(['inactive', 'caller policy'])('orchestrate preflight preserves the adapter error envelope for %s credentials', async (failure) => {
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    if (failure === 'caller policy')
+        mockApiKeys.set('preflight-key', {
+            id: 'preflight-key',
+            workspaceId: WS,
+            apiSecret: generateSecretHash(token),
+            permissions: ['chatflows:view'],
+            accessPolicy: parsePolicy({ scopes: ['predict'], origins: ['https://allowed.example'], allowNoOrigin: false })
+        } as any)
+    try {
+        const response = await request(app)
+            .post('/api/v1/orchestrate/' + K)
+            .set('Authorization', 'Bearer ' + token)
+            .set('Content-Type', 'application/json')
+            .send('{invalid')
+        expect(response.status).toBe(failure === 'inactive' ? 401 : 403)
+        expect(response.body).toEqual({
+            error: {
+                message: failure === 'inactive' ? 'Unauthorized' : 'Caller policy refused this request.',
+                type: failure === 'inactive' ? 'authentication_error' : 'permission_error',
+                code: failure === 'inactive' ? 'unauthorized' : 'access_denied'
+            }
+        })
+        expect(response.headers['content-type']).not.toContain('text/event-stream')
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
+    } finally {
+        mockApiKeys.delete('preflight-key')
+    }
 })

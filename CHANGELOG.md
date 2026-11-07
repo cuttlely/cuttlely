@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Orchestrate and A2A access-key preflight refusals preserve the documented adapter error envelope, including invalid credentials and caller-policy failures before JSON parsing.
+
 -   Dashflows account-report keys authorize the published Harness, matching execution even when the draft references a different Harness. Refresh continues to authorize the editable definition.
 
 -   With access-key enforcement on, lead creation requires access to its parent flow; anonymous creation is allowed only for explicitly public flows. Off and shadow preserve legacy anonymous collection.
