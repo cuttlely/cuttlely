@@ -95,6 +95,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 -   **Refresh downstream identity with admission authority.** Refreshing a key at admission must also refresh the permissions used by route RBAC; recheck additional route permissions before charging. Body parsing can separate preflight from admission by an arbitrary amount of time. A migration compatibility marker must not admit a previously session-only route in off/shadow.
 -   **Bound audit dedupe without silencing other principals.** Evict old dedupe entries at capacity instead of dropping all new audit events. Quota-cache capacity is separate: refuse new buckets while keeping existing principal budgets enforceable. Emit quota headers only after the transaction commits.
+-   On SQLite, TypeORM nests `DataSource.transaction` as a SAVEPOINT on the shared connection. Quota admission that must survive an unrelated outer rollback needs its own connection (or equivalent independent commit), not only `serial()` around the same DataSource.
 
 -   **Preflight authentication is not charged admission.** A slow body can outlive credential or owner authorization. Refresh both at the first charge and recheck every uncharged prerequisite against that principal, including streaming and Harness execution authority. Keep request caching after admission so nested work charges once and admitted runs may finish.
 
