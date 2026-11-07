@@ -745,7 +745,10 @@
                 "packages/ui/src/views/auth/signIn.test.js",
                 "packages/ui/src/views/authentication/RecoveryWarningBanner.test.js",
                 "packages/ui/src/views/apikey/index.test.js",
-                "packages/ui/src/views/apikey/ownerNotice.js"
+                "packages/ui/src/views/apikey/ownerNotice.js",
+                "packages/ui/src/views/users/index.test.js",
+                "packages/ui/src/views/users/userActions.js",
+                "packages/ui/src/views/users/userActions.test.js"
             ],
             "entryPoints": [
                 "packages/server/src/database/entities/identity/IdentitySetupCode.ts",
@@ -900,7 +903,8 @@
                 "packages/ui/src/ui-component/dialog/inviteDialogState.js",
                 "packages/ui/src/ui-component/dialog/invitePayload.js",
                 "packages/ui/src/utils/roleLabel.js",
-                "packages/ui/src/views/auth/resolveLogin.js"
+                "packages/ui/src/views/auth/resolveLogin.js",
+                "packages/ui/src/views/users/userActions.js"
             ]
         },
         {

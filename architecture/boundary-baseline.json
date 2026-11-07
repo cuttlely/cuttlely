@@ -2694,6 +2694,26 @@
             "reason": "The Usage page uses the shared page header, card, and API client."
         },
         {
+            "from": "packages/ui/src/views/users/index.test.js",
+            "to": "packages/ui/src/api/user.js",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/index.test.js",
+            "to": "packages/ui/src/views/users/index.jsx",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/userActions.test.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/userActions.test.js",
+            "to": "packages/ui/src/api/user.js",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
             "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
             "to": "packages/ui/src/api/chatflows.js"
         },
