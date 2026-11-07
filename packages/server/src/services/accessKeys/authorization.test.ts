@@ -635,7 +635,11 @@ it('authorizes the published Harness for account reports and the editable Harnes
     const refreshRequest = () => request(app).post('/api/v1/dashflows/dashboard/refresh').set('Authorization', 'Bearer fixture-token')
     try {
         expect((await report()).status).toBe(202)
-        expect(mockStartReport).toHaveBeenCalledWith('published', expect.any(Object), expect.objectContaining({ workspaceId: 'one' }))
+        expect(mockStartReport).toHaveBeenCalledWith(
+            'published',
+            expect.any(Object),
+            expect.objectContaining({ workspaceId: 'one', expectedChatflowId: published.id })
+        )
         expect((await refreshRequest()).status).toBe(403)
         expect(refresh).not.toHaveBeenCalled()
         mockGrants.delete(`key:HARNESS:${published.id}`)

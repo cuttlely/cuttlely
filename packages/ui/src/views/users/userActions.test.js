@@ -39,7 +39,10 @@ describe('User Management owner invitation actions', () => {
         expect(organizationOwnerLabel(active, true)).toBe('Super User, read-only')
         expect(organizationOwnerLabel(active, false)).toBe('ORGANIZATION OWNER')
         expect(organizationOwnerLabel({ ...active, user: { status: 'disable' } }, true)).toBe('ORGANIZATION OWNER')
-        expect(organizationOwnerLabel({ ...pending, status: undefined }, true)).toBe('ORGANIZATION OWNER')
+        // Pending is decided from user.status (the column invitationOnly checks), not org-row status alone.
+        expect(organizationOwnerLabel({ ...pending, status: undefined }, true)).toBe('Owner invitation pending')
+        expect(isPendingOwnerInvite({ ...pending, status: 'ACTIVE', user: { ...pending.user, status: 'invited' } })).toBe(true)
+        expect(isPendingOwnerInvite({ ...pending, status: 'INVITED', user: { ...pending.user, status: 'active' } })).toBe(false)
     })
 
     it('hides trash for self, including an invited row, and missing ids', () => {

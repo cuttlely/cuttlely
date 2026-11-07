@@ -58,10 +58,10 @@ function limited(res: Response | undefined, reset: number, now: number): never {
     throw new AccessKeyLimitError()
 }
 export async function consume(data: DataSource, key: ApiKey, operation: Operation, res?: Response, now = Date.now()): Promise<void> {
-    const policy = key.accessPolicy
-    if (!policy) return
     if (Number(process.env.CUTTLELY_API_KEY_INSTANCES || '1') !== 1)
         throw new AppError(503, 'Access key limiting requires one API instance until a shared limiter is configured.')
+    const policy = key.accessPolicy
+    if (!policy) throw new AppError(403, 'Access policy unavailable.')
     await serial(async () => {
         const minute = Math.floor(now / 60000)
         for (const [id, bucket] of minutes) if (bucket.minute !== minute) minutes.delete(id)

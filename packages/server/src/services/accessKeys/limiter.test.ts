@@ -26,3 +26,12 @@ it('keeps existing principal admission working at capacity while refusing new bu
         clearMinuteBuckets()
     }
 })
+
+it('refuses consume when the principal has no access policy', async () => {
+    const { consume } = await import('./limiter')
+    const data = { transaction: async (fn: any) => fn({}) } as any
+    await expect(consume(data, { id: 'no-policy' } as any, 'predict')).rejects.toMatchObject({
+        statusCode: 403,
+        message: 'Access policy unavailable.'
+    })
+})

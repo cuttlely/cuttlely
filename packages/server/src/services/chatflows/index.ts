@@ -1,4 +1,4 @@
-import { saveFlowPreservingAccess, saveLegacyBoundFlow } from '../accessKeys/legacyBinding'
+import { reconcileLegacyBoundTypeChange, saveFlowPreservingAccess, saveLegacyBoundFlow } from '../accessKeys/legacyBinding'
 import { randomBytes } from 'crypto'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
@@ -828,6 +828,9 @@ const updateChatflow = async (
                 options.expectedFlowData,
                 options.versionRecord?.kind === 'publish' ? PUBLISH_CONFLICT : SAVE_CONFLICT
             )
+            // saveIfRowUnchanged only writes the flow row. A bound type change must still move the
+            // derived grant to the new resource type (tested through updateChatflow, not only the helper).
+            if (typeChanging && previousRow.apikeyid) await reconcileLegacyBoundTypeChange(appServer.AppDataSource, dbResponse, storedType)
         } else {
             dbResponse = rebinding
                 ? await saveLegacyBoundFlow(appServer.AppDataSource, newDbChatflow, previousRow)

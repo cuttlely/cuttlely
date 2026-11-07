@@ -1234,12 +1234,18 @@ const assertRunRequest = async (
     body: Record<string, unknown>,
     workspaceId: string | null | undefined,
     caller: IHarnessCaller | undefined,
-    access: { allowFlow?: boolean } = {}
+    access: { allowFlow?: boolean; expectedChatflowId?: string } = {}
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
     const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
     const harness = await requireHarness(name, workspaceId)
+    if (
+        access.expectedChatflowId !== undefined &&
+        (typeof harness.chatflowId !== 'string' || harness.chatflowId !== access.expectedChatflowId)
+    ) {
+        throw new AppError(StatusCodes.CONFLICT, 'Harness changed after authorization. Retry the report.')
+    }
     const question = questionOf(body || {})
     if (!question.trim()) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'A harness run needs a question.')
@@ -1292,10 +1298,15 @@ const startRun = async (
         caller: IHarnessCaller
         // Set by the canvas run. A flow with no list of its own may start that canvas.
         allowFlow?: boolean
+        // Access-key admission may pin the authorized canvas id across name re-resolution.
+        expectedChatflowId?: string
     }
 ) => {
     assertHarnessAvailable(name)
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, { allowFlow: opts.allowFlow === true })
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
+        allowFlow: opts.allowFlow === true,
+        expectedChatflowId: opts.expectedChatflowId
+    })
     const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
@@ -1393,6 +1404,8 @@ const startBackgroundRun = async (
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
+        // Access-key admission may pin the authorized canvas id across name re-resolution.
+        expectedChatflowId?: string
     }
 ) => {
     // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
@@ -1405,7 +1418,9 @@ const startBackgroundRun = async (
     let chatId: string
     let history: Awaited<ReturnType<typeof loadHarness>>
     try {
-        prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+        prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
+            expectedChatflowId: opts.expectedChatflowId
+        })
         const apiKeyId = callerKeyId(opts.caller)
         const source = opts.source || 'api'
         chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
@@ -1422,7 +1437,13 @@ const startBackgroundRun = async (
         running = startRun(
             name,
             { ...body, question: prepared.question, chatId },
-            { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
+            {
+                source,
+                workspaceId: opts.workspaceId,
+                runId,
+                caller: opts.caller,
+                expectedChatflowId: opts.expectedChatflowId
+            }
         )
     } catch (error) {
         release()

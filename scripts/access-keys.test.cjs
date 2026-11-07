@@ -427,6 +427,17 @@ test('management API creates deny-by-default principals, validates grants and pr
         const backToChat = await saveLegacyBoundFlow(data, { ...typed, type: 'CHATFLOW' }, typed)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'AGENTFLOW', resourceId: backToChat.id }), false)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), true)
+        // updateChatflow type changes write the row first, then reconcile — same grant outcome.
+        const { reconcileLegacyBoundTypeChange } = serverRequire('./src/services/accessKeys/legacyBinding.ts')
+        await data.getRepository(ChatFlow).update({ id: backToChat.id }, { type: 'AGENTFLOW' })
+        const afterRowWrite = await data.getRepository(ChatFlow).findOneByOrFail({ id: backToChat.id })
+        await reconcileLegacyBoundTypeChange(data, afterRowWrite, 'CHATFLOW')
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), false)
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'AGENTFLOW', resourceId: backToChat.id }), true)
+        // Put the row and grant back so the remainder of this fixture still exercises the CHATFLOW binding.
+        await reconcileLegacyBoundTypeChange(data, { ...afterRowWrite, type: 'CHATFLOW' }, 'AGENTFLOW')
+        await data.getRepository(ChatFlow).update({ id: backToChat.id }, { type: 'CHATFLOW' })
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), true)
         const staleCanvas = {
             ...bindingFlow,
             apikeyid: null,

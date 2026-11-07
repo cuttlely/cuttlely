@@ -20,17 +20,25 @@ export const bearerDashboardReport: RequestHandler = action(async (req, res, nex
         const view = (await runtime()).dashStore().published(req.params.id, ws)
         if (!hasPublishedAccount(view.snapshot, req.params.accountId)) throw new AppError(404, 'Account not published.')
         const expectedHarnessId = res.locals.accessKeyDashboardHarnessId as string | undefined
+        let expectedChatflowId: string | undefined
         if (expectedHarnessId !== undefined) {
             const record = await harnessesService.getHarness(view.definition.harness, ws)
             if (!record || record.orphaned || record.chatflowId !== expectedHarnessId)
                 throw new AppError(409, 'Harness changed after authorization. Retry the report.')
+            expectedChatflowId = record.chatflowId
         }
         const started = await harnessesService.startBackgroundRun(
             view.definition.harness,
             {
                 question: `Run the full account health report for the verified Salesforce account ID ${req.params.accountId}. Use the ID-based full health source. Preserve exact source facts, dates, coverage and unknowns. Do not resolve or substitute a different account.`
             },
-            { workspaceId: ws, source: 'api', caller: await harnessCallerFor(req), track: trackBackgroundRun }
+            {
+                workspaceId: ws,
+                source: 'api',
+                caller: await harnessCallerFor(req),
+                track: trackBackgroundRun,
+                expectedChatflowId
+            }
         )
         const repo = (await accessData()).getRepository(ApiKeyReport)
         await repo.save(

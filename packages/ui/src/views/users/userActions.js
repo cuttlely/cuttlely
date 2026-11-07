@@ -1,4 +1,4 @@
-export const isPendingOwnerInvite = (row) => Boolean(row?.isOrgOwner) && String(row.status).toUpperCase() === 'INVITED'
+export const isPendingOwnerInvite = (row) => Boolean(row?.isOrgOwner) && String(row.user?.status ?? row.status).toUpperCase() === 'INVITED'
 
 export const canRemoveOrganizationUser = (row, currentUserId) =>
     Boolean(row?.userId) && row.userId !== currentUserId && (!row.isOrgOwner || isPendingOwnerInvite(row))

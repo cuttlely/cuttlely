@@ -45,8 +45,14 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
                 const former = await manager.getRepository(ApiKey).findOneBy({ id: formerKeyId, workspaceId: saved.workspaceId })
                 // A Harness name grant predates the binding and remains independent. Policy editing removes the legacy marker.
                 // Only a prior HARNESS grant for a name already on the legacy allowlist is independent.
+                // Independence is decided from the pre-write name so a same-request rename cannot
+                // inherit or drop a derived grant by landing on (or off) the legacy allowlist.
+                const priorName = locked?.name ?? previous?.name
                 const independentlyNamed =
-                    resourceTypeOf(formerType) === 'HARNESS' && Array.isArray(former?.harnesses) && former.harnesses.includes(saved.name)
+                    resourceTypeOf(formerType) === 'HARNESS' &&
+                    typeof priorName === 'string' &&
+                    Array.isArray(former?.harnesses) &&
+                    former.harnesses.includes(priorName)
                 if (former?.accessPolicy?.legacy && !independentlyNamed)
                     await grants.delete({
                         principalId: former.id,
@@ -64,6 +70,28 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
                 ])
             }
             return saved
+        })
+    )
+}
+
+/** Type changes that skip saveLegacyBoundFlow still need derived grants to track the new resource type. */
+export async function reconcileLegacyBoundTypeChange(data: DataSource, flow: ChatFlow, formerType: ChatFlow['type']): Promise<void> {
+    if (!flow.apikeyid) return
+    const nextType = resourceTypeOf(flow.type)
+    const priorType = resourceTypeOf(formerType)
+    if (nextType === priorType) return
+    await serial(() =>
+        data.transaction(async (manager) => {
+            const key = await manager.getRepository(ApiKey).findOneBy({ id: flow.apikeyid!, workspaceId: flow.workspaceId })
+            if (!key?.accessPolicy?.legacy) return
+            const grants = manager.getRepository(ApiKeyResource)
+            const independentlyNamed = priorType === 'HARNESS' && Array.isArray(key.harnesses) && key.harnesses.includes(flow.name)
+            if (!independentlyNamed) await grants.delete({ principalId: key.id, resourceType: priorType, resourceId: flow.id })
+            await grants.upsert({ principalId: key.id, resourceType: nextType, resourceId: flow.id }, [
+                'principalId',
+                'resourceType',
+                'resourceId'
+            ])
         })
     )
 }

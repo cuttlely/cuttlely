@@ -48,22 +48,31 @@ export async function rotateCredential(manager: EntityManager, key: ApiKey, grac
     if (!principalActive(key)) throw new AppError(409, 'A revoked or expired access key cannot rotate.')
     const cutoff = new Date(Date.now() + graceSeconds * 1000)
     const repo = manager.getRepository(ApiKeyCredential)
+    // Read current credential ids, mint the replacement, then retire only those prior ids so a
+    // concurrent rotate cannot revoke or shorten the secret this call just issued.
+    const prior = await repo.find({ where: { principalId: key.id }, select: { id: true } })
+    const priorIds = prior.map((row) => row.id)
+    const minted = await mintCredential(manager, key)
     // Conditional partial updates make retirement monotonic even across processes. Never save a stale revokedAt.
-    await repo
-        .createQueryBuilder()
-        .update()
-        .set({ expiresAt: cutoff })
-        .where('principalId = :id', { id: key.id })
-        .andWhere('(expiresAt IS NULL OR expiresAt > :cutoff)', { cutoff })
-        .execute()
-    if (!graceSeconds)
+    if (priorIds.length) {
         await repo
             .createQueryBuilder()
             .update()
-            .set({ revokedAt: new Date() })
+            .set({ expiresAt: cutoff })
             .where('principalId = :id', { id: key.id })
-            .andWhere('revokedAt IS NULL')
+            .andWhere('id IN (:...priorIds)', { priorIds })
+            .andWhere('(expiresAt IS NULL OR expiresAt > :cutoff)', { cutoff })
             .execute()
+        if (!graceSeconds)
+            await repo
+                .createQueryBuilder()
+                .update()
+                .set({ revokedAt: new Date() })
+                .where('principalId = :id', { id: key.id })
+                .andWhere('id IN (:...priorIds)', { priorIds })
+                .andWhere('revokedAt IS NULL')
+                .execute()
+    }
     await manager
         .getRepository(ApiKey)
         .createQueryBuilder()
@@ -72,5 +81,5 @@ export async function rotateCredential(manager: EntityManager, key: ApiKey, grac
         .where('id = :id', { id: key.id })
         .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :cutoff)', { cutoff })
         .execute()
-    return mintCredential(manager, key)
+    return minted
 }

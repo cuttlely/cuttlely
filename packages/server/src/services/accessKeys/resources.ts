@@ -21,7 +21,9 @@ export async function keyHarnessNames(key: ApiKey, forRun = true): Promise<strin
     const flows = await data.getRepository(ChatFlow).findBy({ workspaceId: key.workspaceId, type: 'HARNESS' })
     const eligible = []
     for (const flow of flows) {
-        const actual = forRun ? await resolveHarnessFlow(flow.name, key.workspaceId) : flow
+        // Read and run alike: only the runtime canvas for this name may appear. A stale same-name
+        // SQL row must not mint an allowlisted name that getHarness would bind to another id.
+        const actual = await resolveHarnessFlow(flow.name, key.workspaceId)
         if (actual?.id === flow.id) eligible.push(flow)
     }
     if (key.accessPolicy.allResources) return eligible.map((f) => f.name)

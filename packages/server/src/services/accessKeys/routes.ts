@@ -157,18 +157,26 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             true,
             additionalPermissions
         )
-        if (!req.user?.id && !req.user?.apiKeyId) {
-            const { OPEN_SOURCE_FEATURES } = await import('../../identity/constants')
-            const { OSS_PRODUCT_ID } = await import('../../identity/ossPlatform')
-            req.user = {
-                permissions: admittedKey.permissions,
-                features: { ...OPEN_SOURCE_FEATURES },
-                activeWorkspaceId: key.workspaceId,
-                activeOrganizationId: undefined,
-                activeOrganizationProductId: OSS_PRODUCT_ID,
-                isOrganizationAdmin: false,
-                apiKeyId: key.id,
-                apiKeyOwnerUserId: key.ownerUserId || undefined
+        if (!req.user?.id) {
+            if (!req.user?.apiKeyId) {
+                const { OPEN_SOURCE_FEATURES } = await import('../../identity/constants')
+                const { OSS_PRODUCT_ID } = await import('../../identity/ossPlatform')
+                req.user = {
+                    permissions: admittedKey.permissions,
+                    features: { ...OPEN_SOURCE_FEATURES },
+                    activeWorkspaceId: key.workspaceId,
+                    activeOrganizationId: undefined,
+                    activeOrganizationProductId: OSS_PRODUCT_ID,
+                    isOrganizationAdmin: false,
+                    apiKeyId: key.id,
+                    apiKeyOwnerUserId: key.ownerUserId || undefined
+                }
+            } else {
+                // A pre-seeded apiKeyId still receives the freshly admitted permissions/workspace.
+                req.user.permissions = admittedKey.permissions
+                req.user.activeWorkspaceId = key.workspaceId
+                req.user.isOrganizationAdmin = false
+                req.user.apiKeyOwnerUserId = key.ownerUserId || undefined
             }
         }
     })().then(
