@@ -15,22 +15,26 @@ export async function serial<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // TypeORM nests DataSource.transaction as SAVEPOINT on the shared SQLite connection. An unrelated
-// outer rollback would then erase an admitted charge. File-backed installs use a sibling connection
-// so quota BEGIN/COMMIT is independent. In-memory fixtures keep the primary connection.
+// outer rollback would then erase an admitted charge. Admission must happen before an outer transaction.
+// File-backed installs use a sibling connection so another request's later rollback cannot erase a charge.
 let quotaSibling: DataSource | undefined
 let quotaSiblingKey: string | undefined
 async function quotaTransaction(data: DataSource, work: (manager: EntityManager) => Promise<void>): Promise<void> {
-    const options = (data.options || {}) as { type?: string; database?: string }
+    const options = (data.options || {}) as { type?: string; database?: string; busyTimeout?: number; enableWAL?: boolean }
+    if (options.type === 'sqlite' && (data.driver as { queryRunner?: { isTransactionActive?: boolean } })?.queryRunner?.isTransactionActive)
+        throw new AppError(503, 'Access key quota admission cannot run inside a primary SQLite transaction.')
     if (options.type !== 'sqlite' || !options.database || options.database === ':memory:') {
         await data.transaction(work)
         return
     }
-    const key = String(options.database)
+    const key = JSON.stringify([options.database, options.busyTimeout, options.enableWAL])
     if (!quotaSibling || quotaSiblingKey !== key || !quotaSibling.isInitialized) {
         if (quotaSibling?.isInitialized) await quotaSibling.destroy().catch(() => undefined)
         quotaSibling = new DataSource({
             type: 'sqlite',
             database: options.database,
+            busyTimeout: options.busyTimeout,
+            enableWAL: options.enableWAL,
             entities: [ApiKeyUsage],
             synchronize: false,
             migrationsRun: false

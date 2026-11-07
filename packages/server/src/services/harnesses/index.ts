@@ -1167,6 +1167,7 @@ function httpHarnessError(error: unknown) {
     if (code === 'name_clash' || code === 'name_taken') return new AppError(StatusCodes.CONFLICT, message)
     if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
     if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
+    if (code === 'harness_changed') return new AppError(StatusCodes.CONFLICT, 'Harness changed after authorization. Retry the report.')
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
@@ -1280,6 +1281,9 @@ function takeJobRunId(payload: unknown): string | undefined {
     return runId
 }
 
+// Test seam: pause after admission and context loading, before runtime name resolution.
+export const runAdmissionHooks: { beforeDispatch: null | (() => Promise<void>) } = { beforeDispatch: null }
+
 const startRun = async (
     name: string,
     body: Record<string, unknown>,
@@ -1324,6 +1328,7 @@ const startRun = async (
     let harnessTrace: ReturnType<typeof openHarnessRunTrace> | undefined
     let recorded: Record<string, unknown> | null = null
     const flowOptions: Record<string, unknown> = { ...(runtime?.flowOptions || {}), ...harnessNodeOptions(opts.caller) }
+    if (opts.expectedChatflowId !== undefined) flowOptions.expectedHarnessChatflowId = opts.expectedChatflowId
     // The server context copies the harness file. The run compares the caller's team.
     if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
@@ -1336,6 +1341,7 @@ const startRun = async (
             replay: opts.replay === true,
             draft: Boolean(opts.record)
         })
+        if (runAdmissionHooks.beforeDispatch) await runAdmissionHooks.beforeDispatch()
         const payload = await run({
             name,
             chatId: prepared.chatId,

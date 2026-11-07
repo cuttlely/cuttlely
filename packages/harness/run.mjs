@@ -149,6 +149,10 @@ export function assertHarnessWorkspace(name, flowOptions, record) {
         }
     }
     if (!harness) return
+    const expected = flowOptions?.expectedHarnessChatflowId
+    if (expected !== undefined && (typeof expected !== 'string' || !expected || harness.chatflowId !== expected)) {
+        throw new HarnessError('harness_changed', `Harness "${name}" changed after authorization.`)
+    }
     const caller = typeof flowOptions?.workspaceId === 'string' ? flowOptions.workspaceId : ''
     const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
     if (caller !== owner) {

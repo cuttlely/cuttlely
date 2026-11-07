@@ -1,9 +1,12 @@
-import { DataSource, IsNull } from 'typeorm'
+import { DataSource, EntityManager, IsNull } from 'typeorm'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
 import { serial } from './limiter'
+
+// Canvas writers enter the same mutex as binding and principal writers through this boundary.
+export { serial as withAccessKeyWrite } from './limiter'
 
 function resourceTypeOf(type: ChatFlow['type']): 'HARNESS' | 'AGENTFLOW' | 'CHATFLOW' {
     return type === 'HARNESS' ? 'HARNESS' : ['AGENTFLOW', 'MULTIAGENT'].includes(type || '') ? 'AGENTFLOW' : 'CHATFLOW'
@@ -18,7 +21,7 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
             const flows = manager.getRepository(ChatFlow)
             // Authority comes from the current row, not a stale caller snapshot.
             // SQLite cannot take row locks here; serial() already serializes binding writers in-process.
-            const locked = (await flows.findOneBy({ id: flow.id, workspaceId: flow.workspaceId })) || undefined
+            const locked = flow.id ? (await flows.findOneBy({ id: flow.id, workspaceId: flow.workspaceId })) || undefined : undefined
             if (previous) {
                 if (!locked || (locked.apikeyid || '') !== (previous.apikeyid || '') || locked.apiAccessMode !== previous.apiAccessMode)
                     throw new AppError(409, 'The legacy binding changed. Reload before saving.')
@@ -34,8 +37,14 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
             )
                 throw new AppError(403, 'This resource type does not support an inbound access-key binding.')
             const { mcpServerConfig: _mcp, webhookSecret: _webhook, webhookSecretConfigured: _configured, ...patch } = flow
-            const written = await flows.save(patch)
-            const saved = await flows.findOneByOrFail({ id: written.id, workspaceId: flow.workspaceId })
+            if (flow.id) {
+                const result = await flows.update({ id: flow.id, workspaceId: flow.workspaceId }, patch)
+                if (!result.affected) throw new AppError(409, 'Flow changed. Reload before saving.')
+            } else {
+                const inserted = await flows.insert(patch)
+                flow = Object.assign(new ChatFlow(), flow, inserted.identifiers[0])
+            }
+            const saved = await flows.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
             if (saved.apikeyid && !['CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS', undefined, null].includes(saved.type))
                 throw new AppError(403, 'This resource type does not support an inbound access-key binding.')
             const resourceType = resourceTypeOf(saved.type)
@@ -74,26 +83,23 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
     )
 }
 
-/** Type changes that skip saveLegacyBoundFlow still need derived grants to track the new resource type. */
-export async function reconcileLegacyBoundTypeChange(data: DataSource, flow: ChatFlow, formerType: ChatFlow['type']): Promise<void> {
+/** Reconcile on the conditional row writer's manager; row and grants must commit or roll back together. */
+export async function reconcileLegacyBoundTypeChange(
+    manager: EntityManager,
+    flow: ChatFlow,
+    formerType: ChatFlow['type'],
+    formerName = flow.name
+): Promise<void> {
     if (!flow.apikeyid) return
     const nextType = resourceTypeOf(flow.type)
     const priorType = resourceTypeOf(formerType)
     if (nextType === priorType) return
-    await serial(() =>
-        data.transaction(async (manager) => {
-            const key = await manager.getRepository(ApiKey).findOneBy({ id: flow.apikeyid!, workspaceId: flow.workspaceId })
-            if (!key?.accessPolicy?.legacy) return
-            const grants = manager.getRepository(ApiKeyResource)
-            const independentlyNamed = priorType === 'HARNESS' && Array.isArray(key.harnesses) && key.harnesses.includes(flow.name)
-            if (!independentlyNamed) await grants.delete({ principalId: key.id, resourceType: priorType, resourceId: flow.id })
-            await grants.upsert({ principalId: key.id, resourceType: nextType, resourceId: flow.id }, [
-                'principalId',
-                'resourceType',
-                'resourceId'
-            ])
-        })
-    )
+    const key = await manager.getRepository(ApiKey).findOneBy({ id: flow.apikeyid, workspaceId: flow.workspaceId })
+    if (!key?.accessPolicy?.legacy) return
+    const grants = manager.getRepository(ApiKeyResource)
+    const independentlyNamed = priorType === 'HARNESS' && Array.isArray(key.harnesses) && key.harnesses.includes(formerName)
+    if (!independentlyNamed) await grants.delete({ principalId: key.id, resourceType: priorType, resourceId: flow.id })
+    await grants.upsert({ principalId: key.id, resourceType: nextType, resourceId: flow.id }, ['principalId', 'resourceType', 'resourceId'])
 }
 
 /** An ordinary or compensating canvas save must never write the access fields from its earlier snapshot. */
@@ -106,6 +112,11 @@ export async function saveFlowPreservingAccess(
     return serial(() =>
         data.transaction(async (manager) => {
             const repo = manager.getRepository(ChatFlow)
+            // Compensation can restore a different type after a failed harness sync.
+            const former =
+                flow.type !== undefined && resourceTypeOf(flow.type) !== resourceTypeOf(previous.type)
+                    ? await repo.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
+                    : undefined
             if (requestedMode !== undefined) {
                 if (!['public', 'private'].includes(requestedMode || '')) throw new AppError(400, 'Invalid API access mode.')
                 // Drivers that report changed-rows (SQLite/MySQL without FOUND_ROWS) return affected=0 for a no-op.
@@ -139,8 +150,11 @@ export async function saveFlowPreservingAccess(
                 webhookSecretConfigured: _configured,
                 ...patch
             } = flow
-            await repo.save(patch)
-            return repo.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
+            const result = await repo.update({ id: flow.id, workspaceId: flow.workspaceId }, patch)
+            if (!result.affected) throw new AppError(409, 'Flow changed. Reload before saving.')
+            const saved = await repo.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
+            if (former) await reconcileLegacyBoundTypeChange(manager, saved, former.type, former.name)
+            return saved
         })
     )
 }

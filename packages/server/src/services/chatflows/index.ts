@@ -1,4 +1,9 @@
-import { reconcileLegacyBoundTypeChange, saveFlowPreservingAccess, saveLegacyBoundFlow } from '../accessKeys/legacyBinding'
+import {
+    reconcileLegacyBoundTypeChange,
+    saveFlowPreservingAccess,
+    saveLegacyBoundFlow,
+    withAccessKeyWrite
+} from '../accessKeys/legacyBinding'
 import { randomBytes } from 'crypto'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
@@ -706,6 +711,7 @@ async function saveIfRowUnchanged(
     const write = async (manager: EntityManager) => {
         if (liveWriteHooks.beforeConditionalWrite) await liveWriteHooks.beforeConditionalWrite()
         const ds = getRunningExpressApp().AppDataSource
+        const previous = requireNoDraft ? await manager.getRepository(ChatFlow).findOneBy({ id: flow.id, workspaceId }) : null
         const updatedDate = new Date()
         const qb = manager.createQueryBuilder().update(ChatFlow).set(rowPatch(flow, updatedDate, workspaceId))
         qb.where(`${quote(ds, 'id')} = :id`, { id: flow.id })
@@ -722,10 +728,19 @@ async function saveIfRowUnchanged(
             }
             throw new AppError(StatusCodes.CONFLICT, conflictMessage)
         }
-        return Object.assign(new ChatFlow(), flow, { updatedDate, workspaceId })
+        const saved = await manager.getRepository(ChatFlow).findOneByOrFail({ id: flow.id, workspaceId })
+        if (requireNoDraft) await reconcileLegacyBoundTypeChange(manager, saved, expectedType as ChatFlow['type'], previous?.name)
+        return Object.assign(new ChatFlow(), flow, saved, { updatedDate, workspaceId })
     }
     // The draft row and this type change share the chatflow row lock, so one commits before the other checks.
-    if (requireNoDraft) return withChatflowLock(flow.id, write)
+    if (requireNoDraft)
+        return withAccessKeyWrite(() =>
+            withChatflowLock(flow.id, (manager) => {
+                const ds = getRunningExpressApp().AppDataSource
+                // SQLite's per-flow lock serializes draft writers but does not open a transaction.
+                return ['sqlite', 'better-sqlite3'].includes(ds.options?.type) ? ds.transaction(write) : write(manager)
+            })
+        )
     return inTransaction(write)
 }
 
@@ -828,9 +843,6 @@ const updateChatflow = async (
                 options.expectedFlowData,
                 options.versionRecord?.kind === 'publish' ? PUBLISH_CONFLICT : SAVE_CONFLICT
             )
-            // saveIfRowUnchanged only writes the flow row. A bound type change must still move the
-            // derived grant to the new resource type (tested through updateChatflow, not only the helper).
-            if (typeChanging && previousRow.apikeyid) await reconcileLegacyBoundTypeChange(appServer.AppDataSource, dbResponse, storedType)
         } else {
             dbResponse = rebinding
                 ? await saveLegacyBoundFlow(appServer.AppDataSource, newDbChatflow, previousRow)

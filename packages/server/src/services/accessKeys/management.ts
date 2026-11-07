@@ -17,6 +17,7 @@ import { referencedHarnessNames } from '../harnesses/apiAccess'
 import { mintCredential, rotateCredential } from './credentials'
 import { expiry, OPERATIONS, operationPermissions, parseGrants, parsePolicy, RESOURCE_TYPES, ResourceGrant } from './policy'
 import { serial } from './limiter'
+import { EntityManager } from 'typeorm'
 
 const action =
     (fn: (req: Request) => Promise<unknown>): RequestHandler =>
@@ -32,6 +33,11 @@ export async function target(req: Request): Promise<ApiKey> {
     const user = interactive(req)
     const row = await (await accessData()).getRepository(ApiKey).findOneBy({ id: req.params.id, workspaceId: user.activeWorkspaceId })
     if (!row) throw new AppError(404, 'Access key not found.')
+    const grants = await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: row.id })
+    await assertTarget(req, row, grants)
+    return row
+}
+async function assertTarget(req: Request, row: ApiKey, grants: ApiKeyResource[]): Promise<void> {
     // Reauthorize the target, including its stored permissions, before editing or revoking it.
     const permitted = await hasAnyPermission(req, 'apikeys:grant-all')
     if (row.accessPolicy?.allResources && !permitted) throw new AppError(403, 'Managing a workspace-wide grant requires apikeys:grant-all.')
@@ -39,7 +45,6 @@ export async function target(req: Request): Promise<ApiKey> {
         if (!(await hasAnyPermission(req, permission))) throw new AppError(403, 'Access key exceeds your current permissions.')
     if (row.accessPolicy?.legacy) {
         // Compatibility scopes include operations that are not independently usable. Check only actual resource authority.
-        const grants = await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: row.id })
         for (const grant of grants) {
             const resource = parseGrants([grant])[0]
             for (const operation of row.accessPolicy.scopes) {
@@ -51,13 +56,13 @@ export async function target(req: Request): Promise<ApiKey> {
             }
         }
     } else {
-        const grants: ResourceGrant[] = row.accessPolicy?.allResources
+        const applicable: ResourceGrant[] = row.accessPolicy?.allResources
             ? RESOURCE_TYPES.map((resourceType) => ({ resourceType, resourceId: '*' }))
-            : parseGrants(await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: row.id }))
+            : parseGrants(grants)
         for (const operation of row.accessPolicy?.scopes || []) {
             if (!(await hasAnyPermission(req, ...OPERATIONS[operation])))
                 throw new AppError(403, 'Access key operations exceed your current permissions.')
-            for (const grant of grants) {
+            for (const grant of applicable) {
                 if (operation.startsWith('harness:') && grant.resourceType !== 'HARNESS') continue
                 if (operation.startsWith('dashflow:') !== (grant.resourceType === 'DASHFLOW')) continue
                 if (!(await hasAnyPermission(req, ...operationPermissions(operation, grant))))
@@ -65,7 +70,6 @@ export async function target(req: Request): Promise<ApiKey> {
             }
         }
     }
-    return row
 }
 async function choices(req: Request) {
     const user = interactive(req)
@@ -199,50 +203,87 @@ export const createAccessKey: RequestHandler = action(async (req) => {
     const rows = await apikeyService.getAllApiKeys({ ...user, activeWorkspaceId: user.activeWorkspaceId! })
     return Array.isArray(rows) ? rows.map((r) => (r.id === result.key.id ? { ...r, apiKey: result.secret } : r)) : rows
 })
-export const updateAccessKey: RequestHandler = action(async (req) => {
+// Test seam: pause after the initial policy snapshot, before joining the writer mutex.
+export const lifecycleHooks: { beforeLock: null | (() => Promise<void>) } = { beforeLock: null }
+
+function policySnapshot(key: ApiKey, grants: ApiKeyResource[]): string {
+    return JSON.stringify({
+        policy: key.accessPolicy,
+        permissions: [...key.permissions].sort(),
+        ownerUserId: key.ownerUserId,
+        expiresAt: key.expiresAt,
+        disabledAt: key.disabledAt,
+        harnesses: key.harnesses,
+        grants: grants.map(({ resourceType, resourceId }) => `${resourceType}:${resourceId}`).sort()
+    })
+}
+async function lifecycleSnapshot(req: Request) {
     const key = await target(req)
+    const grants = await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: key.id })
+    return { key, grants, policy: policySnapshot(key, grants) }
+}
+async function withLifecycleTarget<T>(
+    req: Request,
+    expected: Awaited<ReturnType<typeof lifecycleSnapshot>>,
+    work: (manager: EntityManager, key: ApiKey) => Promise<T>
+): Promise<T> {
+    const data = await accessData()
+    if (lifecycleHooks.beforeLock) await lifecycleHooks.beforeLock()
+    return serial(() =>
+        data.transaction(async (manager) => {
+            const key = await manager.getRepository(ApiKey).findOneBy({ id: expected.key.id, workspaceId: expected.key.workspaceId })
+            const grants = key ? await manager.getRepository(ApiKeyResource).findBy({ principalId: key.id }) : []
+            if (!key || policySnapshot(key, grants) !== expected.policy)
+                throw new AppError(409, 'Access key policy changed. Reload before saving.')
+            // The definitive authorization runs on the same snapshot and transaction as the mutation.
+            await assertTarget(req, key, grants)
+            return work(manager, key)
+        })
+    )
+}
+
+export const updateAccessKey: RequestHandler = action(async (req) => {
+    const snapshot = await lifecycleSnapshot(req)
+    const key = snapshot.key
     const input = await policyInput(req)
     const before = {
         policy: key.accessPolicy,
         permissions: key.permissions,
         expiresAt: key.expiresAt,
-        resources: (await presentAccessKey(key)).resources.map(({ resourceId, resourceType }) => ({ resourceId, resourceType }))
+        resources: snapshot.grants.map(({ resourceId, resourceType }) => ({ resourceId, resourceType }))
     }
-    const data = await accessData()
-    await serial(() =>
-        data.transaction(async (manager) => {
-            const repo = manager.getRepository(ApiKey)
-            const fresh = await repo.findOneByOrFail({ id: key.id, workspaceId: key.workspaceId })
-            // The retained bearer has no credential row. Preserve its earliest principal-expiry
-            // cutoff before replacing that expiry, using the same monotonic retirement field as rotation.
-            const cutoffs = [fresh.expiresAt, input.expiresAt].filter((date): date is Date => !!date)
-            if (cutoffs.length) {
-                const cutoff = new Date(Math.min(...cutoffs.map((date) => new Date(date).getTime())))
-                await repo
-                    .createQueryBuilder()
-                    .update()
-                    .set({ legacyRevokedAt: cutoff })
-                    .where('id = :id', { id: key.id })
-                    .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :cutoff)', { cutoff })
-                    .execute()
-            }
-            key.keyName = req.body.keyName.trim()
-            key.accessPolicy = input.policy
-            key.permissions = input.permissions
-            key.expiresAt = input.expiresAt
+    await withLifecycleTarget(req, snapshot, async (manager, fresh) => {
+        await policyInput(req)
+        const repo = manager.getRepository(ApiKey)
+        // The retained bearer has no credential row. Preserve its earliest principal-expiry
+        // cutoff before replacing that expiry, using the same monotonic retirement field as rotation.
+        const cutoffs = [fresh.expiresAt, input.expiresAt].filter((date): date is Date => !!date)
+        if (cutoffs.length) {
+            const cutoff = new Date(Math.min(...cutoffs.map((date) => new Date(date).getTime())))
+            await repo
+                .createQueryBuilder()
+                .update()
+                .set({ legacyRevokedAt: cutoff })
+                .where('id = :id', { id: key.id })
+                .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :cutoff)', { cutoff })
+                .execute()
+        }
+        key.keyName = req.body.keyName.trim()
+        key.accessPolicy = input.policy
+        key.permissions = input.permissions
+        key.expiresAt = input.expiresAt
+        await manager
+            .getRepository(ApiKey)
+            .update(
+                { id: key.id, workspaceId: key.workspaceId },
+                { keyName: key.keyName, accessPolicy: input.policy, permissions: input.permissions, expiresAt: input.expiresAt }
+            )
+        await manager.getRepository(ApiKeyResource).delete({ principalId: key.id })
+        for (const resource of input.resources)
             await manager
-                .getRepository(ApiKey)
-                .update(
-                    { id: key.id, workspaceId: key.workspaceId },
-                    { keyName: key.keyName, accessPolicy: input.policy, permissions: input.permissions, expiresAt: input.expiresAt }
-                )
-            await manager.getRepository(ApiKeyResource).delete({ principalId: key.id })
-            for (const resource of input.resources)
-                await manager
-                    .getRepository(ApiKeyResource)
-                    .upsert({ principalId: key.id, ...resource }, ['principalId', 'resourceType', 'resourceId'])
-        })
-    )
+                .getRepository(ApiKeyResource)
+                .upsert({ principalId: key.id, ...resource }, ['principalId', 'resourceType', 'resourceId'])
+    })
     await audit(req, key, 'policy changed', {
         before,
         after: { policy: input.policy, permissions: input.permissions, expiresAt: input.expiresAt, resources: input.resources }
@@ -252,51 +293,43 @@ export const updateAccessKey: RequestHandler = action(async (req) => {
 })
 export const rotateAccessKey: RequestHandler = action(async (req) => {
     requireAccessRollout()
-    const key = await target(req)
-    const data = await accessData()
-    const result = await serial(() =>
-        data.transaction((manager) =>
-            manager
-                .getRepository(ApiKey)
-                .findOneByOrFail({ id: key.id, workspaceId: key.workspaceId })
-                .then((fresh) => rotateCredential(manager, fresh, req.body?.graceSeconds ?? 3600))
-        )
+    const snapshot = await lifecycleSnapshot(req)
+    const result = await withLifecycleTarget(req, snapshot, (manager, key) =>
+        rotateCredential(manager, key, req.body?.graceSeconds ?? 3600)
     )
-    await audit(req, key, 'rotated', { credentialId: result.credential.id, graceSeconds: req.body?.graceSeconds ?? 3600 })
+    await audit(req, snapshot.key, 'rotated', { credentialId: result.credential.id, graceSeconds: req.body?.graceSeconds ?? 3600 })
     const { digest: _digest, ...credential } = result.credential
     return { apiKey: result.secret, credential }
 })
 export const revokeAccessKey: RequestHandler = action(async (req) => {
-    const key = await target(req)
+    const snapshot = await lifecycleSnapshot(req)
     const now = new Date()
-    const data = await accessData()
-    await serial(() => data.getRepository(ApiKey).update({ id: key.id, workspaceId: key.workspaceId }, { disabledAt: now }))
-    await audit(req, key, 'revoked')
-    return { id: key.id, disabledAt: now }
+    await withLifecycleTarget(req, snapshot, (manager, key) =>
+        manager.getRepository(ApiKey).update({ id: key.id, workspaceId: key.workspaceId }, { disabledAt: now })
+    )
+    await audit(req, snapshot.key, 'revoked')
+    return { id: snapshot.key.id, disabledAt: now }
 })
 export const revokeAccessCredential: RequestHandler = action(async (req) => {
-    const key = await target(req)
-    const data = await accessData()
-    await serial(() =>
-        data.transaction(async (manager) => {
-            if (req.params.credentialId === 'legacy') {
-                const now = new Date()
-                await manager
-                    .getRepository(ApiKey)
-                    .createQueryBuilder()
-                    .update()
-                    .set({ legacyRevokedAt: now })
-                    .where('id = :id', { id: key.id })
-                    .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :now)', { now })
-                    .execute()
-            } else {
-                const result = await manager
-                    .getRepository(ApiKeyCredential)
-                    .update({ id: req.params.credentialId, principalId: key.id }, { revokedAt: new Date() })
-                if (!result.affected) throw new AppError(404, 'Credential not found.')
-            }
-        })
-    )
-    await audit(req, key, 'credential revoked', { credentialId: req.params.credentialId })
+    const snapshot = await lifecycleSnapshot(req)
+    await withLifecycleTarget(req, snapshot, async (manager, key) => {
+        if (req.params.credentialId === 'legacy') {
+            const now = new Date()
+            await manager
+                .getRepository(ApiKey)
+                .createQueryBuilder()
+                .update()
+                .set({ legacyRevokedAt: now })
+                .where('id = :id', { id: key.id })
+                .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :now)', { now })
+                .execute()
+        } else {
+            const result = await manager
+                .getRepository(ApiKeyCredential)
+                .update({ id: req.params.credentialId, principalId: key.id }, { revokedAt: new Date() })
+            if (!result.affected) throw new AppError(404, 'Credential not found.')
+        }
+    })
+    await audit(req, snapshot.key, 'credential revoked', { credentialId: req.params.credentialId })
     return { revoked: true }
 })

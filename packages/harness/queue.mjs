@@ -41,6 +41,8 @@ function jobPayload(args) {
         timeoutMs: args.timeoutMs ?? null,
         offlineModel: args.offlineModel === true,
         callerChatflowId: flow.callerChatflowId || flow.chatflowid || null,
+        // Keep the admission pin distinct from the flow that called the harness.
+        expectedHarnessChatflowId: flow.expectedHarnessChatflowId ?? null,
         // The worker must not read the team off the harness file. A missing caller stays null and the job is refused.
         workspaceId: typeof flow.workspaceId === 'string' && flow.workspaceId ? flow.workspaceId : null,
         source: args.source || 'prediction',
@@ -234,6 +236,7 @@ function callerFlowOptions(payload, flowOptions) {
     if (payload?.callerChatflowId && next.callerChatflowId == null) next.callerChatflowId = payload.callerChatflowId
     next.workspaceId = payload?.workspaceId || undefined
     next.harnessCaller = payload?.caller || undefined
+    next.expectedHarnessChatflowId = payload?.expectedHarnessChatflowId ?? undefined
     return next
 }
 
@@ -331,7 +334,8 @@ export async function executeJob(job) {
                 throw new HarnessError('wrong_workspace', `Harness "${job.payload.name}" belongs to another workspace.`)
             }
         }
-        const { runHarness } = await import('./run.mjs')
+        const { runHarness, assertHarnessWorkspace } = await import('./run.mjs')
+        assertHarnessWorkspace(job.payload.name, callerFlowOptions(job.payload))
         const runtime = await jobRuntime(job, local)
         // The waiter is another process when the queue is external, so its onRecorded never runs.
         // The saved history id rides on the job result. The waiter reads it and then drops the field.
@@ -487,6 +491,9 @@ function kickInline() {
     }
 }
 
+// Test seam: pause a persisted job before any worker claims it.
+export const queueHooks = { afterEnqueue: null }
+
 export async function runQueuedHarness(args) {
     // Refused before a job row, the same as a run that does not queue.
     assertHarnessCaller(args?.name, args?.flowOptions?.harnessCaller)
@@ -498,6 +505,7 @@ export async function runQueuedHarness(args) {
         if (error?.code === 'busy') kickInline()
         throw error
     }
+    if (queueHooks.afterEnqueue) await queueHooks.afterEnqueue(job)
     localRuns.set(job.id, args)
     kickInline()
     return waitForJob(job.id, { onEvent: args.onEvent, signal: args.signal, timeoutMs: args.timeoutMs })

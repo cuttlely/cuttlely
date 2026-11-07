@@ -14,6 +14,9 @@ const action =
         if (!req.user?.apiKeyId) return next(new AppError(403, 'Use a scoped access key for the Dashflows reports API.'))
         return fn(req, res, next)
     }
+// Test seam: pause after the caller allowlist has been built.
+export const reportAdmissionHooks: { afterCaller: null | (() => Promise<void>) } = { afterCaller: null }
+
 export const bearerDashboardReport: RequestHandler = action(async (req, res, next) => {
     try {
         const ws = req.user!.activeWorkspaceId!
@@ -27,6 +30,8 @@ export const bearerDashboardReport: RequestHandler = action(async (req, res, nex
                 throw new AppError(409, 'Harness changed after authorization. Retry the report.')
             expectedChatflowId = record.chatflowId
         }
+        const caller = await harnessCallerFor(req)
+        if (reportAdmissionHooks.afterCaller) await reportAdmissionHooks.afterCaller()
         const started = await harnessesService.startBackgroundRun(
             view.definition.harness,
             {
@@ -35,7 +40,7 @@ export const bearerDashboardReport: RequestHandler = action(async (req, res, nex
             {
                 workspaceId: ws,
                 source: 'api',
-                caller: await harnessCallerFor(req),
+                caller,
                 track: trackBackgroundRun,
                 expectedChatflowId
             }

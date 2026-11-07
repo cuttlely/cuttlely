@@ -427,17 +427,7 @@ test('management API creates deny-by-default principals, validates grants and pr
         const backToChat = await saveLegacyBoundFlow(data, { ...typed, type: 'CHATFLOW' }, typed)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'AGENTFLOW', resourceId: backToChat.id }), false)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), true)
-        // updateChatflow type changes write the row first, then reconcile — same grant outcome.
-        const { reconcileLegacyBoundTypeChange } = serverRequire('./src/services/accessKeys/legacyBinding.ts')
-        await data.getRepository(ChatFlow).update({ id: backToChat.id }, { type: 'AGENTFLOW' })
-        const afterRowWrite = await data.getRepository(ChatFlow).findOneByOrFail({ id: backToChat.id })
-        await reconcileLegacyBoundTypeChange(data, afterRowWrite, 'CHATFLOW')
-        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), false)
-        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'AGENTFLOW', resourceId: backToChat.id }), true)
-        // Put the row and grant back so the remainder of this fixture still exercises the CHATFLOW binding.
-        await reconcileLegacyBoundTypeChange(data, { ...afterRowWrite, type: 'CHATFLOW' }, 'AGENTFLOW')
-        await data.getRepository(ChatFlow).update({ id: backToChat.id }, { type: 'CHATFLOW' })
-        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), true)
+        // The production updateChatflow transaction and rollback are exercised in access-keys-production.test.cjs.
         const staleCanvas = {
             ...bindingFlow,
             apikeyid: null,
@@ -645,7 +635,7 @@ test('usage examples distinguish legacy usage bearers from owner-session model-p
     }
 })
 
-test('an outer TypeORM transaction cannot erase an admitted SQLite quota charge', async () => {
+test('SQLite quota charges before outer transactions and rejects nested admission without losing committed counts', async () => {
     clearMinuteBuckets()
     const fs = require('node:fs')
     const os = require('node:os')
@@ -668,39 +658,19 @@ test('an outer TypeORM transaction cannot erase an admitted SQLite quota charge'
         await data.query('CREATE TABLE chat_flow (id varchar PRIMARY KEY, name text, type text, workspaceId text, apikeyid varchar)')
         await addAccessKeys(data.createQueryRunner())
         const key = { id: 'nested-outer', accessPolicy: parsePolicy({ daily: 1, monthly: 1, rpm: 0 }) }
-        let consumeResult
-        let releaseOuter
-        const hold = new Promise((resolve) => {
-            releaseOuter = resolve
-        })
-        let done
-        const finished = new Promise((resolve) => {
-            done = resolve
-        })
-        const outer = data
-            .transaction(async (manager) => {
-                await manager.query('SELECT 1')
-                consume(data, key, 'predict').then(
-                    () => {
-                        consumeResult = 'admitted'
-                        done()
-                    },
-                    (error) => {
-                        consumeResult = `rejected:${error.statusCode || error.message}`
-                        done()
-                    }
-                )
-                await hold
+        await consume(data, key, 'predict')
+        await assert.rejects(
+            data.transaction(async (manager) => {
+                await manager.query('SELECT * FROM apikey_usage')
+                await assert.rejects(consume(data, key, 'predict'), {
+                    statusCode: 503,
+                    message: 'Access key quota admission cannot run inside a primary SQLite transaction.'
+                })
+                await manager.query('DELETE FROM apikey_usage')
                 throw new Error('force-outer-rollback')
-            })
-            .catch((error) => {
-                if (error.message !== 'force-outer-rollback') throw error
-            })
-        await new Promise((resolve) => setTimeout(resolve, 200))
-        releaseOuter()
-        await outer
-        await Promise.race([finished, new Promise((resolve) => setTimeout(resolve, 2000))])
-        assert.equal(consumeResult, 'admitted')
+            }),
+            /force-outer-rollback/
+        )
         const usage = await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id })
         assert.equal(usage.length, 4)
         for (const row of usage) assert.equal(row.accepted, 1)
