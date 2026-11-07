@@ -1022,6 +1022,16 @@
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
         {
+            "from": "packages/server/src/services/accessKeys/leads.test.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access-key lead regression executes the real lead route and its AppError refusals; test-only imports preserve production boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/leads.test.ts",
+            "to": "packages/server/src/routes/leads/index.ts",
+            "reason": "Access-key lead regression executes the real lead route and its AppError refusals; test-only imports preserve production boundaries."
+        },
+        {
             "from": "packages/server/src/services/accessKeys/legacyBinding.ts",
             "to": "packages/server/src/database/entities/ChatFlow.ts",
             "reason": "Legacy binding persistence synchronizes derived grants transactionally at the existing flow-save boundary; origin validation remains lazy to avoid application bootstrap cycles."

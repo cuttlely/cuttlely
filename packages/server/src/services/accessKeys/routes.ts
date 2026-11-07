@@ -147,3 +147,17 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         }
     })().then(() => next(), next)
 }
+
+/** Off/shadow retain legacy anonymous collection. Enforcement requires parent-flow access. */
+export const authorizeLeadCreate: RequestHandler = (req, res, next) => {
+    if (accessRollout() !== 'on') return next()
+    // Resolve lazily: the shared flow middleware also imports application routes.
+    void import('../../utils/authorizeFlowAccess')
+        .then(({ authorizeFlowAccess }) =>
+            authorizeFlowAccess({
+                getChatflowId: (req) => (typeof req.body?.chatflowid === 'string' ? req.body.chatflowid : undefined),
+                sessionNeedsHeader: true
+            })(req, res, next)
+        )
+        .catch(next)
+}

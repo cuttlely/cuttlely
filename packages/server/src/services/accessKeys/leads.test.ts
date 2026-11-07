@@ -10,11 +10,11 @@ const mockSave = jest.fn(async (lead: any) => ({ ...lead, id: 'lead' }))
 const mockConsume = jest.fn(async () => undefined)
 jest.mock('../../services/chatflows', () => ({ __esModule: true, default: {} }))
 jest.mock('../../services/apikey', () => ({ __esModule: true, default: { getApiKey: async (token: string) => mockKeys.get(token) } }))
-jest.mock('../../services/accessKeys/data', () => ({
+jest.mock('./data', () => ({
     accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockFlows)
 }))
-jest.mock('../../services/accessKeys/limiter', () => ({ consume: (...args: unknown[]) => (mockConsume as any)(...args) }))
-jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+jest.mock('./limiter', () => ({ consume: (...args: unknown[]) => (mockConsume as any)(...args) }))
+jest.mock('./audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
         AppDataSource: {
@@ -23,8 +23,8 @@ jest.mock('../../utils/getRunningExpressApp', () => ({
     })
 }))
 
-import leadsRouter from './index'
-import { accessKeyRouteGuard } from '../../services/accessKeys/routes'
+import leadsRouter from '../../routes/leads'
+import { accessKeyRouteGuard } from './routes'
 
 const app = express()
 app.use(express.json())
