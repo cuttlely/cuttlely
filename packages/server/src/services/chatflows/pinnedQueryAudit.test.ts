@@ -20,17 +20,20 @@ const audits: Array<{
 // Track the latest row so update()+findOneByOrFail (tenant-scoped writers) return the same
 // canvas the production path would read after a successful write.
 let storedRow: Record<string, unknown> | null = null
-const mockRepo = {
+const mockRepo: {
+    [key: string]: jest.Mock
+} = {
     findOneBy: jest.fn(async (where: Record<string, unknown> = {}) => {
         if (!storedRow) return null
         if (where.id !== undefined && storedRow.id !== where.id) return null
         if (where.workspaceId !== undefined && storedRow.workspaceId !== where.workspaceId) return null
         return { ...storedRow }
     }),
-    findOneByOrFail: jest.fn(async (where: Record<string, unknown> = {}) => {
-        const row = await mockRepo.findOneBy(where)
-        if (!row) throw new Error('ChatFlow not found')
-        return row
+    findOneByOrFail: jest.fn(async (where: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+        if (!storedRow) throw new Error('ChatFlow not found')
+        if (where.id !== undefined && storedRow.id !== where.id) throw new Error('ChatFlow not found')
+        if (where.workspaceId !== undefined && storedRow.workspaceId !== where.workspaceId) throw new Error('ChatFlow not found')
+        return { ...storedRow }
     }),
     findOne: jest.fn(),
     find: jest.fn(),
@@ -283,10 +286,11 @@ beforeEach(() => {
         if (where.workspaceId !== undefined && storedRow.workspaceId !== where.workspaceId) return null
         return { ...storedRow }
     })
-    mockRepo.findOneByOrFail.mockImplementation(async (where: Record<string, unknown> = {}) => {
-        const row = await mockRepo.findOneBy(where)
-        if (!row) throw new Error('ChatFlow not found')
-        return row
+    mockRepo.findOneByOrFail.mockImplementation(async (where: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+        if (!storedRow) throw new Error('ChatFlow not found')
+        if (where.id !== undefined && storedRow.id !== where.id) throw new Error('ChatFlow not found')
+        if (where.workspaceId !== undefined && storedRow.workspaceId !== where.workspaceId) throw new Error('ChatFlow not found')
+        return { ...storedRow }
     })
     mockRepo.update.mockImplementation(async (criteria: Record<string, unknown>, patch: Record<string, unknown>) => {
         if (!storedRow) return { affected: 0 }
