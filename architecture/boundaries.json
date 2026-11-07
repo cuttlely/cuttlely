@@ -439,7 +439,10 @@
             "packages/server/src/database/migrations/*/1801300000000-AccessKeys.ts",
             "packages/server/src/utils/accessKeyTestFixtures.ts",
             "packages/ui/src/views/apikey/**",
-            "packages/ui/src/api/apikey.js"
+            "packages/ui/src/api/apikey.js",
+            "packages/ui/src/views/users/index.test.js",
+            "packages/ui/src/views/users/userActions.js",
+            "packages/ui/src/views/users/userActions.test.js"
         ],
         "inherited": [
             "packages/server/**",
