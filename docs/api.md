@@ -41,11 +41,11 @@ Keep the API key on your server. Never put it in a web page, a mobile app or a p
 4. Choose expiry, caller restrictions and limits. Copy the bearer once and keep it on your server.
 5. On the flow's **API Endpoint** panel, select **Private (selected access keys)** if it must require a key. Many principals may grant the same flow; the panel no longer binds security to one key.
 
-Existing key values and public embeds survive migration without forced rotation. Rotation, revocation, caller policies, quotas and the full operation/route matrix are in [Access keys](./reference/access-keys.md).
+**Access Keys** is one list per workspace for SDK/Settings and per-flow keys; you can issue many keys with independent grants and limits. Provider credentials and public share/embed links remain separate. Enforcement defaults to `off`; validate migration on a restored backup and compare flow decisions with `shadow` before enabling it. Existing key values and public embeds survive migration without forced rotation. Rotation, revocation, caller policies, quotas and the full operation/route matrix are in [Access keys](./reference/access-keys.md).
 
 ## Create a key from a script
 
-On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=true`, see [Build from source](./how-to/from-source.md)), you can set up without the UI.
+After completing the rollout checks and setting `INBOUND_ACCESS_V2=on`, a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=true`, see [Build from source](./how-to/from-source.md)) can issue keys without the UI. Key management writes require an interactive session, not another API key.
 
 1. Create the owner account. Type the password at the prompt. This creates an account only on an install with no users yet. On an existing install, with `CUTTLELY_LOCAL_ADMIN=true`, it sets a new password for whichever single account matches that email (`Password updated for ...`). It fails with `No account exists for ...` only when no account matches that email and the install already has users:
 
@@ -65,20 +65,35 @@ On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=tru
       -d "{\"email\":\"you@example.com\",\"password\":\"$CUTTLELY_PASSWORD\"}"
     ```
 
-3. Create the key with that session. `permissions` must be an array listing at least one permission. Without it the server answers `412` with `permissions must be an array of strings!`:
+3. Create the key with that session, an explicit permission array, operation scopes and resource grants. This example grants prediction and streaming for `$FLOW_ID`; choose a Chatflow ID in the owner’s active workspace. An empty scope/resource policy can be saved but authorizes no runtime calls:
 
     ```bash
     CUTTLELY_API_KEY=$(curl -s -b cookies.txt "$CUTTLELY_URL/api/v1/apikey" \
       -H 'x-request-from: internal' \
       -H 'Content-Type: application/json' \
-      -d '{"keyName":"Bakery script","permissions":["chatflows:view"]}' \
+      -d "$(jq -n --arg id "$FLOW_ID" '{keyName:"Bakery script",permissions:["chatflows:view"],accessPolicy:{scopes:["predict","stream"],rpm:60,daily:1000,monthly:10000},resources:[{resourceType:"CHATFLOW",resourceId:$id}]}')" \
       | jq -r '.[] | select(.keyName == "Bakery script" and .apiKey) | .apiKey')
     unset CUTTLELY_PASSWORD
     ```
 
-    The answer is a JSON array of your keys. The new one includes its `apiKey` in plain text, and `GET /api/v1/apikey` lists keys without it, so this is the only time you get it. The command above stores it in `$CUTTLELY_API_KEY` without printing it, so it stays out of CI logs. It needs [`jq`](https://jqlang.org/). To let the key run Harnesses, grant stable Harness resource IDs and `harness:run` (see [Let the key run the harness](#let-the-key-run-the-harness)).
+    The unpaginated creation response is a JSON array of your keys. The new one includes its `apiKey` in plain text, and `GET /api/v1/apikey` lists keys without it, so this is the only time you get it. The command above stores it in `$CUTTLELY_API_KEY` without printing it, so it stays out of CI logs. It needs [`jq`](https://jqlang.org/). To let the key run Harnesses, grant stable Harness resource IDs and `harness:run` (see [Let the key run the harness](#let-the-key-run-the-harness)).
 
-Send it as `Authorization: Bearer $CUTTLELY_API_KEY`. `GET /api/v1/verify/apikey` answers `"OK"` for a good key. Then grant its resources and operations and choose private flow access, as in [Create an API key](#create-an-api-key). Delete `cookies.txt` when you're done.
+Send it as `Authorization: Bearer $CUTTLELY_API_KEY`. `GET /api/v1/verify/apikey` answers `"OK"` for a good key. Choose private flow access, as in [Create an API key](#create-an-api-key). Verification confirms a valid bearer; it does not prove that a particular operation/resource is granted. Delete `cookies.txt` when you're done.
+
+### Manage keys from a session
+
+The path stays `/api/v1/apikey`. Use the same session cookie and `x-request-from: internal` header as above:
+
+| Request                                                    | Behavior                                                                                                       |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/apikey`                                       | List visible keys, grants, credential prefixes/last-four, and current UTC usage counters; never bearer secrets |
+| `GET /api/v1/apikey/options`                               | List grantable resources/scopes, rollout mode and workspace-wide grant availability                            |
+| `PUT /api/v1/apikey/:id`                                   | Replace the name, permissions, policy, resources and expiry; send the complete desired body                    |
+| `POST /api/v1/apikey/:id/rotate`                           | Reveal a replacement bearer once; `graceSeconds` defaults to 3600, range 0–86400                               |
+| `POST /api/v1/apikey/:id/credentials/:credentialId/revoke` | Revoke one credential; `legacy` identifies the retained compatibility credential                               |
+| `DELETE /api/v1/apikey/:id`                                | Soft-revoke the principal and all its credentials for new requests                                             |
+
+Use `expiresAt: null` for explicit no expiry; omitting it applies the 90-day default, including on update. `accessPolicy.allResources: true` needs `apikeys:grant-all` and top-level `confirmAllResources: true`. Rotation keeps the same resource grants and counters and never extends an earlier credential's cutoff. Changes stop new requests; admitted streams/background runs may finish. See [management fields and route matrix](./reference/access-keys.md#management-requests).
 
 ## Ask a chatflow
 
@@ -350,15 +365,17 @@ When it is done:
 | 403    | The `chatId` already has runs from another key or a person                   | `{"message":"That chatId belongs to another caller. Use a new chatId."}` |
 | 401    | No key, or a key Cuttlely does not know                                      | `{"error":"Unauthorized Access"}`                                        |
 | 403    | The key lacks the permission                                                 | `{"message":"Forbidden"}`                                                |
-| 403    | The harness is not on the key's list                                         | `{"message":"This API key may not run harness \"bakery-team\"."}`        |
+| 403    | Legacy Harness-name check refused the key                                    | `{"message":"This API key may not run harness \"bakery-team\"."}`        |
 | 404    | No harness or run with that name in the key's team                           | `message` names what was not found                                       |
 | 429    | More than 60 starts, or 600 reads, in a minute for that key                  | `{"message":"Too many harness runs. The limit is 60 a minute."}`         |
 
-Starts are `POST .../runs` and `POST .../runs/async` together. Reads are the run list, a run, and a result. The limits count per API key, so two keys do not share one. Each server process keeps its own count, so with several processes behind one address a key can reach the limit once per process. A restart or shutdown waits for a background run, up to its usual wait. At the next start, a run still open that began more than the turn lock time plus 15 seconds earlier is marked `interrupted`. Every start through `POST .../runs/async` is an **Admin** > **Audit log** row of type `harness_run`. A start on either run route that an API key is refused because the harness is not on its list is a `harness_run` row too; a refusal for a missing permission or the rate limit is not. Changing a key's harness list is a `harness_access` row.
+The table includes legacy Harness error bodies. With enforcement on, missing scopes/resources or caller-policy refusal are also `403`; key expiry/revocation is `401`, and the key’s configured limits can return `429` with `Retry-After`. See [Access keys](./reference/access-keys.md#api-route-matrix).
+
+Starts are `POST .../runs` and `POST .../runs/async` together. Reads are the run list, a run, and a result. The 60-start/600-read Harness caps count per caller in each process. Access-key enforcement adds the configured principal-wide RPM and daily/monthly UTC quotas, shared by rotating credentials and charged for polling too. Minute counters reset on restart; SQL quota totals persist. Admission requires one API instance; Redis/multi-instance limiting is not implemented. A restart or shutdown waits for a background run, up to its usual wait. At the next start, a run still open that began more than the turn lock time plus 15 seconds earlier is marked `interrupted`. Every start through `POST .../runs/async` is an **Admin** > **Audit log** row of type `harness_run`. A start on either run route that an API key is refused because the harness is not on its list is a `harness_run` row too; a refusal for a missing permission or the rate limit is not. Legacy Harness-list changes use `harness_access`. New access-key lifecycle/policy events use `api_key_change`, and aggregate accepted/refused operations use `api_key_use`; these events do not record every request.
 
 ### Schedule a harness
 
-A harness can also run on a cron schedule that a signed-in person sets on the harness page. The same calls are on the API for a signed-in session. An API key can read a schedule for a harness on its list, and cannot change one, because a schedule runs with its owner's permissions.
+A harness can also run on a cron schedule that a signed-in person sets on the harness page. The same calls are on the API for a signed-in session. New scoped keys cannot read or change schedules. Legacy keys retain schedule reads for a Harness on their list; they cannot change schedules, which run with their owner's permissions.
 
 | Call                                            | What it does                                                                            |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -394,13 +411,13 @@ Changing a schedule needs the same permissions as starting a run, and an API key
 
 ### Delete a harness
 
-`DELETE /api/v1/harnesses/<name>` needs `chatflows:delete` or `agentflows:delete`, and with an API key the harness on the key's list. It removes things in a fixed order, and stops at the first step that fails:
+`DELETE /api/v1/harnesses/<name>` needs `chatflows:delete` or `agentflows:delete`. New scoped keys cannot delete Harnesses through this route; sign in. Legacy API keys also need the Harness on their compatibility list. It removes things in a fixed order, and stops at the first step that fails:
 
 1. The harness name is removed from every API key's harness list in its team, in one transaction.
 2. Its schedule is removed.
 3. The harness itself is deleted.
 
-If step 1 fails, the answer is `500` `Harness "bakery-team" was not deleted, because it could not be removed from API key lists. Try again.`, and nothing has changed. If step 2 fails, the answer is `500` `Harness "bakery-team" was not deleted, because its schedule could not be removed. Try again.` The harness and its schedule are still there, but no key lists the harness any more, so tick it again on any key that should keep running it. Either way the harness is kept, so a new harness created later with the same name never inherits the old key grants or the old owner's schedule. Runs already in run history stay.
+If step 1 fails, the answer is `500` `Harness "bakery-team" was not deleted, because it could not be removed from API key lists. Try again.`, and nothing has changed. If step 2 fails, the answer is `500` `Harness "bakery-team" was not deleted, because its schedule could not be removed. Try again.` The harness and its schedule are still there, but no key lists the harness any more, so review the remaining grants in **Access Keys** before retrying. Either way the harness is kept, so a new harness created later with the same name never inherits the old key grants or the old owner's schedule. Runs already in run history stay.
 
 ### How the API reads a path
 
@@ -659,7 +676,7 @@ With two servers, a flow promoted from Dev to Prod is a separate flow on Prod wi
 
 ## Errors, rate limits and allowed origins
 
-Errors come back as JSON with a status code:
+The following table shows existing flow/provider error examples. With access-key enforcement on, missing grants/scopes or caller-policy refusal also return `403`, and expiry/revocation returns `401`. Error messages depend on the rejecting layer:
 
 | Status | When                                                                            | Body (from real runs)                                                                                                |
 | ------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -673,7 +690,9 @@ Errors come back as JSON with a status code:
 
 Show your visitors a short message of your own, not Cuttlely's: an error message can name your flow or settings.
 
-A 503 comes with `Retry-After`: send the request again after that many seconds. A streamed answer that was still running when the server had to stop ends with an `error` event carrying `"status":503` and `"code":"UNAVAILABLE"`.
+The restart/shutdown 503 comes with `Retry-After`: send the request again after that many seconds. Access-key rollout or quota-store failures can also return `503`; these do not necessarily include that header. A streamed answer that was still running when the server had to stop ends with an `error` event carrying `"status":503` and `"code":"UNAVAILABLE"`.
+
+**Access-key limits.** With enforcement on, each principal has RPM (default 60), daily and monthly UTC quotas (default 0, unlimited). A rejected limit returns `429` with `Retry-After`. Accepted calls, including one stream and each poll, count once; downstream execution errors remain charged. Current counters and reset/remaining headers are described in [Access keys](./reference/access-keys.md#caller-policies-and-counters). SQL quotas fail closed; minute counters are per process and reset on restart. Browser delegation, exports/alerts, asynchronous telemetry batching and termination of admitted runs are not implemented.
 
 **Rate limits.** In the flow's **Configuration** (settings menu on the canvas), **Rate Limit** sets how many requests one client may send in a time window, and the message to send back. With 2 requests per 60 seconds, the third request got:
 
@@ -689,7 +708,7 @@ Too many questions at once. Please wait a minute and try again.
 
 When the model provider (OpenAI, Anthropic and so on) keeps answering 429, Cuttlely tries the call up to 3 times within about 20 seconds, then answers `429` with `Retry-After`: the provider's own wait when it sent one, otherwise 30 seconds. A streamed answer ends with an `error` event carrying `"status":429`, `"code":"RATE_LIMITED"` and `"retryAfter"` in seconds. A provider account that is out of credit is not a rate limit and still fails with 500.
 
-The server also limits a few routes per client address, whatever the flow says: sign-in (`/api/v1/auth`, `/api/v1/account`), the API-key check (`/api/v1/verify`), OAuth credentials, custom MCP servers, and node and credential icons. Each of those routes keeps its own count, and the budget is **Page loads a minute** in Server settings (3000 by default; the icon routes get more, see [Server settings](./how-to/server-settings.md)). Over it, the route answers 429 with the plain text `Too many requests, please try again later.` Behind a reverse proxy, set `TRUST_PROXY`, or every client shares one count.
+The server also limits a few routes per client address, whatever the flow says: sign-in (`/api/v1/auth`, `/api/v1/account`), the API-key check (`/api/v1/verify`), OAuth credentials, custom MCP servers, and node and credential icons. Each of those routes keeps its own count, and the budget is **Page loads a minute** in Server settings (3000 by default; the icon routes get more, see [Server settings](./how-to/server-settings.md)). Over it, the route answers 429 with the plain text `Too many requests, please try again later.` Behind a reverse proxy, configure `TRUST_PROXY` for the known trusted boundary, or every client shares one count.
 
 Query values are checked for their type. A `feedbackType` that is not a string or a list of strings is ignored. Clearing a flow's messages (`DELETE /api/v1/chatmessage/<flow id>`) with a `feedbackType` that names no known rating answers 400 and clears nothing. The file download (`/api/v1/get-upload-file`) answers 400 when `chatflowId`, `chatId` or `fileName` is sent more than once. An evaluation run refuses a flow id that is not 1 to 64 letters, digits, `_` or `-` before it calls the flow.
 
@@ -703,7 +722,7 @@ Origin: https://rosas-bakery.example  ->  HTTP/1.1 200 OK
                                           Access-Control-Allow-Origin: https://rosas-bakery.example
 ```
 
-A request with no `Origin`, such as one from your server, is not checked against the list, so the list does not replace the API key. The `CORS_ORIGINS` environment variable on the Cuttlely server adds origins allowed for every flow.
+A request with no `Origin`, such as one from your server, is not checked against this flow-level list. A key’s separate exact-origin allowlist defaults to refusing a missing Origin when the list is nonempty; explicitly allow server callers if needed. Neither origin control replaces the bearer. The `CORS_ORIGINS` environment variable on the Cuttlely server adds origins allowed for every flow.
 
 ## The example web app
 
@@ -729,7 +748,7 @@ The routes above are how an app asks a published flow. These management routes a
 -   `GET /api/v1/server-settings/history` pages settings changes. Testing and Limits, including `CUTTLELY_PUBLISH_CHECK`, apply on the next use. [Server settings API](./reference/server-settings-api.md).
 -   `POST /api/v1/auth/local/login`, `POST /api/v1/auth/local/logout`, `POST /api/v1/auth/local/password`, and `POST /api/v1/auth/local/accept` are local password sign-in. [Auth API](./reference/auth-api.md).
 -   `GET /api/v1/auth/options` reports which methods are on, including `status` after AuthKit is linked. [Which methods are on](./reference/auth-api.md#which-methods-are-on).
--   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. An invited person is pending until they open their own invite link; a sign-in with a matching email alone never activates them. With AuthKit on, an invite always returns or emails the link. [One-time links](./reference/auth-api.md#one-time-links).
+-   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. An invited person is pending until they open their own invite link; a sign-in with a matching email alone never activates them. With AuthKit on, an invite always returns or emails the link. [One-time links](./reference/auth-api.md#one-time-links). An active organization owner can cancel another pending owner invitation in **Users** (`/users`), revoking its links; accepted invitations, self-removal and the last active owner are refused. Active owners remain read-only in that UI.
 -   `POST /api/v1/users/:id/disable`, `POST /api/v1/users/:id/enable`, and `GET /api/v1/users/:id/sessions` manage local users. [Local users, roles, and sessions](./reference/local-directory-api.md).
 -   `GET /api/v1/audit` lists sign-in, role, and settings events. [Audit API](./reference/audit-api.md).
 

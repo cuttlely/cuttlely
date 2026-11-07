@@ -269,4 +269,6 @@ The routes that need a session, such as `POST /api/v1/account/invite` and `POST 
 
 The status is 401, with or without `x-request-from: internal`. A signed-in browser that sends a write without `x-request-from: internal` gets 401 `{ "message": "Unauthorized" }` from that same gate.
 
+New scoped access keys cannot invite people or issue reset links; these are interactive user-management operations, separate from inbound app authorization. To cancel another pending owner invitation, an active owner uses the invitation-only organization-removal request documented in [Local users, roles, and sessions](./local-directory-api.md#cancel-a-pending-owner-invitation).
+
 The server does not log the password, the hash, the cookie, a setup code, the raw email, or a one-time token. A token in a query string or a fragment is redacted before a request line is written.

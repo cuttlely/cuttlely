@@ -205,3 +205,9 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `LANGSMITH_API_KEY`                          | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `LANGSMITH_TRACING`                          | not shown                                   | —                 | —             | Host only                      | Yes     |
 | `LANGSMITH_TRACING_V2`                       | not shown                                   | —                 | —             | Host only                      | Yes     |
+
+## Inbound access-key rollout (host only)
+
+`INBOUND_ACCESS_V2` defaults to `off`. Only `off`, `shadow` and `on` are accepted; another nonempty value returns `503` when checked. Set it on the host and restart. `off` retains legacy authorization; new issuance, policy editing and rotation require `on`, while revocation remains available. `shadow` serves legacy decisions and compares scoped flow authorization without charging quotas. It does not simulate every route or limit. Validate a restored-backup migration with `node scripts/access-keys-migration-report.cjs` and review shadow mismatches before enabling `on`. Existing keys keep working without rotation. [Access keys](./access-keys.md#rollout-and-migration).
+
+`CUTTLELY_API_KEY_INSTANCES` defaults to `1`. Any value whose numeric conversion is not `1` refuses access-key admission with `503`; it does not configure a shared limiter. Minute counters are per process and reset on restart. Daily/monthly UTC counters persist in SQL; Redis/multi-instance limiting is not implemented. These flags are host-only and their values are not exposed through Server settings.

@@ -2,6 +2,11 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## Unreleased
+
+-   [Access keys](../reference/access-keys.md). One inbound API/SDK key list, explicit grants, caller allowlists, expiry, rotation/revocation, quotas and counters. Enforcement defaults to `off`; validate a restored-backup migration and compare shadow flow decisions before enabling it.
+-   [Pending owner invitations](./users-without-authkit.md). An active owner can cancel another pending owner invite and revoke its links; active owners remain read-only in the Users UI.
+
 ## New in 1.6.1
 
 -   **Updated:** [Dashflows BETA](./dashflows.md). Evidence inspection with searchable account lists and executive hover summaries, a six-hour durable cache for pipeline date-range presets, and optional public snapshot links with account-scoped health reports. Still Experimental and off by default.

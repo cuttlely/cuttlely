@@ -1,4 +1,5 @@
 tags:
+    - name: access-keys
     - name: assistants
     - name: attachments
     - name: chatmessage
@@ -15,6 +16,414 @@ tags:
     - name: vector
 
 paths:
+    /apikey:
+        get:
+            tags:
+                - access-keys
+            operationId: listAccessKeys
+            summary: List access keys in the active workspace
+            description: >-
+                Returns visible principals with policy, resource grants, credential display metadata and current UTC day/month counters.
+                SDK/Settings and per-flow keys use this same list. Never returns bearer secrets, digests or legacy verifiers. A retained legacy
+                key can still read the list through compatibility; new scoped keys cannot.
+            security:
+                - sessionAuth: []
+                - bearerAuth: []
+            parameters:
+                - in: query
+                  name: page
+                  schema:
+                      type: integer
+                      minimum: 1
+                - in: query
+                  name: limit
+                  schema:
+                      type: integer
+                      minimum: 1
+                - in: query
+                  name: type
+                  schema:
+                      type: string
+                      enum:
+                          - organization
+                  description: Organization-admin-only summary across workspaces; returns keyName and permissions only.
+            responses:
+                '200':
+                    description: Unpaginated list, paginated result, or organization summary.
+                    content:
+                        application/json:
+                            schema:
+                                anyOf:
+                                    - type: array
+                                      items:
+                                          $ref: '#/components/schemas/ApiKey'
+                                    - type: object
+                                      properties:
+                                          total:
+                                              type: integer
+                                          data:
+                                              type: array
+                                              items:
+                                                  $ref: '#/components/schemas/ApiKey'
+                                    - type: array
+                                      items:
+                                          type: object
+                                          properties:
+                                              keyName:
+                                                  type: string
+                                              permissions:
+                                                  type: array
+                                                  items:
+                                                      type: string
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+        post:
+            tags:
+                - access-keys
+            operationId: createAccessKey
+            summary: Create an inbound access principal
+            description: >-
+                Requires an interactive session with apikeys:create and INBOUND_ACCESS_V2=on. New principals default to no scopes or resources.
+                The response is the workspace key list; only the new row includes apiKey, revealed once. No provider credential or public
+                transport is created.
+            security:
+                - sessionAuth: []
+            parameters:
+                - in: header
+                  name: x-request-from
+                  required: true
+                  schema:
+                      type: string
+                      enum:
+                          - internal
+                  description: Required for writes authenticated with a browser session.
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AccessKeyInput'
+            responses:
+                '200':
+                    description: Keys with the new one-time bearer.
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    allOf:
+                                        - $ref: '#/components/schemas/ApiKey'
+                                        - type: object
+                                          properties:
+                                              apiKey:
+                                                  type: string
+                                                  description: >-
+                                                      Present only on the newly created row. Store securely on your server; never returned by
+                                                      list.
+                '400':
+                    description: Invalid policy, expiry, caller rule, resource, or rotation grace.
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+                '404':
+                    description: Key or credential not found in the active workspace.
+                '503':
+                    description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+    /apikey/options:
+        get:
+            tags:
+                - access-keys
+            operationId: accessKeyOptions
+            summary: List grantable access-key options
+            description: >-
+                Requires an interactive session with apikeys:view. Resource choices and scopes reflect current permissions; Dashflows choices
+                appear only when its Experimental setting is on.
+            security:
+                - sessionAuth: []
+            responses:
+                '200':
+                    description: Available scopes/resources, rollout and privileged-grant permission.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    rollout:
+                                        type: string
+                                        enum:
+                                            - 'off'
+                                            - shadow
+                                            - 'on'
+                                    canGrantAll:
+                                        type: boolean
+                                    scopes:
+                                        type: array
+                                        items:
+                                            type: string
+                                    resources:
+                                        type: array
+                                        items:
+                                            allOf:
+                                                - $ref: '#/components/schemas/AccessKeyResource'
+                                                - type: object
+                                                  properties:
+                                                      name:
+                                                          type: string
+                                                      requiredHarnesses:
+                                                          type: array
+                                                          items:
+                                                              type: string
+                '400':
+                    description: Invalid policy, expiry, caller rule, resource, or rotation grace.
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+                '404':
+                    description: Key or credential not found in the active workspace.
+                '503':
+                    description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+    /apikey/{id}:
+        put:
+            tags:
+                - access-keys
+            operationId: updateAccessKey
+            summary: Replace a key policy and resource grants
+            description: >-
+                Requires an interactive session with apikeys:create or apikeys:update, reauthorization of the target policy, and
+                INBOUND_ACCESS_V2=on. Send the entire desired body. Removes migration compatibility without changing the bearer value. Omitted
+                expiresAt uses the 90-day default on update too. Previously issued credential expiry is never extended by this update.
+            security:
+                - sessionAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                - in: header
+                  name: x-request-from
+                  required: true
+                  schema:
+                      type: string
+                      enum:
+                          - internal
+                  description: Required for writes authenticated with a browser session.
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AccessKeyInput'
+            responses:
+                '200':
+                    description: Updated workspace key list, without secrets.
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: '#/components/schemas/ApiKey'
+                '400':
+                    description: Invalid policy, expiry, caller rule, resource, or rotation grace.
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+                '404':
+                    description: Key or credential not found in the active workspace.
+                '503':
+                    description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+        delete:
+            tags:
+                - access-keys
+            operationId: revokeAccessKey
+            summary: Soft-revoke an access principal
+            description: >-
+                Requires an interactive session with apikeys:delete and authorization to manage the target policy. Available in off/shadow/on.
+                Stops new requests for all credentials and retains audit history; admitted runs may finish.
+            security:
+                - sessionAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                - in: header
+                  name: x-request-from
+                  required: true
+                  schema:
+                      type: string
+                      enum:
+                          - internal
+                  description: Required for writes authenticated with a browser session.
+            responses:
+                '200':
+                    description: Revoked principal.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    id:
+                                        type: string
+                                    disabledAt:
+                                        type: string
+                                        format: date-time
+                                        nullable: true
+                '400':
+                    description: Invalid policy, expiry, caller rule, resource, or rotation grace.
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+                '404':
+                    description: Key or credential not found in the active workspace.
+                '503':
+                    description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+    /apikey/{id}/rotate:
+        post:
+            tags:
+                - access-keys
+            operationId: rotateAccessKey
+            summary: Rotate the bearer credential
+            description: >-
+                Requires an interactive session with apikeys:update and INBOUND_ACCESS_V2=on. Retains principal identity, policy and counters.
+                Old credentials retire no later than the grace cutoff; repeated rotation never extends an earlier cutoff.
+            security:
+                - sessionAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                - in: header
+                  name: x-request-from
+                  required: true
+                  schema:
+                      type: string
+                      enum:
+                          - internal
+                  description: Required for writes authenticated with a browser session.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                graceSeconds:
+                                    type: integer
+                                    minimum: 0
+                                    maximum: 86400
+                                    default: 3600
+            responses:
+                '200':
+                    description: Replacement bearer revealed once.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    apiKey:
+                                        type: string
+                                        description: One-time bearer. Keep it on your server.
+                                    credential:
+                                        $ref: '#/components/schemas/AccessKeyCredential'
+                '400':
+                    description: Invalid policy, expiry, caller rule, resource, or rotation grace.
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+                '404':
+                    description: Key or credential not found in the active workspace.
+                '409':
+                    description: Principal is revoked or expired and cannot rotate.
+                '503':
+                    description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+    /apikey/{id}/credentials/{credentialId}/revoke:
+        post:
+            tags:
+                - access-keys
+            operationId: revokeAccessCredential
+            summary: Revoke one credential
+            description: >-
+                Requires an interactive session with apikeys:update and authorization to manage this principal. Use legacy as credentialId for
+                the compatibility credential. Available in off/shadow/on; does not revoke other credential values.
+            security:
+                - sessionAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                - in: path
+                  name: credentialId
+                  required: true
+                  schema:
+                      type: string
+                  description: Credential ID, or legacy.
+                - in: header
+                  name: x-request-from
+                  required: true
+                  schema:
+                      type: string
+                      enum:
+                          - internal
+                  description: Required for writes authenticated with a browser session.
+            responses:
+                '200':
+                    description: Credential revoked.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    revoked:
+                                        type: boolean
+                '400':
+                    description: Invalid policy, expiry, caller rule, resource, or rotation grace.
+                '401':
+                    description: Sign-in required or invalid authentication.
+                '403':
+                    description: Current role or target policy authorization refused.
+                '404':
+                    description: Key or credential not found in the active workspace.
+                '503':
+                    description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+    /verify/apikey:
+        get:
+            tags:
+                - access-keys
+            operationId: verifyAccessKey
+            summary: Verify a bearer value
+            description: >-
+                Send the secret in Authorization, never in the URL. A successful verification does not prove a resource or operation is granted.
+                The retired /verify/apikey/{apikey} form is refused with 400 without checking the path value.
+            security:
+                - bearerAuth: []
+            responses:
+                '200':
+                    description: Valid bearer.
+                    content:
+                        application/json:
+                            schema:
+                                type: string
+                                enum:
+                                    - OK
+                '401':
+                    description: Invalid bearer.
+                '412':
+                    description: No bearer supplied.
+                '500':
+                    description: Verification failed.
+
     /chatmessage/{id}:
         get:
             tags:
@@ -1287,11 +1696,17 @@ paths:
                 - prediction
             security:
                 - bearerAuth: []
+                - {}
             operationId: createPrediction
             summary: Send message to flow and get AI response
             description: |
                 Send a message to your flow and receive an AI-generated response. This is the primary endpoint for interacting with your flows and assistants.
-                **Authentication**: API key may be required depending on flow settings.
+                **Authentication**: Private API access requires a bearer. With INBOUND_ACCESS_V2=on, grant the exact flow
+                plus predict; streaming also requires stream, and referenced Harnesses require their own grants plus harness:run.
+                New keys grant nothing. A supplied invalid bearer is refused even on a public flow. Multipart prediction requires
+                predict, upload and stream before file storage. Caller-policy refusals are 403; expiry/revocation is 401;
+                exhausted budgets are 429 with Retry-After. With enforcement off (default), legacy bindings remain in use.
+                Public share/embed access remains separate.
             parameters:
                 - in: path
                   name: id
@@ -1891,25 +2306,246 @@ components:
                             type: integer
         ApiKey:
             type: object
+            description: >-
+                Inbound workspace principal. Lists omit apiKey, apiSecret and credential digests. Policy and grants are distinct from provider
+                credentials and public share transports.
             properties:
-                apiKey:
-                    type: string
-                    example: 'vYV8OdUMRzRQbzpp2JzY5DvriBnuVHo3pYpPQ7IJWyw='
-                apiSecret:
-                    type: string
-                    example: '50e19a35ee1df775c09628dade1c00f0f680c6e15256e34a6eab350b38b31352df35c4db7925a3e5dd41cc773a0e2529e6c6da18408a8bbeeb0ae4b0f0ab9486.a96478a9225ed6ab'
-                chatFlows:
-                    type: array
-                    example: []
-                createdAt:
-                    type: string
-                    example: '10-Mar-24'
                 id:
                     type: string
-                    example: '525e4daa2104f06ffdea5c1af37009be'
                 keyName:
                     type: string
-                    example: 'someKeyName'
+                workspaceId:
+                    type: string
+                ownerUserId:
+                    type: string
+                    nullable: true
+                permissions:
+                    type: array
+                    items:
+                        type: string
+                updatedDate:
+                    type: string
+                    format: date-time
+                disabledAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                expiresAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                legacyRevokedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                hasLegacyCredential:
+                    type: boolean
+                harnesses:
+                    type: array
+                    items:
+                        type: string
+                    description: Retained legacy names, not the new grant input.
+                accessPolicy:
+                    $ref: '#/components/schemas/AccessKeyPolicy'
+                resources:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AccessKeyResource'
+                credentials:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AccessKeyCredential'
+                usage:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AccessKeyUsage'
+                chatFlows:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            id:
+                                type: string
+                            name:
+                                type: string
+                    description: Flows still linked by a legacy binding; not the complete resource grant list.
+        AccessKeyInput:
+            type: object
+            required:
+                - keyName
+                - permissions
+            description: >-
+                Complete replacement input for creation or update. Scopes/resources omitted means no runtime authority. allResources belongs inside
+                accessPolicy. expiry omitted defaults to 90 days, including on update; null explicitly means no expiry.
+            properties:
+                keyName:
+                    type: string
+                    minLength: 1
+                    maxLength: 100
+                permissions:
+                    type: array
+                    items:
+                        type: string
+                accessPolicy:
+                    $ref: '#/components/schemas/AccessKeyPolicy'
+                resources:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AccessKeyResource'
+                    maxItems: 500
+                    default: []
+                expiresAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                confirmAllResources:
+                    type: boolean
+                    default: false
+                    description: Must be true, with apikeys:grant-all, when accessPolicy.allResources is true.
+        AccessKeyPolicy:
+            type: object
+            description: >-
+                Operation scopes, RBAC and resource grants intersect. Management scopes do not grant execution. Environment and service are
+                descriptive labels. No user-supplied legacy marker is accepted.
+            properties:
+                version:
+                    type: integer
+                    enum:
+                        - 1
+                legacy:
+                    type: boolean
+                    readOnly: true
+                    description: Migration-only compatibility marker; an explicit policy save removes it.
+                environment:
+                    type: string
+                    enum:
+                        - live
+                        - test
+                    default: live
+                service:
+                    type: string
+                    maxLength: 100
+                    default: ''
+                allResources:
+                    type: boolean
+                    default: false
+                    description: >-
+                        All current/future resources in this workspace. Requires apikeys:grant-all and separate confirmation; does not bypass other
+                        policy checks.
+                scopes:
+                    type: array
+                    items:
+                        type: string
+                        enum:
+                            - predict
+                            - stream
+                            - upload
+                            - feedback:read
+                            - feedback:write
+                            - harness:run
+                            - harness:read
+                            - dashflow:read
+                            - dashflow:report
+                            - api:read
+                            - api:write
+                    default: []
+                rpm:
+                    type: integer
+                    minimum: 0
+                    maximum: 1000000000
+                    default: 60
+                    description: Principal-wide requests per minute; 0 means unlimited. Process-local; resets on restart.
+                daily:
+                    type: integer
+                    minimum: 0
+                    maximum: 1000000000
+                    default: 0
+                    description: Accepted operations per UTC calendar day; 0 means unlimited.
+                monthly:
+                    type: integer
+                    minimum: 0
+                    maximum: 1000000000
+                    default: 0
+                    description: Accepted operations per UTC calendar month; 0 means unlimited.
+                origins:
+                    type: array
+                    items:
+                        type: string
+                        description: Exact normalized HTTP(S) origin, without path or wildcard.
+                    maxItems: 200
+                    default: []
+                allowNoOrigin:
+                    type: boolean
+                    description: >-
+                        Defaults to true for an empty origin list and false for a nonempty list. Explicitly allow server callers without Origin if
+                        needed.
+                ips:
+                    type: array
+                    items:
+                        type: string
+                        description: Exact IPv4/IPv6 address or CIDR, checked against req.ip and trusted proxy configuration.
+                    maxItems: 200
+                    default: []
+        AccessKeyResource:
+            type: object
+            required:
+                - resourceType
+                - resourceId
+            properties:
+                resourceType:
+                    type: string
+                    enum:
+                        - CHATFLOW
+                        - AGENTFLOW
+                        - HARNESS
+                        - DASHFLOW
+                resourceId:
+                    type: string
+                    description: Stable resource ID in this workspace; Harness names are not grant identifiers.
+        AccessKeyCredential:
+            type: object
+            description: >-
+                Safe credential metadata. New credentials use ctu_live_ or ctu_test_ prefixes, a public token ID and 32 random bytes. Secret/digest
+                never appears here.
+            properties:
+                id:
+                    type: string
+                principalId:
+                    type: string
+                displayPrefix:
+                    type: string
+                lastFour:
+                    type: string
+                    maxLength: 4
+                createdAt:
+                    type: string
+                    format: date-time
+                expiresAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                revokedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+        AccessKeyUsage:
+            type: object
+            description: Only current UTC day/month counters are retained; not per-request history. Accepted downstream failures remain charged.
+            properties:
+                principalId:
+                    type: string
+                period:
+                    type: string
+                    description: YYYY-MM-DD or YYYY-MM UTC calendar window.
+                operation:
+                    type: string
+                    description: Operation scope or * for principal-wide total.
+                accepted:
+                    type: integer
+                lastUsedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
 
         ChatMessage:
             type: object
@@ -1983,7 +2619,7 @@ components:
 
         ApiKeyChatflowSummary:
             type: object
-            description: Public fields for a chatflow bound to an API key. The canvas is not included.
+            description: Public fields for a legacy bound-flow lookup. New scoped keys cannot use this workspace list endpoint; use granted item reads. The canvas is not included.
             properties:
                 id:
                     type: string
@@ -2807,4 +3443,21 @@ components:
         bearerAuth:
             type: http
             scheme: bearer
-            bearerFormat: JWT # optional, for documentation purposes only
+            description: >-
+                Opaque inbound Cuttlely access key, not a JWT. Keep it on your server. INBOUND_ACCESS_V2 defaults to off;
+                validate restored-backup migration diagnostics and compare shadow flow decisions before enabling on.
+                Existing keys keep working without rotation. With enforcement on, workspace permissions, operation scopes,
+                exact resource grants, expiry/revocation, caller allowlists and limits apply. A listed bearer endpoint is
+                not automatically available to new scoped keys: only the closed route registry is allowed. New scoped keys
+                cannot call workspace-wide lists, publish/restore canvases, change execution configuration or schedules,
+                or manage other keys. Legacy principals retain explicit compatibility. Public embed/share, MCP and webhook
+                transports and provider credentials are separate. RPM is per process and resets on restart; SQL daily/monthly
+                UTC quotas persist. Admission supports one API instance. Redis/multi-instance limiting, browser delegation,
+                usage exports/alerts, async telemetry batching, legacy-adapter removal and termination of admitted runs are not implemented.
+        sessionAuth:
+            type: apiKey
+            in: cookie
+            name: cuttlely-local-session
+            description: >-
+                Interactive database-backed sign-in session used by the application, including selected remote sign-in methods.
+                Management writes additionally require x-request-from internal and current RBAC; use the application sign-in flow.

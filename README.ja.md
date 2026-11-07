@@ -113,7 +113,7 @@ Node 20+ と Docker
 
 -   [ロールと権限](./docs/how-to/roles-and-permissions.md)。チーム、組み込みのロール、各ページとルートの権限キー。
 -   [サインイン](./docs/how-to/sign-in.md)。最初のアカウントを作ります。チームは AuthKit なしで、ローカルユーザー（`CUTTLELY_LOCAL_USERS`）でサインインできます。AuthKit はあとからオンにでき、確認済みのメールアドレスが既存のローカルユーザーにひも付きます。
--   [AuthKit なしのユーザー](./docs/how-to/users-without-authkit.md)。ローカルユーザー、招待とリセットのリンク、組み込みの Owner、Admin、Builder、Viewer のロール、セッション。招待された人は、AuthKit の有無にかかわらず、本人あての 1 回限りの招待リンクからのみ参加できます: [ユーザーを招待する](./docs/how-to/sign-in.md#invite-people)。
+-   [AuthKit なしのユーザー](./docs/how-to/users-without-authkit.md)。ローカルユーザー、招待とリセットのリンク、組み込みの Owner、Admin、Builder、Viewer のロール、セッション。招待された人は、AuthKit の有無にかかわらず、本人あての 1 回限りの招待リンクからのみ参加できます: [ユーザーを招待する](./docs/how-to/sign-in.md#invite-people)。 有効なオーナーは他の人の承認待ちオーナー招待を取り消せます。有効なオーナーの行は読み取り専用です。
 -   [監査ログ](./docs/how-to/audit-log.md)。サインイン、ロックアウト、招待、リセット、ロールの変更、ユーザーの無効化、設定の変更。
 -   [サーバー設定](./docs/how-to/server-settings.md)。サインイン、データベース、ストレージなどを **Admin** から変更します。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
 
@@ -132,6 +132,8 @@ Node 20+ と Docker
 <a id="use-a-team-from-your-app"></a>
 
 [アクセスキーの適用を有効にした後](./docs/reference/access-keys.md)、**Access Keys** でプリンシパルを作成し、チャットフローと参照するハーネスを許可します。`predict` と `harness:run` のスコープを選び、**API Endpoint** でフローを非公開にします。新しいキーにはリソースへの権限がありません。
+
+`INBOUND_ACCESS_V2` は既定で `off` です。有効化の前に復元したバックアップで移行を確認し、`shadow` で判定を比較してください。既存のキーはローテーションせずに使い続けられます。SDK 用とフロー用のキーは **Access Keys** の同じ一覧で管理し、プロバイダー認証情報と公開共有リンクは別のままです。
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
@@ -159,6 +161,8 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。時間のかかるターンは、同じキーで `POST /api/v1/harnesses/<name>/runs/async` からバックグラウンドで開始し、答えを後で取得できます。ハーネスは cron のスケジュールで実行することもできます：[API キーでアプリから実行する](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key)、[スケジュールで実行する](./docs/how-to/harnesses.md#run-it-on-a-schedule)。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
 
+[アクセスキーの制御と制限](./docs/reference/access-keys.md)。
+
 ## すべてのフローを MCP サーバーに
 
 <a id="every-flow-an-mcp-server"></a>
@@ -175,7 +179,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 <a id="call-a-flow-from-ibm-watsonx-orchestrate"></a>
 
-公開済みのチャットフローを外部エージェントとして登録すると、Orchestrate のネイティブエージェントがコラボレーターとして質問を渡します。フローには API キーのひも付けが必要で、キーのないフローは拒否されます。フローをリモート MCP ツールキットとして取り込む手順も文書化されています。[Orchestrate からチャットフローを呼び出す](./docs/how-to/orchestrate.md) · [チャットフローを Orchestrate のツールキットとして使う](./docs/how-to/orchestrate-mcp.md)
+公開済みのチャットフローを外部エージェントとして登録すると、Orchestrate のネイティブエージェントがコラボレーターとして質問を渡します。フローは非公開にし、予測アクセスを許可したキーを使います。適用がオフの間は従来のキーのひも付けが必要です。フローをリモート MCP ツールキットとして取り込む手順も文書化されています。[Orchestrate からチャットフローを呼び出す](./docs/how-to/orchestrate.md) · [チャットフローを Orchestrate のツールキットとして使う](./docs/how-to/orchestrate-mcp.md)
 
 ## 小さなコンテキストで、大きな答え
 

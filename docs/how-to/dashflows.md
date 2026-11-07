@@ -29,7 +29,7 @@ Choose **On demand** or **Every week** under **Refresh draft**. Save and run the
 
 Definitions saved before the BETA that use an hourly or daily interval are not changed automatically and do not run on a schedule. The next save refuses those values and asks the builder to choose on demand or weekly.
 
-**Publish & share** releases the saved, refreshed snapshot and copies a `/dashboards/:id` team link. A viewer must sign in, select the dashboard's team and have `chatflows:view`. Builders need `chatflows:update` for drafts, source discovery, refresh and publication. API keys and anonymous visitors cannot access private dashboard routes. The optional public audience creates a separate tokenized link and account-scoped report endpoints, described below.
+**Publish & share** releases the saved, refreshed snapshot and copies a `/dashboards/:id` team link. A viewer must sign in, select the dashboard's team and have `chatflows:view`. Builders need `chatflows:update` for drafts, source discovery, refresh and publication. Anonymous visitors cannot access private dashboard routes. New scoped keys can read published snapshots and refresh status, start refreshes/account reports, and read their own dashboard reports as described below; editing and publishing still require a signed-in session. The optional public audience creates a separate tokenized link and account-scoped report endpoints, described below.
 
 Published definitions and data are frozen together. Draft edits and scheduled draft refreshes do not change a published view: explicitly publish again to release new data. **Unpublish** revokes subsequent shared reads. A person who already loaded data can still retain their copy. Published reads execute neither queries nor models. Phone-sized published views stack the cards instead of requiring canvas panning.
 
@@ -82,6 +82,14 @@ The committed fixtures are synthetic contract tests; the separate live query acc
 ![Supreme GTM command center with synthetic KPIs, composition, trajectory, risk and clickable accounts](../images/dashflows/supreme-showcase.png)
 
 The screenshot uses synthetic demonstration values and account names. It illustrates the implemented UI, not customer results.
+
+## Server-side access keys
+
+Dashflows remains Experimental and off by default. With Dashflows enabled and `INBOUND_ACCESS_V2=on`, grant a key the dashboard resource in **Access Keys**. `dashflow:read` plus `chatflows:view` covers `GET /api/v1/dashflows/:id/published`, `/refresh-status` and `/reports/:runId`. `dashflow:report` plus `chatflows:update` covers `POST /api/v1/dashflows/:id/refresh` and `/accounts/:accountId/report`; these also require the referenced stable Harness grant and `harness:run` with its workspace permission.
+
+Report starts accept only exact accounts in the published snapshot. A report can be polled only by the principal that started it for that dashboard; ownership receipts expire after seven days. Keys cannot edit or publish dashboards. New keys start with no grants/scopes. Keep secrets on your server; expiry, caller allowlists, RPM and UTC quotas apply. [Access-key rollout and route matrix](../reference/access-keys.md).
+
+The public UUID link below keeps its own transport and abuse/report limits. It does not also require an inbound key.
 
 ## Public dashboard links
 

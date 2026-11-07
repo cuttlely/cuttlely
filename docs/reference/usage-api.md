@@ -4,7 +4,7 @@ Daily input and output token totals for one workspace. How a single run shows it
 
 `GET /api/v1/stats/usage`
 
-A signed-in session can call it, and so can an API key. The totals are only for the caller's active workspace. Another workspace's rows are not included.
+A signed-in session can call it. Retained legacy API keys keep their permission-based compatibility; new scoped keys cannot call this workspace-wide usage endpoint, even with `api:read`. Inbound request/quota counters are a different measure, returned by the **Access Keys** list: see [Access keys](./access-keys.md#caller-policies-and-counters). The totals are only for the caller's active workspace. Another workspace's rows are not included.
 
 The Usage page at `/usage` shows this route. [Usage over time](../how-to/context-and-tokens.md#usage-over-time) describes the chart, the per-flow table, and the price editor.
 
@@ -87,6 +87,8 @@ Each of those rows, and `totals`, also has `estimatedCostUsd` and `price`. `pric
 
 Those dollar figures are an example. They use a price of $0.40 per million input tokens and $1.60 per million output tokens for `gpt-4.1-mini`, and no price for `claude`. 161 input tokens and 56 output tokens are `161 * 0.40 / 1000000 + 56 * 1.60 / 1000000 = 0.000154`.
 
+This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
+
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/stats/usage?days=30&flowId=$FLOW_ID" \
   -H "Authorization: Bearer $CUTTLELY_API_KEY"
@@ -147,11 +149,13 @@ A workspace with no organization returns 400, `This workspace has no organizatio
 
 The `output` messages use the word `output` in place of `input`.
 
-An API key is refused on these three routes, including a key that would be allowed to read usage. Call them from a signed-in organization owner session. A bearer API key on `GET`, `PUT`, or `DELETE /api/v1/model-prices` returns 403. A request with neither a signed-in session nor a valid API key returns 401. The usage route above still accepts an API key that has `chatflows:view` or `agentflows:view`.
+An API key is refused on these three routes, including a key that would be allowed to read usage. Call them from a signed-in organization owner session. A bearer API key on `GET`, `PUT`, or `DELETE /api/v1/model-prices` returns 403. A request with neither a signed-in session nor a valid API key returns 401. The usage route above still accepts a retained legacy key that has `chatflows:view` or `agentflows:view`; new scoped keys cannot call it.
 
 `CUTTLELY_LOCAL_ADMIN=true` enables the owner password endpoint for an account that already exists. It does not create that account. A fresh install with the flag on has no users, and `POST /api/v1/auth/login` returns 401 until the owner is created on the [setup page](../how-to/sign-in.md#in-the-browser) or with [`pnpm user`](../how-to/sign-in.md#in-a-terminal). The examples below use that endpoint while Local is the durable active method, so it creates an ordinary Local session. `POST /api/v1/auth/login` takes `{ "email", "password" }` and keeps the `cuttlely-local-session` cookie. That sign-in, and every later write that sends the cookie, also needs the header `x-request-from: internal`. Without that header the cookie is not accepted on `PUT` or `DELETE`, and the route returns 401.
 
 An owner who signs in with AuthKit has a `cuttlely-local-session` cookie backed by an `identity_local_session` row. Send that cookie on `PUT` and `DELETE` with the same `x-request-from: internal` header. Do not use the password login below unless `pnpm user` has set a local password.
+
+This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
 
 ```bash
 curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
@@ -160,12 +164,16 @@ curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
   -d "{\"email\":\"$CUTTLELY_OWNER_EMAIL\",\"password\":\"$CUTTLELY_OWNER_PASSWORD\"}"
 ```
 
+This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
+
 ```bash
 curl -s -b "$COOKIE_JAR" -X PUT "$CUTTLELY_URL/api/v1/model-prices" \
   -H "Content-Type: application/json" \
   -H "x-request-from: internal" \
   -d '{"model":"gpt-4.1-mini","input":0.5,"output":2}'
 ```
+
+This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
 
 ```bash
 curl -s -b "$COOKIE_JAR" -X DELETE "$CUTTLELY_URL/api/v1/model-prices?model=gpt-4.1-mini" \

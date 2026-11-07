@@ -6,15 +6,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   User Management lets an organization owner cancel a pending owner invitation and revoke its invite links. Active owners remain read-only, and a cancellation is refused if the invitation has already been accepted.
+-   User Management (`/users`) lets an active organization owner cancel another person’s pending owner invitation and revoke its invite links across the organization’s teams. Active owners remain read-only in the UI; accepted invitations, self-removal and removal of the last active owner are refused.
 
 ### Added
 
--   Access Keys unifies inbound API and SDK authorization as workspace principals with multiple rotatable credentials, explicit resource/operation grants, expiry, revoke/rotation grace, origin/IP policies, RPM and UTC quotas, usage counters and audit events. Multiple keys can access the same published flow, Harness or Dashflows report. New keys grant no resources.
+-   Access Keys unifies SDK/Settings keys and per-flow inbound keys in one list per workspace, with multiple keys, explicit resource/operation grants, expiry, rotation with 0–24 hours of grace, revocation, display prefixes, exact-origin and IP/CIDR allowlists, per-key RPM and daily/monthly UTC quotas, usage counters and audit events. Multiple keys can access the same published flow, Harness or Dashflows report. New keys grant no resources.
 
 ### Upgrade notes / breaking changes
 
--   Existing bearer values migrate without forced rotation, and public embeds and share links remain available. Review the [Access keys rollout guide](./docs/reference/access-keys.md), run the migration dry-run, and use `INBOUND_ACCESS_V2=shadow` before enabling `on`. The default is `off`. Scoped key management requires an interactive session, and new keys cannot reach unregistered API endpoints or change public-access settings. Strict global limiting across replicas awaits the shared Redis limiter.
+-   Existing bearer values migrate without forced rotation, and public embeds and share links remain available. Review the [Access keys rollout guide](./docs/reference/access-keys.md), validate a restored backup with `node scripts/access-keys-migration-report.cjs`, and compare flow decisions with `INBOUND_ACCESS_V2=shadow` before enabling `on`. Shadow does not charge quotas or simulate all routes/limits. The default is `off`. Scoped key management requires an interactive session, and new keys cannot reach unregistered API endpoints or change public-access settings. Admission supports one API instance; minute counters are per process and reset on restart, while UTC quota counters persist in SQL. Redis/multi-instance limiting, browser delegation, usage exports/alerts, asynchronous telemetry batching, legacy-adapter removal and termination of already-admitted runs are not implemented. Admitted streams/background runs may finish.
 
 ### Changed
 
