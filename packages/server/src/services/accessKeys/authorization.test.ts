@@ -5,6 +5,7 @@ import { ChatFlow } from '../../database/entities/ChatFlow'
 import { parsePolicy } from './policy'
 
 const mockKeys = new Map<string, ApiKey>()
+let mockKeyError: Error | undefined
 const mockFlows = new Map<string, any>()
 const mockGrants = new Set<string>()
 const mockStartReport = jest.fn(async () => ({ runId: 'report-run' }))
@@ -36,7 +37,15 @@ jest.mock('../harnesses', () => ({
         }
     }
 }))
-jest.mock('../apikey', () => ({ __esModule: true, default: { getApiKey: async (token: string) => mockKeys.get(token) } }))
+jest.mock('../apikey', () => ({
+    __esModule: true,
+    default: {
+        getApiKey: async (token: string) => {
+            if (mockKeyError) throw mockKeyError
+            return mockKeys.get(token)
+        }
+    }
+}))
 jest.mock('./limiter', () => ({
     consume: (...args: unknown[]) => (mockConsume as any)(...args),
     assertCapacity: jest.fn(async () => undefined)
@@ -78,7 +87,7 @@ jest.mock('./data', () => ({
     })
 }))
 
-import { authorizeFlowKey, authorizeKey, setAccessContext } from './authorization'
+import { accessContext, authorizeFlowKey, authorizeKey, setAccessContext } from './authorization'
 import { accessKeyRouteGuard } from './routes'
 import { accessKeyPreflight } from './preflight'
 import { scopedFlowMetadataUpdate } from './managementBoundary'
@@ -109,6 +118,7 @@ function grant(id = FLOW, type = 'CHATFLOW', principal = 'key') {
 }
 beforeEach(() => {
     mockKeys.clear()
+    mockKeyError = undefined
     mockFlows.clear()
     mockGrants.clear()
     mockConsume.mockClear()
@@ -637,3 +647,97 @@ it.each(['run scope', 'owner run permission'])(
         expect(mockConsume).not.toHaveBeenCalled()
     }
 )
+
+it.each(['off', 'shadow'])('keeps every Dashflows operation session-only in %s', async (mode) => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    const legacy = { ...key(), accessPolicy: { ...parsePolicy({ scopes: ['api:read', 'api:write'] }), legacy: true }, harnesses: [] }
+    mockKeys.set('fixture-token', legacy)
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({ reached: true }))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    try {
+        process.env.INBOUND_ACCESS_V2 = mode
+        for (const [method, path] of [
+            ['get', ''],
+            ['post', '/dashboard/publish'],
+            ['post', '/dashboard/refresh'],
+            ['post', '/dashboard/accounts/account/report']
+        ]) {
+            const response = await request(app)
+                [method as 'get' | 'post']('/api/v1/dashflows' + path)
+                .set('Authorization', 'Bearer fixture-token')
+            expect(response.status).toBe(403)
+        }
+        expect(mockConsume).not.toHaveBeenCalled()
+    } finally {
+        process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
+
+it.each(['key', 'owner'])('rechecks route RBAC after %s permission removal during body parsing, before charging', async (removed) => {
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    const principal = {
+        ...key({ scopes: ['feedback:write'] }),
+        ownerUserId: 'creator',
+        permissions: ['chatflows:view', 'chatflows:delete']
+    }
+    mockKeys.set(token, principal)
+    mockOwnerPermissions = principal.permissions.slice()
+    grant()
+    const execute = jest.fn((_req: Request, res: express.Response) => res.json({ permissions: _req.user?.permissions }))
+    const app = express()
+    app.use(accessKeyPreflight)
+    app.use((req, _res, next) => {
+        req.user = { apiKeyId: principal.id, activeWorkspaceId: 'one', permissions: principal.permissions.slice() } as Request['user']
+        if (removed === 'owner') mockOwnerPermissions = ['chatflows:view']
+        else mockKeys.set(token, { ...principal, permissions: ['chatflows:view'] })
+        next()
+    })
+    app.use(express.json())
+    app.use('/api/v1', accessKeyRouteGuard)
+    app.delete('/api/v1/chatmessage/:id', execute)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    const response = await request(app)
+        .delete('/api/v1/chatmessage/' + FLOW)
+        .set('Authorization', 'Bearer ' + token)
+        .send({})
+    expect(response.status).toBe(403)
+    expect(execute).not.toHaveBeenCalled()
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it('synchronizes downstream API identity after admission refresh', async () => {
+    grant()
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    const r = req()
+    r.user = { apiKeyId: 'key', activeWorkspaceId: 'one', permissions: ['chatflows:view', 'chatflows:delete'] } as Request['user']
+    await authorizeFlowKey(r, flow, false)
+    await authorizeFlowKey(r, flow)
+    expect(r.user?.permissions).toEqual(['chatflows:view', 'chatflows:update'])
+    expect(accessContext(r)?.key.permissions).toEqual(r.user?.permissions)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
+})
+
+it('does not make a still-bound public flow anonymous when enforcement is enabled', async () => {
+    const r = req()
+    delete r.headers.authorization
+    expect(await authorizeFlowKey(r, { ...flow, apiAccessMode: 'public', apikeyid: 'legacy' })).toBe(false)
+    expect(await authorizeFlowKey(r, { ...flow, apiAccessMode: 'public', apikeyid: '' })).toBe(true)
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it('preserves an authentication-store outage as unavailable rather than an invalid bearer', async () => {
+    const { AppError } = await import('../../errors/appError')
+    mockKeyError = new AppError(503, 'Access key verification is unavailable.')
+    await expect(authorizeFlowKey(req(), flow)).rejects.toMatchObject({ statusCode: 503 })
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it('answers a malformed encoded Harness name as a client error before admission', async () => {
+    mockKeys.set('fixture-token', key({ scopes: ['harness:read'] }))
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    expect((await request(app).get('/api/v1/harnesses/%ZZ/runs').set('Authorization', 'Bearer fixture-token')).status).toBe(400)
+    expect(mockConsume).not.toHaveBeenCalled()
+})

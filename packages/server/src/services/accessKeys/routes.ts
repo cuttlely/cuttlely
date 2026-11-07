@@ -27,6 +27,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (!key) throw new AppError(401, 'Unauthorized')
         if (accessRollout() !== 'on') {
             if (!key.accessPolicy?.legacy) throw new AppError(503, 'Scoped access keys require INBOUND_ACCESS_V2=on.')
+            if (root === 'dashflows') throw new AppError(403, 'Sign in to your team to use Dashflows.')
             return
         }
         const read = ['GET', 'HEAD'].includes(req.method)
@@ -53,7 +54,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         ].some((pattern) => pattern.test(method + ' ' + route))
         if (!key.accessPolicy?.legacy && ['chatflows', 'flow-drafts', 'flow-versions'].includes(root))
             assertSafeManagementWrite(root, req.method, parts, req.body)
-        if (!key.accessPolicy?.legacy && !registered) throw new AppError(403, 'This endpoint is not available to scoped access keys.')
+        if ((!key.accessPolicy?.legacy || root === 'dashflows') && !registered)
+            throw new AppError(403, 'This endpoint is not available to scoped access keys.')
 
         let operation: Operation = read ? 'api:read' : 'api:write'
         let resource
@@ -75,7 +77,12 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             }
             if (['chatmessage', 'leads'].includes(root)) operation = read ? 'feedback:read' : 'feedback:write'
         } else if (root === 'harnesses' && parts[1]) {
-            const name = decodeURIComponent(req.path.split('/').filter(Boolean)[1])
+            let name: string
+            try {
+                name = decodeURIComponent(req.path.split('/').filter(Boolean)[1])
+            } catch {
+                throw new AppError(400, 'Invalid Harness name encoding.')
+            }
             const flow = await resolveHarnessFlow(name, key.workspaceId)
             if (!flow || flow.name !== name) throw new AppError(403, 'Resource is not available to this access key.')
             resource = flowResource(flow)
@@ -122,20 +129,20 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                 : root === 'harnesses' && parts[4] === 'diagnostics'
                 ? ['chatflows:update', 'agentflows:create']
                 : undefined
-        if (additionalPermissions && !additionalPermissions.some((permission) => key.permissions.includes(permission)))
-            throw new AppError(403, 'This operation requires additional workspace permissions.')
         // Legacy management retains its existing RBAC and resource behavior, explicitly flagged by migration.
-        await authorizeKey(
+        const admittedKey = await authorizeKey(
             req,
             operation,
             key.workspaceId,
-            key.accessPolicy?.legacy && ['api:read', 'api:write'].includes(operation) ? undefined : resource
+            key.accessPolicy?.legacy && ['api:read', 'api:write'].includes(operation) ? undefined : resource,
+            true,
+            additionalPermissions
         )
         if (!req.user?.id && !req.user?.apiKeyId) {
             const { OPEN_SOURCE_FEATURES } = await import('../../identity/constants')
             const { OSS_PRODUCT_ID } = await import('../../identity/ossPlatform')
             req.user = {
-                permissions: key.permissions,
+                permissions: admittedKey.permissions,
                 features: { ...OPEN_SOURCE_FEATURES },
                 activeWorkspaceId: key.workspaceId,
                 activeOrganizationId: undefined,

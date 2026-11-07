@@ -38,7 +38,8 @@ export async function authenticateRequest(req: Request): Promise<ApiKey | undefi
     let key: ApiKey | undefined
     try {
         key = await service.getApiKey(supplied)
-    } catch {
+    } catch (error) {
+        if (accessRollout() === 'on') throw error
         return undefined
     }
     if (!key || !principalActive(key)) return undefined
@@ -71,7 +72,14 @@ export async function hasGrant(data: DataSource, key: ApiKey, resource: Resource
     if (key.accessPolicy?.allResources) return true
     return !!(await data.getRepository(ApiKeyResource).findOneBy({ principalId: key.id, ...resource }))
 }
-async function checkKey(req: Request, operation: Operation, workspaceId: string, resource?: ResourceGrant, charge = true): Promise<ApiKey> {
+async function checkKey(
+    req: Request,
+    operation: Operation,
+    workspaceId: string,
+    resource?: ResourceGrant,
+    charge = true,
+    requiredPermissions?: string[]
+): Promise<ApiKey> {
     // Preflight can run long before the body finishes. Refresh credential, principal and owner
     // at admission; an already admitted operation keeps its request-local authentication.
     const pending = charge && !contexts.get(req)?.admitted.has('charged') ? contexts.get(req) : undefined
@@ -96,6 +104,8 @@ async function checkKey(req: Request, operation: Operation, workspaceId: string,
     if (resource && !(await hasGrant(data, key, resource))) throw new AccessKeyPolicyError('Resource is not allowed by this access key.')
     if (!policy.legacy && !operationPermissions(operation, resource).some((permission) => key.permissions.includes(permission)))
         throw new AccessKeyPolicyError('Access key permissions do not allow this operation.')
+    if (requiredPermissions && !requiredPermissions.some((permission) => key.permissions.includes(permission)))
+        throw new AppError(403, 'This operation requires additional workspace permissions.')
     if (!callerPolicyAllows(policy, req.headers.origin, req.ip || '')) throw new AccessKeyPolicyError('Caller policy refused this request.')
     const admission = `${operation}:${resource?.resourceType || ''}:${resource?.resourceId || ''}`
     const ctx = contexts.get(req)!
@@ -104,6 +114,7 @@ async function checkKey(req: Request, operation: Operation, workspaceId: string,
         await consume(data, key, operation, req.res)
         ctx.admitted.add('charged')
     }
+    if (req.user?.apiKeyId === key.id && !req.user.id) req.user.permissions = key.permissions
     ctx.admitted.add(admission)
     ctx.checks.set(admission, [operation, workspaceId, resource])
     return key
@@ -113,10 +124,11 @@ export async function authorizeKey(
     operation: Operation,
     workspaceId: string,
     resource?: ResourceGrant,
-    charge = true
+    charge = true,
+    requiredPermissions?: string[]
 ): Promise<ApiKey> {
     try {
-        const key = await checkKey(req, operation, workspaceId, resource, charge)
+        const key = await checkKey(req, operation, workspaceId, resource, charge, requiredPermissions)
         if (charge) void recordKeyUse(req, key, operation, 'accepted').catch(() => undefined)
         return key
     } catch (error) {
@@ -134,7 +146,7 @@ export function flowOperation(req: Request): Operation {
     return 'predict'
 }
 async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Promise<boolean> {
-    if (!req.headers.authorization) return flow.apiAccessMode === 'public'
+    if (!req.headers.authorization) return flow.apiAccessMode === 'public' && !flow.apikeyid
     const presenting = await authenticateRequest(req)
     if (!presenting) throw new AppError(401, 'Unauthorized')
     if (
@@ -201,7 +213,7 @@ export async function authorizeFlowKey(req: Request, flow: ChatFlow, charge = tr
         } catch {
             /* Shadow computes a decision without admitting scoped work. */
         }
-        void compareLegacy(req, key, allowed, scoped, flow.workspaceId, flow.id).catch(() => undefined)
+        void compareLegacy(req, key, allowed, scoped, flow.workspaceId, flow.id, flowOperation(req)).catch(() => undefined)
     }
     return allowed
 }

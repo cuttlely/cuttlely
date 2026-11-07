@@ -1,3 +1,4 @@
+import { accessRollout } from '../../services/accessKeys/rollout'
 import { accessContext } from '../../services/accessKeys/authorization'
 import { bearerDashboardReport, bearerDashboardResult } from '../../services/accessKeys/dashflowReports'
 import express, { Request, Response, NextFunction } from 'express'
@@ -14,7 +15,7 @@ const router = express.Router()
 router.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store')
     if (!dashFlowsEnabled()) return next(new AppError(403, 'Dashflows BETA is off. Turn it on in Admin > Server Settings > Experimental.'))
-    if (!req.user?.id && (!req.user?.apiKeyId || !accessContext(req)))
+    if (req.user?.apiKeyId ? accessRollout() !== 'on' || !accessContext(req) : !req.user?.id)
         return next(new AppError(403, 'Sign in to your team to use Dashflows.'))
     next()
 })
