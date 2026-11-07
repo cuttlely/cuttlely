@@ -6,7 +6,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Access keys preserve session-only Dashflows access in off/shadow, refresh downstream route permissions before admission, and require retained bindings even on public flows. Authentication-store failures remain unavailable responses.
+-   Access-key preflight covers retained bearers and adapter `X-API-Key` headers before parsers and file storage. Identity-store failures during resource authentication return sanitized unavailable responses, and shadow probes no longer emit enforced-denial events.
+-   Dashflows refresh binds execution to the authorized revision. Key diagnostics and unpublished account reports are refused before quota admission; keyed refresh-status reads use view permission. Guard errors preserve dashboard statuses, published reads avoid draft loads, and lead bodies accept uppercase flow UUIDs.
+-   Access-key lifecycle operations recheck each granted resource family. Creation refuses a missing workspace before minting a secret; post-commit lifecycle audit failures cannot hide that secret. Migration reports flag malformed Harness lists and unsupported bound flow types and return a review-required exit status.
+-   Canceling an owner invitation that was accepted during confirmation refreshes the user list after the conflict response.
+
+-   Access keys preserve session-only Dashflows access in off/shadow, refresh downstream route permissions before admission, and require retained bindings even on public flows. Resource-authentication store failures remain unavailable responses; the legacy verification handler retains its existing error contract outside enforcement preflight.
 -   The flow API dialog waits for a known rollout mode before changing access and preserves the private label while scoped access is unavailable.
 -   Access-key confirmation and success messages describe principal revocation, all credentials and affected resource grants.
 -   Principal expiry edits cannot extend or revive retained legacy bearers. Full audit dedupe caches evict old entries rather than drop other principals’ events, and shadow audits identify the actual operation. Quota headers describe committed counts; existing minute buckets remain usable at capacity.
