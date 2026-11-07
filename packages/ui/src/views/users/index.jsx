@@ -4,7 +4,13 @@ import { Link } from 'react-router-dom'
 import * as PropTypes from 'prop-types'
 import { formatListDateTime } from '@/utils/formatDate'
 import { canChangeRole, roleLabel } from '@/utils/roleLabel'
-import { canRemoveOrganizationUser, isPendingOwnerInvite, organizationOwnerLabel, removalConfirmation } from './userActions'
+import {
+    canRemoveOrganizationUser,
+    isPendingOwnerInvite,
+    organizationOwnerLabel,
+    removalConfirmation,
+    removeOrganizationUser
+} from './userActions'
 
 // material-ui
 import {
@@ -416,7 +422,7 @@ const Users = () => {
             const isConfirmed = await confirm(confirmPayload)
             if (isConfirmed) {
                 setDeletingUserId(row.userId)
-                const deleteResp = await userApi.deleteOrganizationUser(row.organizationId, row.userId, pendingOwner)
+                const deleteResp = await removeOrganizationUser(row, onConfirm, userApi.deleteOrganizationUser)
                 if (deleteResp.data) {
                     enqueueSnackbar({
                         message: pendingOwner
@@ -432,7 +438,6 @@ const Users = () => {
                             )
                         }
                     })
-                    onConfirm()
                 }
             }
         } catch (error) {
@@ -458,7 +463,7 @@ const Users = () => {
 
     const onConfirm = () => {
         setShowInviteDialog(false)
-        getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
+        return getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
     }
 
     useEffect(() => {

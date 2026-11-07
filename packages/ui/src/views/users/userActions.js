@@ -23,3 +23,15 @@ export const removalConfirmation = (row) =>
               confirmButtonName: 'Delete',
               cancelButtonName: 'Cancel'
           }
+
+/** Keep the directory in sync with the outcome before another removal can be offered. */
+export async function removeOrganizationUser(row, reload, remove) {
+    try {
+        const response = await remove(row.organizationId, row.userId, isPendingOwnerInvite(row))
+        if (response.data) await reload()
+        return response
+    } catch (error) {
+        if (error?.response?.status === 409) await reload()
+        throw error
+    }
+}

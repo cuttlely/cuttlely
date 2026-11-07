@@ -1,5 +1,11 @@
 import { canChangeRole } from '@/utils/roleLabel'
-import { canRemoveOrganizationUser, isPendingOwnerInvite, organizationOwnerLabel, removalConfirmation } from './userActions'
+import {
+    canRemoveOrganizationUser,
+    isPendingOwnerInvite,
+    organizationOwnerLabel,
+    removalConfirmation,
+    removeOrganizationUser
+} from './userActions'
 import userApi from '@/api/user'
 import client from '@/api/client'
 
@@ -65,4 +71,13 @@ describe('User Management owner invitation actions', () => {
         userApi.deleteOrganizationUser('org-1', 'member-1')
         expect(client.delete).toHaveBeenLastCalledWith('/organizationuser?organizationId=org-1&userId=member-1')
     })
+})
+
+it('refreshes a stale pending invitation before returning a definitive conflict to the UI', async () => {
+    const conflict = { response: { status: 409, data: { message: 'This invitation is no longer pending.' } } }
+    client.delete.mockRejectedValueOnce(conflict)
+    const refresh = jest.fn()
+    await expect(removeOrganizationUser(pending, refresh, userApi.deleteOrganizationUser)).rejects.toBe(conflict)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(client.delete).toHaveBeenLastCalledWith('/organizationuser?organizationId=org-1&userId=invited-owner&invitationOnly=true')
 })
