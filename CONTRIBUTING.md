@@ -64,7 +64,7 @@ CUTTLELY_LOCAL_ADMIN=true pnpm dev                # open http://localhost:8080
 
 1. Fork the [Cuttlely repository](https://github.com/cuttlely/cuttlely) and clone your fork.
 
-2. Create a new branch, see [guide](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository). Naming conventions:
+2. Create a new branch from `dev`, see [guide](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository). Naming conventions:
 
     - For feature branch: `feature/<Your New Feature>`
     - For bug fix branch: `bugfix/<Your New Bugfix>`.
@@ -73,7 +73,7 @@ CUTTLELY_LOCAL_ADMIN=true pnpm dev                # open http://localhost:8080
 
 4. Run `pnpm verify`. See [Verify before a pull request](#verify-before-a-pull-request).
 
-5. Commit your change and open a pull request from your branch to [Cuttlely main](https://github.com/cuttlely/cuttlely/tree/main).
+5. Commit your change and open a pull request from your branch to [Cuttlely dev](https://github.com/cuttlely/cuttlely/tree/dev). Changes reach `main` only when a maintainer promotes `dev` to `main` by hand.
 
 ### Adding or modifying credential definitions
 
@@ -236,19 +236,19 @@ Two checks guard what a pull request can add:
 
 The project notes in [`.projects/cuttlely/`](./.projects/cuttlely/README.md) say where the work stands, what is planned and open, the settled design decisions, and the commands to check and ship a change. Read them before a larger change. A code change updates them in the same pull request; the pre-push hook checks this. If you work with an AI agent, the `take-over` skill reads the notes and resumes from them.
 
-Branch names in this repository are short and descriptive (`feature/…`, `bugfix/…`, or a maintainer prefix such as `flowbit/…`). Open the pull request against `main`.
+Branch names in this repository are short and descriptive (`feature/…`, `bugfix/…`, or a maintainer prefix such as `flowbit/…`). Branch from `dev` and open the pull request against `dev`. If `dev` moves while your pull request is open, merge `origin/dev` into your branch and run the checks again; do not force-push. Pull requests into `dev` merge by squash or with a merge commit. `dev` is the staging branch. A maintainer promotes `dev` to `main` by hand with a merge commit, and every push to `main` deploys. There is no Render staging service for now.
 
 ## How releases work
 
 Cuttlely uses [semantic versioning](https://semver.org/). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
 -   **In your pull request.** If the change is something users see, add a line to [CHANGELOG.md](./CHANGELOG.md): under the planned `## [X.Y.Z] - Unreleased` section when there is one, otherwise under `## [Unreleased]`. Never put lines in both, because `pnpm release` refuses that. Anything people must change when they upgrade also goes under **Upgrade notes / breaking changes**. Do not bump version numbers yourself.
--   **Cutting a release.** A maintainer runs `pnpm release` from a clean, up-to-date `main` on their own machine. It runs the full `pnpm verify`, sets the version, dates the changelog entry, tags the release, pushes the commit and tag, waits for the GitHub Actions image build, and drafts the GitHub release. `--publish` publishes after that wait; `--local-image` keeps the maintainer-machine image path as a fallback. `pnpm release --dry-run` shows the whole plan without changing anything. [Cutting a release](./docs/releases.md#cutting-a-release) has the steps.
+-   **Cutting a release.** A maintainer runs `pnpm release` from a clean, up-to-date `main` on their own machine. It runs the full `pnpm verify`, sets the version, dates the changelog entry, commits on a `release/vX.Y.Z` branch, and opens a pull request into `main`. Only a human founder merges that pull request; a bot never does, and the merge deploys `main`. Running `pnpm release X.Y.Z` again then tags the merged commit, pushes only the tag, opens a `main` to `dev` sync pull request for a person to merge, waits for the GitHub Actions image build and drafts the GitHub release. `--publish` publishes after that wait; `--local-image` keeps the maintainer-machine image path as a fallback. `pnpm release --dry-run` shows the whole plan without changing anything. [Cutting a release](./docs/releases.md#cutting-a-release) has the steps.
 -   **Upgrades are tested.** The full `pnpm verify` starts the current server on data written by an older release and checks that flows, versions, credentials and harnesses survive. See [Upgrading Cuttlely](./docs/upgrading.md#how-upgrades-are-tested).
 
 ## Pull request process
 
-Open a pull request against `main` on the [Cuttlely repository](https://github.com/cuttlely/cuttlely).
+Open a pull request against `dev` on the [Cuttlely repository](https://github.com/cuttlely/cuttlely). Promoting `dev` to `main` is a manual maintainer step.
 
 ## Code of Conduct
 

@@ -11,7 +11,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     printf '%s %s %s %s\n' "$local_ref" "$local_sha" "$remote_ref" "$remote_sha" >> "$push_refs_file"
 done
 
-# Code changes must refresh .projects/cuttlely/. Docs-only and tests-only pushes pass.
+# Code changes since the integration branch (INTEGRATION_BRANCH in scripts/handoff-paths.mjs)
+# must refresh .projects/cuttlely/. Docs-only and tests-only pushes pass.
 # Bypass: CUTTLELY_SKIP_HANDOFF_CHECK=1
 if [ "${CUTTLELY_SKIP_HANDOFF_CHECK:-}" = "1" ]; then
     echo "CUTTLELY_SKIP_HANDOFF_CHECK=1: skipping the .projects/cuttlely handoff check"

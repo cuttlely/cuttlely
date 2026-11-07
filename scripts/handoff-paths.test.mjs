@@ -4,7 +4,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { classifyFiles, handoffDirectoryExists, handoffSkipMessage, isDocPath, isHandoffPath, isTestPath } from './handoff-paths.mjs'
+import { spawnSync } from 'node:child_process'
+import {
+    changedFilesSinceBase,
+    classifyFiles,
+    handoffDirectoryExists,
+    handoffSkipMessage,
+    INTEGRATION_BRANCH,
+    isDocPath,
+    isHandoffPath,
+    isTestPath
+} from './handoff-paths.mjs'
 
 describe('handoff path classification', () => {
     it('treats markdown and .projects as docs, and Cuttlely files as the handoff', () => {
@@ -73,5 +83,51 @@ describe('handoff path classification', () => {
         assert.equal(result.ok, false)
         assert.deepEqual(result.tests, ['packages/server/src/utils/authorizePrediction.test.ts'])
         assert.deepEqual(result.code, ['packages/server/src/utils/buildChatflow.ts'])
+    })
+})
+
+describe('integration branch', () => {
+    const git = (cwd, ...args) => {
+        const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
+        assert.equal(result.status, 0, result.stderr)
+        return result.stdout.trim()
+    }
+    const commit = (cwd, file, message) => {
+        fs.writeFileSync(path.join(cwd, file), `${message}\n`)
+        git(cwd, 'add', file)
+        git(cwd, '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', message)
+    }
+
+    it('defaults to dev and is what the command line prints', () => {
+        assert.equal(INTEGRATION_BRANCH, 'dev')
+        const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'handoff-paths.mjs')
+        const printed = spawnSync(process.execPath, [script, '--print-branch'], { encoding: 'utf8' })
+        assert.equal(printed.status, 0, printed.stderr)
+        assert.equal(printed.stdout.trim(), 'dev')
+        assert.match(handoffSkipMessage(), /git checkout origin\/dev -- \.projects\/cuttlely/)
+    })
+
+    it('counts only the files changed since the integration branch, not commits that are only on main', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-handoff-base-'))
+        try {
+            git(root, 'init', '-q', '-b', 'main')
+            commit(root, 'base.txt', 'base')
+            git(root, 'branch', 'dev')
+            commit(root, 'main-only.js', 'main only')
+            git(root, 'switch', '-q', '-c', 'topic', 'dev')
+            commit(root, 'topic.md', 'topic')
+
+            const range = changedFilesSinceBase('HEAD', INTEGRATION_BRANCH, root)
+            assert.equal(range.baseName, 'dev')
+            assert.deepEqual(range.files, ['topic.md'])
+            assert.equal(classifyFiles(range.files).ok, true)
+
+            assert.throws(
+                () => changedFilesSinceBase('HEAD', 'no-such-branch', root),
+                /merge-base with origin\/no-such-branch or no-such-branch/
+            )
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
     })
 })

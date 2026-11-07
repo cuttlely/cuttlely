@@ -19,12 +19,12 @@ Work from the Cuttlely repo root. Do not edit `hermes/AGENTS.md`. That file belo
 
 | File                                | Keep true                                                                                                            |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `.projects/cuttlely/STATUS.md`      | Where `main` is, what works, live results, what is not done                                                          |
+| `.projects/cuttlely/STATUS.md`      | Where `dev` is, what works, live results, what is not done                                                           |
 | `.projects/cuttlely/PLAN.md`        | Milestone states and the next tasks. Mark a task done when its remaining work is gone                                |
 | `.projects/cuttlely/OPEN.md`        | Real blockers and the open issues they map to. Link issues; mark a row done when the work landed                     |
 | `.projects/cuttlely/DECISIONS.md`   | Settled. Fix a stale status word when a pull request merged. Add an entry only for a decision that was actually made |
 | `.projects/cuttlely/ARTIFACTS.md`   | Where docs, samples, fixtures, generated reports, and release notes live                                             |
-| `.projects/cuttlely/RUNBOOK.md`     | Commands, defaults, and gotchas that match the scripts on `main`                                                     |
+| `.projects/cuttlely/RUNBOOK.md`     | Commands, defaults, and gotchas that match the scripts on `dev`                                                      |
 | `.projects/cuttlely/MEMORY.md`      | A lesson only when one was learned since the last refresh                                                            |
 | `.projects/cuttlely/README.md`      | The resume steps and the code map, when a path was added or moved                                                    |
 | `AGENTS.md`                         | The same resume rules as the public README and CONTRIBUTING                                                          |
@@ -44,7 +44,7 @@ Read the script output, including `dirty` and `recent-ci`. Then read every file 
 
 For each file, fix statements the facts contradict:
 
--   A feature, path, command, or default described differently from `main`.
+-   A feature, path, command, or default described differently from `dev`.
 -   An issue row whose issue is closed: mark it done and link the issue. Do not restate an issue's status in prose.
 -   A check count, port, start command, or "fails on main" line that the code no longer supports. Read the script or the log before changing a pass/fail claim.
 -   A task whose remaining work is done.
