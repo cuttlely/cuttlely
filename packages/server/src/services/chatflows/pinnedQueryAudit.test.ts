@@ -17,16 +17,41 @@ const audits: Array<{
     detail: Record<string, unknown>
 }> = []
 
+// Track the latest row so update()+findOneByOrFail (tenant-scoped writers) return the same
+// canvas the production path would read after a successful write.
+let storedRow: Record<string, unknown> | null = null
 const mockRepo = {
-    findOneBy: jest.fn(),
-    findOneByOrFail: jest.fn(async (): Promise<any> => mockRepo.save.mock.results.at(-1)?.value),
+    findOneBy: jest.fn(async (where: Record<string, unknown> = {}) => {
+        if (!storedRow) return null
+        if (where.id !== undefined && storedRow.id !== where.id) return null
+        if (where.workspaceId !== undefined && storedRow.workspaceId !== where.workspaceId) return null
+        return { ...storedRow }
+    }),
+    findOneByOrFail: jest.fn(async (where: Record<string, unknown> = {}) => {
+        const row = await mockRepo.findOneBy(where)
+        if (!row) throw new Error('ChatFlow not found')
+        return row
+    }),
     findOne: jest.fn(),
     find: jest.fn(),
     create: jest.fn((row: unknown) => row),
-    save: jest.fn(async (row: unknown) => row),
+    save: jest.fn(async (row: unknown) => {
+        storedRow = { ...(row as Record<string, unknown>) }
+        return { ...storedRow }
+    }),
+    insert: jest.fn(async (row: unknown) => {
+        storedRow = { ...(row as Record<string, unknown>) }
+        return { identifiers: [{ id: storedRow.id }], generatedMaps: [], raw: [] }
+    }),
     delete: jest.fn(),
     merge: jest.fn((existing: Record<string, unknown>, updates: Record<string, unknown>) => Object.assign(existing, updates)),
-    update: jest.fn(async () => ({ affected: 1 })),
+    update: jest.fn(async (criteria: Record<string, unknown>, patch: Record<string, unknown>) => {
+        if (!storedRow) return { affected: 0 }
+        if (criteria.id !== undefined && storedRow.id !== criteria.id) return { affected: 0 }
+        if (criteria.workspaceId !== undefined && storedRow.workspaceId !== criteria.workspaceId) return { affected: 0 }
+        storedRow = { ...storedRow, ...patch, id: storedRow.id, workspaceId: storedRow.workspaceId }
+        return { affected: 1 }
+    }),
     countBy: jest.fn(),
     createQueryBuilder: jest.fn()
 }
@@ -237,15 +262,39 @@ function assertKeysAllowed(value: unknown): void {
 
 beforeEach(() => {
     audits.length = 0
+    storedRow = null
     jest.clearAllMocks()
     mockAppServer.AppDataSource.getRepository.mockReturnValue(mockRepo)
     mockRepo.create.mockImplementation((row: unknown) => row)
-    mockRepo.save.mockImplementation(async (row: unknown) => row)
+    mockRepo.save.mockImplementation(async (row: unknown) => {
+        storedRow = { ...(row as Record<string, unknown>) }
+        return { ...storedRow }
+    })
+    mockRepo.insert.mockImplementation(async (row: unknown) => {
+        storedRow = { ...(row as Record<string, unknown>) }
+        return { identifiers: [{ id: storedRow.id }], generatedMaps: [], raw: [] }
+    })
     mockRepo.merge.mockImplementation((existing: Record<string, unknown>, updates: Record<string, unknown>) =>
         Object.assign(existing, updates)
     )
-    mockRepo.findOneBy.mockResolvedValue(null)
-    mockRepo.update.mockResolvedValue({ affected: 1 })
+    mockRepo.findOneBy.mockImplementation(async (where: Record<string, unknown> = {}) => {
+        if (!storedRow) return null
+        if (where.id !== undefined && storedRow.id !== where.id) return null
+        if (where.workspaceId !== undefined && storedRow.workspaceId !== where.workspaceId) return null
+        return { ...storedRow }
+    })
+    mockRepo.findOneByOrFail.mockImplementation(async (where: Record<string, unknown> = {}) => {
+        const row = await mockRepo.findOneBy(where)
+        if (!row) throw new Error('ChatFlow not found')
+        return row
+    })
+    mockRepo.update.mockImplementation(async (criteria: Record<string, unknown>, patch: Record<string, unknown>) => {
+        if (!storedRow) return { affected: 0 }
+        if (criteria.id !== undefined && storedRow.id !== criteria.id) return { affected: 0 }
+        if (criteria.workspaceId !== undefined && storedRow.workspaceId !== criteria.workspaceId) return { affected: 0 }
+        storedRow = { ...storedRow, ...patch, id: storedRow.id, workspaceId: storedRow.workspaceId }
+        return { affected: 1 }
+    })
     setPinnedQueryHashForTests(hashOf)
 })
 
