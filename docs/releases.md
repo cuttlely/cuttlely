@@ -122,11 +122,11 @@ The release commit reaches `main` only through the release pull request, which n
 
 ### Branches, merges and deploys
 
--   Day-to-day work branches off `dev` and lands in `dev` by squash merge. `dev` is the staging branch. There is no Render staging service for now; `dev` is not deployed.
+-   Day-to-day work branches off `dev` and lands in `dev` by squash or with a merge commit. `dev` is the staging branch. There is no Render staging service for now; `dev` is not deployed.
 -   `main` changes only through pull requests: release pull requests and promotes of `dev` into `main`. Only a human founder merges a release pull request.
 -   Promotes of `dev` into `main` use **Create a merge commit**.
 -   A `main` to `dev` sync pull request is merged with a merge commit or by fast-forward, never squashed, so `dev` keeps the commits that are on `main`.
--   Everything else is squash-merged.
+-   Other pull requests into `dev` merge by squash or with a merge commit.
 -   Bring a pull request into `main` up to date with `main` before it merges.
 -   Pull requests into `main` also run the `docker-build` image check from `.github/workflows/test_docker_build.yml`. It is not a required check on `main`; making it required is a founder decision.
 -   Render deploys `main`. `render.yaml` sets `branch: main` and `autoDeployTrigger: commit`, so a push to `main` starts a deploy unless it changes only paths in `buildFilter.ignoredPaths`. Merging a release pull request or a promote is a deploy. The Blueprint does not deploy `dev`.
