@@ -151,6 +151,8 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
         req.headers.accept?.includes('text/event-stream')
     )
         await authorizeKey(req, 'stream', flow.workspaceId, flowResource(flow), false)
+    if (operation === 'predict' && flow.type === 'HARNESS')
+        await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(flow), false)
     // Nested execution uses the presenting principal, never the flow's old bound key.
     if (typeof flow.flowData === 'string') {
         try {

@@ -168,6 +168,59 @@ it('checks multipart stream scope before charging even when the principal retain
     await expect(authorizeFlowKey(multipart, flow)).rejects.toMatchObject({ statusCode: 403 })
     expect(mockConsume).not.toHaveBeenCalled()
 })
+it.each(['principal permission', 'owner permission', 'legacy owner permission', 'run scope'])(
+    'Harness prediction checks target %s before admission or SSE headers',
+    async (missing) => {
+        const harness = { ...flow, id: HARNESS, type: 'HARNESS', name: 'baker' }
+        mockFlows.set(HARNESS, harness)
+        grant(HARNESS, 'HARNESS')
+        const principal = key({ scopes: missing === 'run scope' ? ['predict', 'stream'] : ['predict', 'stream', 'harness:run'] })
+        principal.permissions = ['chatflows:view']
+        if (missing !== 'principal permission') principal.permissions.push('chatflows:create')
+        if (missing.includes('owner')) {
+            principal.ownerUserId = 'creator'
+            mockOwnerPermissions = ['chatflows:view']
+        }
+        if (missing.startsWith('legacy')) principal.accessPolicy!.legacy = true
+        mockKeys.set('fixture-token', principal)
+        const execute = jest.fn((_req: Request, res: express.Response) => {
+            res.setHeader('Content-Type', 'text/event-stream')
+            res.send('data: started\n\n')
+        })
+        const app = express()
+        app.use(express.json())
+        app.post(
+            '/api/v1/prediction/:id',
+            (req, _res, next) => {
+                void authorizeFlowKey(req, harness).then(() => next(), next)
+            },
+            execute
+        )
+        app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+            res.status(error.statusCode || 500).json({})
+        )
+        const denied = await request(app)
+            .post('/api/v1/prediction/' + HARNESS)
+            .set('Authorization', 'Bearer fixture-token')
+            .send({ streaming: true })
+        expect(denied.status).toBe(403)
+        expect(denied.headers['content-type']).not.toContain('text/event-stream')
+        expect(execute).not.toHaveBeenCalled()
+        expect(mockConsume).not.toHaveBeenCalled()
+
+        principal.permissions = ['chatflows:view', 'chatflows:update']
+        principal.accessPolicy!.scopes.push('harness:run')
+        mockOwnerPermissions = ['chatflows:view', 'chatflows:update']
+        const accepted = await request(app)
+            .post('/api/v1/prediction/' + HARNESS)
+            .set('Authorization', 'Bearer fixture-token')
+            .send({ streaming: true })
+        expect(accepted.status).toBe(200)
+        expect(accepted.headers['content-type']).toContain('text/event-stream')
+        expect(execute).toHaveBeenCalledTimes(1)
+        expect(mockConsume).toHaveBeenCalledTimes(1)
+    }
+)
 it('refuses caller policies and never trusts forwarded headers directly', async () => {
     grant()
     mockKeys.set(
