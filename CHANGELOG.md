@@ -6,6 +6,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access keys preserve session-only Dashflows access in off/shadow, refresh downstream route permissions before admission, and require retained bindings even on public flows. Authentication-store failures remain unavailable responses.
+-   The flow API dialog waits for a known rollout mode before changing access and preserves the private label while scoped access is unavailable.
+-   Access-key confirmation and success messages describe principal revocation, all credentials and affected resource grants.
+-   Principal expiry edits cannot extend or revive retained legacy bearers. Full audit dedupe caches evict old entries rather than drop other principals’ events, and shadow audits identify the actual operation. Quota headers describe committed counts; existing minute buckets remain usable at capacity.
+-   Flow updates refuse mixed API-access changes and canvas restoration before storing uploaded files. Malformed encoded Harness names return a client error before admission.
+
 -   Usage API documentation correctly identifies owner login and model-price write examples as session-authenticated commands, without requiring a legacy bearer.
 
 -   Orchestrate and A2A access-key preflight refusals preserve the documented adapter error envelope, including invalid credentials and caller-policy failures before JSON parsing.

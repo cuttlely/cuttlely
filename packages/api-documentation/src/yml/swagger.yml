@@ -25,7 +25,7 @@ paths:
             description: >-
                 Returns visible principals with policy, resource grants, credential display metadata and current UTC day/month counters.
                 SDK/Settings and per-flow keys use this same list. Never returns bearer secrets, digests or legacy verifiers. A retained legacy
-                key can still read the list through compatibility; new scoped keys cannot.
+                key with apikeys:view can still read the workspace list through compatibility; new scoped keys cannot. Bearer callers cannot request the organization-admin summary.
             security:
                 - sessionAuth: []
                 - bearerAuth: []
@@ -195,7 +195,7 @@ paths:
             description: >-
                 Requires an interactive session with apikeys:create or apikeys:update, reauthorization of the target policy, and
                 INBOUND_ACCESS_V2=on. Send the entire desired body. Removes migration compatibility without changing the bearer value. Omitted
-                expiresAt uses the 90-day default on update too. Previously issued credential expiry is never extended by this update.
+                expiresAt uses the 90-day default on update too. Previously issued credential expiry, including the retained legacy bearer cutoff, is never extended or revived by this update.
             security:
                 - sessionAuth: []
             parameters:
@@ -1701,10 +1701,10 @@ paths:
             summary: Send message to flow and get AI response
             description: |
                 Send a message to your flow and receive an AI-generated response. This is the primary endpoint for interacting with your flows and assistants.
-                **Authentication**: Private API access requires a bearer. With INBOUND_ACCESS_V2=on, grant the exact flow
+                **Authentication**: Private API access and flows retaining a legacy key binding require a bearer. With INBOUND_ACCESS_V2=on, grant the exact flow
                 plus predict; streaming also requires stream, and referenced Harnesses require their own grants plus harness:run.
                 New keys grant nothing. A supplied invalid bearer is refused even on a public flow. Multipart prediction requires
-                predict, upload and stream before file storage. Caller-policy refusals are 403; expiry/revocation is 401;
+                predict, upload and stream before file storage. Caller-policy refusals are 403; expiry/revocation is 401; authentication-store outages are 503;
                 exhausted budgets are 429 with Retry-After. With enforcement off (default), legacy bindings remain in use.
                 Public share/embed access remains separate.
             parameters:
@@ -3450,7 +3450,7 @@ components:
                 exact resource grants, expiry/revocation, caller allowlists and limits apply. A listed bearer endpoint is
                 not automatically available to new scoped keys: only the closed route registry is allowed. New scoped keys
                 cannot call workspace-wide lists, publish/restore canvases, change execution configuration or schedules,
-                or manage other keys. Legacy principals retain explicit compatibility. Public embed/share, MCP and webhook
+                or manage other keys. Legacy principals retain explicit compatibility. Dashflows stays session-only with enforcement off or in shadow; keys require on and a registered Dashflows route. Public embed/share, MCP and webhook
                 transports and provider credentials are separate. RPM is per process and resets on restart; SQL daily/monthly
                 UTC quotas persist. Admission supports one API instance. Redis/multi-instance limiting, browser delegation,
                 usage exports/alerts, async telemetry batching, legacy-adapter removal and termination of admitted runs are not implemented.
