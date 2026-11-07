@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
--   **Access Keys review and rollout.** Implementation is on `feature-api-keys`: review migration diagnostics and shadow parity, run the full Node 24 gate, and retain the PR for the Cuttlely merge review. Redis across replicas, browser delegation, exports/alerts and legacy-adapter removal remain follow-ons; see [Access keys](../../docs/reference/access-keys.md).
+-   **Access Keys review and rollout.** Implementation and pending-owner invitation cancellation are integrated on `feature-api-keys`. Focused integration tests and all verification steps pass across recorded continuations. Obtain an uninterrupted full Node 24 gate on the intended review head, review migration diagnostics and shadow parity, then open a PR for the Cuttlely merge review. Redis across replicas, browser delegation, exports/alerts and legacy-adapter removal remain follow-ons; see [Access keys](../../docs/reference/access-keys.md).
 
 1. **Auth / SSO SCIM review.** Phase A ([#352](https://github.com/cuttlely/cuttlely/pull/352)), generic OIDC ([#359](https://github.com/cuttlely/cuttlely/pull/359)) and database-session convergence with always-available owner recovery ([#360](https://github.com/cuttlely/cuttlely/pull/360)) are on `main` and shipped in 1.4.9. Phase C SCIM v2 provisioning is on `main` ([#361](https://github.com/cuttlely/cuttlely/pull/361)) and ships in 1.5.0. Phase D remains.
 2. **Orchestrate live test.** The `external_chat` route is built (D101). The live tenant check in the architect's section 2.12 is a separate run: no tunnel or tenant from the PR1 builder.

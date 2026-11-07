@@ -22,6 +22,8 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Conventions
 
+-   Measure elapsed waits and test budgets with a monotonic clock (`performance.now()` or `process.hrtime.bigint()`), including clocks shared across launcher child processes. Wall-clock corrections must not extend a gateway cap or fail a performance budget. Keep wall-clock time for absolute key expiry and UTC quota windows.
+
 -   Harness runtime code is plain Node ESM in `packages/harness` (`@cuttlely/harness`). Analyst storage, paging, the analyst database check, the SQLite worker, tool status, and the stream lease live in `packages/harness/runtime/`. `harness/` re-exports the package for one release. ETL runtime code is plain Node ESM in `packages/etl` (`@cuttlely/etl`), loaded from the CommonJS server with a real dynamic import. `etl/` re-exports that package for one release. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
 -   The canvas label is Harness Prime; the saved node name stays `harnessChief`, type `HarnessChief`. Template card titles are Title Case, but harness record names and a chatflow's `harnessName` stay the runtime id (`upload`, `field-team`, `calculator`).
 -   Runtime profile names: harness `<harness>`, agent-loop specialist `<harness>--<specialist>`. Session key `{harness}:{chatId}`. A specialist's runtime toolset for an MCP server is the server name (`analyst`), not `mcp-<name>`.

@@ -101,3 +101,10 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 -   `scripts/access-keys-migration-report.cjs`: aggregate dry-run against deployment database configuration, without secrets or tenant content.
 -   `scripts/access-keys.test.cjs`: real SQLite migration/lifecycle/management/concurrency tests and four-dialect portable fixtures; included in `pnpm verify`.
 -   `packages/ui/src/views/apikey/`: principal editor, grouped resource/operation controls, policy preview and credential lifecycle.
+
+## Pending owner invitations
+
+-   `docs/how-to/users-without-authkit.md`: owner invitation cancellation and active-owner protection.
+-   `packages/server/src/identity/directory.ts` and `directoryRoutes.ts`: locked active-owner reauthorization and invitation-only conflict checks.
+-   `packages/ui/src/views/users/userActions.js`: invitation-only removal request used by the Users view.
+-   `packages/server/src/identity/directory.test.ts`, `localDirectory.test.ts`, `inviteSignIn.test.ts` and `packages/ui/src/views/users/{index,userActions}.test.js`: focused server and UI acceptance coverage.
