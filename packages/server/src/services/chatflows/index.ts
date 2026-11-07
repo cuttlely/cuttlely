@@ -752,8 +752,8 @@ const updateChatflow = async (
     if (updateChatFlow.apikeyid && updateChatFlow.apikeyid !== chatflow.apikeyid && updateChatFlow.apiAccessMode === undefined)
         updateChatFlow.apiAccessMode = 'private'
     const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (chatflow.apikeyid ?? null)
-    const typeChanging =
-        (updateChatFlow.type === '' ? 'CHATFLOW' : updateChatFlow.type || chatflow.type || 'CHATFLOW') !== (chatflow.type || 'CHATFLOW')
+    const requestedType = typeof updateChatFlow.type === 'string' ? updateChatFlow.type : chatflow.type
+    const typeChanging = (requestedType || 'CHATFLOW') !== (chatflow.type || 'CHATFLOW')
     const conditional = options.expectedFlowData !== undefined || typeChanging
     if ((rebinding || updateChatFlow.apiAccessMode !== undefined) && conditional)
         throw new AppError(400, 'Change API access separately from canvas restoration or type changes.')
