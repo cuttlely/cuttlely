@@ -15,7 +15,7 @@ import { accessData } from './data'
 import apikeyService, { validatePermissions } from '../apikey'
 import { referencedHarnessNames } from '../harnesses/apiAccess'
 import { mintCredential, rotateCredential } from './credentials'
-import { expiry, OPERATIONS, operationPermissions, parseGrants, parsePolicy } from './policy'
+import { expiry, OPERATIONS, operationPermissions, parseGrants, parsePolicy, RESOURCE_TYPES, ResourceGrant } from './policy'
 import { serial } from './limiter'
 
 const action =
@@ -51,9 +51,19 @@ export async function target(req: Request): Promise<ApiKey> {
             }
         }
     } else {
-        for (const operation of row.accessPolicy?.scopes || [])
+        const grants: ResourceGrant[] = row.accessPolicy?.allResources
+            ? RESOURCE_TYPES.map((resourceType) => ({ resourceType, resourceId: '*' }))
+            : parseGrants(await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: row.id }))
+        for (const operation of row.accessPolicy?.scopes || []) {
             if (!(await hasAnyPermission(req, ...OPERATIONS[operation])))
                 throw new AppError(403, 'Access key operations exceed your current permissions.')
+            for (const grant of grants) {
+                if (operation.startsWith('harness:') && grant.resourceType !== 'HARNESS') continue
+                if (operation.startsWith('dashflow:') !== (grant.resourceType === 'DASHFLOW')) continue
+                if (!(await hasAnyPermission(req, ...operationPermissions(operation, grant))))
+                    throw new AppError(403, 'Access key resource operations exceed your current permissions.')
+            }
+        }
     }
     return row
 }
@@ -128,23 +138,28 @@ export async function presentAccessKey(row: ApiKey) {
     }
 }
 async function audit(req: Request, key: ApiKey, event: string, detail: Record<string, unknown> = {}) {
-    const data = await accessData()
-    const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
-    if (!workspace) throw new AppError(401, 'Workspace unavailable.')
-    await safeRecordAudit(sqlFromDataSource(data), {
-        type: 'api_key_change',
-        organizationId: workspace.organizationId,
-        workspaceId: key.workspaceId,
-        userId: req.user?.id || null,
-        actorId: req.user?.id || null,
-        summary: `Access key ${event}`,
-        detail: { keyId: key.id, event, ...detail }
-    })
+    try {
+        const data = await accessData()
+        const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
+        if (!workspace) return
+        await safeRecordAudit(sqlFromDataSource(data), {
+            type: 'api_key_change',
+            organizationId: workspace.organizationId,
+            workspaceId: key.workspaceId,
+            userId: req.user?.id || null,
+            actorId: req.user?.id || null,
+            summary: `Access key ${event}`,
+            detail: { keyId: key.id, event, ...detail }
+        })
+    } catch {
+        console.warn('[access-keys] lifecycle audit was not saved')
+    }
 }
 export const createAccessKey: RequestHandler = action(async (req) => {
     const user = interactive(req)
     const input = await policyInput(req)
     const data = await accessData()
+    if (!(await data.getRepository(Workspace).findOneBy({ id: user.activeWorkspaceId }))) throw new AppError(401, 'Workspace unavailable.')
     const result = await serial(() =>
         data.transaction(async (manager) => {
             const key = manager.getRepository(ApiKey).create({

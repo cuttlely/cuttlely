@@ -16,7 +16,10 @@ export function planLegacyAccess(keys: LegacyKey[], flows: LegacyFlow[]) {
         protectedFlows: 0,
         orphanBindings: 0,
         crossWorkspaceBindings: 0,
-        unresolvedHarnessNames: 0
+        unresolvedHarnessNames: 0,
+        malformedHarnessLists: 0,
+        skippedFlowTypes: 0,
+        requiresReview: false
     }
     const keyIds = new Set(keys.map((key) => key.id))
     const harnessCounts = new Map<string, number>()
@@ -34,11 +37,14 @@ export function planLegacyAccess(keys: LegacyKey[], flows: LegacyFlow[]) {
     for (const key of keys) {
         let names: unknown = key.harnesses
         try {
-            if (typeof names === 'string') names = JSON.parse(names)
+            if (typeof names === 'string' && names !== '') names = JSON.parse(names)
         } catch {
-            names = []
+            names = {}
         }
-        const requested = Array.isArray(names) ? [...new Set(names.filter((n): n is string => typeof n === 'string'))] : []
+        const empty = names === null || names === undefined || names === ''
+        const valid = Array.isArray(names) && names.every((name) => typeof name === 'string')
+        if (!empty && !valid) report.malformedHarnessLists++
+        const requested: string[] = valid ? [...new Set(names as string[])] : []
         const resolved = new Set<string>()
         for (const flow of flows) {
             const bound = flow.apikeyid === key.id
@@ -51,7 +57,10 @@ export function planLegacyAccess(keys: LegacyKey[], flows: LegacyFlow[]) {
                 if (bound) report.crossWorkspaceBindings++
                 continue
             }
-            if (!['CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS', undefined, null].includes(flow.type)) continue
+            if (!['CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS', undefined, null].includes(flow.type)) {
+                if (bound) report.skippedFlowTypes++
+                continue
+            }
             if (named) resolved.add(flow.name!)
             grants.push({
                 principalId: key.id,
@@ -62,6 +71,13 @@ export function planLegacyAccess(keys: LegacyKey[], flows: LegacyFlow[]) {
         }
         report.unresolvedHarnessNames += requested.filter((name) => !resolved.has(name)).length
     }
+    report.requiresReview = [
+        report.orphanBindings,
+        report.crossWorkspaceBindings,
+        report.unresolvedHarnessNames,
+        report.malformedHarnessLists,
+        report.skippedFlowTypes
+    ].some((count) => count > 0)
     report.resourceGrants = grants.length
     return { grants, report }
 }

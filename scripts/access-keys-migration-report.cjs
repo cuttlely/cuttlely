@@ -12,7 +12,9 @@ async function main() {
         const read = (table, fields) => data.query(`SELECT ${fields.map(quote).join(', ')} FROM ${quote(table)}`)
         const keys = await read('apikey', ['id', 'workspaceId', 'harnesses'])
         const flows = await read('chat_flow', ['id', 'name', 'type', 'workspaceId', 'apikeyid'])
-        console.log(JSON.stringify(planLegacyAccess(keys, flows).report, null, 2))
+        const { report } = planLegacyAccess(keys, flows)
+        console.log(JSON.stringify(report, null, 2))
+        if (report.requiresReview) process.exitCode = 2
     } finally {
         await data.destroy()
     }

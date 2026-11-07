@@ -133,7 +133,8 @@ export async function addAccessKeys(runner: QueryRunner): Promise<void> {
     for (const grant of grants)
         await runner.manager.createQueryBuilder().insert().into('apikey_resource').values(grant).orIgnore().execute()
     // Aggregate diagnostics only. Never print names, tokens or tenant content.
-    console.info('[access-keys] migration summary ' + JSON.stringify(report))
+    if (report.requiresReview) console.warn('[access-keys] migration requires review before enforcement ' + JSON.stringify(report))
+    else console.info('[access-keys] migration summary ' + JSON.stringify(report))
 }
 
 export async function removeAccessKeys(runner: QueryRunner): Promise<void> {
