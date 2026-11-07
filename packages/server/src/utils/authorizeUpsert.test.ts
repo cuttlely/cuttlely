@@ -215,7 +215,7 @@ describe('Vector upsert access', () => {
         process.env.INBOUND_ACCESS_V2 = mode
         try {
             // The legacy guard remains compatible in off/shadow; the route itself must still require a session.
-            for (const accessPolicy of [{ ...parsePolicy(), legacy: true }, parsePolicy()]) {
+            for (const accessPolicy of [{ ...parsePolicy({}), legacy: true }, parsePolicy({})]) {
                 mockApiKeys.set('apikey-flow', {
                     ...mockApiKeys.get('apikey-flow'),
                     permissions: [],

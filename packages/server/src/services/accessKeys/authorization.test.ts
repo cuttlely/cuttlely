@@ -171,7 +171,7 @@ it('checks multipart stream scope before charging even when the principal retain
 it.each(['principal permission', 'owner permission', 'legacy owner permission', 'run scope'])(
     'Harness prediction checks target %s before admission or SSE headers',
     async (missing) => {
-        const harness = { ...flow, id: HARNESS, type: 'HARNESS', name: 'baker' }
+        const harness: ChatFlow = { ...flow, id: HARNESS, type: 'HARNESS', name: 'baker' }
         mockFlows.set(HARNESS, harness)
         grant(HARNESS, 'HARNESS')
         const principal = key({ scopes: missing === 'run scope' ? ['predict', 'stream'] : ['predict', 'stream', 'harness:run'] })
