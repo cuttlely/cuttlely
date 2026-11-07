@@ -132,6 +132,24 @@ test('SQL quotas atomically admit only the allowed racing requests and rollback 
         await data.destroy()
     }
 })
+test('a rolled-back monthly refusal does not advertise uncommitted daily usage headers', async () => {
+    clearMinuteBuckets()
+    const data = await database()
+    try {
+        await addAccessKeys(data.createQueryRunner())
+        const key = { id: 'headers-quota', accessPolicy: parsePolicy({ daily: 5, monthly: 1, rpm: 0 }) }
+        await consume(data, key, 'predict')
+        const before = await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id })
+        const headers = new Map()
+        await assert.rejects(consume(data, key, 'predict', { setHeader: (name, value) => headers.set(name, value) }), { statusCode: 429 })
+        assert.ok(headers.has('Retry-After'))
+        assert.equal(headers.has('X-RateLimit-Day-Remaining'), false)
+        assert.equal(headers.has('X-RateLimit-Day-Reset'), false)
+        assert.deepEqual(await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id }), before)
+    } finally {
+        await data.destroy()
+    }
+})
 test('RPM is key-wide across operations and credentials; UTC quota rollovers retain bounded storage', async () => {
     clearMinuteBuckets()
     const data = await database()
@@ -454,6 +472,55 @@ test('management API creates deny-by-default principals, validates grants and pr
             permissions: ['credentials:view'],
             accessPolicy: compatibility
         })
+        // A retained bearer has its own monotonic cutoff, independent of later principal expiry edits.
+        const keyService = serverRequire('./src/services/apikey/index.ts').default
+        const legacySecret = 'fixture-legacy-expiry-bearer'
+        const pastExpiry = new Date(Date.now() - 10000)
+        await data.getRepository(ApiKey).save({
+            id: 'legacy-expiry',
+            apiKey: storedApiKeyLookup(legacySecret),
+            apiSecret: generateSecretHash(legacySecret),
+            keyName: 'Legacy expiry',
+            workspaceId: 'workspace-a',
+            permissions: ['chatflows:view'],
+            accessPolicy: compatibility,
+            expiresAt: pastExpiry
+        })
+        assert.equal(await keyService.getApiKey(legacySecret), undefined)
+        assert.equal((await request(app).put('/apikey/legacy-expiry').send(scoped)).status, 200)
+        assert.equal(await keyService.getApiKey(legacySecret), undefined, 'principal expiry edit must not revive a retained expired bearer')
+        const futureSecret = 'fixture-legacy-future-expiry-bearer'
+        const futureExpiry = new Date(Date.now() + 600000)
+        await data.getRepository(ApiKey).save({
+            id: 'legacy-future-expiry',
+            apiKey: storedApiKeyLookup(futureSecret),
+            apiSecret: generateSecretHash(futureSecret),
+            keyName: 'Legacy future expiry',
+            workspaceId: 'workspace-a',
+            permissions: ['chatflows:view'],
+            accessPolicy: compatibility,
+            expiresAt: futureExpiry
+        })
+        assert.equal((await request(app).put('/apikey/legacy-future-expiry').send(scoped)).status, 200)
+        assert.equal(
+            (await data.getRepository(ApiKey).findOneByOrFail({ id: 'legacy-future-expiry' })).legacyRevokedAt.getTime(),
+            futureExpiry.getTime()
+        )
+        const earlierExpiry = new Date(Date.now() + 300000)
+        assert.equal(
+            (
+                await request(app)
+                    .put('/apikey/legacy-future-expiry')
+                    .send({ ...scoped, expiresAt: earlierExpiry.toISOString() })
+            ).status,
+            200
+        )
+        assert.equal((await request(app).put('/apikey/legacy-future-expiry').send(scoped)).status, 200)
+        assert.equal(
+            (await data.getRepository(ApiKey).findOneByOrFail({ id: 'legacy-future-expiry' })).legacyRevokedAt.getTime(),
+            earlierExpiry.getTime()
+        )
+        assert.equal((await keyService.getApiKey(futureSecret)).id, 'legacy-future-expiry')
         owner = false
         actorPermissions = ['apikeys:update', 'apikeys:delete', 'credentials:view']
         assert.equal((await request(app).post('/apikey/narrow-legacy/rotate').send({ graceSeconds: 0 })).status, 200)

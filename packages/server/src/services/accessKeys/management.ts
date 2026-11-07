@@ -183,6 +183,21 @@ export const updateAccessKey: RequestHandler = action(async (req) => {
     const data = await accessData()
     await serial(() =>
         data.transaction(async (manager) => {
+            const repo = manager.getRepository(ApiKey)
+            const fresh = await repo.findOneByOrFail({ id: key.id, workspaceId: key.workspaceId })
+            // The retained bearer has no credential row. Preserve its earliest principal-expiry
+            // cutoff before replacing that expiry, using the same monotonic retirement field as rotation.
+            const cutoffs = [fresh.expiresAt, input.expiresAt].filter((date): date is Date => !!date)
+            if (cutoffs.length) {
+                const cutoff = new Date(Math.min(...cutoffs.map((date) => new Date(date).getTime())))
+                await repo
+                    .createQueryBuilder()
+                    .update()
+                    .set({ legacyRevokedAt: cutoff })
+                    .where('id = :id', { id: key.id })
+                    .andWhere('(legacyRevokedAt IS NULL OR legacyRevokedAt > :cutoff)', { cutoff })
+                    .execute()
+            }
             key.keyName = req.body.keyName.trim()
             key.accessPolicy = input.policy
             key.permissions = input.permissions

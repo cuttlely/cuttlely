@@ -39,8 +39,10 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
         for (const [id, bucket] of minutes) if (bucket.minute !== minute) minutes.delete(id)
         const ids = [`${key.id}:*`, `${key.id}:${operation}`]
         if (ids.some((id) => (minutes.get(id)?.count || 0) >= policy.rpm) && policy.rpm) limited(res, (minute + 1) * 60000, now)
-        if (minutes.size > 20000) throw new AppError(503, 'Access key limiter is at capacity.')
+        if (minutes.size + ids.filter((id) => !minutes.has(id)).length > 20000)
+            throw new AppError(503, 'Access key limiter is at capacity.')
         const windows = utcWindows(now)
+        const headers: Array<[string, string]> = []
         await data.transaction(async (manager) => {
             const repo = manager.getRepository(ApiKeyUsage)
             for (const [period, limit, reset, header] of [
@@ -64,8 +66,8 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
                     if (!result.affected) limited(res, reset, now)
                 }
                 const total = await repo.findOneByOrFail({ principalId: key.id, period, operation: '*' })
-                if (limit) res?.setHeader(`X-RateLimit-${header}-Remaining`, String(Math.max(0, limit - total.accepted)))
-                res?.setHeader(`X-RateLimit-${header}-Reset`, String(Math.ceil(reset / 1000)))
+                if (limit) headers.push([`X-RateLimit-${header}-Remaining`, String(Math.max(0, limit - total.accepted))])
+                headers.push([`X-RateLimit-${header}-Reset`, String(Math.ceil(reset / 1000))])
             }
             // Only current day/month per key/operation: bounded storage, even on a long-lived install.
             await repo
@@ -75,6 +77,7 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
                 .andWhere('period NOT IN (:...periods)', { periods: [windows.day, windows.month] })
                 .execute()
         })
+        for (const [name, value] of headers) res?.setHeader(name, value)
         for (const id of ids) minutes.set(id, { minute, count: (minutes.get(id)?.count || 0) + 1 })
         if (policy.rpm) res?.setHeader('X-RateLimit-Remaining', String(Math.max(0, policy.rpm - (minutes.get(ids[0])?.count || 0))))
         res?.setHeader('X-RateLimit-Reset', String((minute + 1) * 60))
