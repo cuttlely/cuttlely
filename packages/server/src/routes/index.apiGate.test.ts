@@ -27,7 +27,10 @@ const mockSafeRecordAudit = jest.fn()
 const mockLiveInviteUser = jest.fn()
 
 // This suite probes the outer sign-in gate; scoped route behavior is exercised by accessKeys/authorization.test.ts.
-jest.mock('../services/accessKeys/routes', () => ({ accessKeyRouteGuard: (_req: unknown, _res: unknown, next: () => void) => next() }))
+jest.mock('../services/accessKeys/routes', () => ({
+    ...jest.requireActual('../services/accessKeys/routes'),
+    accessKeyRouteGuard: (_req: unknown, _res: unknown, next: () => void) => next()
+}))
 
 jest.mock('../controllers/nvidia-nim', () => {
     const actual = jest.requireActual('../controllers/nvidia-nim').default
