@@ -727,8 +727,7 @@ it('does not make a still-bound public flow anonymous when enforcement is enable
 })
 
 it('preserves an authentication-store outage as unavailable rather than an invalid bearer', async () => {
-    const { AppError } = await import('../../errors/appError')
-    mockKeyError = new AppError(503, 'Access key verification is unavailable.')
+    mockKeyError = new Error('fixture-store-failure')
     await expect(authorizeFlowKey(req(), flow)).rejects.toMatchObject({ statusCode: 503 })
     expect(mockConsume).not.toHaveBeenCalled()
 })

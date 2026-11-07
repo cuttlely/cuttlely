@@ -319,7 +319,7 @@ describe('Orchestrate auth matrix', () => {
         ;(apikeyService.getApiKey as jest.Mock).mockImplementationOnce(async () => {
             throw new Error('lookup failed')
         })
-        expectIbmError(await post(K, hi, withKey()), 401, 'unauthorized')
+        expectIbmError(await post(K, hi, withKey()), 503, 'unavailable')
     })
 })
 

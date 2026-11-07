@@ -39,7 +39,10 @@ export async function authenticateRequest(req: Request): Promise<ApiKey | undefi
     try {
         key = await service.getApiKey(supplied)
     } catch (error) {
-        if (accessRollout() === 'on') throw error
+        if (accessRollout() === 'on') {
+            if (error instanceof AppError) throw error
+            throw new AppError(503, 'Access key verification is unavailable.')
+        }
         return undefined
     }
     if (!key || !principalActive(key)) return undefined

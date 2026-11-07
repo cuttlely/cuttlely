@@ -950,7 +950,7 @@ describe('A2A auth matrix', () => {
         ;(apikeyService.getApiKey as jest.Mock).mockImplementationOnce(async () => {
             throw new Error('lookup failed')
         })
-        expectIbmError(await post(K, sendBody('Hi'), withKey()), 401, 'unauthorized')
+        expectIbmError(await post(K, sendBody('Hi'), withKey()), 503, 'unavailable')
         const ok = await post(K, sendBody('Hi'), withKey())
         expect(ok.headers['set-cookie']).toBeUndefined()
         const card = await getCard(K, withKey())
