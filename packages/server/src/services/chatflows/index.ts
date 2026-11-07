@@ -751,6 +751,12 @@ const updateChatflow = async (
         throw new AppError(400, 'Invalid API access mode.')
     if (updateChatFlow.apikeyid && updateChatFlow.apikeyid !== chatflow.apikeyid && updateChatFlow.apiAccessMode === undefined)
         updateChatFlow.apiAccessMode = 'private'
+    const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (chatflow.apikeyid ?? null)
+    const typeChanging =
+        (updateChatFlow.type === '' ? 'CHATFLOW' : updateChatFlow.type || chatflow.type || 'CHATFLOW') !== (chatflow.type || 'CHATFLOW')
+    const conditional = options.expectedFlowData !== undefined || typeChanging
+    if ((rebinding || updateChatFlow.apiAccessMode !== undefined) && conditional)
+        throw new AppError(400, 'Change API access separately from canvas restoration or type changes.')
     if (typeof updateChatFlow.flowData === 'string') updateChatFlow.flowData = stampNodePack(updateChatFlow.flowData)
     if (updateChatFlow.flowData && containsBase64File(updateChatFlow)) {
         updateChatFlow.flowData = stampNodePack(
@@ -801,17 +807,12 @@ const updateChatflow = async (
     const skipHarnessSync = await validateHarnessCanvas(newDbChatflow, options.caller)
     // The caller's list applies when the canvas changes or the flow is rebound to another key (or to none), because the
     // stored cards then run under a different key. Another field alone, such as the category, does not need it.
-    const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (previousRow.apikeyid ?? null)
     await validateReferencedHarnesses(newDbChatflow, options.caller, updateChatFlow.flowData !== undefined || rebinding)
     await validateEtlCanvas(newDbChatflow)
     let dbResponse: ChatFlow
-    const typeChanging = (updateChatFlow.type || 'CHATFLOW') !== (storedType || 'CHATFLOW')
     // Publish writes the canvas only. Putting a version Live also writes the name and type, still conditional
     // on the canvas that was checked. A type change is conditional on there being no draft.
     const canvasOnly = options.expectedFlowData !== undefined && !typeChanging && updateChatFlow.name == null
-    const conditional = options.expectedFlowData !== undefined || typeChanging
-    if ((rebinding || updateChatFlow.apiAccessMode !== undefined) && conditional)
-        throw new AppError(400, 'Change API access separately from canvas restoration or type changes.')
     // Document store usage is updated before the save on both paths, so a later save's update always lands last,
     // as between two ordinary saves.
     await _checkAndUpdateDocumentStoreUsage(newDbChatflow, workspaceId)

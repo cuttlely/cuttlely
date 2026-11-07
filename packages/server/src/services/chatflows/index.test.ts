@@ -1649,3 +1649,20 @@ describe('getAllChatflows for an API key', () => {
         expect(wheres.some(([sql]) => sql.includes('HARNESS'))).toBe(false)
     })
 })
+
+it.each([{ apiAccessMode: 'private' }, { apikeyid: 'new-key' }])(
+    'rejects API-access changes during restoration before storing uploaded files: %j',
+    async (access) => {
+        const stored = makeChatflow({ type: 'CHATFLOW', flowData: makePlainFlowData() })
+        mockContainsBase64File.mockReturnValue(true)
+        const files = jest.requireMock('../../utils/fileRepository').updateFlowDataWithFilePaths
+        await expect(
+            chatflowsService.updateChatflow(stored as any, { ...access, flowData: makePlainFlowData() } as any, 'org-1', 'ws-1', 'sub-1', {
+                expectedFlowData: stored.flowData
+            })
+        ).rejects.toMatchObject({ statusCode: 400 })
+        expect(files).not.toHaveBeenCalled()
+        expect(mockRepo.save).not.toHaveBeenCalled()
+        expect(mockCreateOrUpdateSchedule).not.toHaveBeenCalled()
+    }
+)
