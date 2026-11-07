@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   User Management lets an organization owner cancel a pending owner invitation and revoke its invite links. Active owners remain read-only, and a cancellation is refused if the invitation has already been accepted.
+
 ### Added
 
 -   Access Keys unifies inbound API and SDK authorization as workspace principals with multiple rotatable credentials, explicit resource/operation grants, expiry, revoke/rotation grace, origin/IP policies, RPM and UTC quotas, usage counters and audit events. Multiple keys can access the same published flow, Harness or Dashflows report. New keys grant no resources.

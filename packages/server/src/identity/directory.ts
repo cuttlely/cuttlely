@@ -265,8 +265,8 @@ function enabledOwnersSql(sql: Sql): string {
           AND LOWER(r.${q(sql, 'name')}) = 'owner'`
 }
 
-async function enabledOwnerIds(query: QueryFn, sql: Sql, organizationId: string): Promise<string[]> {
-    const rows = await query(enabledOwnersSql(sql), [organizationId])
+async function enabledOwnerIds(query: QueryFn, sql: Sql, organizationId: string, lock = false): Promise<string[]> {
+    const rows = await query(enabledOwnersSql(sql) + (lock && sql.type !== 'sqlite' ? ' FOR UPDATE' : ''), [organizationId])
     return rows.map((row) => text(cell(row, 'userId'))).filter((id) => id.length > 0)
 }
 
@@ -849,7 +849,8 @@ export async function deleteOrganizationUser(
     sql: Sql,
     actor: DirectoryActor,
     organizationId: string,
-    userId: string
+    userId: string,
+    options: { invitationOnly?: boolean } = {}
 ): Promise<{ id: string }> {
     sameOrg(actor, organizationId)
     if (!userId) throw new DirectoryError(400, 'User is required')
@@ -861,14 +862,24 @@ export async function deleteOrganizationUser(
                 throw new DirectoryError(403, 'Only an owner can remove someone from every team')
             }
             await lockOrgOwners(query, sql, organizationId, userId)
+            // Check current, active ownership under the lock, including on repeatable-read databases.
+            const owners = await enabledOwnerIds(query, sql, organizationId, true)
+            if (!owners.includes(actor.id)) {
+                throw new DirectoryError(403, 'Only an active owner can remove someone from every team')
+            }
             const membership = await query(
-                `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
-             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                `SELECT ou.${q(sql, 'userId')} AS userId, u.${q(sql, 'status')} AS userStatus
+                 FROM ${q(sql, 'organization_user')} ou
+                 INNER JOIN ${q(sql, 'user')} u ON u.${q(sql, 'id')} = ou.${q(sql, 'userId')}
+                 WHERE ou.${q(sql, 'organizationId')} = ? AND ou.${q(sql, 'userId')} = ?${sql.type === 'sqlite' ? '' : ' FOR UPDATE'}`,
                 [organizationId, userId]
             )
             if (!membership.length) throw new DirectoryError(404, 'User not found')
-            const owners = await enabledOwnerIds(query, sql, organizationId)
             if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
+            if (userId === actor.id) throw new DirectoryError(403, 'You cannot remove yourself from the organization')
+            if (options.invitationOnly && text(cell(membership[0], 'userStatus')).toLowerCase() !== 'invited') {
+                throw new DirectoryError(409, 'This invitation is no longer pending. Refresh the user list.')
+            }
             const scimLinks = await scimLinksForOrganizationRemoval(query, sql, organizationId, userId)
             if (scimLinks.some((link) => !link.deleted)) {
                 scimLinkRefused = true
@@ -920,7 +931,7 @@ export async function deleteOrganizationUser(
         if (error instanceof DirectoryError && error.status === 409) {
             if (scimLinkRefused) {
                 await auditScimReferenceRefusal(sql, actor, 'user_disable', 'organization membership removal', { userId })
-            } else {
+            } else if (error.message === 'The last owner cannot be removed') {
                 await auditLastOwnerRefusal(sql, actor, userId, 'organization membership removal', 'user_disable')
             }
         }
