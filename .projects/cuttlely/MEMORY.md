@@ -93,6 +93,9 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **Refresh downstream identity with admission authority.** Refreshing a key at admission must also refresh the permissions used by route RBAC; recheck additional route permissions before charging. Body parsing can separate preflight from admission by an arbitrary amount of time. A migration compatibility marker must not admit a previously session-only route in off/shadow.
+-   **Bound audit dedupe without silencing other principals.** Evict old dedupe entries at capacity instead of dropping all new audit events. Quota-cache capacity is separate: refuse new buckets while keeping existing principal budgets enforceable. Emit quota headers only after the transaction commits.
+
 -   **Preflight authentication is not charged admission.** A slow body can outlive credential or owner authorization. Refresh both at the first charge and recheck every uncharged prerequisite against that principal, including streaming and Harness execution authority. Keep request caching after admission so nested work charges once and admitted runs may finish.
 
 -   **The version page and the canvas are both chromeless, so Back has to pop.** The history drawer pushes `/versions/:id/:sha` on top of the canvas. Pushing the canvas URL again from that page stacks a second canvas, and the canvas Back button (`navigate(-1)` when `history.state.idx > 0`) returns to the version page. Leave with `versionExit`: pop when a previous page exists, otherwise replace this page with the canvas path. Open as draft and Restore use the same exit.

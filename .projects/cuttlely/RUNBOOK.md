@@ -280,6 +280,8 @@ Protected-evidence sizing: Admin → Agent runtime → Limits → Evidence budge
 
 ## Access keys rollout
 
+Dashflows stays session-only in off/shadow; bearer access requires on and a registered route. Public flow mode does not bypass a retained legacy key binding. Policy edits preserve the retained bearer’s earliest expiry cutoff; rotate to inherit a later principal expiry. The API dialog keeps access changes disabled until it has a known rollout mode.
+
 With enforcement on, anonymous lead creation requires an explicitly public parent flow. Off/shadow retain legacy anonymous collection, including private flows. Account reports use published Harness grants; refresh uses editable Harness grants.
 
 Build the server, back up the database and installation encryption key, then run `node scripts/access-keys-migration-report.cjs` on a restored copy with its normal database environment. It prints aggregate diagnostics only. Startup migrates existing secret verifiers without rotation and records public/private flow modes. Never infer resource grants from an unknown workspace or a missing Harness name.
