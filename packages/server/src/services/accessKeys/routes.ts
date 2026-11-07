@@ -21,7 +21,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         const root = parts[0] || ''
         if (['mcp', 'public-dashflows', 'scim'].includes(root)) return // separate credentials, unchanged
         if (!req.headers.authorization && !req.user?.apiKeyId) return
-        if (['prediction', 'attachments', 'feedback', 'get-upload-file', 'vector', 'orchestrate', 'a2a', 'verify'].includes(root)) return
+        if (['prediction', 'attachments', 'feedback', 'get-upload-file', 'orchestrate', 'a2a', 'verify'].includes(root)) return
+        if (root === 'vector' && req.method === 'POST' && parts[1] === 'upsert' && parts.length <= 3) return
         const key = accessContext(req)?.key || (await authenticateRequest(req))
         if (!key) throw new AppError(401, 'Unauthorized')
         if (accessRollout() !== 'on') {
