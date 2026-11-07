@@ -442,3 +442,37 @@ it('allows Harness status/result access with read scope alone and never turns it
     expect(await keyHarnessNames(reader, false)).toEqual(['baker'])
     expect(await keyHarnessNames(reader, true)).toEqual([])
 })
+
+it.each([null, [], ['other'], ['baker']].map((harnesses) => ({ harnesses })))(
+    'preserves the migrated legacy Harness allowlist $harnesses in off/shadow',
+    async ({ harnesses }) => {
+        const { harnessCallerFor, harnessRefusedFor, setHarnessKeyLookup } = await import('../harnesses/apiAccess')
+        const legacy = {
+            ...key({ scopes: ['harness:run', 'harness:read'] }),
+            accessPolicy: { ...parsePolicy({ scopes: ['harness:run', 'harness:read'] }), legacy: true },
+            harnesses
+        }
+        // Migration derives a grant from apikeyid independently of the original Harness list.
+        mockFlows.set(HARNESS, { id: HARNESS, name: 'baker', type: 'HARNESS', workspaceId: 'one', apikeyid: legacy.id })
+        grant(HARNESS, 'HARNESS')
+        setHarnessKeyLookup(async () => legacy)
+        const previous = process.env.INBOUND_ACCESS_V2
+        try {
+            for (const mode of ['off', 'shadow', 'on']) {
+                process.env.INBOUND_ACCESS_V2 = mode
+                for (const method of ['POST', 'GET']) {
+                    const r = req()
+                    r.method = method
+                    r.user = { apiKeyId: legacy.id, activeWorkspaceId: 'one' } as Request['user']
+                    const caller = await harnessCallerFor(r)
+                    expect(caller).toEqual({ via: 'api_key', apiKeyId: legacy.id, harnesses: mode === 'on' ? ['baker'] : harnesses || [] })
+                    expect(harnessRefusedFor(caller, ['baker'])).toBe(mode === 'on' || harnesses?.includes('baker') ? null : 'baker')
+                }
+            }
+        } finally {
+            setHarnessKeyLookup(null)
+            if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+            else process.env.INBOUND_ACCESS_V2 = previous
+        }
+    }
+)

@@ -3,12 +3,14 @@ import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { accessData } from './data'
 import { principalActive } from './credentials'
+import { accessRollout } from './rollout'
 
 /** Stable canvas IDs are converted to names only at the existing runtime boundary. Deleted/recreated names inherit nothing. */
 export async function keyHarnessNames(key: ApiKey, forRun = true): Promise<string[]> {
     if (!key.accessPolicy) return Array.isArray(key.harnesses) ? key.harnesses : []
+    if (!principalActive(key)) return []
+    if (key.accessPolicy.legacy && accessRollout() !== 'on') return Array.isArray(key.harnesses) ? key.harnesses : []
     if (
-        !principalActive(key) ||
         !(forRun
             ? key.accessPolicy.scopes.includes('harness:run')
             : key.accessPolicy.scopes.some((s) => ['harness:run', 'harness:read', 'api:read'].includes(s)))
