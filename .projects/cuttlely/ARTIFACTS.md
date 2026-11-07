@@ -95,7 +95,7 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 ## Access keys
 
--   `docs/reference/access-keys.md`: policy, migration, rollout modes, endpoint matrix and explicit follow-ons.
+-   `docs/reference/access-keys.md`: policy, migration, rollout modes, endpoint matrix and explicit follow-ons. `docs/api.md` documents session-based key management and usable prediction grants; `packages/api-documentation/src/yml/swagger.yml` defines the matching management endpoints and schemas. README, FAQ, SECURITY, upgrade guides and `website/src/pages/{index,flowise}.astro` share these boundaries; website FAQ/security/docs pages are generated from repository Markdown.
 -   `packages/server/src/services/accessKeys/`: credential lifecycle, authorization, closed route registry, caller policy, admission, management and Dashflows reports.
 -   `packages/server/src/database/migrations/AccessKeys.ts` and `accessKeyGrants.ts`: portable schema migration and shared read-only grant planner.
 -   `scripts/access-keys-migration-report.cjs`: aggregate dry-run against deployment database configuration, without secrets or tenant content.
@@ -104,7 +104,7 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 ## Pending owner invitations
 
--   `docs/how-to/users-without-authkit.md`: owner invitation cancellation and active-owner protection.
+-   `docs/how-to/users-without-authkit.md`, `sign-in.md`, `roles-and-permissions.md` and `docs/reference/local-directory-api.md`: pending-owner invitation cancellation, transactional link revocation, stale acceptance conflicts and active-owner UI protection.
 -   `packages/server/src/identity/directory.ts` and `directoryRoutes.ts`: locked active-owner reauthorization and invitation-only conflict checks.
 -   `packages/ui/src/views/users/userActions.js`: invitation-only removal request used by the Users view.
 -   `packages/server/src/identity/directory.test.ts`, `localDirectory.test.ts`, `inviteSignIn.test.ts` and `packages/ui/src/views/users/{index,userActions}.test.js`: focused server and UI acceptance coverage.
