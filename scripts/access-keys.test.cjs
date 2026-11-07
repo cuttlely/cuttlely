@@ -536,3 +536,20 @@ for (const dialect of ['sqlite', 'postgres', 'mysql', 'mariadb'])
         assert.equal(tables.size, 0)
         assert.equal(columns.length, 0)
     })
+
+test('usage examples distinguish legacy usage bearers from owner-session model-price commands', () => {
+    const { readFileSync } = require('node:fs')
+    const doc = readFileSync(path.join(__dirname, '../docs/reference/usage-api.md'), 'utf8')
+    const [usage, ownerSession] = doc.split('`CUTTLELY_LOCAL_ADMIN=true`')
+    assert.match(usage, /This bearer example requires a retained legacy key/)
+    assert.doesNotMatch(ownerSession, /This bearer example requires a retained legacy key/)
+    const commands = [...ownerSession.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1])
+    assert.equal(commands.length, 3)
+    assert.match(commands[0], /-c "\$COOKIE_JAR".*POST.*\/api\/v1\/auth\/login/)
+    assert.match(commands[1], /-b "\$COOKIE_JAR".*PUT.*\/api\/v1\/model-prices/)
+    assert.match(commands[2], /-b "\$COOKIE_JAR".*DELETE.*\/api\/v1\/model-prices/)
+    for (const command of commands) {
+        assert.match(command, /x-request-from: internal/)
+        assert.doesNotMatch(command, /Authorization|Bearer/)
+    }
+})

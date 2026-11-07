@@ -155,8 +155,6 @@ An API key is refused on these three routes, including a key that would be allow
 
 An owner who signs in with AuthKit has a `cuttlely-local-session` cookie backed by an `identity_local_session` row. Send that cookie on `PUT` and `DELETE` with the same `x-request-from: internal` header. Do not use the password login below unless `pnpm user` has set a local password.
 
-This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
-
 ```bash
 curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
@@ -164,16 +162,12 @@ curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
   -d "{\"email\":\"$CUTTLELY_OWNER_EMAIL\",\"password\":\"$CUTTLELY_OWNER_PASSWORD\"}"
 ```
 
-This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
-
 ```bash
 curl -s -b "$COOKIE_JAR" -X PUT "$CUTTLELY_URL/api/v1/model-prices" \
   -H "Content-Type: application/json" \
   -H "x-request-from: internal" \
   -d '{"model":"gpt-4.1-mini","input":0.5,"output":2}'
 ```
-
-This bearer example requires a retained legacy key; otherwise use the Usage page with a signed-in session.
 
 ```bash
 curl -s -b "$COOKIE_JAR" -X DELETE "$CUTTLELY_URL/api/v1/model-prices?model=gpt-4.1-mini" \
