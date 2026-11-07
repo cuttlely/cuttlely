@@ -1386,6 +1386,7 @@
                 "packages/ui/src/api/apikey.js"
             ],
             "entryPoints": [
+                "packages/ui/src/views/apikey/endpointAccess.js",
                 "packages/server/src/services/accessKeys/authorization.ts",
                 "packages/server/src/services/accessKeys/errors.ts",
                 "packages/server/src/services/accessKeys/management.ts",

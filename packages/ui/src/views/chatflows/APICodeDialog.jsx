@@ -1,3 +1,4 @@
+import { endpointAccessSelection, endpointAccessUpdate } from '../apikey/endpointAccess'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect, useMemo } from 'react'
@@ -119,7 +120,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     }, [isWebhookFlow, isScheduleFlow])
     const [value, setValue] = useState(0)
     const [apiKeys, setAPIKeys] = useState([])
-    const [rollout, setRollout] = useState('off')
+    const [rollout, setRollout] = useState(null)
     const [chatflowApiKeyId, setChatflowApiKeyId] = useState('')
     const [selectedApiKey, setSelectedApiKey] = useState({})
     const exampleApiKey = selectedApiKey?.apiKey || '<your-api-key>'
@@ -145,6 +146,9 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
                   ]
                 : [
                       { label: 'Public (no key required)', name: '' },
+                      ...(dialogProps.apiAccessMode === 'private' && !dialogProps.chatflowApiKeyId
+                          ? [{ label: 'Private (scoped access keys unavailable)', name: 'accesskeys' }]
+                          : []),
                       ...apiKeys
                           .filter(
                               (key) =>
@@ -154,7 +158,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
                           )
                           .map((key) => ({ label: key.keyName, name: key.id }))
                   ],
-        [rollout, apiKeys]
+        [rollout, apiKeys, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId]
     )
 
     const onCheckBoxChanged = (newVal) => {
@@ -170,13 +174,11 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
             navigate('/apikey')
             return
         }
+        const updateBody = endpointAccessUpdate(rollout, keyValue)
+        if (!updateBody) return
         setChatflowApiKeyId(keyValue)
         const selectedKey = apiKeys.find((key) => key.id === keyValue)
         setSelectedApiKey(selectedKey || {})
-        const updateBody =
-            rollout === 'on'
-                ? { apiAccessMode: keyValue ? 'private' : 'public', ...(keyValue ? {} : { apikeyid: '' }) }
-                : { apikeyid: keyValue, apiAccessMode: keyValue ? 'private' : 'public' }
         updateChatflowApi.request(dialogProps.chatflowid, updateBody)
     }
 
@@ -752,7 +754,7 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
             setAPIKeys(getAllAPIKeysApi.data)
 
             if (dialogProps.apiAccessMode === 'private' || (dialogProps.apiAccessMode !== 'public' && dialogProps.chatflowApiKeyId)) {
-                setChatflowApiKeyId(rollout === 'on' ? 'accesskeys' : dialogProps.chatflowApiKeyId || '')
+                setChatflowApiKeyId(endpointAccessSelection(rollout, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId))
                 setSelectedApiKey(getAllAPIKeysApi.data.find((key) => key.id === dialogProps.chatflowApiKeyId))
             } else {
                 setChatflowApiKeyId('')
@@ -763,11 +765,12 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
 
     useEffect(() => {
         if (show) {
+            setRollout(null)
             getAllAPIKeysApi.request()
             apiKeyApi
                 .options()
                 .then((result) => setRollout(result.data.rollout))
-                .catch(() => setRollout('off'))
+                .catch(() => setRollout(null))
             getIsChatflowStreamingApi.request(dialogProps.chatflowid)
         }
 
@@ -864,6 +867,7 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                 <Available permission={'chatflows:update,agentflows:update'}>
                                     <Dropdown
                                         name='SelectKey'
+                                        disabled={!['off', 'shadow', 'on'].includes(rollout)}
                                         disableClearable={true}
                                         options={keyOptions}
                                         onSelect={(newValue) => onApiKeySelected(newValue)}
@@ -872,6 +876,9 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                 </Available>
                             </div>
                         </div>
+                        {!['off', 'shadow', 'on'].includes(rollout) && (
+                            <p>Access settings are unavailable until the rollout status can be loaded.</p>
+                        )}
                         <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>
                         {chatflowApiKeyId && (
                             <p>

@@ -34,7 +34,7 @@ import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import TablePagination, { DEFAULT_ITEMS_PER_PAGE } from '@/ui-component/pagination/TablePagination'
 import { Available } from '@/ui-component/rbac/available'
 import APIKeyDialog from './APIKeyDialog'
-import { apiKeyOwnerNotice } from './ownerNotice'
+import { apiKeyOwnerNotice, apiKeyRevokeConfirmation } from './ownerNotice'
 
 // API
 import apiKeyApi from '@/api/apikey'
@@ -344,16 +344,7 @@ const APIKey = () => {
     }
 
     const deleteKey = async (key) => {
-        const confirmPayload = {
-            title: `Delete`,
-            description:
-                key.chatFlows.length === 0
-                    ? `Revoke key [${key.keyName}] ? `
-                    : `Revoke key [${key.keyName}] ?\n There are ${key.chatFlows.length} chatflows using this key.`,
-            confirmButtonName: 'Delete',
-            cancelButtonName: 'Cancel',
-            customBtnId: 'btn_initiateDeleteApiKey'
-        }
+        const confirmPayload = apiKeyRevokeConfirmation(key)
         const isConfirmed = await confirm(confirmPayload)
 
         if (isConfirmed) {
@@ -361,7 +352,7 @@ const APIKey = () => {
                 const deleteResp = await apiKeyApi.deleteAPI(key.id)
                 if (deleteResp.data) {
                     enqueueSnackbar({
-                        message: 'API key deleted',
+                        message: 'Access key revoked',
                         options: {
                             key: new Date().getTime() + Math.random(),
                             variant: 'success',
