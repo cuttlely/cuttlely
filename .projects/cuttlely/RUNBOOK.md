@@ -280,6 +280,8 @@ Protected-evidence sizing: Admin → Agent runtime → Limits → Evidence budge
 
 ## Access keys rollout
 
+With enforcement on, anonymous lead creation requires an explicitly public parent flow. Off/shadow retain legacy anonymous collection, including private flows. Account reports use published Harness grants; refresh uses editable Harness grants.
+
 Build the server, back up the database and installation encryption key, then run `node scripts/access-keys-migration-report.cjs` on a restored copy with its normal database environment. It prints aggregate diagnostics only. Startup migrates existing secret verifiers without rotation and records public/private flow modes. Never infer resource grants from an unknown workspace or a missing Harness name.
 
 `INBOUND_ACCESS_V2=off` is the default. Use `shadow` for measured legacy/scoped flow comparisons without charging quotas; it does not simulate every route or limit. Use `on` for enforcement and new policy management. Roll back by returning to `off` and retaining the schema. Scoped principals cannot use the legacy path. New credentials depend on the durable installation encryption key. `CUTTLELY_API_KEY_INSTANCES` must be `1` until shared admission is implemented. Run `node --test scripts/access-keys.test.cjs` for execution-level SQLite and portable dialect fixtures, then `pnpm verify` on Node 24. The guide's [route matrix](../../docs/reference/access-keys.md#api-route-matrix) defines allowed endpoints and explicit deferrals.

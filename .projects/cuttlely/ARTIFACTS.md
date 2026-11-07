@@ -99,8 +99,9 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 -   `packages/server/src/services/accessKeys/`: credential lifecycle, authorization, closed route registry, caller policy, admission, management and Dashflows reports.
 -   `packages/server/src/database/migrations/AccessKeys.ts` and `accessKeyGrants.ts`: portable schema migration and shared read-only grant planner.
 -   `scripts/access-keys-migration-report.cjs`: aggregate dry-run against deployment database configuration, without secrets or tenant content.
--   `scripts/access-keys.test.cjs`: real SQLite migration/lifecycle/management/concurrency tests and four-dialect portable fixtures; included in `pnpm verify`.
+-   `scripts/access-keys.test.cjs`: real SQLite migration/lifecycle/management/concurrency tests and four-dialect portable fixtures, plus the Usage API session-example contract; included in `pnpm verify`.
 -   `packages/server/src/services/accessKeys/authorization.test.ts` and `packages/server/src/utils/authorizeUpsert.test.ts`: target Harness run RBAC and pre-SSE admission, exact legacy Harness lists in off/shadow, non-executing flow scopes, and internal vector session checks before file writes with authorized external upsert coverage.
+-   `packages/server/src/services/accessKeys/leads.test.ts` exercises the real lead route/controller/service with persistence spies, explicit-public anonymous access, scoped refusals, quota admission and off/shadow compatibility. `authorization.test.ts` covers post-preflight lifecycle changes, refreshed execution prerequisites and published-report versus editable-refresh Harness grants. The Orchestrate/A2A controller suites mount preflight before JSON parsing and assert exact adapter error envelopes.
 -   `packages/ui/src/views/apikey/`: principal editor, grouped resource/operation controls, policy preview and credential lifecycle.
 
 ## Pending owner invitations
