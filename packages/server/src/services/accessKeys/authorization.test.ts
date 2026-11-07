@@ -25,7 +25,10 @@ jest.mock('../harnesses', () => ({
     }
 }))
 jest.mock('../apikey', () => ({ __esModule: true, default: { getApiKey: async (token: string) => mockKeys.get(token) } }))
-jest.mock('./limiter', () => ({ consume: (...args: unknown[]) => (mockConsume as any)(...args) }))
+jest.mock('./limiter', () => ({
+    consume: (...args: unknown[]) => (mockConsume as any)(...args),
+    assertCapacity: jest.fn(async () => undefined)
+}))
 jest.mock('./audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
 jest.mock('./data', () => ({
     accessData: async () => ({
@@ -297,7 +300,8 @@ it('preflight refuses before JSON parsing and file storage; inactive and malform
 })
 it('does not confuse a signed-in session with an API principal', async () => {
     const r = req()
-    setAccessContext(r, key({ scopes: ['predict'] }))
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    setAccessContext(r, mockKeys.get('fixture-token')!)
     grant()
     await expect(authorizeKey(r, 'api:read', 'one', { resourceType: 'CHATFLOW', resourceId: FLOW })).rejects.toMatchObject({
         statusCode: 403
@@ -509,3 +513,53 @@ it.each([null, [], ['other'], ['baker']].map((harnesses) => ({ harnesses })))(
         }
     }
 )
+
+it.each(['credential retired', 'principal revoked', 'principal expired', 'owner disabled', 'owner removed', 'owner permission removed'])(
+    'revalidates %s after preflight and before charged execution',
+    async (change) => {
+        const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+        mockKeys.set(token, { ...key({ scopes: ['predict'] }), ownerUserId: 'creator' })
+        grant()
+        const execute = jest.fn((_req: Request, res: express.Response) => res.json({ ok: true }))
+        const app = express()
+        app.use(accessKeyPreflight)
+        // Model a lifecycle change while the body is arriving, after preflight cached authentication.
+        app.use((_req, _res, next) => {
+            if (change === 'credential retired') mockKeys.delete(token)
+            if (change === 'principal revoked') mockKeys.set(token, { ...mockKeys.get(token)!, disabledAt: new Date() })
+            if (change === 'principal expired') mockKeys.set(token, { ...mockKeys.get(token)!, expiresAt: new Date(0) })
+            if (change === 'owner disabled') mockOwnerStatus = 'disabled'
+            if (change === 'owner removed') mockOwnerPermissions = null
+            if (change === 'owner permission removed') mockOwnerPermissions = []
+            next()
+        })
+        app.use(express.json())
+        app.post(
+            '/api/v1/prediction/:id',
+            (req, _res, next) => {
+                void authorizeFlowKey(req, flow).then(() => next(), next)
+            },
+            execute
+        )
+        app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+            res.status(error.statusCode || 500).json({ message: error.message })
+        )
+        const response = await request(app)
+            .post('/api/v1/prediction/' + FLOW)
+            .set('Authorization', 'Bearer ' + token)
+            .send({ question: 'Hi' })
+        expect(response.status).toBe(change === 'owner permission removed' ? 403 : 401)
+        expect(execute).not.toHaveBeenCalled()
+        expect(mockConsume).not.toHaveBeenCalled()
+    }
+)
+
+it('keeps admitted operations cached and charges once after a credential is retired', async () => {
+    grant()
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    const r = req()
+    expect(await authorizeFlowKey(r, flow)).toBe(true)
+    mockKeys.delete('fixture-token')
+    expect(await authorizeFlowKey(r, flow)).toBe(true)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
+})

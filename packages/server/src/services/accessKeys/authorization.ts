@@ -71,6 +71,9 @@ export async function hasGrant(data: DataSource, key: ApiKey, resource: Resource
     return !!(await data.getRepository(ApiKeyResource).findOneBy({ principalId: key.id, ...resource }))
 }
 async function checkKey(req: Request, operation: Operation, workspaceId: string, resource?: ResourceGrant, charge = true): Promise<ApiKey> {
+    // Preflight can run long before the body finishes. Refresh credential, principal and owner
+    // at admission; an already admitted operation keeps its request-local authentication.
+    if (charge && !contexts.get(req)?.admitted.has('charged')) contexts.delete(req)
     const key = await authenticateRequest(req)
     if (!key) throw new AppError(401, 'Unauthorized')
     if (key.workspaceId !== workspaceId) throw new AppError(401, 'Unauthorized')

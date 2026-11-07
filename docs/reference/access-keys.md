@@ -38,7 +38,7 @@ The default expiry is 90 days. Presets include 30 days, 90 days, a custom absolu
 
 Creation and rotation reveal a secret once. New credentials use `ctu_live_` or `ctu_test_`, a public token ID and 32 random bytes. Only an indexed HMAC digest, display prefix and final four characters are stored. Lists never return the digest, legacy verifier or bearer value.
 
-Revoke a principal to block new requests using any of its credentials. Revoke an individual credential to retire only that value. Rotation defaults to one hour of overlap; choose 0 for immediate retirement or up to 86,400 seconds. Repeated rotations never extend an earlier credential's cutoff. Revoked credentials do not become valid during grace. Changing principal expiry never revives or extends an already issued credential; rotate to inherit the new expiry. Admitted streams and background runs may finish; new requests see the changed policy without a cross-request cache.
+Revoke a principal to block new requests using any of its credentials. Revoke an individual credential to retire only that value. Rotation defaults to one hour of overlap; choose 0 for immediate retirement or up to 86,400 seconds. Repeated rotations never extend an earlier credential's cutoff. Revoked credentials do not become valid during grace. Changing principal expiry never revives or extends an already issued credential; rotate to inherit the new expiry. Authentication is refreshed immediately before the first charged admission, including when preflight ran before a slow request body. Admitted streams and background runs may finish; new requests see the changed policy without a cross-request cache.
 
 ## Caller policies and counters
 

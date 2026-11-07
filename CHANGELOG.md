@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key admission revalidates credentials, principals and current owner access after preflight so retirement or revocation while the request body arrives prevents execution without consuming quota. Already-admitted operations may finish.
+
 -   Internal vector upsert requires an interactive session before file storage. Harness prediction checks the target canvas's run authority, including current owner permissions, before quota admission or streaming. Migrated legacy keys retain their exact Harness allowlists with enforcement off or in shadow mode. Feedback and file operations require their own scope and parent-flow grant without requiring referenced Harness execution authority.
 -   User Management (`/users`) lets an active organization owner cancel another person’s pending owner invitation and revoke its invite links across the organization’s teams. Active owners remain read-only in the UI; accepted invitations, self-removal and removal of the last active owner are refused.
 
