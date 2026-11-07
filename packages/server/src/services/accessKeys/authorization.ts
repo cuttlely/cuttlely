@@ -153,22 +153,22 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
         await authorizeKey(req, 'stream', flow.workspaceId, flowResource(flow), false)
     if (operation === 'predict' && flow.type === 'HARNESS')
         await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(flow), false)
-    // Nested execution uses the presenting principal, never the flow's old bound key.
-    if (typeof flow.flowData === 'string') {
-        try {
-            JSON.parse(flow.flowData)
-        } catch {
-            throw new AccessKeyPolicyError('Flow authorization data is unavailable.')
-        }
-    }
-    const { referencedHarnessNames } = await import('../harnesses/apiAccess')
-    const names = referencedHarnessNames(flow.flowData)
-    for (const name of names) {
-        const harness = await resolveHarnessFlow(name, flow.workspaceId)
-        if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
-        await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
-    }
     if (operation === 'predict') {
+        // Nested execution uses the presenting principal, never the flow's old bound key.
+        if (typeof flow.flowData === 'string') {
+            try {
+                JSON.parse(flow.flowData)
+            } catch {
+                throw new AccessKeyPolicyError('Flow authorization data is unavailable.')
+            }
+        }
+        const { referencedHarnessNames } = await import('../harnesses/apiAccess')
+        const names = referencedHarnessNames(flow.flowData)
+        for (const name of names) {
+            const harness = await resolveHarnessFlow(name, flow.workspaceId)
+            if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
+            await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
+        }
         const { checkChatflowOrigin } = await import('../../utils/domainValidation')
         const origin = checkChatflowOrigin(flow.chatbotConfig, req.headers.origin)
         if (!origin.allowed) throw new FlowOriginPolicyError(origin.error)

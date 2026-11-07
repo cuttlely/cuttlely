@@ -434,6 +434,39 @@ it('checks external streaming before admission, even after the adapter clears re
     expect(mockConsume).not.toHaveBeenCalled()
 })
 
+it.each([
+    { method: 'get', path: '/feedback', scope: 'feedback:read' },
+    { method: 'post', path: '/feedback', scope: 'feedback:write' },
+    { method: 'post', path: '/attachments/' + FLOW, scope: 'upload' },
+    { method: 'get', path: '/get-upload-file', scope: 'upload' },
+    { method: 'post', path: '/vector/upsert/' + FLOW, scope: 'upload' }
+])('$method $path requires only $scope and its parent grant when the flow references a Harness', async ({ method, path, scope }) => {
+    const parent = { ...flow, flowData: JSON.stringify({ nodes: [{ inputs: { harnessName: 'unavailable' } }] }) }
+    mockKeys.set('fixture-token', key({ scopes: [scope] }))
+    grant()
+    const handle = jest.fn((_req: Request, res: express.Response) => res.json({ ok: true }))
+    const app = express()
+    app.use((req, _res, next) => {
+        void authorizeFlowKey(req, parent).then(() => next(), next)
+    })
+    app.use(handle)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    const send = () =>
+        request(app)
+            [method as 'get' | 'post']('/api/v1' + path)
+            .set('Authorization', 'Bearer fixture-token')
+    expect((await send()).status).toBe(200)
+    expect(handle).toHaveBeenCalledTimes(1)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
+    mockGrants.clear()
+    expect((await send()).status).toBe(403)
+    grant()
+    mockKeys.set('fixture-token', key())
+    expect((await send()).status).toBe(403)
+    expect(handle).toHaveBeenCalledTimes(1)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
+})
+
 it('allows Harness status/result access with read scope alone and never turns it into run authority', async () => {
     const { keyHarnessNames } = await import('./resources')
     const reader = key({ scopes: ['harness:read'] })
