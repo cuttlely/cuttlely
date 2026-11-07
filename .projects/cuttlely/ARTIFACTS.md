@@ -100,6 +100,7 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 -   `packages/server/src/database/migrations/AccessKeys.ts` and `accessKeyGrants.ts`: portable schema migration and shared read-only grant planner.
 -   `scripts/access-keys-migration-report.cjs`: aggregate dry-run against deployment database configuration, without secrets or tenant content.
 -   `scripts/access-keys.test.cjs`: real SQLite migration/lifecycle/management/concurrency tests and four-dialect portable fixtures; included in `pnpm verify`.
+-   `packages/server/src/services/accessKeys/authorization.test.ts` and `packages/server/src/utils/authorizeUpsert.test.ts`: target Harness run RBAC and pre-SSE admission, exact legacy Harness lists in off/shadow, non-executing flow scopes, and internal vector session checks before file writes with authorized external upsert coverage.
 -   `packages/ui/src/views/apikey/`: principal editor, grouped resource/operation controls, policy preview and credential lifecycle.
 
 ## Pending owner invitations
