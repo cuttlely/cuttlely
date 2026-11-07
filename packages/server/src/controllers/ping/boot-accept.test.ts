@@ -1,6 +1,7 @@
 // Architect acceptance checks for the boot profile compile: ping, the cap, one bad profile, and the 1.4.3 notes.
 import fs from 'fs'
 import path from 'path'
+import { performance } from 'perf_hooks'
 import express from 'express'
 import request from 'supertest'
 import { StatusCodes } from 'http-status-codes'
@@ -126,19 +127,20 @@ describe('boot acceptance', () => {
         const script = fs.readFileSync(path.join(ROOT, 'scripts', 'start-cuttlely.sh'), 'utf8')
         const wait = script.match(/wait_for_gateway\(\) \{[\s\S]*?\n\}/)?.[0] || ''
         expect(wait).toContain(`-gt ${BOOT_PASS_CAP_SECONDS}`)
-        expect(wait).toMatch(/while \[\[ "\$\(\( \$\(date \+%s\) - started_epoch \)\)" -lt "\$starting_limit" &&/)
+        expect(wait).toContain('process.hrtime.bigint() / 1000000000n')
+        expect(wait).toContain('while [[ "$(( $("$NODE_BIN" -e "$clock_script") - started_monotonic ))" -lt "$starting_limit" &&')
         expect(wait).not.toMatch(/while true/)
         process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '2'
         block = true
         saved.set('stuck', { name: 'stuck', workspaceId: 'team-1' })
-        const started = Date.now()
+        const started = performance.now()
         await recompileBeforeHermes({
             holdGatewayHealth: () => () => undefined,
             startGateway: async () => undefined,
             finishGatewayBoot: () => undefined
         })
-        expect(Date.now() - started).toBeGreaterThanOrEqual(1500)
-        expect(Date.now() - started).toBeLessThan(8000)
+        expect(performance.now() - started).toBeGreaterThanOrEqual(1500)
+        expect(performance.now() - started).toBeLessThan(8000)
         expect(bootPassBlocksPing()).toBe(false)
         const rows = await harnessesService.listHarnesses('team-1')
         expect(rows.find((row: { name: string }) => row.name === 'stuck')).toMatchObject({
