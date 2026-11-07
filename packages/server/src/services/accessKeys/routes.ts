@@ -76,6 +76,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                 const flow = await data.getRepository(ChatFlow).findOneBy({ id, workspaceId: key.workspaceId })
                 if (!flow) throw new AppError(404, 'Resource not found.')
                 resource = flowResource(flow)
+                // Keep downstream lead middleware on the same canonical id the grant used.
+                if (root === 'leads' && req.body && typeof req.body.chatflowid === 'string') req.body.chatflowid = flow.id
             }
             if (['chatmessage', 'leads'].includes(root)) operation = read ? 'feedback:read' : 'feedback:write'
         } else if (root === 'harnesses' && parts[1]) {
@@ -105,10 +107,14 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     if (report) {
                         const { hasPublishedAccount } = await import('../../routes/dashflows/public')
                         if (!hasPublishedAccount(dashboard.snapshot, parts[3])) throw new AppError(404, 'Account not published.')
-                    } else _res.locals.accessKeyDashboardRevision = dashboard.revision
+                    }
                     const harness = await resolveHarnessFlow(dashboard.definition.harness, key.workspaceId)
                     if (!harness) throw new AppError(403, 'Referenced harness is unavailable.')
                     await authorizeKey(req, 'harness:run', key.workspaceId, flowResource(harness), false)
+                    if (!report) {
+                        _res.locals.accessKeyDashboardRevision = dashboard.revision
+                        _res.locals.accessKeyDashboardHarnessId = harness.id
+                    }
                 }
             } catch (error) {
                 if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
@@ -175,7 +181,7 @@ export const authorizeLeadCreate: RequestHandler = (req, res, next) => {
     void import('../../utils/authorizeFlowAccess')
         .then(({ authorizeFlowAccess }) =>
             authorizeFlowAccess({
-                getChatflowId: (req) => (typeof req.body?.chatflowid === 'string' ? req.body.chatflowid : undefined),
+                getChatflowId: (req) => (typeof req.body?.chatflowid === 'string' ? req.body.chatflowid.toLowerCase() : undefined),
                 sessionNeedsHeader: true
             })(req, res, next)
         )

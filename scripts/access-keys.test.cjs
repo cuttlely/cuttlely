@@ -620,3 +620,71 @@ test('usage examples distinguish legacy usage bearers from owner-session model-p
         assert.doesNotMatch(command, /Authorization|Bearer/)
     }
 })
+
+test('an outer TypeORM transaction cannot erase an admitted SQLite quota charge', async () => {
+    clearMinuteBuckets()
+    const fs = require('node:fs')
+    const os = require('node:os')
+    const path = require('node:path')
+    const file = path.join(os.tmpdir(), `api-keys-quota-nested-${process.pid}.sqlite`)
+    try {
+        try {
+            fs.unlinkSync(file)
+        } catch {}
+        const data = new DataSource({
+            type: 'sqlite',
+            database: file,
+            entities: [ApiKey, ApiKeyCredential, ApiKeyResource, ApiKeyUsage, ApiKeyReport]
+        })
+        await data.initialize()
+        await data.query(`CREATE TABLE apikey (id varchar PRIMARY KEY, apiKey text NOT NULL, apiSecret text NOT NULL, keyName text NOT NULL,
+            permissions text NOT NULL DEFAULT '[]', updatedDate datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, workspaceId text NOT NULL,
+            ownerUserId varchar, disabledAt datetime, harnesses text)`)
+        await data.query('CREATE TABLE role (id varchar PRIMARY KEY, name varchar, organizationId varchar, permissions text)')
+        await data.query('CREATE TABLE chat_flow (id varchar PRIMARY KEY, name text, type text, workspaceId text, apikeyid varchar)')
+        await addAccessKeys(data.createQueryRunner())
+        const key = { id: 'nested-outer', accessPolicy: parsePolicy({ daily: 1, monthly: 1, rpm: 0 }) }
+        let consumeResult
+        let releaseOuter
+        const hold = new Promise((resolve) => {
+            releaseOuter = resolve
+        })
+        let done
+        const finished = new Promise((resolve) => {
+            done = resolve
+        })
+        const outer = data
+            .transaction(async (manager) => {
+                await manager.query('SELECT 1')
+                consume(data, key, 'predict').then(
+                    () => {
+                        consumeResult = 'admitted'
+                        done()
+                    },
+                    (error) => {
+                        consumeResult = `rejected:${error.statusCode || error.message}`
+                        done()
+                    }
+                )
+                await hold
+                throw new Error('force-outer-rollback')
+            })
+            .catch((error) => {
+                if (error.message !== 'force-outer-rollback') throw error
+            })
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        releaseOuter()
+        await outer
+        await Promise.race([finished, new Promise((resolve) => setTimeout(resolve, 2000))])
+        assert.equal(consumeResult, 'admitted')
+        const usage = await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id })
+        assert.equal(usage.length, 4)
+        for (const row of usage) assert.equal(row.accepted, 1)
+        await assert.rejects(consume(data, key, 'predict'), { statusCode: 429 })
+        await data.destroy()
+    } finally {
+        try {
+            fs.unlinkSync(file)
+        } catch {}
+    }
+})

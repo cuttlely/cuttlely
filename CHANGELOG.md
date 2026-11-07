@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key SQLite quota admission commits independently of unrelated outer transactions; Dashflows refresh also pins the authorized Harness canvas ID; legacy binding grant cleanup uses the locked former type; lead body UUIDs stay canonical after admission.
+
 -   Access-key preflight covers retained bearers and adapter `X-API-Key` headers before parsers and file storage. Identity-store failures during resource authentication return sanitized unavailable responses, and shadow probes no longer emit enforced-denial events.
 -   Dashflows refresh binds execution to the authorized revision. Key diagnostics and unpublished account reports are refused before quota admission; keyed refresh-status reads use view permission. Guard errors preserve dashboard statuses, published reads avoid draft loads, and lead bodies accept uppercase flow UUIDs.
 -   Access-key lifecycle operations recheck each granted resource family. Creation refuses a missing workspace before minting a secret; post-commit lifecycle audit failures cannot hide that secret. Migration reports flag malformed Harness lists and unsupported bound flow types and return a review-required exit status.

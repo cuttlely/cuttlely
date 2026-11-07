@@ -897,14 +897,19 @@ it('accepts uppercase flow UUIDs from a lead body', async () => {
     mockFlows.set(id, { ...flow, id })
     mockKeys.set('fixture-token', key({ scopes: ['feedback:write'] }))
     grant(id)
+    const seen: string[] = []
     const app = express()
     app.use(express.json())
-    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use('/api/v1', accessKeyRouteGuard, (req, res) => {
+        seen.push(String(req.body?.chatflowid))
+        res.json({})
+    })
     app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
     expect(
         (await request(app).post('/api/v1/leads').set('Authorization', 'Bearer fixture-token').send({ chatflowid: id.toUpperCase() }))
             .status
     ).toBe(200)
+    expect(seen).toEqual([id])
     expect(mockConsume).toHaveBeenCalledTimes(1)
 })
 

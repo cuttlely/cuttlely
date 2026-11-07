@@ -106,7 +106,13 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
     }
 }
 
-export async function startDashboardRefresh(id: string, workspace: string, preferCache = false, expectedRevision?: number) {
+export async function startDashboardRefresh(
+    id: string,
+    workspace: string,
+    preferCache = false,
+    expectedRevision?: number,
+    expectedHarnessId?: string
+) {
     if (isDraining() || isShuttingDown()) throw new AppError(503, 'Cuttlely is restarting. Try again in a minute.')
     const mod = await runtime()
     const store = mod.dashStore()
@@ -114,6 +120,13 @@ export async function startDashboardRefresh(id: string, workspace: string, prefe
     if (expectedRevision !== undefined && claim.revision !== expectedRevision) {
         store.cancel(id, workspace, claim.token)
         throw new AppError(409, 'Dashboard changed after authorization. Retry the refresh.')
+    }
+    if (expectedHarnessId !== undefined) {
+        const record = await harnessesService.getHarness(claim.definition.harness, workspace)
+        if (!record || record.orphaned || record.chatflowId !== expectedHarnessId) {
+            store.cancel(id, workspace, claim.token)
+            throw new AppError(409, 'Harness changed after authorization. Retry the refresh.')
+        }
     }
     void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim }, preferCache)).catch(() => {
         /* The durable error is returned by later reads. */

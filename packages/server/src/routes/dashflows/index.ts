@@ -83,7 +83,15 @@ router.post(
     action(async (req, res, ws) =>
         res
             .status(202)
-            .json(await startDashboardRefresh(req.params.id, ws, req.body?.preferCache === true, res.locals.accessKeyDashboardRevision))
+            .json(
+                await startDashboardRefresh(
+                    req.params.id,
+                    ws,
+                    req.body?.preferCache === true,
+                    res.locals.accessKeyDashboardRevision,
+                    res.locals.accessKeyDashboardHarnessId
+                )
+            )
     )
 )
 router.post(

@@ -1,5 +1,5 @@
 import { Response } from 'express'
-import { DataSource } from 'typeorm'
+import { DataSource, EntityManager } from 'typeorm'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyUsage } from '../../database/entities/ApiKeyUsage'
 import { AppError } from '../../errors/appError'
@@ -12,6 +12,33 @@ export async function serial<T>(fn: () => Promise<T>): Promise<T> {
     const pending = tail.then(fn, fn)
     tail = pending.catch(() => undefined)
     return pending
+}
+
+// TypeORM nests DataSource.transaction as SAVEPOINT on the shared SQLite connection. An unrelated
+// outer rollback would then erase an admitted charge. File-backed installs use a sibling connection
+// so quota BEGIN/COMMIT is independent. In-memory fixtures keep the primary connection.
+let quotaSibling: DataSource | undefined
+let quotaSiblingKey: string | undefined
+async function quotaTransaction(data: DataSource, work: (manager: EntityManager) => Promise<void>): Promise<void> {
+    const options = (data.options || {}) as { type?: string; database?: string }
+    if (options.type !== 'sqlite' || !options.database || options.database === ':memory:') {
+        await data.transaction(work)
+        return
+    }
+    const key = String(options.database)
+    if (!quotaSibling || quotaSiblingKey !== key || !quotaSibling.isInitialized) {
+        if (quotaSibling?.isInitialized) await quotaSibling.destroy().catch(() => undefined)
+        quotaSibling = new DataSource({
+            type: 'sqlite',
+            database: options.database,
+            entities: [ApiKeyUsage],
+            synchronize: false,
+            migrationsRun: false
+        })
+        await quotaSibling.initialize()
+        quotaSiblingKey = key
+    }
+    await quotaSibling.transaction(work)
 }
 const minutes = new Map<string, { minute: number; count: number }>()
 export function clearMinuteBuckets(): void {
@@ -44,7 +71,7 @@ export async function consume(data: DataSource, key: ApiKey, operation: Operatio
             throw new AppError(503, 'Access key limiter is at capacity.')
         const windows = utcWindows(now)
         const headers: Array<[string, string]> = []
-        await data.transaction(async (manager) => {
+        await quotaTransaction(data, async (manager) => {
             const repo = manager.getRepository(ApiKeyUsage)
             for (const [period, limit, reset, header] of [
                 [windows.day, policy.daily, windows.dayReset, 'Day'],

@@ -58,7 +58,9 @@ async function loadRequestPrincipal(req: Request): Promise<ApiKey | undefined> {
         if (!access.owner) {
             if (!access.permissions) return undefined
             ownerPermissions = access.permissions
-            key.permissions = key.permissions.filter((p) => access.permissions!.includes(p))
+            // Request-local intersection only — never mutate the shared credential entity.
+            const permissions = key.permissions.filter((p) => access.permissions!.includes(p))
+            key = { ...key, permissions }
         }
     }
     setAccessContext(req, key, ownerPermissions)
@@ -146,6 +148,13 @@ export async function authorizeKey(
     } catch (error) {
         const key = accessContext(req)?.key
         if (key && accessRollout() === 'on') void recordKeyUse(req, key, operation, 'denied').catch(() => undefined)
+        if (
+            accessRollout() === 'on' &&
+            !(error instanceof AppError && error.statusCode < 500) &&
+            !(error instanceof AccessKeyPolicyError) &&
+            !(error instanceof FlowOriginPolicyError)
+        )
+            throw new AppError(503, 'Access key verification is unavailable.')
         throw error
     }
 }
@@ -155,6 +164,10 @@ export function flowOperation(req: Request): Operation {
     if (path.includes('attachment') || path.includes('upload') || path.includes('/vector')) return 'upload'
     if (path.includes('/chatmessage') || path.includes('/leads'))
         return req.method === 'GET' || req.method === 'HEAD' ? 'feedback:read' : 'feedback:write'
+    if (/\/harnesses\/[^/]+\/runs/.test(path)) return req.method === 'GET' || req.method === 'HEAD' ? 'harness:read' : 'harness:run'
+    if (/\/dashflows\/[^/]+\/accounts\/[^/]+\/report/.test(path)) return 'dashflow:report'
+    if (/\/dashflows\/[^/]+\/refresh/.test(path)) return 'dashflow:report'
+    if (/\/dashflows\//.test(path)) return req.method === 'GET' || req.method === 'HEAD' ? 'dashflow:read' : 'dashflow:report'
     return 'predict'
 }
 async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Promise<boolean> {
@@ -220,11 +233,18 @@ export async function authorizeFlowKey(req: Request, flow: ChatFlow, charge = tr
         (flow.apiAccessMode === 'public' && !flow.apikeyid) || !!(key && key.id === flow.apikeyid && key.workspaceId === flow.workspaceId)
     if (mode === 'shadow') {
         let scoped = false
+        const priorUserPermissions = req.user?.permissions?.slice()
+        const priorContext = contexts.get(req)
         try {
             scoped = await authorizeFlowV2(req, flow, false)
         } catch {
             /* Shadow computes a decision without admitting scoped work. */
         }
+        // Probe must not change the legacy request that is actually served.
+        if (priorContext) contexts.set(req, priorContext)
+        else contexts.delete(req)
+        if (req.user && priorUserPermissions) req.user.permissions = priorUserPermissions
+        else if (req.user && !priorUserPermissions) delete (req.user as { permissions?: string[] }).permissions
         void compareLegacy(req, key, allowed, scoped, flow.workspaceId, flow.id, flowOperation(req)).catch(() => undefined)
     }
     return allowed

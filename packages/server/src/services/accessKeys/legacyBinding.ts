@@ -5,6 +5,10 @@ import { ChatFlow } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
 import { serial } from './limiter'
 
+function resourceTypeOf(type: ChatFlow['type']): 'HARNESS' | 'AGENTFLOW' | 'CHATFLOW' {
+    return type === 'HARNESS' ? 'HARNESS' : ['AGENTFLOW', 'MULTIAGENT'].includes(type || '') ? 'AGENTFLOW' : 'CHATFLOW'
+}
+
 /** Persist the old one-key binding and its derived grants as one transaction. Explicit policies are independent. */
 export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, previous?: ChatFlow): Promise<ChatFlow> {
     if (flow.apikeyid && !['CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS', undefined, null].includes(flow.type))
@@ -12,24 +16,31 @@ export async function saveLegacyBoundFlow(data: DataSource, flow: ChatFlow, prev
     return serial(() =>
         data.transaction(async (manager) => {
             const flows = manager.getRepository(ChatFlow)
+            // Authority comes from the current row, not a stale caller snapshot.
+            // SQLite cannot take row locks here; serial() already serializes binding writers in-process.
+            const locked = (await flows.findOneBy({ id: flow.id, workspaceId: flow.workspaceId })) || undefined
             if (previous) {
-                const current = await flows.findOneBy({ id: previous.id, workspaceId: previous.workspaceId })
-                if (!current || (current.apikeyid || '') !== (previous.apikeyid || '') || current.apiAccessMode !== previous.apiAccessMode)
+                if (!locked || (locked.apikeyid || '') !== (previous.apikeyid || '') || locked.apiAccessMode !== previous.apiAccessMode)
                     throw new AppError(409, 'The legacy binding changed. Reload before saving.')
             }
+            const formerKeyId = locked?.apikeyid || previous?.apikeyid || undefined
+            const formerType = locked?.type ?? previous?.type
             const { mcpServerConfig: _mcp, webhookSecret: _webhook, webhookSecretConfigured: _configured, ...patch } = flow
             const written = await flows.save(patch)
             const saved = await flows.findOneByOrFail({ id: written.id, workspaceId: flow.workspaceId })
-            const resourceType =
-                saved.type === 'HARNESS' ? 'HARNESS' : ['AGENTFLOW', 'MULTIAGENT'].includes(saved.type || '') ? 'AGENTFLOW' : 'CHATFLOW'
+            const resourceType = resourceTypeOf(saved.type)
             const grants = manager.getRepository(ApiKeyResource)
-            if (previous?.apikeyid && previous.apikeyid !== saved.apikeyid) {
-                const former = await manager.getRepository(ApiKey).findOneBy({ id: previous.apikeyid, workspaceId: saved.workspaceId })
+            if (formerKeyId && formerKeyId !== saved.apikeyid) {
+                const former = await manager.getRepository(ApiKey).findOneBy({ id: formerKeyId, workspaceId: saved.workspaceId })
                 // A Harness name grant predates the binding and remains independent. Policy editing removes the legacy marker.
                 const independentlyNamed =
                     saved.type === 'HARNESS' && Array.isArray(former?.harnesses) && former.harnesses.includes(saved.name)
                 if (former?.accessPolicy?.legacy && !independentlyNamed)
-                    await grants.delete({ principalId: former.id, resourceType, resourceId: saved.id })
+                    await grants.delete({
+                        principalId: former.id,
+                        resourceType: resourceTypeOf(formerType),
+                        resourceId: saved.id
+                    })
             }
             if (saved.apikeyid) {
                 const key = await manager.getRepository(ApiKey).findOneBy({ id: saved.apikeyid, workspaceId: saved.workspaceId })
