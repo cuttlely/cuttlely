@@ -84,7 +84,11 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             resource = { resourceType: 'DASHFLOW' as const, resourceId: parts[1] }
             operation = read ? 'dashflow:read' : 'dashflow:report'
             const { runtime } = await import('../dashflows')
-            const dashboard = (await runtime()).dashStore().get(parts[1], key.workspaceId)
+            const store = (await runtime()).dashStore()
+            const dashboard =
+                req.method === 'POST' && parts[2] === 'accounts' && parts[4] === 'report'
+                    ? store.published(parts[1], key.workspaceId)
+                    : store.get(parts[1], key.workspaceId)
             if (!read) {
                 const harness = await resolveHarnessFlow(dashboard.definition.harness, key.workspaceId)
                 if (!harness) throw new AppError(403, 'Referenced harness is unavailable.')

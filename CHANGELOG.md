@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Dashflows account-report keys authorize the published Harness, matching execution even when the draft references a different Harness. Refresh continues to authorize the editable definition.
+
 -   With access-key enforcement on, lead creation requires access to its parent flow; anonymous creation is allowed only for explicitly public flows. Off and shadow preserve legacy anonymous collection.
 
 -   Access-key admission revalidates credentials, principals and current owner access after preflight so retirement or revocation while the request body arrives prevents execution without consuming quota. Already-admitted operations may finish.

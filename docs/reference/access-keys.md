@@ -54,6 +54,8 @@ Modern caller policy and exhausted-budget checks run before JSON parsing. Final 
 
 Lifecycle changes and policy/resource diffs appear in **Admin > Audit log**. Usage/refusal events are aggregated to at most one enforced-use event per principal, operation and outcome per five minutes in each process; shadow mismatch aggregates additionally distinguish the resource. They contain IDs and policy data, never bearer values, request IPs or origins, prompts, files or report contents.
 
+Dashflows account reports authorize and execute the published definition’s Harness. Refresh authorizes the editable definition’s Harness. Editing a draft does not change which Harness a published account report requires.
+
 ## API route matrix
 
 Authorization requires an active credential, the resource's owning workspace, current RBAC, the operation scope and a resource grant. Invalid, expired or revoked credentials are `401`; absent scopes/grants or refused caller policy are `403`; limits are `429`. Workspace and resource refusals use `401`, `403` or `404` depending on the route, including concealed missing Harnesses; a response does not establish whether another workspace owns the resource. A supplied invalid bearer never falls through to public access when enforcement is on. Signed-in sessions retain their existing role checks.

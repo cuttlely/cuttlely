@@ -7,6 +7,17 @@ import { parsePolicy } from './policy'
 const mockKeys = new Map<string, ApiKey>()
 const mockFlows = new Map<string, any>()
 const mockGrants = new Set<string>()
+const mockStartReport = jest.fn(async () => ({ runId: 'report-run' }))
+const mockDashStore = {
+    get: jest.fn(() => ({ definition: { harness: 'draft' } })),
+    published: jest.fn(() => ({ definition: { harness: 'published' }, snapshot: { accounts: ['account'] } }))
+}
+jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockDashStore }) }))
+jest.mock('../../routes/dashflows/public', () => ({
+    __esModule: true,
+    default: require('express').Router(),
+    hasPublishedAccount: () => true
+}))
 const mockConsume = jest.fn(async () => undefined)
 const mockMetadataUpdate = jest.fn(async (where: any, patch: any) => {
     const row = mockFlows.get(where.id)
@@ -18,6 +29,7 @@ let mockOwnerStatus = 'active'
 jest.mock('../harnesses', () => ({
     __esModule: true,
     default: {
+        startBackgroundRun: (...args: unknown[]) => (mockStartReport as any)(...args),
         getHarness: async (name: string) => {
             const row = [...mockFlows.values()].find((flow) => flow.type === 'HARNESS' && flow.name === name)
             return row ? { chatflowId: row.id } : undefined
@@ -34,6 +46,12 @@ jest.mock('./data', () => ({
     accessData: async () => ({
         getRepository: (entity: { name: string }) => ({
             update: mockMetadataUpdate,
+            create: (row: any) => row,
+            save: async (row: any) => row,
+            createQueryBuilder: () => {
+                const query: any = { delete: () => query, where: () => query, execute: async () => undefined }
+                return query
+            },
             findBy: async (where: any) => {
                 if (entity.name === 'ChatFlow')
                     return [...mockFlows.values()].filter((row) => Object.entries(where).every(([k, v]) => row[k] === v))
@@ -562,4 +580,44 @@ it('keeps admitted operations cached and charges once after a credential is reti
     mockKeys.delete('fixture-token')
     expect(await authorizeFlowKey(r, flow)).toBe(true)
     expect(mockConsume).toHaveBeenCalledTimes(1)
+})
+
+it('authorizes the published Harness for account reports and the editable Harness for refresh', async () => {
+    const { bearerDashboardReport } = await import('./dashflowReports')
+    const { setHarnessKeyLookup } = await import('../harnesses/apiAccess')
+    const published = { id: HARNESS, name: 'published', type: 'HARNESS', workspaceId: 'one' }
+    const draft = { ...published, id: '33333333-3333-4333-8333-333333333333', name: 'draft' }
+    mockFlows.set(published.id, published)
+    mockFlows.set(draft.id, draft)
+    const principal = key({ scopes: ['dashflow:report', 'harness:run'] })
+    mockKeys.set('fixture-token', principal)
+    grant('dashboard', 'DASHFLOW')
+    grant(published.id, 'HARNESS')
+    mockStartReport.mockClear()
+    setHarnessKeyLookup(async () => principal)
+    const refresh = jest.fn((_req: Request, res: express.Response) => res.status(202).json({ refreshed: true }))
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard)
+    app.post('/api/v1/dashflows/:id/accounts/:accountId/report', bearerDashboardReport)
+    app.post('/api/v1/dashflows/:id/refresh', refresh)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+        res.status(error.statusCode || 500).json({ message: error.message })
+    )
+    const report = () =>
+        request(app).post('/api/v1/dashflows/dashboard/accounts/account/report').set('Authorization', 'Bearer fixture-token')
+    const refreshRequest = () => request(app).post('/api/v1/dashflows/dashboard/refresh').set('Authorization', 'Bearer fixture-token')
+    try {
+        expect((await report()).status).toBe(202)
+        expect(mockStartReport).toHaveBeenCalledWith('published', expect.any(Object), expect.objectContaining({ workspaceId: 'one' }))
+        expect((await refreshRequest()).status).toBe(403)
+        expect(refresh).not.toHaveBeenCalled()
+        mockGrants.delete(`key:HARNESS:${published.id}`)
+        grant(draft.id, 'HARNESS')
+        expect((await report()).status).toBe(403)
+        expect(mockStartReport).toHaveBeenCalledTimes(1)
+        expect((await refreshRequest()).status).toBe(202)
+        expect(refresh).toHaveBeenCalledTimes(1)
+    } finally {
+        setHarnessKeyLookup(null)
+    }
 })
