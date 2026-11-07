@@ -736,7 +736,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         const secondToken = tokenOf((await resetLocalLink(db.sql, { ...owner, workspaceId: TEAM_2 }, created.id, {}, deps())).link)
         const app = express()
         app.use((req, _res, next) => {
-            req.user = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM }
+            req.user = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM, permissions: [] }
             next()
         })
         app.use('/organizationuser', identityOrgUserRouter)
@@ -800,7 +800,7 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         ).resolves.toBe('accepted')
         const app = express()
         app.use((req, _res, next) => {
-            req.user = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM }
+            req.user = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM, permissions: [] }
             next()
         })
         app.use('/organizationuser', identityOrgUserRouter)
