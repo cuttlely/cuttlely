@@ -1,4 +1,4 @@
-import { AccessKeyPolicyError } from './errors'
+import { AccessKeyPolicyError, AccessKeyUnavailableError } from './errors'
 import { assertCapacity } from './limiter'
 import { accessRollout, requireAccessRollout } from './rollout'
 import { RequestHandler } from 'express'
@@ -50,16 +50,20 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
         .then(
             () => next(),
             async (error) => {
+                const normalized =
+                    accessRollout() === 'on' && !(error instanceof AppError && error.statusCode < 500)
+                        ? new AccessKeyUnavailableError()
+                        : error
                 // Preflight runs before these routers, so their error middleware has not been entered.
                 if (/^\/api\/v1\/orchestrate(\/|$)/.test(path)) {
                     const { orchestrateErrorHandler } = await import('../../routes/orchestrate')
-                    return orchestrateErrorHandler(error, req, _res, next)
+                    return orchestrateErrorHandler(normalized, req, _res, next)
                 }
                 if (/^\/api\/v1\/a2a(\/|$)/.test(path)) {
                     const { a2aErrorHandler } = await import('../../routes/a2a')
-                    return a2aErrorHandler(error, req, _res, next)
+                    return a2aErrorHandler(normalized, req, _res, next)
                 }
-                next(error)
+                next(normalized)
             }
         )
         .catch(next)

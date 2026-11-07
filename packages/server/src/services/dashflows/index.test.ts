@@ -199,3 +199,22 @@ it('never executes a same-name Harness canvas that differs from the one admitted
     expect(track).not.toHaveBeenCalled()
     expect(store.cancel).toHaveBeenCalledWith('dashboard', 'team-a', 'lease')
 })
+
+it('materializes the pinned Harness canvas even if the name remaps before refresh runs', async () => {
+    const harnesses = jest.requireMock('../harnesses').default
+    const pinned = { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'harness-canvas-1' }
+    const replacement = { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'replacement-canvas' }
+    // First call: startDashboardRefresh pin check. Later calls would see the replacement if consulted.
+    harnesses.getHarness.mockResolvedValueOnce(pinned).mockResolvedValue(replacement)
+    await expect(startDashboardRefresh('dashboard', 'team-a', false, 1, 'harness-canvas-1')).resolves.toEqual({
+        id: 'dashboard',
+        refreshing: true
+    })
+    expect(track).toHaveBeenCalledTimes(1)
+    await track.mock.results[0].value
+    expect(materialize).toHaveBeenCalled()
+    expect(materialize.mock.calls[0][1]).toEqual(pinned)
+    expect(execute).toHaveBeenCalled()
+    // Pin check consulted getHarness once; refresh must not re-resolve the remapped name.
+    expect(harnesses.getHarness).toHaveBeenCalledTimes(1)
+})

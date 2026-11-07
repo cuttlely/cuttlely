@@ -4,6 +4,7 @@ import { accessRollout } from './rollout'
 import { RequestHandler } from 'express'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
+import { AccessKeyUnavailableError } from './errors'
 import { normalizeApiPath } from '../../identity/apiGate'
 import { accessData } from './data'
 import { accessContext, authenticateRequest, authorizeKey, flowResource } from './authorization'
@@ -111,10 +112,9 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     const harness = await resolveHarnessFlow(dashboard.definition.harness, key.workspaceId)
                     if (!harness) throw new AppError(403, 'Referenced harness is unavailable.')
                     await authorizeKey(req, 'harness:run', key.workspaceId, flowResource(harness), false)
-                    if (!report) {
-                        _res.locals.accessKeyDashboardRevision = dashboard.revision
-                        _res.locals.accessKeyDashboardHarnessId = harness.id
-                    }
+                    // Pin for refresh and account-report alike so a same-name recreation cannot inherit the grant.
+                    _res.locals.accessKeyDashboardRevision = dashboard.revision
+                    _res.locals.accessKeyDashboardHarnessId = harness.id
                 }
             } catch (error) {
                 if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
@@ -171,7 +171,14 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                 apiKeyOwnerUserId: key.ownerUserId || undefined
             }
         }
-    })().then(() => next(), next)
+    })().then(
+        () => next(),
+        (error) => {
+            if (accessRollout() === 'on' && !(error instanceof AppError && error.statusCode < 500))
+                return next(new AccessKeyUnavailableError())
+            next(error)
+        }
+    )
 }
 
 /** Off/shadow retain legacy anonymous collection. Enforcement requires parent-flow access. */

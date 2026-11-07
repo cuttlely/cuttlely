@@ -25,7 +25,7 @@ export async function saveDashboard(req: Request, workspace: string) {
     return mod.dashStore().save(req.params.id || null, workspace, req.user!.id, definition, req.body.revision)
 }
 
-type StartedRefresh = { mod: any; store: any; claim: any }
+type StartedRefresh = { mod: any; store: any; claim: any; harnessRecord?: any }
 
 export async function refreshDashboard(id: string, workspace: string, started?: StartedRefresh, preferCache = false) {
     const mod = started?.mod ?? (await runtime())
@@ -69,7 +69,9 @@ export async function refreshDashboard(id: string, workspace: string, started?: 
     })
     try {
         assertActive()
-        const record = await harnessesService.getHarness(claim.definition.harness, workspace)
+        // Access-key admission may pin the authorized canvas. Prefer that record so a same-name
+        // recreation between the pin check and materialization cannot substitute an ungranted id.
+        const record = started?.harnessRecord ?? (await harnessesService.getHarness(claim.definition.harness, workspace))
         const bridge = await loadHarness('bridge.mjs')
         const context = await contextFor(record)
         const snapshot = await mod.materializeCached(
@@ -121,14 +123,15 @@ export async function startDashboardRefresh(
         store.cancel(id, workspace, claim.token)
         throw new AppError(409, 'Dashboard changed after authorization. Retry the refresh.')
     }
+    let harnessRecord: any
     if (expectedHarnessId !== undefined) {
-        const record = await harnessesService.getHarness(claim.definition.harness, workspace)
-        if (!record || record.orphaned || record.chatflowId !== expectedHarnessId) {
+        harnessRecord = await harnessesService.getHarness(claim.definition.harness, workspace)
+        if (!harnessRecord || harnessRecord.orphaned || harnessRecord.chatflowId !== expectedHarnessId) {
             store.cancel(id, workspace, claim.token)
             throw new AppError(409, 'Harness changed after authorization. Retry the refresh.')
         }
     }
-    void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim }, preferCache)).catch(() => {
+    void trackBackgroundRun(refreshDashboard(id, workspace, { mod, store, claim, harnessRecord }, preferCache)).catch(() => {
         /* The durable error is returned by later reads. */
     })
     return { id, refreshing: true, refreshProgress: store.status(id, workspace).refreshProgress }

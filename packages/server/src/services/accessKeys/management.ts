@@ -124,6 +124,19 @@ async function policyInput(req: Request) {
     // The principal's RBAC and operation scopes are independent restrictions. Both must be granted by its creator.
     for (const permission of permissions)
         if (!(await hasAnyPermission(req, permission))) throw new AppError(403, 'Permission exceeds your current role.')
+    // Match target(): each scope must be authorized for every resource family it can exercise.
+    const grants: ResourceGrant[] = policy.allResources
+        ? RESOURCE_TYPES.map((resourceType) => ({ resourceType, resourceId: '*' }))
+        : resources
+    for (const scope of policy.scopes) {
+        if (policy.allResources) {
+            if (!(await hasAnyPermission(req, ...OPERATIONS[scope]))) throw new AppError(403, 'You cannot grant these operations.')
+        }
+        for (const grant of grants) {
+            if (!(await hasAnyPermission(req, ...operationPermissions(scope, grant))))
+                throw new AppError(403, 'You cannot grant these operations for that resource.')
+        }
+    }
     if (typeof req.body.keyName !== 'string' || !req.body.keyName.trim() || req.body.keyName.length > 100)
         throw new AppError(400, 'A key name of 1 to 100 characters is required.')
     return { policy, resources, permissions, expiresAt: expiry(req.body.expiresAt) }

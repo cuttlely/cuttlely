@@ -160,17 +160,33 @@ export async function authorizeKey(
 }
 export function flowOperation(req: Request): Operation {
     const path = req.originalUrl?.split('?')[0].toLowerCase() || ''
+    // Segment-aware Harness/Dashflows classifiers first so path tokens like feedback-bot or upload
+    // in a name cannot shadow harness:run / dashflow:report / dashflow:read.
+    if (/\/harnesses\/[^/]+\/runs(?:\/|$)/.test(path)) return req.method === 'GET' || req.method === 'HEAD' ? 'harness:read' : 'harness:run'
+    if (/\/dashflows\/[^/]+\/accounts\/[^/]+\/report(?:\/|$)/.test(path)) return 'dashflow:report'
+    if (/\/dashflows\/[^/]+\/refresh(?:\/|$)/.test(path)) return 'dashflow:report'
+    if (/\/dashflows\//.test(path)) return req.method === 'GET' || req.method === 'HEAD' ? 'dashflow:read' : 'dashflow:report'
     if (path.includes('/feedback')) return req.method === 'GET' || req.method === 'HEAD' ? 'feedback:read' : 'feedback:write'
     if (path.includes('attachment') || path.includes('upload') || path.includes('/vector')) return 'upload'
     if (path.includes('/chatmessage') || path.includes('/leads'))
         return req.method === 'GET' || req.method === 'HEAD' ? 'feedback:read' : 'feedback:write'
-    if (/\/harnesses\/[^/]+\/runs/.test(path)) return req.method === 'GET' || req.method === 'HEAD' ? 'harness:read' : 'harness:run'
-    if (/\/dashflows\/[^/]+\/accounts\/[^/]+\/report/.test(path)) return 'dashflow:report'
-    if (/\/dashflows\/[^/]+\/refresh/.test(path)) return 'dashflow:report'
-    if (/\/dashflows\//.test(path)) return req.method === 'GET' || req.method === 'HEAD' ? 'dashflow:read' : 'dashflow:report'
     return 'predict'
 }
 async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Promise<boolean> {
+    try {
+        return await authorizeFlowV2Body(req, flow, charge)
+    } catch (error) {
+        if (
+            accessRollout() === 'on' &&
+            !(error instanceof AppError && error.statusCode < 500) &&
+            !(error instanceof AccessKeyPolicyError) &&
+            !(error instanceof FlowOriginPolicyError)
+        )
+            throw new AppError(503, 'Access key verification is unavailable.')
+        throw error
+    }
+}
+async function authorizeFlowV2Body(req: Request, flow: ChatFlow, charge = true): Promise<boolean> {
     if (!req.headers.authorization) return flow.apiAccessMode === 'public' && !flow.apikeyid
     const presenting = await authenticateRequest(req)
     if (!presenting) throw new AppError(401, 'Unauthorized')

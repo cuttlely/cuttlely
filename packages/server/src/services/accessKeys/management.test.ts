@@ -61,3 +61,38 @@ it('refuses a deleted workspace before committing a one-time secret', async () =
     expect(response.status).toBe(401)
     expect(mockTransaction).not.toHaveBeenCalled()
 })
+
+it('refuses an AGENTFLOW write scope the issuer cannot authorize for that family', async () => {
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    mockActorPermissions.add('apikeys:create')
+    mockActorPermissions.add('agentflows:view')
+    // choices lists the agentflow via view, and api:write via chatflows:update OR
+    const dataMock = jest.requireMock('./data')
+    const previous = dataMock.accessData
+    dataMock.accessData = async () => ({
+        transaction: mockTransaction,
+        getRepository: (entity: { name: string }) => ({
+            findOneBy: async () => (entity.name === 'ApiKey' ? mockKey : entity.name === 'Workspace' ? { id: 'workspace' } : null),
+            findBy: async () =>
+                entity.name === 'ChatFlow'
+                    ? [{ id: 'agent', name: 'Agent', type: 'AGENTFLOW', workspaceId: 'workspace', flowData: '{}' }]
+                    : mockGrants
+        })
+    })
+    try {
+        const response = await request(app)
+            .post('/keys')
+            .send({
+                keyName: 'Overreach',
+                permissions: ['chatflows:update', 'agentflows:view'],
+                resources: [{ resourceType: 'AGENTFLOW', resourceId: 'agent' }],
+                accessPolicy: { scopes: ['api:write'] }
+            })
+        expect(response.status).toBe(403)
+        expect(mockTransaction).not.toHaveBeenCalled()
+    } finally {
+        dataMock.accessData = previous
+        mockActorPermissions.delete('apikeys:create')
+        mockActorPermissions.delete('agentflows:view')
+    }
+})

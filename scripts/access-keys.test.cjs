@@ -419,6 +419,14 @@ test('management API creates deny-by-default principals, validates grants and pr
         const rebound = await saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-b' }, bindingFlow)
         assert.equal(await hasGrant(data, { id: 'legacy-a' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), false)
         assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
+        // Same-key type change must retire the prior derived grant type.
+        const typed = await saveLegacyBoundFlow(data, { ...rebound, type: 'AGENTFLOW' }, rebound)
+        assert.equal(typed.type, 'AGENTFLOW')
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), false)
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'AGENTFLOW', resourceId: bindingFlow.id }), true)
+        const backToChat = await saveLegacyBoundFlow(data, { ...typed, type: 'CHATFLOW' }, typed)
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'AGENTFLOW', resourceId: backToChat.id }), false)
+        assert.equal(await hasGrant(data, { id: 'legacy-b' }, { resourceType: 'CHATFLOW', resourceId: backToChat.id }), true)
         const staleCanvas = {
             ...bindingFlow,
             apikeyid: null,
@@ -445,6 +453,11 @@ test('management API creates deny-by-default principals, validates grants and pr
             'successor-fixture'
         )
         await assert.rejects(saveFlowPreservingAccess(data, staleCanvas, staleCanvas, 'public'), { statusCode: 409 })
+        // Idempotent mode save must not false-conflict when the admitted mode is unchanged.
+        const sameMode = await data.getRepository(ChatFlow).findOneByOrFail({ id: rebound.id })
+        const kept = await saveFlowPreservingAccess(data, { ...sameMode, name: 'Mode keep fixture' }, sameMode, sameMode.apiAccessMode)
+        assert.equal(kept.apiAccessMode, sameMode.apiAccessMode)
+        assert.equal(kept.name, 'Mode keep fixture')
         assert.equal(await hasGrant(data, { id: 'explicit-key' }, { resourceType: 'CHATFLOW', resourceId: bindingFlow.id }), true)
         await assert.rejects(saveLegacyBoundFlow(data, { ...bindingFlow, apikeyid: 'legacy-a' }, bindingFlow), { statusCode: 409 })
         // A missing target rolls back both the row change and retirement of B's grant.

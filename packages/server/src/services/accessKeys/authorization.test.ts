@@ -99,7 +99,7 @@ jest.mock('./data', () => ({
     })
 }))
 
-import { accessContext, authorizeFlowKey, authorizeKey, setAccessContext } from './authorization'
+import { accessContext, authorizeFlowKey, authorizeKey, flowOperation, setAccessContext } from './authorization'
 import { accessKeyRouteGuard } from './routes'
 import { accessKeyPreflight } from './preflight'
 import { scopedFlowMetadataUpdate } from './managementBoundary'
@@ -931,5 +931,35 @@ it('lets an authorized key read refresh status with view permission alone', asyn
     } finally {
         if (previous === undefined) delete process.env.CUTTLELY_DASH_FLOWS
         else process.env.CUTTLELY_DASH_FLOWS = previous
+    }
+})
+
+it('classifies harness and dashflow routes before substring path tokens', () => {
+    const op = (method: string, url: string) => flowOperation({ method, originalUrl: url } as Request)
+    expect(op('POST', '/api/v1/harnesses/feedback-bot/runs')).toBe('harness:run')
+    expect(op('POST', '/api/v1/harnesses/my-upload/runs')).toBe('harness:run')
+    expect(op('GET', '/api/v1/harnesses/vector-db/runs/run-1')).toBe('harness:read')
+    expect(op('POST', '/api/v1/dashflows/d1/accounts/upload/report')).toBe('dashflow:report')
+    expect(op('POST', '/api/v1/dashflows/d1/refresh')).toBe('dashflow:report')
+    expect(op('GET', '/api/v1/dashflows/d1/refresh-status')).toBe('dashflow:read')
+    expect(op('POST', '/api/v1/prediction/' + FLOW + '/feedback')).toBe('feedback:write')
+})
+
+it('sanitizes a legacy grant-store outage at the flow authorization boundary', async () => {
+    const previous = mockIdentityError
+    mockIdentityError = 'ApiKeyResource'
+    try {
+        const legacy = {
+            ...key({ scopes: ['predict'] }),
+            accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+        }
+        mockKeys.set('fixture-token', legacy)
+        await expect(authorizeFlowKey(req(), { ...flow, apikeyid: legacy.id })).rejects.toMatchObject({
+            statusCode: 503,
+            message: 'Access key verification is unavailable.'
+        })
+        expect(mockConsume).not.toHaveBeenCalled()
+    } finally {
+        mockIdentityError = previous
     }
 })

@@ -19,6 +19,12 @@ export const bearerDashboardReport: RequestHandler = action(async (req, res, nex
         const ws = req.user!.activeWorkspaceId!
         const view = (await runtime()).dashStore().published(req.params.id, ws)
         if (!hasPublishedAccount(view.snapshot, req.params.accountId)) throw new AppError(404, 'Account not published.')
+        const expectedHarnessId = res.locals.accessKeyDashboardHarnessId as string | undefined
+        if (expectedHarnessId !== undefined) {
+            const record = await harnessesService.getHarness(view.definition.harness, ws)
+            if (!record || record.orphaned || record.chatflowId !== expectedHarnessId)
+                throw new AppError(409, 'Harness changed after authorization. Retry the report.')
+        }
         const started = await harnessesService.startBackgroundRun(
             view.definition.harness,
             {
