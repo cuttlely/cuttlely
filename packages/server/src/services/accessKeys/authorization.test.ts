@@ -621,3 +621,19 @@ it('authorizes the published Harness for account reports and the editable Harnes
         setHarnessKeyLookup(null)
     }
 })
+
+it.each(['run scope', 'owner run permission'])(
+    'rechecks uncharged Harness prerequisites when %s changes before admission',
+    async (removed) => {
+        const harness: ChatFlow = { ...flow, id: HARNESS, type: 'HARNESS' }
+        grant(HARNESS, 'HARNESS')
+        const principal = { ...key({ scopes: ['predict', 'harness:run'] }), ownerUserId: 'creator' }
+        mockKeys.set('fixture-token', principal)
+        const r = req()
+        expect(await authorizeFlowKey(r, harness, false)).toBe(true)
+        if (removed === 'run scope') mockKeys.set('fixture-token', { ...principal, accessPolicy: parsePolicy({ scopes: ['predict'] }) })
+        else mockOwnerPermissions = ['chatflows:view']
+        await expect(authorizeFlowKey(r, harness)).rejects.toMatchObject({ statusCode: 403 })
+        expect(mockConsume).not.toHaveBeenCalled()
+    }
+)

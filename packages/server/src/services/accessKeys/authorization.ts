@@ -20,6 +20,7 @@ interface AccessContext {
     key: ApiKey
     admitted: Set<string>
     ownerPermissions?: string[]
+    checks: Map<string, [Operation, string, ResourceGrant | undefined]>
 }
 const contexts = new WeakMap<Request, AccessContext>()
 export function accessContext(req: Request): AccessContext | undefined {
@@ -27,7 +28,7 @@ export function accessContext(req: Request): AccessContext | undefined {
 }
 export function setAccessContext(req: Request, key: ApiKey, ownerPermissions?: string[]): void {
     const old = contexts.get(req)
-    if (!old || old.key.id !== key.id) contexts.set(req, { key, admitted: new Set(), ownerPermissions })
+    if (!old || old.key.id !== key.id) contexts.set(req, { key, admitted: new Set(), ownerPermissions, checks: new Map() })
 }
 export async function authenticateRequest(req: Request): Promise<ApiKey | undefined> {
     if (contexts.has(req)) return contexts.get(req)!.key
@@ -73,7 +74,8 @@ export async function hasGrant(data: DataSource, key: ApiKey, resource: Resource
 async function checkKey(req: Request, operation: Operation, workspaceId: string, resource?: ResourceGrant, charge = true): Promise<ApiKey> {
     // Preflight can run long before the body finishes. Refresh credential, principal and owner
     // at admission; an already admitted operation keeps its request-local authentication.
-    if (charge && !contexts.get(req)?.admitted.has('charged')) contexts.delete(req)
+    const pending = charge && !contexts.get(req)?.admitted.has('charged') ? contexts.get(req) : undefined
+    if (pending) contexts.delete(req)
     const key = await authenticateRequest(req)
     if (!key) throw new AppError(401, 'Unauthorized')
     if (key.workspaceId !== workspaceId) throw new AppError(401, 'Unauthorized')
@@ -87,6 +89,9 @@ async function checkKey(req: Request, operation: Operation, workspaceId: string,
     )
         throw new AccessKeyPolicyError('The access key owner no longer has permission for this operation.')
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError('Operation is not allowed by this access key.')
+    // Revalidate prerequisites (for example stream or nested Harness authority) against the
+    // refreshed principal too, before any quota is consumed.
+    if (pending) for (const check of pending.checks.values()) await checkKey(req, ...check, false)
     const data = await accessData()
     if (resource && !(await hasGrant(data, key, resource))) throw new AccessKeyPolicyError('Resource is not allowed by this access key.')
     if (!policy.legacy && !operationPermissions(operation, resource).some((permission) => key.permissions.includes(permission)))
@@ -100,6 +105,7 @@ async function checkKey(req: Request, operation: Operation, workspaceId: string,
         ctx.admitted.add('charged')
     }
     ctx.admitted.add(admission)
+    ctx.checks.set(admission, [operation, workspaceId, resource])
     return key
 }
 export async function authorizeKey(
