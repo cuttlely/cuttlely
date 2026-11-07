@@ -856,7 +856,10 @@ describe('Orchestrate file links', () => {
 jest.mock('../../services/accessKeys/data', () => ({
     accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
 }))
-jest.mock('../../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../../services/accessKeys/limiter', () => ({
+    ...jest.requireActual('../../services/accessKeys/limiter'),
+    consume: jest.fn(async () => undefined)
+}))
 jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
 
 beforeEach(() => {

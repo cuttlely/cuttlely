@@ -5,15 +5,24 @@ import { compareLegacy } from './rollout'
 
 const mockRecord = jest.fn<Promise<void>, unknown[]>(async () => undefined)
 let mockWorkspace = true
+let mockWorkspaceError = false
 jest.mock('../../identity/directory', () => ({ sqlFromDataSource: () => ({}) }))
 jest.mock('../../identity/auditLog', () => ({ safeRecordAudit: (...args: unknown[]) => (mockRecord as any)(...args) }))
 jest.mock('./data', () => ({
-    accessData: async () => ({ getRepository: () => ({ findOneBy: async () => (mockWorkspace ? { organizationId: 'org' } : null) }) })
+    accessData: async () => ({
+        getRepository: () => ({
+            findOneBy: async () => {
+                if (mockWorkspaceError) throw new Error('temporary failure')
+                return mockWorkspace ? { organizationId: 'org' } : null
+            }
+        })
+    })
 }))
 
 beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date('2026-11-07T12:00:00Z'))
     mockWorkspace = true
+    mockWorkspaceError = false
     mockRecord.mockClear()
 })
 afterEach(() => jest.useRealTimers())
@@ -59,4 +68,14 @@ it('labels and deduplicates shadow mismatches by their actual operation', async 
     expect(mockRecord).toHaveBeenCalledTimes(2)
     expect(mockRecord.mock.calls[0][1]).toMatchObject({ detail: { operation: 'feedback:write' } })
     expect(mockRecord.mock.calls[1][1]).toMatchObject({ detail: { operation: 'predict' } })
+})
+
+it('retries a shadow mismatch after an audit workspace lookup failure', async () => {
+    const req = {} as Request
+    const key = { id: 'shadow-retry', workspaceId: 'retry-team' } as ApiKey
+    mockWorkspaceError = true
+    await expect(compareLegacy(req, key, true, false, key.workspaceId, 'retry-flow')).rejects.toThrow('temporary failure')
+    mockWorkspaceError = false
+    await compareLegacy(req, key, true, false, key.workspaceId, 'retry-flow')
+    expect(mockRecord).toHaveBeenCalledTimes(1)
 })

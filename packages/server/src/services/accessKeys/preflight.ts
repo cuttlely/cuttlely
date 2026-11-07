@@ -1,6 +1,6 @@
 import { AccessKeyPolicyError } from './errors'
 import { assertCapacity } from './limiter'
-import { requireAccessRollout } from './rollout'
+import { accessRollout, requireAccessRollout } from './rollout'
 import { RequestHandler } from 'express'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { AppError } from '../../errors/appError'
@@ -9,16 +9,25 @@ import { normalizeApiPath } from '../../identity/apiGate'
 import { authenticateRequest, authorizeFlowKey, flowOperation } from './authorization'
 import { accessData } from './data'
 import { callerPolicyAllows } from './policy'
+import { externalAgentHeaders } from '../../utils/externalAgentAuth'
 
 /** Caller policies and URL-resolved flow admission run before global JSON parsing and multipart storage. */
 export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
     const path = normalizeApiPath(req.path)
-    if (!path.startsWith('/api/v1/') || !req.headers.authorization || /^\/api\/v1\/(mcp|public-dashflows|scim)(\/|$)/.test(path))
+    const adapter = /^\/api\/v1\/(orchestrate|a2a)(\/|$)/.test(path)
+    if (
+        !path.startsWith('/api/v1/') ||
+        (!req.headers.authorization && !(adapter && req.headers['x-api-key'])) ||
+        /^\/api\/v1\/(mcp|public-dashflows|scim)(\/|$)/.test(path)
+    )
         return next()
     void (async () => {
         const token = bearerApiKey(req.headers.authorization)
-        if (!/^ctu_(live|test)_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(token)) return // compatibility is resolved by the established route gates
-        requireAccessRollout()
+        if (accessRollout() !== 'on') {
+            if (/^ctu_(live|test)_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(token)) requireAccessRollout()
+            return // off/shadow retain established compatibility gates
+        }
+        if (adapter) externalAgentHeaders(req)
         const key = await authenticateRequest(req)
         if (!key) throw new AppError(401, 'Unauthorized')
         if (!key.accessPolicy || !callerPolicyAllows(key.accessPolicy, req.headers.origin, req.ip || ''))
@@ -35,8 +44,8 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
             )
                 throw new AppError(403, 'Multipart prediction requires stream scope as well as predict and upload.')
             await authorizeFlowKey(req, flow, false)
-            await assertCapacity(await accessData(), key, flowOperation(req), req.res)
         }
+        if (!['GET', 'HEAD'].includes(req.method)) await assertCapacity(await accessData(), key, flowOperation(req), req.res)
     })()
         .then(
             () => next(),

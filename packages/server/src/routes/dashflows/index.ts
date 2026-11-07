@@ -68,7 +68,7 @@ router.get(
 )
 router.get(
     '/:id/refresh-status',
-    edit,
+    (req, res, next) => (req.user?.apiKeyId ? view : edit)(req, res, next),
     action(async (req, res, ws) => res.json((await runtime()).dashStore().status(req.params.id, ws)))
 )
 router.put(
@@ -80,7 +80,11 @@ router.post(
     '/:id/refresh',
     edit,
     harnessRunRateLimit('start'),
-    action(async (req, res, ws) => res.status(202).json(await startDashboardRefresh(req.params.id, ws, req.body?.preferCache === true)))
+    action(async (req, res, ws) =>
+        res
+            .status(202)
+            .json(await startDashboardRefresh(req.params.id, ws, req.body?.preferCache === true, res.locals.accessKeyDashboardRevision))
+    )
 )
 router.post(
     '/:id/cancel-refresh',

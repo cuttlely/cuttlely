@@ -1,3 +1,4 @@
+import { AccessKeyUnavailableError, isMissingAccessResource } from './errors'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
 import { ChatFlow } from '../../database/entities/ChatFlow'
@@ -37,7 +38,8 @@ export async function resolveHarnessFlow(name: string, workspaceId: string): Pro
         if (!record?.chatflowId || record.orphaned) return undefined
         const flow = await (await accessData()).getRepository(ChatFlow).findOneBy({ id: record.chatflowId, workspaceId, type: 'HARNESS' })
         return flow?.name === name ? flow : undefined
-    } catch {
-        return undefined
+    } catch (error) {
+        if (isMissingAccessResource(error)) return undefined
+        throw new AccessKeyUnavailableError('Harness authorization is unavailable.')
     }
 }

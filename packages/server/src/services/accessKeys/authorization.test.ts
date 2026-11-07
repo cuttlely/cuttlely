@@ -3,21 +3,31 @@ import request from 'supertest'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { parsePolicy } from './policy'
+import { AccessKeyLimitError } from './errors'
 
 const mockKeys = new Map<string, ApiKey>()
 let mockKeyError: Error | undefined
+let mockIdentityError: string | undefined
+let mockHarnessError: Error | undefined
 const mockFlows = new Map<string, any>()
 const mockGrants = new Set<string>()
 const mockStartReport = jest.fn(async () => ({ runId: 'report-run' }))
+let mockPublishedAccount = true
+class MockDashFlowError extends Error {
+    constructor(readonly status: number, message: string) {
+        super(message)
+    }
+}
 const mockDashStore = {
-    get: jest.fn(() => ({ definition: { harness: 'draft' } })),
+    status: jest.fn(() => ({ refreshing: false })),
+    get: jest.fn(() => ({ revision: 1, definition: { harness: 'draft' } })),
     published: jest.fn(() => ({ definition: { harness: 'published' }, snapshot: { accounts: ['account'] } }))
 }
-jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockDashStore }) }))
+jest.mock('../dashflows', () => ({ runtime: async () => ({ dashStore: () => mockDashStore, DashFlowError: MockDashFlowError }) }))
 jest.mock('../../routes/dashflows/public', () => ({
     __esModule: true,
     default: require('express').Router(),
-    hasPublishedAccount: () => true
+    hasPublishedAccount: () => mockPublishedAccount
 }))
 const mockConsume = jest.fn(async () => undefined)
 const mockMetadataUpdate = jest.fn(async (where: any, patch: any) => {
@@ -32,6 +42,7 @@ jest.mock('../harnesses', () => ({
     default: {
         startBackgroundRun: (...args: unknown[]) => (mockStartReport as any)(...args),
         getHarness: async (name: string) => {
+            if (mockHarnessError) throw mockHarnessError
             const row = [...mockFlows.values()].find((flow) => flow.type === 'HARNESS' && flow.name === name)
             return row ? { chatflowId: row.id } : undefined
         }
@@ -74,6 +85,7 @@ jest.mock('./data', () => ({
                 return []
             },
             findOneBy: async (where: any) => {
+                if (entity.name === mockIdentityError) throw new Error('driver-private-detail')
                 if (entity.name === 'Workspace') return { id: where.id, organizationId: 'org' }
                 if (entity.name === 'Organization') return { id: where.id }
                 if (entity.name === 'User') return { id: where.id, status: mockOwnerStatus }
@@ -119,9 +131,12 @@ function grant(id = FLOW, type = 'CHATFLOW', principal = 'key') {
 beforeEach(() => {
     mockKeys.clear()
     mockKeyError = undefined
+    mockIdentityError = undefined
+    mockHarnessError = undefined
     mockFlows.clear()
     mockGrants.clear()
     mockConsume.mockClear()
+    mockPublishedAccount = true
     mockMetadataUpdate.mockClear()
     mockOwnerPermissions = ['chatflows:view', 'chatflows:update']
     mockOwnerStatus = 'active'
@@ -605,7 +620,9 @@ it('authorizes the published Harness for account reports and the editable Harnes
     grant(published.id, 'HARNESS')
     mockStartReport.mockClear()
     setHarnessKeyLookup(async () => principal)
-    const refresh = jest.fn((_req: Request, res: express.Response) => res.status(202).json({ refreshed: true }))
+    const refresh = jest.fn((_req: Request, res: express.Response) =>
+        res.status(202).json({ refreshed: true, revision: res.locals.accessKeyDashboardRevision })
+    )
     const app = express()
     app.use('/api/v1', accessKeyRouteGuard)
     app.post('/api/v1/dashflows/:id/accounts/:accountId/report', bearerDashboardReport)
@@ -625,7 +642,9 @@ it('authorizes the published Harness for account reports and the editable Harnes
         grant(draft.id, 'HARNESS')
         expect((await report()).status).toBe(403)
         expect(mockStartReport).toHaveBeenCalledTimes(1)
-        expect((await refreshRequest()).status).toBe(202)
+        const accepted = await refreshRequest()
+        expect(accepted.status).toBe(202)
+        expect(accepted.body.revision).toBe(1)
         expect(refresh).toHaveBeenCalledTimes(1)
     } finally {
         setHarnessKeyLookup(null)
@@ -739,4 +758,173 @@ it('answers a malformed encoded Harness name as a client error before admission'
     app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
     expect((await request(app).get('/api/v1/harnesses/%ZZ/runs').set('Authorization', 'Bearer fixture-token')).status).toBe(400)
     expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it.each(['Workspace', 'Organization', 'User'])('sanitizes %s authentication-store outages before parsing', async (entity) => {
+    mockIdentityError = entity
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    mockKeys.set(token, { ...key({ scopes: ['predict'] }), ownerUserId: 'creator' })
+    const app = express()
+    const parsed = jest.fn((_req: Request, res: express.Response) => res.json({}))
+    app.use(accessKeyPreflight, parsed)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+        res.status(error.statusCode || 500).json({ message: error.message })
+    )
+    const response = await request(app)
+        .post('/api/v1/prediction/' + FLOW)
+        .set('Authorization', 'Bearer ' + token)
+    expect(response.status).toBe(503)
+    expect(response.body.message).toBe('Access key verification is unavailable.')
+    expect(parsed).not.toHaveBeenCalled()
+})
+it.each(['policy', 'scope', 'capacity'])('checks retained bearer %s before multipart storage', async (refusal) => {
+    const { assertCapacity } = await import('./limiter')
+    const principal = key({
+        scopes: ['predict', 'upload', ...(refusal === 'scope' ? [] : ['stream'])],
+        ...(refusal === 'policy' ? { origins: ['https://allowed.example'] } : {})
+    })
+    mockKeys.set('fixture-token', principal)
+    grant()
+    if (refusal === 'capacity') (assertCapacity as jest.Mock).mockRejectedValueOnce(new AccessKeyLimitError())
+    const stored = jest.fn((_req: Request, res: express.Response) => res.json({}))
+    const app = express()
+    app.use(accessKeyPreflight, stored)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    const response = await request(app)
+        .post('/api/v1/prediction/' + FLOW)
+        .set('Authorization', 'Bearer fixture-token')
+        .set('Content-Type', 'multipart/form-data; boundary=fixture')
+        .send('file bytes')
+    expect(response.status).toBe(refusal === 'capacity' ? 429 : 403)
+    expect(stored).not.toHaveBeenCalled()
+    expect(mockConsume).not.toHaveBeenCalled()
+    ;(assertCapacity as jest.Mock).mockReset().mockResolvedValue(undefined)
+})
+it.each(['orchestrate', 'a2a'])('checks X-API-Key caller policy and capacity before %s JSON parsing', async (adapter) => {
+    const { assertCapacity } = await import('./limiter')
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    mockKeys.set(token, key({ scopes: ['predict'], origins: ['https://allowed.example'] }))
+    const parsed = jest.fn((_req: Request, res: express.Response) => res.json({}))
+    const app = express()
+    app.use(accessKeyPreflight, parsed)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    const call = () =>
+        request(app)
+            .post('/api/v1/' + adapter + '/' + FLOW)
+            .set('X-API-Key', token)
+            .set('Content-Type', 'application/json')
+            .send('{bad json')
+    expect((await call()).status).toBe(403)
+    mockKeys.set(token, key({ scopes: ['predict'] }))
+    ;(assertCapacity as jest.Mock).mockRejectedValueOnce(new AccessKeyLimitError())
+    expect((await call()).status).toBe(429)
+    expect(parsed).not.toHaveBeenCalled()
+    ;(assertCapacity as jest.Mock).mockReset().mockResolvedValue(undefined)
+})
+it('does not log enforced denial events while serving a shadow-mode legacy call', async () => {
+    const { recordKeyUse } = await import('./audit')
+    ;(recordKeyUse as jest.Mock).mockClear()
+    const previous = process.env.INBOUND_ACCESS_V2
+    const legacy = { ...key(), accessPolicy: { ...parsePolicy({ scopes: [] }), legacy: true } }
+    grant()
+    mockKeys.set('fixture-token', legacy)
+    try {
+        process.env.INBOUND_ACCESS_V2 = 'shadow'
+        expect(await authorizeFlowKey(req(), { ...flow, apikeyid: legacy.id })).toBe(true)
+        await new Promise((resolve) => setImmediate(resolve))
+        expect((recordKeyUse as jest.Mock).mock.calls.every((call) => call[4]?.shadowMismatch === true)).toBe(true)
+    } finally {
+        process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
+it('returns an unavailable error for a Harness lookup outage instead of a grant refusal', async () => {
+    mockHarnessError = new Error('private-driver-detail')
+    mockKeys.set('fixture-token', key({ scopes: ['harness:read'] }))
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
+        res.status(error.statusCode || 500).json({ message: error.message })
+    )
+    const response = await request(app).get('/api/v1/harnesses/baker/runs').set('Authorization', 'Bearer fixture-token')
+    expect(response.status).toBe(503)
+    expect(response.body.message).not.toContain('private-driver-detail')
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it('refuses key diagnostics before quota admission', async () => {
+    const harness = { id: HARNESS, name: 'baker', type: 'HARNESS', workspaceId: 'one' }
+    mockFlows.set(HARNESS, harness)
+    mockKeys.set('fixture-token', key({ scopes: ['harness:read'] }))
+    grant(HARNESS, 'HARNESS')
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    expect(
+        (await request(app).get('/api/v1/harnesses/baker/runs/run/diagnostics').set('Authorization', 'Bearer fixture-token')).status
+    ).toBe(403)
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+it('rejects an unpublished dashboard account before charging report admission', async () => {
+    mockPublishedAccount = false
+    mockFlows.set(HARNESS, { id: HARNESS, name: 'published', type: 'HARNESS', workspaceId: 'one' })
+    mockKeys.set('fixture-token', key({ scopes: ['dashflow:report', 'harness:run'] }))
+    grant('dashboard', 'DASHFLOW')
+    grant(HARNESS, 'HARNESS')
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    expect(
+        (await request(app).post('/api/v1/dashflows/dashboard/accounts/missing/report').set('Authorization', 'Bearer fixture-token')).status
+    ).toBe(404)
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+it('maps a missing published dashboard without loading its draft or charging', async () => {
+    mockKeys.set('fixture-token', key({ scopes: ['dashflow:read'] }))
+    grant('dashboard', 'DASHFLOW')
+    mockDashStore.get.mockClear()
+    mockDashStore.published.mockImplementationOnce(() => {
+        throw new MockDashFlowError(404, 'Dashboard not found.')
+    })
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    expect((await request(app).get('/api/v1/dashflows/dashboard/published').set('Authorization', 'Bearer fixture-token')).status).toBe(404)
+    expect(mockDashStore.get).not.toHaveBeenCalled()
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+it('accepts uppercase flow UUIDs from a lead body', async () => {
+    const id = 'abcdef11-1111-4111-8111-111111111111'
+    mockFlows.set(id, { ...flow, id })
+    mockKeys.set('fixture-token', key({ scopes: ['feedback:write'] }))
+    grant(id)
+    const app = express()
+    app.use(express.json())
+    app.use('/api/v1', accessKeyRouteGuard, (_req, res) => res.json({}))
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    expect(
+        (await request(app).post('/api/v1/leads').set('Authorization', 'Bearer fixture-token').send({ chatflowid: id.toUpperCase() }))
+            .status
+    ).toBe(200)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
+})
+
+it('lets an authorized key read refresh status with view permission alone', async () => {
+    const previous = process.env.CUTTLELY_DASH_FLOWS
+    process.env.CUTTLELY_DASH_FLOWS = 'true'
+    mockKeys.set('fixture-token', { ...key({ scopes: ['dashflow:read'] }), permissions: ['chatflows:view'] })
+    grant('dashboard', 'DASHFLOW')
+    const router = (await import('../../routes/dashflows')).default
+    const app = express()
+    app.use('/api/v1', accessKeyRouteGuard)
+    app.use('/api/v1/dashflows', router)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    try {
+        expect(
+            (await request(app).get('/api/v1/dashflows/dashboard/refresh-status').set('Authorization', 'Bearer fixture-token')).status
+        ).toBe(200)
+        expect(mockConsume).toHaveBeenCalledTimes(1)
+    } finally {
+        if (previous === undefined) delete process.env.CUTTLELY_DASH_FLOWS
+        else process.env.CUTTLELY_DASH_FLOWS = previous
+    }
 })

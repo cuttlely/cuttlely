@@ -30,11 +30,11 @@ export async function compareLegacy(
     if ((comparisons.get(id) || 0) > now - 300000) return
     for (const [name, stamp] of comparisons) if (stamp <= now - 300000) comparisons.delete(name)
     if (comparisons.size >= 10000) comparisons.delete(comparisons.keys().next().value!)
-    comparisons.set(id, now)
     await recordKeyUse(req, key || ({ id: '', workspaceId } as ApiKey), operation, next ? 'accepted' : 'denied', {
         shadowMismatch: true,
         resourceId,
         legacyAllowed: legacy,
         scopedAllowed: next
     })
+    comparisons.set(id, now)
 }

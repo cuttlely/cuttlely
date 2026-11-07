@@ -4,6 +4,7 @@ import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyUsage } from '../../database/entities/ApiKeyUsage'
 import { AppError } from '../../errors/appError'
 import { Operation } from './policy'
+import { AccessKeyLimitError } from './errors'
 
 // Serializes SQLite transactions and minute admission in this process. SQL conditional increments enforce quotas.
 let tail: Promise<unknown> = Promise.resolve()
@@ -27,7 +28,7 @@ export function utcWindows(now: number) {
 }
 function limited(res: Response | undefined, reset: number, now: number): never {
     res?.setHeader('Retry-After', String(Math.max(1, Math.ceil((reset - now) / 1000))))
-    throw new AppError(429, 'Access key request limit reached.')
+    throw new AccessKeyLimitError()
 }
 export async function consume(data: DataSource, key: ApiKey, operation: Operation, res?: Response, now = Date.now()): Promise<void> {
     const policy = key.accessPolicy

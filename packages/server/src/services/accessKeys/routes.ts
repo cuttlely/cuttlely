@@ -57,6 +57,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if ((!key.accessPolicy?.legacy || root === 'dashflows') && !registered)
             throw new AppError(403, 'This endpoint is not available to scoped access keys.')
 
+        if (root === 'harnesses' && parts[4] === 'diagnostics') throw new AppError(403, 'Harness diagnostics require a signed-in author.')
         let operation: Operation = read ? 'api:read' : 'api:write'
         let resource
         const data = await accessData()
@@ -69,7 +70,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     : root === 'chatmessage' && parts[1] === 'abort'
                     ? parts[2]
                     : parts[1]
-            const id = raw || (root === 'leads' ? req.body?.chatflowid : undefined)
+            const suppliedId = raw || (root === 'leads' ? req.body?.chatflowid : undefined)
+            const id = typeof suppliedId === 'string' ? suppliedId.toLowerCase() : undefined
             if (id && /^[0-9a-f-]{36}$/.test(id)) {
                 const flow = await data.getRepository(ChatFlow).findOneBy({ id, workspaceId: key.workspaceId })
                 if (!flow) throw new AppError(404, 'Resource not found.')
@@ -91,15 +93,26 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             resource = { resourceType: 'DASHFLOW' as const, resourceId: parts[1] }
             operation = read ? 'dashflow:read' : 'dashflow:report'
             const { runtime } = await import('../dashflows')
-            const store = (await runtime()).dashStore()
-            const dashboard =
-                req.method === 'POST' && parts[2] === 'accounts' && parts[4] === 'report'
-                    ? store.published(parts[1], key.workspaceId)
-                    : store.get(parts[1], key.workspaceId)
-            if (!read) {
-                const harness = await resolveHarnessFlow(dashboard.definition.harness, key.workspaceId)
-                if (!harness) throw new AppError(403, 'Referenced harness is unavailable.')
-                await authorizeKey(req, 'harness:run', key.workspaceId, flowResource(harness), false)
+            const mod = await runtime()
+            const store = mod.dashStore()
+            try {
+                if (read) {
+                    if (parts[2] === 'refresh-status') store.status(parts[1], key.workspaceId)
+                    else store.published(parts[1], key.workspaceId)
+                } else {
+                    const report = parts[2] === 'accounts' && parts[4] === 'report'
+                    const dashboard = report ? store.published(parts[1], key.workspaceId) : store.get(parts[1], key.workspaceId)
+                    if (report) {
+                        const { hasPublishedAccount } = await import('../../routes/dashflows/public')
+                        if (!hasPublishedAccount(dashboard.snapshot, parts[3])) throw new AppError(404, 'Account not published.')
+                    } else _res.locals.accessKeyDashboardRevision = dashboard.revision
+                    const harness = await resolveHarnessFlow(dashboard.definition.harness, key.workspaceId)
+                    if (!harness) throw new AppError(403, 'Referenced harness is unavailable.')
+                    await authorizeKey(req, 'harness:run', key.workspaceId, flowResource(harness), false)
+                }
+            } catch (error) {
+                if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
+                throw error
             }
         }
         if (!key.accessPolicy?.legacy) {
@@ -126,8 +139,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                 ? req.method === 'DELETE'
                     ? ['chatflows:delete', 'agentflows:delete', 'assistants:delete']
                     : ['chatflows:create', 'chatflows:update', 'agentflows:create', 'agentflows:update']
-                : root === 'harnesses' && parts[4] === 'diagnostics'
-                ? ['chatflows:update', 'agentflows:create']
+                : root === 'dashflows'
+                ? [read ? 'chatflows:view' : 'chatflows:update']
                 : undefined
         // Legacy management retains its existing RBAC and resource behavior, explicitly flagged by migration.
         const admittedKey = await authorizeKey(

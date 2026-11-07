@@ -13,3 +13,18 @@ export class FlowOriginPolicyError extends AppError {
         super(403, message)
     }
 }
+
+/** Resource-resolution outages share the sanitized access-key error boundary. */
+export class AccessKeyUnavailableError extends AppError {
+    constructor(message = 'Access key verification is unavailable.') {
+        super(503, message)
+    }
+}
+export class AccessKeyLimitError extends AppError {
+    constructor() {
+        super(429, 'Access key request limit reached.')
+    }
+}
+export function isMissingAccessResource(error: unknown): boolean {
+    return error instanceof AppError && error.statusCode === 404
+}

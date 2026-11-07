@@ -30,7 +30,7 @@ export function setAccessContext(req: Request, key: ApiKey, ownerPermissions?: s
     const old = contexts.get(req)
     if (!old || old.key.id !== key.id) contexts.set(req, { key, admitted: new Set(), ownerPermissions, checks: new Map() })
 }
-export async function authenticateRequest(req: Request): Promise<ApiKey | undefined> {
+async function loadRequestPrincipal(req: Request): Promise<ApiKey | undefined> {
     if (contexts.has(req)) return contexts.get(req)!.key
     const supplied = bearerApiKey(req.headers.authorization)
     if (!supplied || supplied.length > 256) return undefined
@@ -63,6 +63,15 @@ export async function authenticateRequest(req: Request): Promise<ApiKey | undefi
     }
     setAccessContext(req, key, ownerPermissions)
     return key
+}
+/** Normalize every identity-store read, including current workspace and owner authority. */
+export async function authenticateRequest(req: Request): Promise<ApiKey | undefined> {
+    try {
+        return await loadRequestPrincipal(req)
+    } catch (error) {
+        if (accessRollout() !== 'on' || (error instanceof AppError && error.statusCode < 500)) throw error
+        throw new AppError(503, 'Access key verification is unavailable.')
+    }
 }
 export function flowResource(flow: Pick<ChatFlow, 'id' | 'type'>): ResourceGrant {
     return {
@@ -136,7 +145,7 @@ export async function authorizeKey(
         return key
     } catch (error) {
         const key = accessContext(req)?.key
-        if (key) void recordKeyUse(req, key, operation, 'denied').catch(() => undefined)
+        if (key && accessRollout() === 'on') void recordKeyUse(req, key, operation, 'denied').catch(() => undefined)
         throw error
     }
 }

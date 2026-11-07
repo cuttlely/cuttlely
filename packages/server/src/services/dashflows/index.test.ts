@@ -172,3 +172,13 @@ it('passes the interrupted generation boundary to validated cache recovery', asy
     })
     expect((materialize.mock.calls[0] as unknown[])[6]).toBe(resumed.resumeSince)
 })
+
+it('never executes a newer dashboard definition than the one admitted by an access key', async () => {
+    // The guard checked revision 1; an editor saved a new Harness before the service claimed revision 2.
+    store.claim.mockReturnValueOnce({ ...claim, revision: 2, definition: { harness: 'ungranted' } })
+    await expect(startDashboardRefresh('dashboard', 'team-a', false, 1)).rejects.toMatchObject({ statusCode: 409 })
+    expect(execute).not.toHaveBeenCalled()
+    expect(materialize).not.toHaveBeenCalled()
+    expect(track).not.toHaveBeenCalled()
+    expect(store.cancel).toHaveBeenCalledWith('dashboard', 'team-a', 'lease')
+})
