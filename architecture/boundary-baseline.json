@@ -1087,6 +1087,11 @@
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
         {
+            "from": "packages/server/src/services/accessKeys/preflight.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "Access-key preflight refusals must use the existing configured RateLimiterManager flow/IP attempt bucket without charging accepted-operation key quotas."
+        },
+        {
             "from": "packages/server/src/services/accessKeys/resources.ts",
             "to": "packages/server/src/database/entities/ChatFlow.ts",
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."

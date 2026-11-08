@@ -5,11 +5,12 @@ process.env.CUTTLELY_DASH_FLOWS = 'false'
 const assert = require('node:assert/strict')
 const { test, after } = require('node:test')
 const { createRequire } = require('node:module')
-const { mkdtempSync, rmSync } = require('node:fs')
+const { mkdtempSync, readdirSync, rmSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const path = require('node:path')
 const root = mkdtempSync(path.join(tmpdir(), 'cuttlely-access-production-'))
 process.env.LOG_PATH = path.join(root, 'logs')
+process.env.BLOB_STORAGE_PATH = path.join(root, 'blobs')
 process.env.CUTTLELY_DATA_DIR = root
 process.env.CUTTLELY_HERMES_HOME = path.join(root, 'profiles-home')
 process.env.FLOWISE_SECRETKEY_OVERWRITE = 'fixture-access-production-pepper'
@@ -2061,6 +2062,171 @@ test('real updateChatflow commits a mode-only change and permits an unchanged or
         await update({ ...saved }, { apiAccessMode: 'private' })
         assert.equal((await data.getRepository(ChatFlow).findOneByOrFail({ id: flow.id })).apiAccessMode, 'private')
     } finally {
+        await data.destroy()
+    }
+})
+
+// Use App.config itself: global preflight, parsers, API gate, real prediction router/controller,
+// and RateLimiterManager. Only model execution is replaced after authorization has completed.
+async function round14App() {
+    const { App } = serverRequire('./src/index.ts')
+    const { RateLimiterManager } = serverRequire('./src/utils/rateLimit.ts')
+    const previousManager = RateLimiterManager.instance
+    RateLimiterManager.instance = new RateLimiterManager()
+    const app = new App()
+    app.identityManager = { getPlatformType: () => 'open_source' }
+    app.sseStreamer = new (serverRequire('./src/utils/SSEStreamer.ts').SSEStreamer)()
+    appModule.getRunningExpressApp = () => app
+    await app.config()
+    const predictions = serverRequire('./src/services/predictions/index.ts').default
+    const build = predictions.buildChatflow
+    let executions = 0
+    predictions.buildChatflow = async () => {
+        executions++
+        return { text: 'fixture result' }
+    }
+    return {
+        app,
+        manager: RateLimiterManager.instance,
+        executions: () => executions,
+        restore: () => {
+            predictions.buildChatflow = build
+            RateLimiterManager.instance = previousManager
+        }
+    }
+}
+async function round14Key(data, flow) {
+    const key = await data.getRepository(ApiKey).save({
+        id: 'round14-key',
+        apiKey: '',
+        apiSecret: '',
+        keyName: 'Round 14',
+        workspaceId: 'team-a',
+        permissions: ['chatflows:view'],
+        accessPolicy: parsePolicy({ scopes: ['predict', 'stream', 'upload'], rpm: 0, daily: 10 }),
+        harnesses: []
+    })
+    await data.getRepository(ApiKeyResource).save({ principalId: key.id, resourceType: 'CHATFLOW', resourceId: flow.id })
+    return (await data.transaction((m) => serverRequire('./src/services/accessKeys/credentials.ts').mintCredential(m, key))).secret
+}
+
+test('round14 actual app counts preflight-refused prediction attempts without charging refused key quota', async () => {
+    const data = await database()
+    let fixture
+    try {
+        await workspaceFixture(data)
+        const flow = await data.getRepository(ChatFlow).save({
+            id: '14141414-1414-4141-8141-141414141401',
+            name: 'Attempt contract',
+            chatbotConfig: JSON.stringify({ postProcessing: { enabled: true } }),
+            type: 'CHATFLOW',
+            workspaceId: 'team-a',
+            apiAccessMode: 'private',
+            flowData: '{"nodes":[],"edges":[]}',
+            apiConfig: JSON.stringify({ rateLimit: { limitMax: 2, limitDuration: 60, limitMsg: 'Attempt limit' } })
+        })
+        const secret = await round14Key(data, flow)
+        fixture = await round14App()
+        await fixture.manager.initializeRateLimiters(await data.getRepository(ChatFlow).find())
+        const request = serverRequire('supertest')
+        const predict = (token) =>
+            request(fixture.app.app)
+                .post('/api/v1/prediction/' + flow.id)
+                .set('Authorization', 'Bearer ' + token)
+                .send({ question: 'fixture' })
+        const responses = [await predict('invalid-fixture-bearer'), await predict(secret), await predict(secret)]
+        process.stdout.write('round14 actual App.config invalid/valid/valid statuses=' + responses.map((r) => r.status).join('/') + '\n')
+        assert.equal(responses[0].status, 401)
+        assert.equal(responses[1].status, 200, responses[1].text)
+        assert.equal(responses[2].status, 429, 'third prediction attempt must hit the configured IP/flow limit')
+        assert.equal(responses[2].text, 'Attempt limit')
+        assert.ok(Number(responses[2].headers['retry-after']) > 0)
+        assert.equal(fixture.executions(), 1)
+        const usage = await data.getRepository(ApiKeyUsage).find()
+        assert.ok(usage.length > 0)
+        assert.ok(
+            usage.every((row) => row.accepted === 1),
+            'only the fully authorized prediction charges key quota'
+        )
+        const before = await data.getRepository(ApiKeyUsage).find()
+        assert.equal((await predict('invalid-fixture-bearer')).status, 429)
+        assert.deepEqual(await data.getRepository(ApiKeyUsage).find(), before)
+        // A different flow has its own bucket for this same socket IP.
+        const other = await data.getRepository(ChatFlow).save({ ...flow, id: '14141414-1414-4141-8141-141414141403' })
+        await data.getRepository(ApiKeyResource).save({ principalId: 'round14-key', resourceType: 'CHATFLOW', resourceId: other.id })
+        await fixture.manager.updateRateLimiter(other)
+        const independent = await request(fixture.app.app)
+            .post('/api/v1/prediction/' + other.id)
+            .set('Authorization', 'Bearer ' + secret)
+            .send({ question: 'fixture' })
+        assert.equal(independent.status, 200, independent.text)
+        // Repeated preflight refusals exhaust the real bucket without touching key quotas.
+        await fixture.manager.updateRateLimiter(flow)
+        const afterOther = await data.getRepository(ApiKeyUsage).find()
+        const refused = []
+        for (let i = 0; i < 3; i++) refused.push((await predict('invalid-fixture-bearer')).status)
+        assert.deepEqual(refused, [401, 401, 429])
+        assert.deepEqual(await data.getRepository(ApiKeyUsage).find(), afterOther)
+        // Successful preflight and the route limiter together still count each attempt once.
+        await fixture.manager.updateRateLimiter(flow)
+        const accepted = []
+        for (let i = 0; i < 3; i++) accepted.push((await predict(secret)).status)
+        assert.deepEqual(accepted, [200, 200, 429])
+        assert.equal(fixture.executions(), 4)
+        assert.ok((await data.getRepository(ApiKeyUsage).find()).every((row) => row.accepted === 4))
+        process.stdout.write('round14 controls: separate flow=200; invalid burst=401/401/429; valid burst=200/200/429; accepted quota=4\n')
+    } finally {
+        fixture?.restore()
+        await data.destroy()
+    }
+})
+
+test('round14 actual app pre-parser streaming origin refusals are JSON for JSON, Accept and multipart callers', async () => {
+    const data = await database()
+    let fixture
+    try {
+        await workspaceFixture(data)
+        const message = '<script>literal refusal</script>'
+        const flow = await data.getRepository(ChatFlow).save({
+            id: '14141414-1414-4141-8141-141414141402',
+            name: 'Origin contract',
+            type: 'CHATFLOW',
+            workspaceId: 'team-a',
+            apiAccessMode: 'private',
+            flowData: '{"nodes":[],"edges":[]}',
+            chatbotConfig: JSON.stringify({ allowedOrigins: ['https://allowed.example'], allowedOriginsError: message })
+        })
+        const secret = await round14Key(data, flow)
+        fixture = await round14App()
+        const request = serverRequire('supertest')
+        const filesBefore = readdirSync(root, { recursive: true }).filter((name) => name.startsWith('blobs'))
+        for (const kind of ['json', 'accept', 'multipart']) {
+            let req = request(fixture.app.app)
+                .post('/api/v1/prediction/' + flow.id)
+                .set('Authorization', 'Bearer ' + secret)
+                .set('Origin', 'https://refused.example')
+            if (kind === 'multipart') req = req.field('streaming', 'true').attach('files', Buffer.from('refused'), 'fixture.txt')
+            else if (kind === 'accept')
+                req = req.set('Accept', 'text/event-stream').set('Content-Type', 'application/json').send('{invalid')
+            else req = req.send({ question: 'fixture', streaming: true })
+            const response = await req
+            process.stdout.write(
+                `round14 actual App.config ${kind} streaming refusal=${response.status} ${response.headers['content-type']}\n`
+            )
+            assert.equal(response.status, 403)
+            assert.match(response.headers['content-type'], /^application\/json/)
+            assert.equal(response.body.message, message)
+            assert.equal(response.headers['x-accel-buffering'], undefined)
+            assert.equal(fixture.app.sseStreamer.clients.size, 0)
+            assert.equal(fixture.executions(), 0)
+            assert.deepEqual(
+                readdirSync(root, { recursive: true }).filter((name) => name.startsWith('blobs')),
+                filesBefore
+            )
+            assert.deepEqual(await data.getRepository(ApiKeyUsage).find(), [])
+        }
+    } finally {
+        fixture?.restore()
         await data.destroy()
     }
 })

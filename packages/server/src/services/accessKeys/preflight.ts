@@ -10,6 +10,7 @@ import { authenticateRequest, authorizeFlowKey, flowOperation } from './authoriz
 import { accessData } from './data'
 import { callerPolicyAllows } from './policy'
 import { externalAgentHeaders } from '../../utils/externalAgentAuth'
+import { RateLimiterManager } from '../../utils/rateLimit'
 
 /** Caller policies and URL-resolved flow admission run before global JSON parsing and multipart storage. */
 export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
@@ -65,6 +66,13 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
                     accessRollout() === 'on' && !(error instanceof AppError && error.statusCode < 500)
                         ? new AccessKeyUnavailableError()
                         : error
+                // Refusals never enter the prediction router's IP/flow attempt limiter. Count them
+                // in that same bucket before responding; successful preflight still counts in the
+                // router exactly once. This is separate from accepted-operation key quotas.
+                if (keyOnlyPrediction)
+                    return RateLimiterManager.getInstance().getRateLimiterById(flowMatch![2])(req, _res, (limitError) =>
+                        next(limitError || normalized)
+                    )
                 // Preflight runs before these routers, so their error middleware has not been entered.
                 if (/^\/api\/v1\/orchestrate(\/|$)/.test(path)) {
                     const { orchestrateErrorHandler } = await import('../../routes/orchestrate')

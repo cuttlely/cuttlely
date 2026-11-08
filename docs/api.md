@@ -694,7 +694,7 @@ The restart/shutdown 503 comes with `Retry-After`: send the request again after 
 
 **Access-key limits.** With enforcement on, each principal has RPM (default 60), daily and monthly UTC quotas (default 0, unlimited). A rejected limit returns `429` with `Retry-After`. Accepted calls, including one stream and each poll, count once; downstream execution errors remain charged. Current counters and reset/remaining headers are described in [Access keys](./reference/access-keys.md#caller-policies-and-counters). SQL quotas fail closed; minute counters are per process and reset on restart. Browser delegation, exports/alerts, asynchronous telemetry batching and termination of admitted runs are not implemented.
 
-**Rate limits.** In the flow's **Configuration** (settings menu on the canvas), **Rate Limit** sets how many requests one client may send in a time window, and the message to send back. With 2 requests per 60 seconds, the third request got:
+**Rate limits.** In the flow's **Configuration** (settings menu on the canvas), **Rate Limit** sets how many prediction attempts one client may send in a time window, including invalid-bearer and other preflight refusals, and the message to send back. Refused authorization never consumes the separate access-key quota. With 2 requests per 60 seconds, the third request got:
 
 ```text
 HTTP/1.1 429 Too Many Requests
