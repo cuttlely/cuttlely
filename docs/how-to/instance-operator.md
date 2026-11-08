@@ -1,62 +1,74 @@
 # Designate the instance operator
 
-The host CLI break-glass account is the default instance operator. When `pnpm user --email you@example.com` successfully creates the first owner or resets an active owner's password, it writes a host-only binding for that account and the effective database connection. With no `CUTTLELY_INSTANCE_OPERATOR` override, that bound active owner can configure the service in the browser. Other organization owners gain no service authority.
+Use **Admin > Server settings > Instance operator** for first claim and routine operator management. The first claim requires an active, signed-in organization owner plus independent hosting-log proof. Ownership, password sign-in, a bootstrap email, account age and upgrading never designate an operator automatically.
 
-Existing installations need one explicit host step with the incoming build: bind the intended existing owner, or rerun the password CLI. Upgrading, signing in, creating an account through browser setup, or setting a bootstrap email never binds anyone automatically. Plan this step and keep host recovery available before deploying the planned 1.7.0 security-exception release.
+**Automatically eligible:** an active owner with an actual valid host CLI binding written by a build that supports operator binding (planned 1.7.0 onward). Existing private version-1 host bindings remain accepted. **Legacy or unknown accounts:** even a former CLI-password owner needs the one-time panel claim if no binding exists. There is no historical credential-provenance heuristic. The resulting private binding persists across upgrades.
 
 ## Onboard an operator
 
-1. Back up the application database, encryption key and settings directory. Run commands inside the application installation/container, with the same environment, settings, mounts and effective database connection as the server. A source checkout needs its usual build first. Keep the original data and settings paths.
-2. On a fresh installation, configure sign-in on the host first. For local setup, enable `CUTTLELY_LOCAL_ADMIN=true` and create the first owner with `pnpm user --email you@example.com`. It prompts for a password and writes the binding after successful account creation. Browser account setup is also available when host-enabled, but requires the bind step below afterward. A setup code cannot configure the service or write this binding.
-3. For an existing account, use the explicit bind-only command. It does not prompt for or change a password:
+1. Back up the application database, installation encryption key and settings directory. Configure sign-in on the host for a fresh installation. Browser account setup creates an account only; its setup code cannot configure the service or designate an operator.
+2. Sign in as the intended active owner and open **Admin > Server settings**. In **Instance operator**, type **CLAIM** and choose **Request host-log code**. Authentication must be within ten minutes. AuthKit owners can choose **Verify a fresh AuthKit sign-in**, which requests active provider authentication and checks the provider's `auth_time`; token refresh alone does not qualify ([WorkOS reauthentication](https://workos.com/docs/authkit/reauthentication)). Local/recovery owners sign in again; Generic OIDC owners use its reauthentication flow. Reauthentication changes the session, so request a new code afterward.
+3. Read the code in the deployment's host log (for example the hosting dashboard or `docker compose logs cuttlely`). If you cannot read it, ask the hosting operator for deliberate assistance. The code never appears in the panel, API responses, browser Logs, history or audit. It is printed once and lasts five minutes. Keep it private and do not paste it into reports.
+4. Enter the code in the same requesting browser session and confirm the claim. This explicitly designates that account; nothing is inferred from being an owner. Only the bound account inherits service authority. Other owners retain their tenant permissions and cannot see sensitive service configuration/history or operator management controls.
 
-    ```bash
-    pnpm user --email you@example.com --bind-operator
-    ```
+Only one proof is active per installation. Requests have a five-minute cooldown, a limit of four per hour globally and two per hour per user. Wrong attempts are limited globally and per user. Wrong guesses never rotate or consume another requester's valid proof; its correct redemption remains possible after the wrong-attempt cap. A new session must wait for the active proof to expire before requesting another. Codes are bound to purpose, installation, authority generation, authentication epoch, user, session and running database connection. They work once.
 
-    For Docker:
+## Transfer, disable and rebind in the panel
 
-    ```bash
-    docker compose exec -u node cuttlely pnpm user --email you@example.com --bind-operator
-    ```
+The current operator can transfer to another active owner in the same organization, or revoke service authority. Each action needs recent authentication and typed **TRANSFER** or **REVOKE** confirmation. Transfer takes effect immediately and the previous account loses service authority. An env-controlled designation is read-only. No operator grant extends access to another organization's resources.
 
-    The command requires one unambiguous email, an active user and active owner membership. With local-admin mode off, the selected account must also be the Super User accepted by the existing password CLI. With local-admin mode on, an explicitly selected active owner the CLI would accept can be bound. It never chooses an owner without an explicit command. A non-owner password reset keeps its existing behavior and does not bind an operator.
+| Managed state                                               | Panel action                                                                                                |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Unclaimed: no authority file                                | Explicit **CLAIM** with host-log proof                                                                      |
+| Active: valid binding, current connection and active owner  | Operator-only transfer or revoke                                                                            |
+| Disabled: durable revocation tombstone                      | Separate **RECOVER** confirmation with fresh host-log proof; ordinary claim stays closed                    |
+| RecoveryRequired: safe corrupt file or inactive bound owner | Separate **RECOVER** confirmation and fresh host-log proof before replacing authority                       |
+| RecoveryRequired: changed database connection               | The previously bound active owner uses **REBIND** with fresh host-log proof after verifying the destination |
+| Unsafe/inaccessible file or nobody can sign in              | Host recovery                                                                                               |
 
-4. Sign in as that owner and open **Admin > Server settings**. No restart is needed for file binding changes. The server rechecks the interactive session ID, running connection fingerprint and current active ownership on every request. Other owners see **Only the instance operator can change server-wide settings**, without sensitive configuration or history. API keys and bearer-only callers cannot administer the service.
+A database/path, host, port, database username/password or TLS change invalidates the connection fingerprint. After a database switch/restart, the previous operator signs in to the verified destination and requests **REBIND**. A code from before the change cannot rebind it. Another owner's matching database identity grants nothing. If the previous owner is absent or cannot sign in, use host recovery. Changing the account's sign-in password alone does not change the connection fingerprint.
+
+Revocation writes a tombstone; it never deletes the file or returns the install to ordinary bootstrap. Disabled or corrupt state cannot be erased without explicit recovery proof or deliberate host recovery. Safe recovery replacement is audited. Unsafe files are never replaced from the browser.
 
 ## Host file, overrides and revocation
 
-The binding lives in `settings/instance-operator.json` under the installation's `CUTTLELY_DATA_DIR` (or the usual checkout data fallback). It contains exactly `version: 1`, `userId`, `database` (the existing operator connection fingerprint) and `createdAt`. The CLI atomically replaces it with owner-only `0600` permissions. On POSIX the server checks the file owner and mode; symlinks, oversized files, bad JSON/version/fields and connection mismatches fail closed with a host log notice. No file bytes, credentials or fingerprint are logged. Protect the installation directory and run the CLI as the same OS user as the server.
+Authority is outside the application DB and generic settings at `settings/instance-operator.json` under `CUTTLELY_DATA_DIR` (or the usual checkout data fallback). Version 2 stores Active/Disabled state, a fresh generation and non-secret correlated audit evidence with the binding. It requires a regular file, no symlink, mode `0600` and the server's effective OS UID on POSIX. A shared host lock and compare-and-swap serialize panel and CLI writers. Missing-file claims use exclusive atomic creation; audit projection failure restores the exact previous authority. An interrupted publication retains its embedded audit evidence. Proof state contains only a verifier/context, never the code.
 
-The file is separate from the database and `server.json`. It is never registered as a setting and cannot be created, changed or restored through browser settings, guided setup, settings PUT, history restore, safe boot, batch helpers or settings environment export/injection. Preserve it separately in host backups; reviewing or restoring it is host administration. A valid file binds only while its account is still an active owner. Binding replacements are recorded in the host settings history without identity values or credentials; host logs record binding changes and revocation/invalidity notices.
+| `CUTTLELY_INSTANCE_OPERATOR`              | Effective browser authority                                                                     |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Entirely unset                            | Valid private managed binding, subject to active owner and database checks                      |
+| `none`                                    | Nobody; proof issuance/redemption and every panel lifecycle mutation are disabled               |
+| JSON with exactly `userId` and `database` | That explicitly designated active owner, if the connection matches; panel lifecycle is disabled |
+| Empty or invalid                          | Nobody; no file fallback, claim or recovery                                                     |
 
-`CUTTLELY_INSTANCE_OPERATOR` takes precedence over the file:
+Removing an override reveals the existing managed state, including a prior Active binding. Removing an override is not revocation. Host changes require restart/recreation. All shipped root, directory, queue and worker Compose services preserve present values, including an explicit empty value, and omit an unset override. Recreate using the same Compose file/options with `docker compose up -d --force-recreate`; plain restart keeps the old container environment. Queue workers receive the same policy for configuration parity; this is not a claim of worker HTTP exposure.
 
-| Host value                                | Browser service authority                                                  |
-| ----------------------------------------- | -------------------------------------------------------------------------- |
-| Unset                                     | The valid CLI-bound active owner                                           |
-| `none`                                    | Nobody, even when a valid binding file exists                              |
-| JSON with exactly `userId` and `database` | That explicitly designated active owner, if the running connection matches |
-| Empty or invalid value                    | Nobody; no file fallback                                                   |
-
-Use `CUTTLELY_INSTANCE_OPERATOR=none` to revoke all browser service administration. Removing only an explicit JSON override returns authority to a valid file binding. Removing the file when the override is unset revokes its authority. Host overrides and changes to deployment environment reach the server after restart/recreation; changing the running process environment applies on the next request. Already accepted work can finish.
-
-For a JSON override, select the exact account explicitly, verify its active owner membership on the host, and read its `user.id`. Run `pnpm settings operator-fingerprint` inside the same installation/environment. This prints the 64-character effective connection fingerprint without opening a database connection or printing its credentials. Set the host variable to `{"userId":"<existing-user-id>","database":"<64-lowercase-hex-fingerprint>"}` with real values; placeholders are invalid. Never put it in `server.json` or shared reports. Compose forwards a present host override and omits an unset one. Recreate with the same Compose file/options using `docker compose up -d --force-recreate`; a plain restart retains the old container environment. With the npm launcher use `cuttlely start --env-file <path>` for host configuration.
+For a host JSON recovery override, explicitly select and verify an active owner's exact `user.id`, then run `pnpm settings operator-fingerprint` in the same installation/environment. It prints only the effective connection hash. Set `{"userId":"<existing-user-id>","database":"<64-lowercase-hex-fingerprint>"}` in host configuration with real values. Do not put it in `server.json`, screenshots or shared reports. The npm launcher accepts host configuration through `cuttlely start --env-file <path>`.
 
 ## Provisioning failures and recovery
 
-The CLI completes the credential operation before writing authority. A failed credential operation never writes a binding. If the binding or its history write fails after a password change, the command exits nonzero and states that the password operation completed. A failed history write restores the previous binding (or removes a newly created one); failures are never reported as successful provisioning. Check host output and directory ownership, permissions and free space. Repair the host history destination, then run `--bind-operator` against the same installation/database without another password change. For a corrupt or unsafe existing binding, remove it on the host before rebinding. Keep `none` set during recovery if all browser administration must remain revoked; unset it explicitly when ready to use the file again.
+The CLI is emergency recovery when nobody can sign in or the host files are unsafe. Run inside the installed application with the same data mounts, effective database connection and **OS user as the running app**:
 
-If the bound account is disabled or loses active ownership, browser service administration closes. Recover that account or explicitly bind another active owner accepted by the CLI. The password command remains available when a reset is needed; no password goes in arguments or logs. There is no automatic fallback to another owner, the oldest user, or the bootstrap email.
+```bash
+docker compose exec -u node cuttlely pnpm user --email you@example.com --bind-operator
+```
 
-The binding covers the effective database connection. A database switch still saves the connection and requires restart. After restart, a changed database/path, host, port, database username/password or TLS configuration invalidates the old binding. Verify the destination account and connection, then run the explicit bind command there (or recompute a host JSON override). A copied database with the same user ID/session at a different connection does not inherit authority. Changing the account's sign-in password alone does not change the database fingerprint.
+For a host shell that runs as root while the data directory belongs to `node`, use:
 
-Host/database administrators remain trusted: replacing contents at the same connection, changing DNS or replacing SQLite at the same canonical path is host/database administration. The fingerprint does not authenticate database contents against a hostile database administrator. No automatic rebinding occurs on upgrade, restore, retry or safe boot.
+```bash
+setpriv --reuid=node --regid=node --init-groups -- pnpm user --email you@example.com --bind-operator
+```
 
-Host configuration remains available: `pnpm settings list`, `pnpm settings unset NAME`, `pnpm settings restore`, and `CUTTLELY_IGNORE_ADMIN_SETTINGS=1`. They never write or restore an operator binding. Restore and unset retain previous settings if their history write fails. Authentication-method changes end sessions as before; sign in again using owner recovery if needed.
+The CLI refuses root before credential changes when the data directory belongs to another user. This addresses the source-confirmed entrypoint/independent-shell UID mismatch; no live hosting-shell UID was measured for this change. Do not relax UID or `0600` checks. If an old root-owned file exists, repair/remove it deliberately on the host as part of recovery. Keep `none` set during repairs if all browser authority must remain closed, then remove that override deliberately when ready.
+
+Bind-only does not change the password. It requires an explicit unambiguous account accepted by the existing CLI rules: active owner, and with local-admin mode off, the selected Super User. If password recovery is needed, omit `--bind-operator`; the password is prompted or read from stdin, never an argument. Successful first-owner creation or active-owner reset also records a host binding. Failed credentials never publish authority. A binding/history failure returns nonzero and explains whether credentials already changed; repair ownership/history/free space and retry bind-only. Host recovery advances authority generation and invalidates older proofs.
+
+Host/database administrators remain trusted. The fingerprint binds connection configuration, not contents: replacing SQLite at the same canonical path, restoring a database at the same connection or changing DNS is not detected. Invalidate sessions and review active accounts/memberships after a trusted restore. Back up authority/tombstones and installation proof identity separately from database/settings backups; deliberately restoring host authority is trusted host administration. Generic settings restore, retry and safe boot never restore or infer an operator or remove a tombstone.
+
+Host settings recovery remains available through `pnpm settings list`, `pnpm settings unset NAME`, `pnpm settings restore` and `CUTTLELY_IGNORE_ADMIN_SETTINGS=1`. These do not write operator authority.
 
 ## Scope
 
-The operator boundary covers database/storage settings, tests, restart, settings history, retry/discard/restore, guided AuthKit setup, global sign-in/OIDC and version-history host configuration. Recent-authentication checks still apply. It grants no cross-organization flows, keys, users or provisioning. Tenant roles and organization-scoped SCIM are unchanged.
+The operator boundary covers service database/storage settings, tests, restart, sensitive history, retry/discard/restore, guided AuthKit setup, global sign-in/OIDC and version-history host configuration. API keys and bearer-only requests cannot qualify. Every request checks the current session, active ownership, designation and effective connection. Operator authority grants no cross-organization data access. Tenant roles and organization-scoped SCIM remain separate.
 
-Access-key enforcement remains default `off`. Binding an operator does not activate it. Host `INBOUND_ACCESS_V2=off` overrides a saved mode for recovery. Compose forwards `INBOUND_ACCESS_V2` and `CUTTLELY_IGNORE_ADMIN_SETTINGS` with safe empty defaults; apply host changes by recreating the container. See [access-key rollout](../reference/access-keys.md#rollout-and-migration).
+Changing access-key enforcement also requires recent authentication. Access-key enforcement remains default **off**; claiming an operator does not activate it. Host `INBOUND_ACCESS_V2=off` overrides a saved mode. Rehearse the separate [access-key rollout](../reference/access-keys.md#rollout-and-migration) before explicit activation.

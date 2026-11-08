@@ -259,6 +259,16 @@ describe('authentication settings routes', () => {
         expect(response.status).toBe(200)
     })
 
+    it('accepts WorkOS only with provider authentication evidence, never a fresh issuedAt fallback', async () => {
+        for (const at of [new Date(), new Date(Date.now() - 11 * 60 * 1000), new Date(Date.now() + 60 * 1000), undefined]) {
+            findLocalSession.mockResolvedValue({ issuedAt: new Date(), recentAuthenticationAt: at, authenticationMethod: 'workos' })
+            const response = await request(app({ 'local-session': 'workos-session' }))
+                .post('/api/v1/authentication-settings/stage')
+                .send({ method: 'workos', version: 4 })
+            expect(response.status).toBe(at && at.getTime() <= Date.now() && Date.now() - at.getTime() < 10 * 60 * 1000 ? 200 : 409)
+        }
+    })
+
     it('does not let a separate recent-auth cookie make a WorkOS session recent', async () => {
         findLocalSession.mockResolvedValue({ issuedAt: new Date(), authenticationMethod: 'workos' })
         const response = await request(app({ 'local-session': 'workos-session', 'recent-auth': 'old-cookie' }))

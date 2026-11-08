@@ -9,7 +9,7 @@ jest.mock('react-router-dom', () => ({ useNavigate: () => () => {} }))
 jest.mock('@/utils/useNotifier', () => () => {})
 jest.mock('@/api/serverSettings', () => ({
     __esModule: true,
-    default: { getSettings: jest.fn(() => new Promise(() => {})) }
+    default: { getOperator: jest.fn().mockResolvedValue({ data: {} }), getSettings: jest.fn(() => new Promise(() => {})) }
 }))
 jest.mock('./RestartScreen', () => ({
     RestartChoice: () => null,

@@ -4,7 +4,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 
 ## Planned in 1.7.0 (unreleased)
 
--   [Designate the instance operator](./instance-operator.md). The CLI-bound break-glass owner configures by default; existing installs need one explicit host bind step. Overrides, revocation and recovery. Read the [1.7.0 upgrade warnings](../upgrading.md) before deployment.
+-   [Designate the instance operator](./instance-operator.md). Only actual host bindings grandfather; legacy installs claim in the panel with one host-log code. Routine lifecycle is in the panel; the CLI is emergency recovery. Overrides, revocation and recovery. Read the [1.7.0 upgrade warnings](../upgrading.md) before deployment.
 
 -   [Create and manage access keys](./access-keys.md). Create a scoped key, restrict callers, call a private flow, rotate and revoke it. Enforcement defaults to `off`; follow operator rollout first. [Policy and route reference](../reference/access-keys.md).
 -   [Pending owner invitations](./users-without-authkit.md). An active owner can cancel another pending owner invite and revoke its links; active owners remain read-only in the Users UI.

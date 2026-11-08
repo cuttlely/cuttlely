@@ -60,11 +60,15 @@ export async function databaseSessionRecentlyAuthenticated(
     if (!token) return false
     const session = await store.findLocalSession(hashSessionToken(token))
     if (!session) return false
-    const authenticatedAt = session.authenticationMethod === 'oidc' ? session.recentAuthenticationAt : session.issuedAt
+    const authenticatedAt =
+        session.authenticationMethod === 'oidc' || session.authenticationMethod === 'workos'
+            ? session.recentAuthenticationAt
+            : session.issuedAt
     return Boolean(
         authenticatedAt &&
             (session.authenticationMethod === 'local' ||
                 session.authenticationMethod === 'oidc' ||
+                session.authenticationMethod === 'workos' ||
                 session.authenticationMethod === 'recovery') &&
             now >= authenticatedAt.getTime() &&
             now - authenticatedAt.getTime() <= RECENT_MS

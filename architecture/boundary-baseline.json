@@ -1551,6 +1551,16 @@
             "reason": "The HTTP localhost switch is read from Server settings and handed to the components HTTP guard through its reader setter"
         },
         {
+            "from": "packages/server/src/settings/operator-claim.ts",
+            "to": "packages/server/src/database/entities/index.ts",
+            "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
+        },
+        {
+            "from": "packages/server/src/settings/operator-claim.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
+        },
+        {
             "from": "packages/server/src/settings/runs.test.ts",
             "to": "packages/server/src/utils/XSS.ts",
             "reason": "The test runs the real URL decoding that sits in front of the API router in production"
@@ -2960,6 +2970,11 @@
             "from": "packages/components/src/index.ts",
             "to": "packages/components/src/numberInput.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
+        },
+        {
+            "from": "packages/server/src/commands/user.ts",
+            "to": "packages/server/src/identity/operatorBinding.ts",
+            "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
         },
         {
             "from": "packages/server/src/controllers/chat-messages/index.ts",

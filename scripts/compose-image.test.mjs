@@ -47,6 +47,9 @@ for (const [file, names] of [
             const env = Array.isArray(raw)
                 ? Object.fromEntries(raw.map((entry) => [entry.slice(0, entry.indexOf('=')), entry.slice(entry.indexOf('=') + 1)]))
                 : raw
+            if (Array.isArray(raw))
+                assert.ok(raw.includes('CUTTLELY_INSTANCE_OPERATOR'), `${name}: absent operator override must remain omitted`)
+            else assert.equal(raw.CUTTLELY_INSTANCE_OPERATOR, null)
             for (const key of ['INBOUND_ACCESS_V2', 'CUTTLELY_IGNORE_ADMIN_SETTINGS']) {
                 assert.equal(env[key], '${' + key + ':-}', `${name}: ${key} must pass through without forcing a mode`)
             }

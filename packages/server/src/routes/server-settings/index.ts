@@ -3,7 +3,9 @@
 // Secret values are accepted but never returned or logged.
 import express, { NextFunction, Request, Response } from 'express'
 import { INSTANCE_OPERATOR_NOTICE, isInstanceOperator, requireInstanceOperator } from '../../identity/instanceOperator'
+import { recentlyAuthenticated } from '../../identity/authenticationRoutes'
 import { requireOwner } from '../../identity/rbac'
+import { operatorPanelAction, operatorPanelStatus } from '../../settings/operator-claim'
 import { startState } from '../../settings/bootstrap'
 import {
     AuthKitDeps,
@@ -164,6 +166,14 @@ function requestDeps(req: Request): ServiceDeps {
         authorize: async () => {
             if (!(await isInstanceOperator(req, depsFactory().env)))
                 throw new SettingsError(403, 'INSTANCE_OPERATOR_REQUIRED', INSTANCE_OPERATOR_NOTICE)
+            const values = req.body?.values
+            if (
+                req.method === 'PUT' &&
+                values &&
+                Object.prototype.hasOwnProperty.call(values, 'INBOUND_ACCESS_V2') &&
+                !(await recentlyAuthenticated(req))
+            )
+                throw new SettingsError(403, 'RECENT_AUTH_REQUIRED', 'Verify a fresh sign-in before changing access-key enforcement.')
         }
     }
 }
@@ -176,6 +186,17 @@ router.get(
         return { ...(await getView(requestDeps(req))), instanceOperator: true }
     })
 )
+// Narrow proof/management API: never opens any other global settings or setup path.
+router.get(
+    '/operator',
+    handle((req) => operatorPanelStatus(req, depsFactory().env))
+)
+for (const action of ['request', 'claim', 'rebind', 'recover', 'transfer', 'revoke']) {
+    router.post(
+        '/operator/' + action,
+        handle((req) => operatorPanelAction(req, depsFactory().env, action))
+    )
+}
 router.use(requireInstanceOperator(() => depsFactory().env))
 router.get(
     '/read-only',

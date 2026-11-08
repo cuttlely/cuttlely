@@ -26,7 +26,7 @@ import { RECOVERY_FIX } from './RecoveryWarningBanner'
 const label = (method) =>
     method === 'workos' ? 'WorkOS' : method === 'local' ? 'Local login' : method === 'oidc' ? 'Generic OIDC' : 'No ordinary method'
 export const reauthenticationTarget = (method) =>
-    method === 'workos' ? '/owner-recovery' : method === 'oidc' ? '/api/v1/auth/oidc/reauthenticate' : '/signin?reauth=1'
+    method === 'workos' ? '/api/v1/auth/reauthenticate' : method === 'oidc' ? '/api/v1/auth/oidc/reauthenticate' : '/signin?reauth=1'
 
 const copyText = (value) => {
     const field = document.createElement('textarea')

@@ -36,6 +36,7 @@ services:
             # Blank rollout is unset (saved mode wins); blank ignore flag is off.
             - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
             - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
+            - CUTTLELY_INSTANCE_OPERATOR
             # --- Essential Cuttlely server vars ---
             - PORT=${PORT:-3000}
             - DATABASE_PATH=/home/node/.cuttlely
@@ -79,6 +80,7 @@ services:
             # Blank rollout is unset (saved mode wins); blank ignore flag is off.
             - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
             - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
+            - CUTTLELY_INSTANCE_OPERATOR
             # --- Essential Cuttlely server vars ---
             - WORKER_PORT=${WORKER_PORT:-5566} # Port for worker healthcheck
             - DATABASE_PATH=/home/node/.cuttlely

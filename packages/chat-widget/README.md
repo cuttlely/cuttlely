@@ -1,6 +1,6 @@
 # @cuttlely/chat
 
-The planned/unreleased 1.7.0 package will match a 1.7.0 server. Server upgrades require [operator onboarding and recovery](https://cuttlely.com/docs/how-to/instance-operator/); the CLI-bound break-glass active owner is the default operator and existing installs need one host bind step. Public embeds remain separate from private server-side API keys. Never put a privileged bearer in browser embed configuration.
+The planned/unreleased 1.7.0 package will match a 1.7.0 server. Server upgrades require [operator onboarding and recovery](https://cuttlely.com/docs/how-to/instance-operator/); only verified host bindings grandfather; legacy installs claim in Server settings with a host-log code. Routine operator lifecycle is in the panel; the CLI is emergency recovery. Public embeds remain separate from private server-side API keys. Never put a privileged bearer in browser embed configuration.
 
 The chat widget for a Cuttlely chatflow or agentflow. It renders inside a shadow root, streams the answer, and talks only to your Cuttlely server.
 

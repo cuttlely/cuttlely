@@ -22,7 +22,7 @@ With the flag off, Local users off, and no available selected remote method, the
 
 Configure sign-in on the host before browser setup. Enable `CUTTLELY_LOCAL_ADMIN=true`, restart, and create the first owner with `pnpm user --email you@example.com` (password prompt), or use the account-only setup link from the server log. A setup code cannot write service configuration or designate an operator. For WorkOS-only setup, configure its credentials and bootstrap email on the host before signing in.
 
-If accounts already exist, use `/owner-recovery`, setting the selected owner's password with the host user CLI if necessary. The host CLI break-glass account is the default instance operator after successful CLI creation/reset writes its private host binding. For an existing account, run `pnpm user --email you@example.com --bind-operator` without a password reset. Browser changes to global sign-in settings require that bound active owner and existing recent authentication. An explicit host `CUTTLELY_INSTANCE_OPERATOR` JSON override wins; `none` revokes all browser administration. [Operator onboarding and recovery](./instance-operator.md) explains file safety, upgrade binding and recovery. Organization ownership or a bootstrap email alone grants nothing.
+If accounts already exist, use `/owner-recovery`, with the host user CLI as emergency password recovery if nobody can sign in. Legacy installations without an actual host binding use **Admin > Server settings > Instance operator** for an explicit one-time claim with a code printed only to the host log. Only verified host CLI bindings grandfather automatically; no legacy account, login method or owner role is inferred. The panel supports transfer, revocation with a durable Disabled tombstone, and separately confirmed host-proof recovery/rebind. The CLI is emergency recovery only. Any defined `CUTTLELY_INSTANCE_OPERATOR` value disables panel lifecycle changes; JSON/`none` precedence and invalid/empty fail-closed behavior remain. See [operator onboarding and recovery](./instance-operator.md).
 
 ## Create the first account
 
@@ -69,7 +69,7 @@ It ends with:
 [INFO]: Super User created for you@example.com.
 ```
 
-A successful CLI create or reset for an active owner also saves the host-only operator binding. With no host override, that account can configure the service by default. Existing active CLI owners can use `pnpm user --email you@example.com --bind-operator` without changing their password. If binding fails after a password update, the command exits nonzero with explicit recovery instructions; repair the host directory/history and rerun the bind-only command.
+A successful CLI create or reset for an active owner also saves the host-only operator binding. With no host override, that account can configure the service by default. This CLI path is emergency recovery only. Legacy accounts without an actual host binding claim explicitly from Server settings with host-log proof. If binding fails after a password update, the command exits nonzero with explicit recovery instructions; repair the host directory/history and rerun the bind-only command.
 
 On a fresh owner-only install, this command selects Local login in the same transaction that creates the owner, just like browser setup. It does not replace a durable method that is already selected.
 

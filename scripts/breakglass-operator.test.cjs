@@ -67,10 +67,11 @@ test('host break-glass provisioning and default operator authority', async (t) =
             ownerId = result.operatorUserId
             binding = fs.readFileSync(file, 'utf8')
             const parsed = JSON.parse(binding)
-            assert.deepEqual(Object.keys(parsed).sort(), ['createdAt', 'database', 'userId', 'version'])
+            assert.equal(parsed.state, 'Active')
+            assert.equal(parsed.source, 'host CLI')
             assert.equal(parsed.userId, ownerId)
             assert.equal(parsed.database, operatorDatabaseFingerprint(data.options))
-            assert.equal(parsed.version, 1)
+            assert.equal(parsed.version, 2)
             assert.ok(Number.isFinite(Date.parse(parsed.createdAt)))
             assert.equal(fs.statSync(file).mode & 0o777, 0o600)
         })
@@ -200,7 +201,7 @@ test('host break-glass provisioning and default operator authority', async (t) =
                 '{',
                 'null',
                 '[]',
-                JSON.stringify({ ...valid, version: 2 }),
+                JSON.stringify({ ...valid, version: 99 }),
                 JSON.stringify({ ...valid, extra: true }),
                 JSON.stringify({ ...valid, userId: '' }),
                 JSON.stringify({ ...valid, createdAt: 'invalid' }),

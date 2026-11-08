@@ -83,7 +83,7 @@ export async function isInstanceOperator(req: Request, env: Env = process.env): 
     const { getDataSource } = await import('../DataSource')
     if (operatorDatabaseFingerprint(getDataSource().options) !== designation.database) {
         operatorNotice(
-            'Database connection does not match the host binding. Browser service administration is closed; verify the database and rebind on the host.'
+            'Database connection does not match the host binding. Browser service administration is closed; verify the database and use fresh host-log proof to rebind in Server settings, or use host recovery.'
         )
         return false
     }

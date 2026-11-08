@@ -243,3 +243,9 @@ Rules that apply in 1.5.2:
     -   docker: subcommands `run`, `build`, `exec`, `compose`, and flags `-v`, `--volume`, `--mount`, `--volumes-from`, `--privileged`, `--cap-add`, `--security-opt`, `--device`, `--entrypoint`, `--network`, `--pid`, `--ipc`, `--env-file`
 
 Prefer SSE/HTTP when possible. See the [FAQ](../faq.md#are-stdio-mcp-servers-enabled-by-default) for more detail and examples.
+
+## Operator claim and host overrides
+
+Legacy installs without a verified host binding use **Admin > Server settings > Instance operator > CLAIM** and the one-time code in `docker compose logs cuttlely`. The code is not exposed by the browser Logs API. Routine transfer/revoke and fresh host-proof rebind are in the panel; the CLI is emergency recovery, run with `docker compose exec -u node cuttlely pnpm user --email you@example.com --bind-operator`.
+
+Every shipped root, directory, queue source/prebuilt and standalone worker Compose service forwards `CUTTLELY_INSTANCE_OPERATOR` only when present. Unset stays omitted, explicit empty is invalid, `none` revokes browser authority and JSON overrides the file. Every defined value disables panel claim/transfer/revoke/rebind/recovery. Recreate using the same Compose file/options with `docker compose up -d --force-recreate`; a restart keeps the previous environment. Workers receive the same configuration for parity, not because they expose administration HTTP routes. See [operator onboarding and recovery](./instance-operator.md).

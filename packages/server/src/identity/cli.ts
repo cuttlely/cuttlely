@@ -20,7 +20,7 @@ import { hashPassword, passwordErrors } from './password'
 import { SqlIdentityStore } from './sqlStore'
 import { IdentityStore } from './store'
 import { operatorDatabaseFingerprint } from './instanceOperator'
-import { writeOperatorBinding } from './operatorBinding'
+import { operatorRecoveryUserError, writeOperatorBinding } from './operatorBinding'
 
 export interface UserCliInput {
     email?: string
@@ -41,6 +41,8 @@ export async function runUserCommand(
     input: UserCliInput,
     env: Record<string, string | undefined> = process.env
 ): Promise<UserCliResult> {
+    const ownershipError = operatorRecoveryUserError(env)
+    if (ownershipError) return { ok: false, lines: [ownershipError] }
     await initializeAuthenticationState(dataSource)
     const store = new SqlIdentityStore(dataSource)
     const result = await runUserCli(store, input)

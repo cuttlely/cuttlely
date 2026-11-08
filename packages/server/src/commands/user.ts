@@ -13,6 +13,7 @@
 import '../settings/bootstrap'
 import { Args, Flags } from '@oclif/core'
 import * as DataSource from '../DataSource'
+import { operatorRecoveryUserError } from '../identity/operatorBinding'
 import { runUserCommand } from '../identity/cli'
 import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { localAdminEnabled } from '../identity/constants'
@@ -41,6 +42,11 @@ export default class user extends BaseCommand {
     async run(): Promise<void> {
         const parsed = await this.parse(user)
         const email = parsed.flags.email || parsed.args.email
+        const ownershipError = operatorRecoveryUserError(process.env)
+        if (ownershipError) {
+            logger.error(ownershipError)
+            return this.failExit()
+        }
         const password = email && !parsed.flags['bind-operator'] ? await readPassword() : undefined
         try {
             const dataSource = DataSource.getDataSource()
