@@ -30,6 +30,9 @@ services:
             # Ensure the host directory is writable by that user (e.g. `chown -R 1000:1000 ~/.cuttlely` on Linux hosts).
             - ~/.cuttlely:/home/node/.cuttlely
         environment:
+            # Blank rollout is unset (saved mode wins); blank ignore flag is off.
+            - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
+            - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
             # --- Essential Cuttlely server vars ---
             - PORT=${PORT:-3000}
             - DATABASE_PATH=${DATABASE_PATH:-/home/node/.cuttlely}
@@ -202,6 +205,9 @@ services:
             # Container runs as the non-root `node` user, whose home is /home/node.
             - ~/.cuttlely:/home/node/.cuttlely
         environment:
+            # Blank rollout is unset (saved mode wins); blank ignore flag is off.
+            - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
+            - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
             # --- Essential Cuttlely server vars ---
             - WORKER_PORT=${WORKER_PORT:-5566}
             - DATABASE_PATH=${DATABASE_PATH:-/home/node/.cuttlely}

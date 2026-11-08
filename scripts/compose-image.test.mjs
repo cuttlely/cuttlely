@@ -31,6 +31,29 @@ for (const [file, context] of [
     })
 }
 
+// These are deployment contracts, not a replacement for Docker Compose config execution.
+// Exact empty-default expressions preserve saved rollout precedence when host input is absent/blank.
+for (const [file, names] of [
+    ['docker-compose.yml', ['cuttlely']],
+    ['docker/docker-compose.yml', ['cuttlely']],
+    ['docker/docker-compose-queue-source.yml', ['cuttlely', 'cuttlely-worker']],
+    ['docker/docker-compose-queue-prebuilt.yml', ['cuttlely', 'cuttlely-worker']],
+    ['docker/worker/docker-compose.yml', ['cuttlely-worker']]
+]) {
+    test(`${file} forwards host recovery flags with safe empty defaults`, () => {
+        const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        for (const name of names) {
+            const raw = doc.services[name].environment
+            const env = Array.isArray(raw)
+                ? Object.fromEntries(raw.map((entry) => [entry.slice(0, entry.indexOf('=')), entry.slice(entry.indexOf('=') + 1)]))
+                : raw
+            for (const key of ['INBOUND_ACCESS_V2', 'CUTTLELY_IGNORE_ADMIN_SETTINGS']) {
+                assert.equal(env[key], '${' + key + ':-}', `${name}: ${key} must pass through without forcing a mode`)
+            }
+        }
+    })
+}
+
 test('the image build allowlist names packages that exist and build', () => {
     const root = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
     const filters = [...root.scripts['build:docker'].matchAll(/--filter=(\.\/\S+)/g)].map((match) => match[1])

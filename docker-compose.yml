@@ -60,6 +60,9 @@ services:
             # Blank leaves the Docker default (on). Set false in .env, or turn it off in Admin, Server settings,
             # when you use WorkOS or publish the port beyond your machine.
             CUTTLELY_LOCAL_ADMIN: ${CUTTLELY_LOCAL_ADMIN:-}
+            # Blank rollout is unset (saved mode wins); blank ignore flag is off.
+            INBOUND_ACCESS_V2: ${INBOUND_ACCESS_V2:-}
+            CUTTLELY_IGNORE_ADMIN_SETTINGS: ${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
             # Host-only service administration binding; blank denies browser Server settings administration.
             CUTTLELY_INSTANCE_OPERATOR: ${CUTTLELY_INSTANCE_OPERATOR:-}
             # Blank is off. true lets every active user who already has a password sign in when AuthKit is off.

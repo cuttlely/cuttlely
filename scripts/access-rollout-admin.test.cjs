@@ -1,4 +1,7 @@
-// Production contract: actual App.config, session cookies, SQL RBAC and key admission; no model calls.
+// Actual App.config, session cookies, SQL RBAC, SQLite migrations/admission and persisted settings.
+// Fixture wiring substitutes the DataSource/running-app accessors, settings deps and platform identity;
+// buildChatflow is replaced after admission. Connection tests inject synthetic PostgreSQL responses.
+// No model calls or live PostgreSQL connection/database-switch/restart verification.
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { createRequire } = require('node:module')
@@ -59,6 +62,7 @@ test('instance operator and service rollout production contract', async (t) => {
     try {
         await data.initialize()
         await data.runMigrations()
+        // Route SQL uses this real disposable SQLite database through a substituted accessor.
         serverRequire('./src/DataSource.ts').getDataSource = () => data
         const { User, Organization, Workspace, Role, OrganizationUser, WorkspaceUser, ApiKey, ApiKeyResource, ApiKeyUsage, ChatFlow } =
             entities
@@ -303,6 +307,7 @@ test('instance operator and service rollout production contract', async (t) => {
         })
         await t.test('operator can save DB/storage and use test, history, restart and restore paths', async () => {
             const routes = serverRequire('./src/routes/server-settings/index.ts')
+            // Exercise route orchestration with synthetic PostgreSQL responses, not a live connection.
             const dbDrivers = {
                 ...serverRequire('./src/settings/connection.ts').defaultDrivers(),
                 home: () => root,
@@ -535,6 +540,29 @@ test('instance operator and service rollout production contract', async (t) => {
                 { env: process.env, encoding: 'utf8' }
             )
             assert.equal(fresh.status, 0, fresh.stderr)
+        })
+        await t.test('empty Compose recovery values preserve saved on without a host lock', async () => {
+            process.env.INBOUND_ACCESS_V2 = ''
+            process.env.CUTTLELY_IGNORE_ADMIN_SETTINGS = ''
+            try {
+                assert.deepEqual(rolloutState(), { value: 'on', source: 'panel', locked: false })
+                const field = setting(await get())
+                assert.equal(field.effective, 'on')
+                assert.equal(field.source, 'panel')
+                assert.equal(field.locked, false)
+                assert.deepEqual(rolloutState({ INBOUND_ACCESS_V2: '', CUTTLELY_IGNORE_ADMIN_SETTINGS: '' }, {}), {
+                    value: 'off',
+                    source: 'default',
+                    locked: false
+                })
+                process.env.CUTTLELY_IGNORE_ADMIN_SETTINGS = '1'
+                assert.deepEqual(rolloutState(), { value: 'off', source: 'default', locked: false })
+                process.env.INBOUND_ACCESS_V2 = 'shadow'
+                assert.deepEqual(rolloutState(), { value: 'shadow', source: 'host', locked: true })
+            } finally {
+                delete process.env.INBOUND_ACCESS_V2
+                delete process.env.CUTTLELY_IGNORE_ADMIN_SETTINGS
+            }
         })
         await t.test('host off overrides saved on and locks writes; invalid host retains 503', async () => {
             process.env.INBOUND_ACCESS_V2 = 'off'

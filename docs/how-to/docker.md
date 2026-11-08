@@ -18,6 +18,12 @@ docker compose up -d
 
 Compose pulls `ghcr.io/cuttlely/cuttlely:latest`. If it cannot pull it, Compose prints a warning and builds the image from your checkout, which takes several minutes the first time.
 
+## Access-key recovery
+
+The shipped app and worker Compose configurations forward `INBOUND_ACCESS_V2` and `CUTTLELY_IGNORE_ADMIN_SETTINGS` from the host `.env` or `--env-file`. Set `INBOUND_ACCESS_V2=off` to override saved enforcement, or `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` to ignore saved settings. Apply the change with `docker compose up -d --force-recreate`, using the same Compose file and options as the install. `docker compose restart` retains the old container environment.
+
+An empty rollout value leaves the saved mode effective and unlocked; an empty ignore flag is off. A nonempty host rollout mode wins even when ignore-admin is enabled. See [access-key rollout](../reference/access-keys.md#rollout-and-migration).
+
 ## Install with npm
 
 With Node.js 20 or newer and Docker running:
