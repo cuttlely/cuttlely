@@ -131,9 +131,9 @@ What auto mode creates, which URL wins, and the canvas steps are in [Analyst mod
 
 When WorkOS sign-in isn't working, use the always-available owner recovery page. It does not require `CUTTLELY_LOCAL_ADMIN`:
 
-1. On the service's **Shell** page, in the app folder `/usr/src/cuttlely`, run `pnpm user --email you@example.com` and type a password for the existing owner.
+1. On the service's **Shell** page, in the app folder `/usr/src/cuttlely`, run recovery as the application OS user: `setpriv --reuid=node --regid=node --init-groups -- pnpm user --email you@example.com`, then type a password for the existing owner. A root invocation is refused when the data directory belongs to `node`; do not change its ownership to bypass the check.
 2. Open `/owner-recovery` and sign in with that owner email and password. `/signin` continues to show **Sign in with WorkOS** and **Owner recovery** because WorkOS remains the durable selected method.
-3. Fix the WorkOS configuration and restart. Environment settings configure the WorkOS candidate; they do not change the durable selection. Change the ordinary method, when needed, under **Admin** > **Auth / SSO**.
+3. Fix the WorkOS configuration and restart. Environment settings configure the WorkOS candidate; they do not change the durable selection. The instance operator with active ownership can change the ordinary method, when needed, under **Admin** > **Auth / SSO**.
 
 More about the local account: [Sign in](./sign-in.md).
 

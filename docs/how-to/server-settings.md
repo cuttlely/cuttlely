@@ -232,7 +232,7 @@ Other tabs open on Cuttlely during a restart may ask for part of a page while th
 
 When Cuttlely cannot restart itself, **How to restart** opens the steps with **Copy steps**, so you can paste them where you keep notes.
 
-The owner can also start this path from **Experimental**. Its card explains that Dashflows BETA is a startup setting and asks for confirmation before continuing. It uses the same run choice and supervised in-place restart described above. Without supervision, it shows the same manual steps and does not stop the process.
+The instance operator, signed in as an active owner, can also start this path from **Experimental**. Its card explains that Dashflows BETA is a startup setting and asks for confirmation before continuing. It uses the same run choice and supervised in-place restart described above. Without supervision, it shows the same manual steps and does not stop the process.
 
 ## When a setting stops Cuttlely from starting
 
