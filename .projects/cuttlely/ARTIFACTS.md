@@ -2,7 +2,7 @@
 
 # Artifacts
 
-Prediction refusal and admission regressions: `packages/server/src/utils/authorizePrediction.test.ts` exercises literal streaming origin errors through the scoped, keyless and controller paths. `packages/server/src/services/accessKeys/authorization.test.ts` shares production's real `express-rate-limit` middleware across prediction fixtures and checks exhausted attempts before authorization.
+Prediction refusal and admission regressions: `scripts/access-keys-production.test.cjs` includes actual `App.config()` with global preflight, parsers, API gate, prediction routes/controller, disposable SQLite and real `RateLimiterManager`. Its `round14` cases exercise refused-attempt counting, independent flow buckets, single charging, JSON pre-parser streaming-origin refusals and no SSE/file/quota effects. Only model execution is replaced. `packages/server/src/utils/authorizePrediction.test.ts` covers literal plain-text origin refusals in later middleware/controller paths. `packages/server/src/services/accessKeys/authorization.test.ts` separately isolates authorization with real package-level attempt middleware.
 
 Access-key deletion and policy editing: `scripts/access-keys-production.test.cjs` starts a disposable SQLite-backed server with the real flow-delete and key-management routers, then invokes `packages/ui/src/views/apikey/APIKeyDialog.production.fixture.js` through UI Jest. The actual dialog and policy editor submit to those routes; retained unavailable grants require explicit removal, while the remaining grants survive. The production fixture also checks deletion rollback, workspace collisions, recreation and normal grant lifecycle. Run it with `node --test scripts/access-keys.test.cjs scripts/access-keys-production.test.cjs`.
 
