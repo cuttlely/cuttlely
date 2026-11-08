@@ -4,15 +4,21 @@ import { AppError } from '../../errors/appError'
 import { recordKeyUse } from './audit'
 import { Operation } from './policy'
 
-export type AccessRollout = 'off' | 'shadow' | 'on'
+import { rolloutState } from '../../settings/accessRollout'
+export type { AccessRollout } from '../../settings/accessRollout'
+import type { AccessRollout } from '../../settings/accessRollout'
 /** Off/shadow never accept a new-format principal. They are a rollback path for existing integrations only. */
 export function accessRollout(): AccessRollout {
-    const mode = process.env.INBOUND_ACCESS_V2 || 'off'
-    if (!['off', 'shadow', 'on'].includes(mode)) throw new AppError(503, 'Invalid inbound access rollout mode.')
+    const mode = rolloutState().value
+    if (mode === 'invalid') throw new AppError(503, 'Invalid inbound access rollout mode.')
     return mode as AccessRollout
 }
 export function requireAccessRollout(): void {
-    if (accessRollout() !== 'on') throw new AppError(503, 'Enable INBOUND_ACCESS_V2=on before issuing or editing access key policies.')
+    if (accessRollout() !== 'on')
+        throw new AppError(
+            503,
+            'Enable access-key enforcement in Server settings (or INBOUND_ACCESS_V2=on on the host) before issuing or editing access key policies.'
+        )
 }
 const comparisons = new Map<string, number>()
 export async function compareLegacy(

@@ -82,6 +82,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'api-key-hash.test.cjs'),
             path.join(ROOT, 'scripts', 'access-keys.test.cjs'),
             path.join(ROOT, 'scripts', 'access-keys-production.test.cjs'),
+            path.join(ROOT, 'scripts', 'access-rollout-admin.test.cjs'),
             path.join(ROOT, 'scripts', 'usage-storage.test.cjs'),
             path.join(ROOT, 'scripts', 'model-prices.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-callback-usage.test.mjs'),

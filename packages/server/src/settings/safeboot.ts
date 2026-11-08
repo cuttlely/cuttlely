@@ -1,9 +1,10 @@
 // Safe boot: when the settings file changed and two starts in a row did not finish, the last settings that
 // worked come back. A start counts as finished when the server is listening (markStartFinished).
+import { preserveRollout } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
-import { LAST_GOOD_FILE, SETTINGS_FILE, readSettingsFile, writeFileAtomic } from './store'
+import { LAST_GOOD_FILE, SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic } from './store'
 
 export const BOOT_FILE = 'boot.json'
 export const ROLLED_BACK_FILE = 'server.rolled-back.json'
@@ -56,9 +57,10 @@ export function beginStart(dir: string, key: string | null, now = new Date()): B
     if (state.pending >= MAX_FAILED_STARTS && current !== null && current !== lastGood) {
         const before = readSettingsFile(dir, key).values
         writeFileAtomic(dir, ROLLED_BACK_FILE, current)
-        if (lastGood !== null) writeFileAtomic(dir, SETTINGS_FILE, lastGood)
+        const restored = preserveRollout(lastGood, readStoredValues(dir))
+        if (restored !== null) writeFileAtomic(dir, SETTINGS_FILE, restored)
         else fs.rmSync(settingsPath, { force: true })
-        const after = lastGood !== null ? readSettingsFile(dir, key).values : {}
+        const after = readSettingsFile(dir, key).values
         appendHistory(dir, {
             at: now.toISOString(),
             kind: 'rollback',

@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   An owner-only **Access-key enforcement** selector in **Admin > Server settings > Security & network > Access keys**. The service-wide off/shadow/on choice persists and applies on the next request, with effective mode/source, host locking, explicit compatibility and single-instance warnings, and audited changes. Default remains off; host `INBOUND_ACCESS_V2` always wins, including a forced off for recovery. Invalid saved values fail safe to off; invalid host values retain 503. General restore actions preserve the current rollout choice. Authorization, quota and admission rules are unchanged.
+
 ### Fixed
 
 -   Prediction attempts refused by access-key preflight count toward the configured flow/IP rate limit; authorization refusals still consume no per-key quota.

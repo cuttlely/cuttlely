@@ -332,3 +332,9 @@ The error body does not include the submitted text. A rejected write is not adde
 An empty string clears any of these, the same as other ordinary settings. A restart applies them.
 
 Knowing that a secret exists is enough to operate the server. Returning the secret, how long it is, a hash of it, the path it was read from, or the Redis address would tell a stolen owner session more than it needs.
+
+## Access-key rollout
+
+`INBOUND_ACCESS_V2` is an owner-only, service-wide runtime select (`off`, `shadow`, `on`; default `off`) under Security & network. Use the existing `PUT /api/v1/server-settings` with `values.INBOUND_ACCESS_V2`; writes require an interactive session and `x-request-from: internal`. Workspace admins, access keys and unauthenticated callers are rejected by the existing settings gates. This does not grant workspace-specific rollout authority.
+
+The setting’s `effective`, `source` (`host`, `panel`, `default`) and `locked` fields describe what new requests use. A nonempty host value wins and locks writes with `409 LOCKED`, even when it is `off`. An invalid host mode is reported as `effective: "invalid"`; access-key checks retain 503. An invalid saved mode reports effective `off`, source `panel`, and an explanation without echoing the invalid bytes. Saving persists in `settings/server.json` and applies on the next request; it never writes the host environment and needs no restart. `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` ignores the saved mode. History changes include effective `from`/`to` and `fromSource`/`toSource`. Discard, retry, CLI restore and safe boot preserve the current rollout value. See [Access keys](./access-keys.md#rollout-and-migration) for compatibility warnings and the single-instance requirement.

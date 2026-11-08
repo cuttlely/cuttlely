@@ -2,6 +2,7 @@
 // The newest CUTTLELY_HISTORY_KEEP rows are kept (1000 unless that limit says otherwise).
 // Each append rewrites the file under its own lock, so two saves cannot drop a row that is still inside the cap.
 // Secret values never go in. A secret change is recorded as "changed" and nothing else.
+import { ACCESS_ROLLOUT_KEY, rolloutState } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
 import { withNamedLockSync } from './lock'
@@ -36,6 +37,8 @@ export interface HistoryChange {
     /** Plain values only. Absent for secrets. */
     from?: string
     to?: string
+    fromSource?: string
+    toSource?: string
     /** For secrets: always "changed". Never the value. */
     secret?: 'changed' | 'set' | 'replaced' | 'removed'
 }
@@ -65,14 +68,22 @@ export interface HistoryPage {
 }
 
 /** The changes between two sets of values. A secret is "changed" and the values are left out. */
-export function describeChanges(before: Record<string, string>, after: Record<string, string>): HistoryChange[] {
+export function describeChanges(
+    before: Record<string, string>,
+    after: Record<string, string>,
+    env: Record<string, string | undefined> = process.env
+): HistoryChange[] {
     const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
     const changes: HistoryChange[] = []
     for (const key of keys) {
         const from = before[key] ?? ''
         const to = after[key] ?? ''
         if (from === to) continue
-        if (isSecretSettingKey(key)) changes.push({ key, secret: 'changed' })
+        if (key === ACCESS_ROLLOUT_KEY) {
+            const was = rolloutState(env, before)
+            const next = rolloutState(env, after)
+            changes.push({ key, from: was.value, to: next.value, fromSource: was.source, toSource: next.source })
+        } else if (isSecretSettingKey(key)) changes.push({ key, secret: 'changed' })
         else changes.push({ key, from, to })
     }
     return changes

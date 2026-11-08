@@ -69,7 +69,7 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                             <Chip
                                 size='small'
                                 icon={<IconLock size={13} />}
-                                label={setting.section === 'testing' ? 'Set by the host' : 'Locked'}
+                                label={setting.section === 'testing' || setting.key === 'INBOUND_ACCESS_V2' ? 'Set by the host' : 'Locked'}
                                 variant='outlined'
                                 data-testid={`lock-${setting.key}`}
                                 sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
@@ -127,6 +127,13 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
             {/* The control and its helper line: kept clear of the floating save bar when focused. */}
             <Box data-save-bar-clear sx={{ minWidth: 0, scrollMarginBottom: 'var(--cuttlely-save-bar-room, 0px)' }}>
                 <Control setting={setting} value={value} edited={edited} disabled={disabled} onDraft={onDraft} error={error} />
+                {setting.key === 'INBOUND_ACCESS_V2' && (
+                    <Typography variant='caption' data-testid='rollout-effective' sx={{ display: 'block', mt: 0.75 }}>
+                        {`In effect: ${setting.effective === 'invalid' ? 'unavailable (503)' : setting.effective} (${
+                            setting.source === 'host' ? 'host env' : setting.source === 'panel' ? 'admin setting' : 'default'
+                        }). Applies on the next request; saved across restarts.`}
+                    </Typography>
+                )}
                 {readOnlyNote && (
                     <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
                         {readOnlyNote}

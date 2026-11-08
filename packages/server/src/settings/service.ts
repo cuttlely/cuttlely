@@ -1,6 +1,7 @@
 // What the Server settings page reads and writes. Owner only (routes/server-settings). Secret values never leave
-// the server: a secret is shown as set or not set. A runtime limit applies on the next use. Every other change
+// the server: a secret is shown as set or not set. Runtime settings apply on the next use. Every other change
 // applies at the next start.
+import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
 import { StartState } from './apply'
@@ -218,6 +219,19 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                     view.range = { min: setting.min, max: setting.max }
                 }
             }
+        } else if (setting.key === ACCESS_ROLLOUT_KEY) {
+            const picked = rolloutState(env, read.values)
+            view.source = picked.source
+            view.locked = picked.locked
+            view.value = picked.source === 'default' ? '' : picked.value
+            view.effective = picked.value
+            view.running = picked.value
+            view.changed = false
+            if (picked.invalidStored) view.help += ' The saved value is invalid; Off is in effect.'
+            if (picked.value === 'invalid') {
+                view.help += ' Invalid host mode: access-key checks return 503. Correct it on the host.'
+                view.options = [...(setting.options ?? []), { value: 'invalid', label: 'Unavailable (invalid host mode)' }]
+            }
         } else if (setting.runtime && setting.type === 'switch') {
             const picked = flags.get(setting.key)
             if (picked) {
@@ -348,9 +362,13 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
             errors.push({ key, code: 'READ_ONLY', message: 'This setting cannot be changed.' })
             continue
         }
-        if (hostKeys.has(key) && !savedValueWins(key) && !setting.panelFirst) {
-            // The publish check switch is the one host lock that answers 409. Other host locks stay 400.
-            const code = setting.runtime && setting.type === 'switch' ? 'LOCKED' : undefined
+        if (
+            (hostKeys.has(key) || (key === ACCESS_ROLLOUT_KEY && rolloutState(deps.env).locked)) &&
+            !savedValueWins(key) &&
+            !setting.panelFirst
+        ) {
+            // Runtime switches and the access rollout answer 409 for a host lock. Other host locks stay 400.
+            const code = key === ACCESS_ROLLOUT_KEY || (setting.runtime && setting.type === 'switch') ? 'LOCKED' : undefined
             errors.push({
                 key,
                 ...(code ? { code } : {}),
@@ -430,6 +448,8 @@ async function writeValuesLocked(
         throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.')
     }
     const { state } = deps
+    if (ACCESS_ROLLOUT_KEY in normalized && rolloutState(deps.env).locked)
+        throw new SettingsError(409, 'LOCKED', 'Access-key enforcement is set by the host, so it is locked here.')
     const key = await deps.key()
     const read = readSettingsFile(state.dir, key)
     if (read.exists && read.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
@@ -461,7 +481,7 @@ async function writeValuesLocked(
     for (const name of read.unreadable) if (!(name in normalized)) preserve[name] = stored[name]
     const before = { ...read.values }
     for (const name of read.unreadable) if (name in normalized) before[name] = '(unreadable)'
-    const changes = describeChanges(before, next)
+    const changes = describeChanges(before, next, deps.env)
     if (changes.length) {
         const file = path.join(state.dir, SETTINGS_FILE)
         const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
@@ -501,9 +521,11 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const before = readSettingsFile(state.dir, key).values
             const file = path.join(state.dir, SETTINGS_FILE)
             const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
-            if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
-            else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
-            const changes = describeChanges(before, state.atStart)
+            const restored = preserveRollout(state.rawAtStart ?? null, readStoredValues(state.dir))
+            if (restored === null) fs.rmSync(file, { force: true })
+            else writeFileAtomic(state.dir, SETTINGS_FILE, restored)
+            const next = readSettingsFile(state.dir, key).values
+            const changes = describeChanges(before, next, deps.env)
             invalidateRuntimeCache()
             try {
                 if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
@@ -539,7 +561,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
     const file = path.join(state.dir, SETTINGS_FILE)
     const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
     const before = readSettingsFile(state.dir, key).values
-    writeFileAtomic(state.dir, SETTINGS_FILE, raw)
+    writeFileAtomic(state.dir, SETTINGS_FILE, preserveRollout(raw, readStoredValues(state.dir)) ?? raw)
     const after = readSettingsFile(state.dir, key)
     if (after.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         // Not a usable file: put the working one back, byte for byte, and leave the set-aside copy where it is.
@@ -553,7 +575,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
             kind: 'restore',
             by,
             actorId,
-            changes: describeChanges(before, after.values),
+            changes: describeChanges(before, after.values, deps.env),
             note: 'Put back the settings that did not start, to try them again at the next restart.',
             outcome: 'ok'
         })
