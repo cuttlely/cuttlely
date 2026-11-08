@@ -91,6 +91,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     const dispatch = useDispatch()
     const theme = useTheme()
     const chatflow = useSelector((state) => state.canvas.chatflow)
+    const isCustomAssistant = chatflow?.type === 'ASSISTANT'
     const apiConfig = chatflow?.apiConfig ? JSON.parse(chatflow.apiConfig) : {}
     const overrideConfigStatus = apiConfig?.overrideConfig?.status !== undefined ? apiConfig.overrideConfig.status : false
 
@@ -142,7 +143,10 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
             rollout === 'on'
                 ? [
                       { label: 'Public (no key required)', name: '' },
-                      { label: 'Private (selected access keys)', name: 'accesskeys' }
+                      {
+                          label: isCustomAssistant ? 'Private (custom assistant grants unsupported)' : 'Private (selected access keys)',
+                          name: 'accesskeys'
+                      }
                   ]
                 : [
                       { label: 'Public (no key required)', name: '' },
@@ -158,7 +162,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
                           )
                           .map((key) => ({ label: key.keyName, name: key.id }))
                   ],
-        [rollout, apiKeys, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId]
+        [rollout, apiKeys, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId, isCustomAssistant]
     )
 
     const onCheckBoxChanged = (newVal) => {
@@ -878,6 +882,12 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                         </div>
                         {!['off', 'shadow', 'on'].includes(rollout) && (
                             <p>Access settings are unavailable until the rollout status can be loaded.</p>
+                        )}
+                        {rollout === 'on' && isCustomAssistant && (
+                            <p>
+                                Custom assistants do not support exact resource grants. Existing private assistant bindings fail with
+                                enforcement on. Keep enforcement off or in shadow mode for these integrations.
+                            </p>
                         )}
                         <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>
                         {chatflowApiKeyId && (

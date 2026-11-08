@@ -34,14 +34,22 @@ const { hasGrant } = serverRequire('./src/services/accessKeys/authorization.ts')
 const appModule = serverRequire('./src/utils/getRunningExpressApp.ts')
 const dataModule = serverRequire('./src/services/accessKeys/data.ts')
 const dataSourceModule = serverRequire('./src/DataSource.ts')
-async function database() {
-    const data = new DataSource({ type: 'sqlite', database: ':memory:', entities: Object.values(entities), synchronize: true })
+async function database(beforeAccessMigration = false) {
+    const data = new DataSource({
+        type: 'sqlite',
+        database: ':memory:',
+        entities: Object.values(entities),
+        synchronize: !beforeAccessMigration,
+        migrations: beforeAccessMigration ? serverRequire('./src/database/migrations/sqlite/index.ts').sqliteMigrations.slice(0, -1) : []
+    })
     await data.initialize()
+    if (beforeAccessMigration) await data.runMigrations()
     appModule.getRunningExpressApp = () => ({
         AppDataSource: data,
         nodesPool: { componentNodes: {} },
         cachePool: {},
         usageCacheManager: {},
+        telemetry: { sendTelemetry: async () => {} },
         identityManager: { getPlatformType: () => 'open_source' }
     })
     dataModule.accessData = async () => data
@@ -183,6 +191,236 @@ function latch() {
     return { reached, release }
 }
 const esm = (file) => import(path.join(__dirname, '../packages/harness', file))
+
+async function workspaceFixture(data) {
+    const { User, Workspace, Organization } = entities
+    await data.getRepository(User).save({
+        id: 'fixture',
+        name: 'Fixture',
+        email: 'scope@example.invalid',
+        status: 'active',
+        createdBy: 'fixture',
+        updatedBy: 'fixture'
+    })
+    await data.getRepository(Organization).save({ id: 'org-a', name: 'Fixture', createdBy: 'fixture', updatedBy: 'fixture' })
+    await data.getRepository(Workspace).save({
+        id: 'team-a',
+        organizationId: 'org-a',
+        name: 'Fixture',
+        createdBy: 'fixture',
+        updatedBy: 'fixture'
+    })
+}
+
+for (const scopes of [['api:read'], ['api:read', 'harness:read', 'harness:run']]) {
+    test('Harness api:read production routes retain granted canvas access: ' + scopes.join(','), async () => {
+        const data = await database()
+        const store = await esm('store.mjs')
+        const versions = serverRequire('./src/services/flow-versions/index.ts')
+        const id = '44444444-4444-4444-8444-444444444444'
+        const name = 'read-canvas'
+        try {
+            await workspaceFixture(data)
+            const flow = await data.getRepository(ChatFlow).save({
+                id,
+                name,
+                workspaceId: 'team-a',
+                type: 'HARNESS',
+                flowData: '{"nodes":[],"edges":[]}'
+            })
+            await data.getRepository(FlowVersionState).save({ chatflowId: id, workspaceId: 'team-a', draftFlowData: flow.flowData })
+            process.env.CUTTLELY_VERSIONS = 'on'
+            process.env.CUTTLELY_VERSIONS_DIR = path.join(root, 'read-versions-' + scopes.length)
+            versions.resetForTests()
+            const sha = await versions.recordFlowVersion(flow)
+            assert.ok(sha, 'fixture records a real version')
+            store.saveHarness(
+                {
+                    name,
+                    chatflowId: id,
+                    workspaceId: 'team-a',
+                    chief: { model: { nodeName: 'fixture' } },
+                    specialists: [{ name: 'writer', instructions: 'Fixture' }]
+                },
+                { overwrite: true }
+            )
+            const key = await data.getRepository(ApiKey).save({
+                id: 'read-key',
+                apiKey: '',
+                apiSecret: '',
+                keyName: 'Read',
+                workspaceId: 'team-a',
+                permissions: ['chatflows:view'],
+                accessPolicy: parsePolicy({ scopes, rpm: 0 }),
+                harnesses: []
+            })
+            const grant = { principalId: key.id, resourceType: 'HARNESS', resourceId: id }
+            await data.getRepository(ApiKeyResource).save(grant)
+            const { mintCredential } = serverRequire('./src/services/accessKeys/credentials.ts')
+            const { secret } = await data.transaction((manager) => mintCredential(manager, key))
+            const express = serverRequire('express'),
+                request = serverRequire('supertest'),
+                http = express()
+            http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+            http.use(express.json())
+            http.use('/api/v1', serverRequire('./src/services/accessKeys/routes.ts').accessKeyRouteGuard)
+            for (const route of ['chatflows', 'flow-drafts', 'flow-versions'])
+                http.use('/api/v1/' + route, serverRequire('./src/routes/' + route + '/index.ts').default)
+            http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+            const paths = [
+                'chatflows/' + id,
+                'flow-drafts/' + id,
+                'flow-versions/' + id,
+                'flow-versions/' + id + '/' + sha,
+                'flow-versions/' + id + '/' + sha + '/diff?against=current'
+            ]
+            const read = (route) =>
+                request(http)
+                    .get('/api/v1/' + route)
+                    .set('Authorization', 'Bearer ' + secret)
+            const results = []
+            for (const route of paths) {
+                const response = await read(route)
+                console.log(
+                    'Harness read scope evidence:',
+                    scopes.join(','),
+                    route,
+                    response.status,
+                    'quota rows',
+                    JSON.stringify(await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id }))
+                )
+                results.push({ route, status: response.status, message: response.body.message })
+                if (response.status === 200 && route.startsWith('flow-drafts/')) assert.ok(response.body.draft)
+                if (response.status === 200 && route === 'flow-versions/' + id) assert.equal(response.body.versions.length, 1)
+                if (response.status === 200 && route === 'flow-versions/' + id + '/' + sha)
+                    assert.equal(response.body.flowData, flow.flowData)
+            }
+            assert.deepEqual(
+                results.map(({ route, status }) => ({ route, status })),
+                paths.map((route) => ({ route, status: 200 })),
+                JSON.stringify(results)
+            )
+            const usage = await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id })
+            assert.ok(usage.some((row) => row.operation === 'api:read' && row.accepted === paths.length))
+            await data.getRepository(ApiKeyResource).delete(grant)
+            for (const route of paths) assert.equal((await read(route)).status, 403)
+            assert.deepEqual(await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id }), usage)
+            // Read authority must not imply execution, draft writes or publication.
+            await data.getRepository(ApiKeyResource).save(grant)
+            for (const [method, route] of [
+                ['put', 'flow-drafts/' + id],
+                ['post', 'flow-drafts/' + id + '/publish'],
+                ['post', 'harnesses/' + name + '/runs']
+            ]) {
+                const response = await request(http)
+                    [method]('/api/v1/' + route)
+                    .set('Authorization', 'Bearer ' + secret)
+                    .send({})
+                assert.equal(response.status, 403)
+            }
+            assert.deepEqual(await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id }), usage)
+        } finally {
+            process.env.CUTTLELY_VERSIONS = 'false'
+            delete process.env.CUTTLELY_VERSIONS_DIR
+            versions.resetForTests()
+            store.deleteHarness(name)
+            await data.destroy()
+        }
+    })
+}
+
+test('custom assistant unsupported scope: real migration, prediction and management routes', async () => {
+    const data = await database(true)
+    const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+    const id = '55555555-5555-4555-8555-555555555555'
+    try {
+        await workspaceFixture(data)
+        const { generateSecretHash, storedApiKeyLookup } = serverRequire('./src/utils/apiKey.ts')
+        const secret = 'fixture-custom-assistant-legacy'
+        await data.query(
+            'INSERT INTO apikey (id, apiKey, apiSecret, keyName, workspaceId, permissions, harnesses) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ['assistant-key', storedApiKeyLookup(secret), generateSecretHash(secret), 'Assistant', 'team-a', '[]', '[]']
+        )
+        await data.query('INSERT INTO chat_flow (id, name, type, workspaceId, apikeyid, flowData) VALUES (?, ?, ?, ?, ?, ?)', [
+            id,
+            'Assistant',
+            'ASSISTANT',
+            'team-a',
+            'assistant-key',
+            '{"nodes":[],"edges":[]}'
+        ])
+        await data.transaction((manager) => serverRequire('./src/database/migrations/AccessKeys.ts').addAccessKeys(manager.queryRunner))
+        const express = serverRequire('express'),
+            request = serverRequire('supertest'),
+            http = express()
+        http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+        http.use(express.json())
+        http.post('/api/v1/prediction/:id', serverRequire('./src/utils/authorizeFlowAccess.ts').authorizePrediction, (_req, res) =>
+            res.json({ admitted: true })
+        )
+        http.use((req, _res, next) => {
+            req.user = { id: 'fixture', activeWorkspaceId: 'team-a', activeOrganizationId: 'org-a', permissions: [], features: {} }
+            next()
+        })
+        http.use('/api/v1/apikey', serverRequire('./src/routes/apikey/index.ts').default)
+        http.use('/api/v1/chatflows', serverRequire('./src/routes/chatflows/index.ts').default)
+        http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+        process.env.INBOUND_ACCESS_V2 = 'off'
+        assert.equal(
+            (
+                await request(http)
+                    .post('/api/v1/prediction/' + id)
+                    .set('Authorization', 'Bearer ' + secret)
+            ).status,
+            200
+        )
+        process.env.INBOUND_ACCESS_V2 = 'on'
+        const predicted = await request(http)
+            .post('/api/v1/prediction/' + id)
+            .set('Authorization', 'Bearer ' + secret)
+        assert.equal(predicted.status, 401)
+        assert.equal(await data.getRepository(ApiKeyResource).count(), 0)
+        assert.equal(await data.getRepository(ApiKeyUsage).count(), 0)
+        setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: [] }) })
+        // A new private custom assistant has the same resource-choice limitation as the migrated one.
+        const created = await request(http).post('/api/v1/chatflows').send({
+            name: 'New assistant',
+            type: 'ASSISTANT',
+            apiAccessMode: 'private',
+            flowData: '{"nodes":[],"edges":[]}'
+        })
+        assert.equal(created.status, 200, created.body.message)
+        const fresh = await data.getRepository(ChatFlow).findOneByOrFail({ id: created.body.id })
+        assert.equal(fresh.type, 'ASSISTANT')
+        assert.equal(fresh.apiAccessMode, 'private')
+        const options = await request(http).get('/api/v1/apikey/options')
+        assert.equal(options.status, 200)
+        assert.equal(
+            options.body.resources.some((r) => [id, fresh.id].includes(r.resourceId)),
+            false
+        )
+        const granted = await request(http)
+            .post('/api/v1/apikey')
+            .send({
+                keyName: 'Assistant replacement',
+                permissions: ['chatflows:view'],
+                accessPolicy: { scopes: ['predict'] },
+                resources: [{ resourceType: 'CHATFLOW', resourceId: fresh.id }],
+                expiresAt: null
+            })
+        assert.equal(granted.status, 403)
+        console.log(
+            'Custom assistant scope evidence: legacy off=200, enforced=' +
+                predicted.status +
+                ', options omit ASSISTANT, exact management grant=' +
+                granted.status
+        )
+    } finally {
+        process.env.INBOUND_ACCESS_V2 = 'on'
+        setTeamPermissionLookup(null)
+        await data.destroy()
+    }
+})
 
 for (const entry of [
     'account report',

@@ -162,6 +162,9 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         )
         if (['harness:run', 'dashflow:report'].includes(operation))
             accessContext(req)!.harnessIds = { ...(await keyHarnessIds(admittedKey)), ...harnessIds, ...accessContext(req)!.harnessIds }
+        else if (operation === 'api:read' && ['chatflows', 'flow-versions', 'flow-drafts'].includes(root))
+            // Canvas guards use the admitted identity map too; read authority does not require harness:run.
+            accessContext(req)!.harnessIds = await keyHarnessIds(admittedKey, false)
         if (!req.user?.id) {
             if (!req.user?.apiKeyId) {
                 const { OPEN_SOURCE_FEATURES } = await import('../../identity/constants')
