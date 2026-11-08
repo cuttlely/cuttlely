@@ -123,3 +123,5 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 -   `packages/server/src/identity/directory.ts` and `directoryRoutes.ts`: locked active-owner reauthorization and invitation-only conflict checks.
 -   `packages/ui/src/views/users/userActions.js`: invitation-only removal request used by the Users view.
 -   `packages/server/src/identity/directory.test.ts`, `localDirectory.test.ts`, `inviteSignIn.test.ts` and `packages/ui/src/views/users/userActions.test.js`: focused server and UI acceptance coverage.
+
+Operator administration: `docs/how-to/instance-operator.md` covers host designation, fail-closed upgrades and recovery. `packages/server/src/identity/instanceOperator.ts` implements the separate service gate. `scripts/access-rollout-admin.test.cjs` exercises actual application routes with two organizations, a substituted identity database, real sessions, quota enforcement and rollback; Server settings UI tests render operator and ordinary-owner states.
