@@ -115,7 +115,7 @@ Node 20+ 및 Docker
 -   [로그인](./docs/how-to/sign-in.md). 첫 계정을 만듭니다. 팀은 AuthKit 없이 로컬 사용자(`CUTTLELY_LOCAL_USERS`)로 로그인할 수 있습니다. AuthKit은 나중에 켤 수 있으며, 인증된 이메일이 기존 로컬 사용자와 연결됩니다.
 -   [AuthKit 없이 사용자 관리하기](./docs/how-to/users-without-authkit.md). 로컬 사용자, 초대 및 재설정 링크, 기본 제공되는 Owner, Admin, Builder, Viewer 역할, 세션. 활성 소유자는 다른 사람의 대기 중인 소유자 초대를 취소할 수 있으며, 활성 소유자 행은 읽기 전용입니다. 초대받은 사람은 AuthKit 사용 여부와 관계없이 본인에게 온 일회용 초대 링크로만 참여할 수 있습니다: [사용자 초대하기](./docs/how-to/sign-in.md#invite-people).
 -   [감사 로그](./docs/how-to/audit-log.md). 로그인, 잠금, 초대, 재설정, 역할 변경, 사용자 비활성화, 설정 변경.
--   [서버 설정](./docs/how-to/server-settings.md). 로그인, 데이터베이스, 스토리지 등을 **Admin**에서 바꿉니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
+-   [서버 설정](./docs/how-to/server-settings.md). 호스트에서 [인스턴스 운영자](./docs/how-to/instance-operator.md)를 지정하면 로그인, 데이터베이스, 스토리지 등 서비스 전체 설정을 **Admin**에서 바꿀 수 있습니다. 유효한 지정이 없으면 브라우저에서 서비스를 관리할 수 없으며 호스트와 CLI를 통한 복구는 계속 사용할 수 있습니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
 
 ## 앱을 움직이는 에이전트 팀
 
