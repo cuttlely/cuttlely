@@ -13,6 +13,8 @@ import { ChatflowType, IHarnessCaller, IReactFlowObject, ScheduleInputMode, Star
 import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface.Metrics'
 import { UsageCacheManager } from '../../UsageCacheManager'
 import { ChatFlow, EnumChatflowType, EXPLICIT_LEGACY_PUBLIC } from '../../database/entities/ChatFlow'
+import { ApiKey } from '../../database/entities/ApiKey'
+import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { Lead } from '../../database/entities/Lead'
 import { ChatMessage } from '../../database/entities/ChatMessage'
@@ -172,6 +174,23 @@ const deleteChatflow = async (
                 await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
                 await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
                 const deleted = await manager.getRepository(ChatFlow).delete({ id: chatflowId })
+                // Retire exact flow grants with the resource, including grants left under an earlier
+                // flow type. Recreating an ID must require an explicit new grant. Other workspaces
+                // and non-flow resource families cannot lose grants through an ID collision.
+                const principals = manager
+                    .getRepository(ApiKey)
+                    .createQueryBuilder('principal')
+                    .select('principal.id')
+                    .where('principal.workspaceId = :workspaceId', { workspaceId })
+                await manager
+                    .createQueryBuilder()
+                    .delete()
+                    .from(ApiKeyResource)
+                    .where('resourceId = :chatflowId', { chatflowId })
+                    .andWhere('resourceType IN (:...flowTypes)', { flowTypes: ['CHATFLOW', 'AGENTFLOW', 'HARNESS'] })
+                    .andWhere(`principalId IN (${principals.getQuery()})`)
+                    .setParameters(principals.getParameters())
+                    .execute()
                 if (chatflow.type === EnumChatflowType.HARNESS) {
                     harnessCascade = await harnessesService.removeHarnessesForCanvas(chatflowId, workspaceId, manager)
                 }

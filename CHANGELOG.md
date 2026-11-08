@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key policies show unavailable resource grants with an explicit remove-only action, so a deleted flow cannot block edits to the remaining grants. Flow deletion retires exact grants transactionally within its workspace, preventing same-ID recreation from reviving access.
 -   Access-key quota admission waits for complete route authorization, including RBAC, canvas references and run/report ownership. Authorization refusals leave quota available; application errors after authorization remain charged.
 -   The custom assistant API dialog preserves existing off/shadow bindings and removes unsupported add/replace choices, while ordinary Chatflow binding controls remain available.
 -   Principal expiry edits cap modern credentials in the same transaction as the principal update. Extending a principal before or after the cutoff cannot extend or revive an issued bearer; rotation inherits the new expiry.

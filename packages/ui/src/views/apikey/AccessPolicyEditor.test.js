@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import AccessPolicyEditor, { newAccessPolicy } from './AccessPolicyEditor'
 
-function Editor({ privileged = false } = {}) {
+function Editor({ privileged = false, initialResources = [] } = {}) {
     const [policy, setPolicy] = useState(newAccessPolicy)
-    const [resources, setResources] = useState([])
+    const [resources, setResources] = useState(initialResources)
     const [expiresAt, setExpiresAt] = useState('2027-02-01T00:00:00.000Z')
     const [confirmed, setConfirmed] = useState(false)
     return (
@@ -21,7 +21,7 @@ function Editor({ privileged = false } = {}) {
         />
     )
 }
-Editor.propTypes = { privileged: PropTypes.bool }
+Editor.propTypes = { privileged: PropTypes.bool, initialResources: PropTypes.array }
 it('starts without resource grants or operations, then previews the explicit choices', () => {
     render(<Editor />)
     expect(screen.getByRole('checkbox', { name: 'predict' }).checked).toBe(false)
@@ -47,4 +47,21 @@ it('defaults missing Origin to denial when a website allowlist is added and perm
     expect(noOrigin.checked).toBe(false)
     fireEvent.click(noOrigin)
     expect(noOrigin.checked).toBe(true)
+})
+it('shows an unavailable grant as remove-only and matches resource type as well as ID', () => {
+    render(
+        <Editor
+            initialResources={[
+                { resourceType: 'AGENTFLOW', resourceId: 'fixture' },
+                { resourceType: 'CHATFLOW', resourceId: 'fixture' }
+            ]}
+        />
+    )
+    expect(screen.getByRole('checkbox', { name: 'Bakery' }).checked).toBe(true)
+    expect(screen.getByText(/Unavailable resource: AGENTFLOW fixture/)).toBeTruthy()
+    expect(screen.queryByRole('checkbox', { name: /AGENTFLOW fixture/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove unavailable AGENTFLOW fixture' }))
+    expect(screen.queryByRole('button', { name: /Remove unavailable/ })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: 'Bakery' }).checked).toBe(true)
+    expect(screen.getByText(/1 selected resources/)).toBeTruthy()
 })

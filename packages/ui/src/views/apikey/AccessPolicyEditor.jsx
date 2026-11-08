@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { Alert, Box, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material'
 
 export const newAccessPolicy = () => ({
     version: 1,
@@ -29,6 +29,9 @@ export default function AccessPolicyEditor({
     const update = (name, value) => setPolicy((current) => ({ ...current, [name]: value }))
     const toggleScope = (scope) =>
         update('scopes', policy.scopes.includes(scope) ? policy.scopes.filter((s) => s !== scope) : [...policy.scopes, scope])
+    const unavailable = resources.filter(
+        (grant) => !(options.resources || []).some((r) => r.resourceType === grant.resourceType && r.resourceId === grant.resourceId)
+    )
     return (
         <Stack spacing={2} sx={{ mt: 2 }}>
             {options.rollout && options.rollout !== 'on' && (
@@ -179,6 +182,22 @@ export default function AccessPolicyEditor({
                             })}
                     </Box>
                 ))}
+            {unavailable.map((grant) => (
+                <Alert severity='warning' key={`${grant.resourceType}:${grant.resourceId}`}>
+                    Unavailable resource: {grant.resourceType} {grant.resourceId}. It may have been deleted or you may no longer have
+                    access. Remove this grant to save the remaining policy.
+                    <Button
+                        aria-label={`Remove unavailable ${grant.resourceType} ${grant.resourceId}`}
+                        onClick={() =>
+                            setResources((current) =>
+                                current.filter((r) => !(r.resourceType === grant.resourceType && r.resourceId === grant.resourceId))
+                            )
+                        }
+                    >
+                        Remove grant
+                    </Button>
+                </Alert>
+            ))}
             <TextField
                 label='Allowed origins (one per line)'
                 multiline

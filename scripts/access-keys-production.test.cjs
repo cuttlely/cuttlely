@@ -793,6 +793,216 @@ async function workspaceFixture(data) {
     })
 }
 
+async function round12Fixture(data) {
+    await workspaceFixture(data)
+    const actorPermissions = ['apikeys:view', 'apikeys:create', 'apikeys:update', 'apikeys:delete', 'chatflows:view', 'chatflows:delete']
+    const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+    setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: actorPermissions }) })
+    const express = serverRequire('express'),
+        request = serverRequire('supertest'),
+        http = express()
+    http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+    http.use(express.json())
+    http.use((req, _res, next) => {
+        if (!req.headers.authorization)
+            req.user = {
+                id: 'fixture',
+                activeWorkspaceId: 'team-a',
+                activeOrganizationId: 'org-a',
+                permissions: actorPermissions,
+                features: {}
+            }
+        next()
+    })
+    http.use('/api/v1', serverRequire('./src/services/accessKeys/routes.ts').accessKeyRouteGuard)
+    http.use('/api/v1/apikey', serverRequire('./src/routes/apikey/index.ts').default)
+    http.use('/api/v1/chatflows', serverRequire('./src/routes/chatflows/index.ts').default)
+    http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+    for (const [id, name, workspaceId] of [
+        ['12121212-1212-4121-8121-121212121201', 'Chatflow A', 'team-a'],
+        ['12121212-1212-4121-8121-121212121202', 'Chatflow B', 'team-a'],
+        ['12121212-1212-4121-8121-121212121203', 'Other workspace', 'team-b']
+    ])
+        await data
+            .getRepository(ChatFlow)
+            .save({ id, name, workspaceId, type: 'CHATFLOW', apiAccessMode: 'private', flowData: '{"nodes":[],"edges":[]}' })
+    const body = {
+        keyName: 'round12-deleted',
+        permissions: ['chatflows:view'],
+        accessPolicy: { scopes: ['api:read'], rpm: 0 },
+        expiresAt: null,
+        resources: ['12121212-1212-4121-8121-121212121201', '12121212-1212-4121-8121-121212121202'].map((resourceId) => ({
+            resourceType: 'CHATFLOW',
+            resourceId
+        }))
+    }
+    const created = await request(http).post('/api/v1/apikey').send(body)
+    assert.equal(created.status, 200, created.body.message)
+    const key = created.body.find((row) => row.apiKey)
+    assert.ok(key)
+    const read = (id) =>
+        request(http)
+            .get('/api/v1/chatflows/' + id)
+            .set('Authorization', 'Bearer ' + key.apiKey)
+    const edit = (resources) =>
+        request(http)
+            .put('/api/v1/apikey/' + key.id)
+            .send({ ...body, resources })
+    return { http, request, key, read, edit, body }
+}
+
+test('round12 real delete and management routes with APIKeyDialog and AccessPolicyEditor submissions', async () => {
+    const data = await database()
+    let listener
+    try {
+        const { http, request, body } = await round12Fixture(data)
+        const created = await request(http)
+            .post('/api/v1/apikey')
+            .send({ ...body, keyName: 'round12-retained', resources: body.resources.slice(1) })
+        assert.equal(created.status, 200)
+        const retained = created.body.find((row) => row.apiKey)
+        // Existing-data control: an orphan left by a deletion before this fix.
+        await data
+            .getRepository(ApiKeyResource)
+            .save({ principalId: retained.id, resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121204' })
+        listener = await new Promise((resolve) => {
+            const server = http.listen(0, '127.0.0.1', () => resolve(server))
+        })
+        const uiRequire = createRequire(path.join(__dirname, '../packages/ui/package.json'))
+        const { spawn } = require('node:child_process')
+        const child = spawn(
+            process.execPath,
+            [uiRequire.resolve('jest/bin/jest'), '--runInBand', '--testMatch', '**/APIKeyDialog.production.fixture.js'],
+            {
+                cwd: path.join(__dirname, '../packages/ui'),
+                env: { ...process.env, CUTTLELY_ACCESS_UI_URL: 'http://127.0.0.1:' + listener.address().port },
+                stdio: ['ignore', 'pipe', 'pipe']
+            }
+        )
+        child.stdout.pipe(process.stdout)
+        child.stderr.pipe(process.stderr)
+        const code = await new Promise((resolve, reject) => {
+            child.on('error', reject)
+            child.on('exit', resolve)
+        })
+        assert.equal(code, 0, 'actual policy dialog must save B while permitting explicit removal of unavailable A')
+    } finally {
+        if (listener) await new Promise((resolve) => listener.close(resolve))
+        serverRequire('./src/identity/rbac.ts').setTeamPermissionLookup(null)
+        await data.destroy()
+    }
+})
+
+test('round12 deletion and removal cannot revive grants; workspace and ordinary lifecycle controls', async () => {
+    const data = await database()
+    try {
+        const { http, request, key, read, edit, body } = await round12Fixture(data)
+        assert.equal((await read('12121212-1212-4121-8121-121212121201')).status, 200)
+        assert.equal((await read('12121212-1212-4121-8121-121212121202')).status, 200)
+        const foreignKey = await data.getRepository(ApiKey).save({
+            id: 'round12-foreign-key',
+            workspaceId: 'team-b',
+            keyName: 'Foreign',
+            apiKey: '',
+            apiSecret: '',
+            permissions: [],
+            harnesses: [],
+            accessPolicy: parsePolicy({ scopes: ['api:read'] })
+        })
+        const foreignGrant = { principalId: foreignKey.id, resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121201' }
+        await data.getRepository(ApiKeyResource).save(foreignGrant)
+        assert.equal((await request(http).delete('/api/v1/chatflows/12121212-1212-4121-8121-121212121201')).status, 200)
+        assert.equal((await read('12121212-1212-4121-8121-121212121201')).status, 404)
+        assert.equal((await read('12121212-1212-4121-8121-121212121202')).status, 200)
+        await data.getRepository(ChatFlow).save({
+            id: '12121212-1212-4121-8121-121212121201',
+            name: 'Foreign same ID',
+            workspaceId: 'team-b',
+            type: 'CHATFLOW',
+            apiAccessMode: 'private',
+            flowData: '{}'
+        })
+        assert.equal(
+            (await read('12121212-1212-4121-8121-121212121201')).status,
+            404,
+            'same ID in another workspace is concealed and never authorized'
+        )
+        assert.ok(await data.getRepository(ApiKeyResource).findOneBy(foreignGrant), 'deletion cannot alter another workspace principal')
+        await data.getRepository(ChatFlow).update({ id: '12121212-1212-4121-8121-121212121201' }, { workspaceId: 'team-a' })
+        assert.equal(
+            (await read('12121212-1212-4121-8121-121212121201')).status,
+            403,
+            'recreation with the same ID cannot revive a deleted grant before any policy edit'
+        )
+        await data.getRepository(ChatFlow).save({
+            id: '12121212-1212-4121-8121-121212121205',
+            name: 'New A',
+            workspaceId: 'team-a',
+            type: 'CHATFLOW',
+            apiAccessMode: 'private',
+            flowData: '{}'
+        })
+        assert.equal((await read('12121212-1212-4121-8121-121212121205')).status, 403, 'a replacement ID is not a grant')
+        const onlyB = body.resources.slice(1)
+        assert.equal((await edit(onlyB)).status, 200)
+        const denied = await edit([...onlyB, { resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121203' }])
+        assert.equal(denied.status, 403, 'unavailable new resources remain rejected')
+        assert.equal((await read('12121212-1212-4121-8121-121212121202')).status, 200)
+        assert.equal(
+            (await edit([...onlyB, { resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121205' }])).status,
+            200,
+            'explicit authorized new grant works'
+        )
+        assert.equal((await read('12121212-1212-4121-8121-121212121205')).status, 200)
+        assert.equal((await edit(onlyB)).status, 200)
+        assert.equal((await read('12121212-1212-4121-8121-121212121205')).status, 403, 'explicit removal revokes A')
+        await data.getRepository(ChatFlow).delete({ id: '12121212-1212-4121-8121-121212121205' })
+        await data.getRepository(ChatFlow).save({
+            id: '12121212-1212-4121-8121-121212121205',
+            name: 'Recreated A',
+            workspaceId: 'team-a',
+            type: 'CHATFLOW',
+            apiAccessMode: 'private',
+            flowData: '{}'
+        })
+        assert.equal(
+            (await read('12121212-1212-4121-8121-121212121205')).status,
+            403,
+            'recreation cannot revive an explicitly removed grant'
+        )
+        assert.equal((await edit(body.resources)).status, 200, 'explicit reauthorization of a recreated resource still works')
+        assert.equal((await read('12121212-1212-4121-8121-121212121201')).status, 200)
+        assert.equal((await request(http).delete('/api/v1/apikey/' + key.id)).status, 200)
+        assert.equal((await read('12121212-1212-4121-8121-121212121201')).status, 401)
+        assert.equal((await read('12121212-1212-4121-8121-121212121202')).status, 401)
+        console.log(
+            'round12 controls: deleted/recreated/revoked A denied, B preserved, foreign/new unauthorized grants refused, explicit grant lifecycle unchanged'
+        )
+    } finally {
+        serverRequire('./src/identity/rbac.ts').setTeamPermissionLookup(null)
+        await data.destroy()
+    }
+})
+
+test('round12 a failed grant cleanup rolls back the real delete route with B untouched', async () => {
+    const data = await database()
+    try {
+        const { http, request, read } = await round12Fixture(data)
+        const grants = await data.getRepository(ApiKeyResource).find()
+        await data.query(`CREATE TRIGGER refuse_flow_grant_delete BEFORE DELETE ON apikey_resource
+            BEGIN SELECT RAISE(ABORT, 'fixture grant cleanup failure'); END`)
+        const deleted = await request(http).delete('/api/v1/chatflows/12121212-1212-4121-8121-121212121201')
+        assert.equal(deleted.status, 500)
+        assert.ok(await data.getRepository(ChatFlow).findOneBy({ id: '12121212-1212-4121-8121-121212121201' }))
+        assert.deepEqual(await data.getRepository(ApiKeyResource).find(), grants)
+        assert.equal((await read('12121212-1212-4121-8121-121212121201')).status, 200)
+        assert.equal((await read('12121212-1212-4121-8121-121212121202')).status, 200)
+    } finally {
+        serverRequire('./src/identity/rbac.ts').setTeamPermissionLookup(null)
+        await data.destroy()
+    }
+})
+
 for (const scopes of [['api:read'], ['api:read', 'harness:read', 'harness:run']]) {
     test('Harness api:read production routes retain granted canvas access: ' + scopes.join(','), async () => {
         const data = await database()

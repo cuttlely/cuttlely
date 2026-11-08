@@ -90,6 +90,8 @@ The existing `/api/v1/apikey` path remains stable. `GET /options` lists the oper
 
 `POST /:id/rotate` accepts `graceSeconds`. `POST /:id/credentials/:credentialId/revoke` revokes a credential (`legacy` identifies the compatibility credential). `DELETE /:id` soft-revokes the principal and preserves audit history.
 
+Deleting a flow retires its exact flow grants in the same transaction, scoped to principals in its workspace. Recreating the resource with the same or a new ID requires an explicit new grant. Existing policies can still contain grants for unavailable resources, including flows deleted before this cleanup existed. The policy editor shows their type and ID with a **Remove grant** action. Remove them explicitly to save the remaining policy; this action cannot select a replacement or grant access. Other grants remain selected, and the server still rejects unavailable or unauthorized grants.
+
 ### Dashflows reports
 
 Dashflows remains Experimental and off by default. With it enabled, use the dashboard ID with a server-side bearer:

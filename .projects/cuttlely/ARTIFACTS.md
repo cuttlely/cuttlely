@@ -2,6 +2,8 @@
 
 # Artifacts
 
+Access-key deletion and policy editing: `scripts/access-keys-production.test.cjs` starts a disposable SQLite-backed server with the real flow-delete and key-management routers, then invokes `packages/ui/src/views/apikey/APIKeyDialog.production.fixture.js` through UI Jest. The actual dialog and policy editor submit to those routes; retained unavailable grants require explicit removal, while the remaining grants survive. The production fixture also checks deletion rollback, workspace collisions, recreation and normal grant lifecycle. Run it with `node --test scripts/access-keys.test.cjs scripts/access-keys-production.test.cjs`.
+
 Harness client lifecycle: `packages/harness/client.test.mjs` covers shutdown-interrupted status, bounded stop confirmation, transient stop failures, and repeated top-level/nested status-transport failures without consuming another chat's slot. It runs with the runtime admission checks in `packages/harness/check.mjs`.
 
 Shared chat download access: `packages/chat-widget/src/api.js` reads stored files with the chat session token and retries only a 403 without the browser cookie. `packages/chat-widget/test/widget.test.js` covers the public token conflict and the existing successful private download path.

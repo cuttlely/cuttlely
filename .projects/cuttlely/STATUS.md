@@ -2,11 +2,13 @@ Placeholder harness validation checks name ownership before refusing an existing
 
 ## Workspace access keys (feature branch)
 
+Unavailable resource grants remain visible by type and ID with an explicit remove-only action in the policy editor. Removing one preserves the remaining grants and does not select a replacement. Flow deletion retires exact flow grants for workspace principals in the deletion transaction; recreating the same or a new ID requires explicit authorization. Cleanup failure rolls back the deletion. Server grant validation and admission remain unchanged.
+
 Registered key routes prepare authorization without charging and commit admission only after route RBAC, canvas/reference checks and run/report ownership succeed. Authorization refusals leave quota untouched; application errors after complete authorization stay charged. Modern credential rows and retained legacy bearers retain their earliest principal-expiry cutoff transactionally, so extending a principal before or after lapse cannot revive or extend an issued bearer. Rotation inherits the replacement expiry. The custom assistant dialog preserves existing off/shadow bindings but offers no unsupported add/replace choice; ordinary Chatflow binding controls remain available.
 
 The API dialog regression is explicitly assigned to the core zone and Access keys subsystem in `architecture/boundaries.json`, with documented imports of the inherited dialog and chatflow API writer.
 
-Current-tree focused validation passes 121 real SQLite/production fixtures, 573 server tests across 31 suites, 17 UI tests, repository typechecking and architecture-boundary checks. These focused results do not replace full verification on the committed head; the exact-head result is recorded in `.verify/verify-report.json`.
+Focused validation for the unavailable-grant correction passes 124 real SQLite/production fixtures (including two actual policy-dialog cases against the real routers), 75 server tests across two affected suites, 20 UI tests across four suites, repository typechecking and architecture-boundary checks. Controls cover workspace collisions, unauthorized new grants, same/new-ID recreation, revocation, ordinary grant lifecycle and deletion rollback. These focused results do not replace full verification on the committed head; the exact-head result is recorded in `.verify/verify-report.json`.
 
 Harness canvas item, saved-draft and version reads retain their read-authorized identity map through the production route stack. Exact Harness grants, `api:read` and view RBAC suffice without execution scope; missing grants still refuse admission. Custom assistants (`ASSISTANT`) remain outside the release's exact grant types: migration reports bound assistants as unsupported, and their private integrations require off/shadow mode. The API dialog and access-key reference state that limitation.
 

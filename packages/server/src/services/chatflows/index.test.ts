@@ -1202,11 +1202,27 @@ describe('getChatflowByApiKey', () => {
 describe('deleteChatflow', () => {
     type Call = { inTransaction: boolean; entity: string; where: unknown }
 
+    const grantQuery = () => {
+        const qb: any = {
+            select: () => qb,
+            where: () => qb,
+            andWhere: () => qb,
+            delete: () => qb,
+            from: () => qb,
+            setParameters: () => qb,
+            getQuery: () => 'SELECT id FROM apikey WHERE workspaceId = :workspaceId',
+            getParameters: () => ({ workspaceId: 'ws-1' }),
+            execute: jest.fn(async () => ({ affected: 1, raw: [] }))
+        }
+        return qb
+    }
+
     /** Records every repository delete with the entity name and whether it ran inside the transaction. */
     const trackDeletes = (failOn?: string) => {
         const calls: Call[] = []
         const repoFor = (inTransaction: boolean) => (entity: { name: string }) => ({
             ...mockRepo,
+            createQueryBuilder: grantQuery,
             delete: jest.fn(async (where: unknown) => {
                 calls.push({ inTransaction, entity: entity.name, where })
                 if (inTransaction && entity.name === failOn) throw new Error(`${failOn} delete failed`)
@@ -1215,7 +1231,7 @@ describe('deleteChatflow', () => {
         })
         mockAppServer.AppDataSource.getRepository.mockImplementation(repoFor(false) as any)
         mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) =>
-            fn({ getRepository: repoFor(true) })
+            fn({ getRepository: repoFor(true), createQueryBuilder: grantQuery })
         )
         return calls
     }
@@ -1314,7 +1330,14 @@ describe('deleteChatflow', () => {
         const commit = jest.fn(async () => undefined)
         const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockResolvedValue({ names: ['navi'], restore, commit })
         mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) => {
-            await fn({ getRepository: () => ({ ...mockRepo, delete: jest.fn(async () => ({ affected: 1, raw: [] })) }) })
+            await fn({
+                getRepository: () => ({
+                    ...mockRepo,
+                    createQueryBuilder: grantQuery,
+                    delete: jest.fn(async () => ({ affected: 1, raw: [] }))
+                }),
+                createQueryBuilder: grantQuery
+            })
             throw new Error('commit failed')
         })
         try {
