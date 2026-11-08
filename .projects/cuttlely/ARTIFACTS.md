@@ -95,6 +95,9 @@ Answer table sorting: `packages/chat-widget/src/tables.js` owns the shared row-i
 
 ## Access keys
 
+-   `scripts/access-keys-production.test.cjs` covers authorization-before-quota through real route stacks, including refused draft references, RBAC/ownership denials and charged application errors after authorization; fixture-clock management/authentication checks cover modern expiry non-revival before and after lapse, own expiry/revocation and successful rotation.
+-   `packages/ui/src/views/chatflows/APICodeDialog.test.js` covers actual assistant binding choices in off/shadow, preservation of existing private bindings and ordinary Chatflow binding writes; production fixtures confirm server refusal of assistant add/replace and retained prediction success.
+
 -   `scripts/access-keys-production.test.cjs` also mounts the real preflight, admission, RBAC, Harness canvas guards and item/draft/version controllers with disposable SQLite, saved drafts and local version history. It covers read-only grants, missing-grant admission, and denied execution/writes. The custom-assistant fixture runs the real SQLite migration, retained-key prediction in off/on, and the management resource-choice/grant routes to document its unsupported exact-grant scope.
 -   `docs/reference/access-keys.md`: policy, migration, rollout modes, endpoint matrix and explicit follow-ons. `docs/api.md` documents session-based key management and usable prediction grants; `packages/api-documentation/src/yml/swagger.yml` defines the matching management endpoints and schemas. README, FAQ, SECURITY, upgrade guides and `website/src/pages/{index,flowise}.astro` share these boundaries; website FAQ/security/docs pages are generated from repository Markdown.
 -   `packages/server/src/services/accessKeys/`: credential lifecycle, authorization, closed route registry, caller policy, admission, management and Dashflows reports.

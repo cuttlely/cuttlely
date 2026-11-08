@@ -93,6 +93,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **Complete authorization before committing quota.** Route preparation alone cannot charge: downstream RBAC, canvas references and ownership checks can still refuse. Commit after those checks and before application work; do not infer refunds from response status. Cap every issued credential when principal expiry changes, in the same transaction, so a later principal extension cannot undo a prior cutoff.
 -   **Refresh downstream identity with admission authority.** Refreshing a key at admission must also refresh the permissions used by route RBAC; recheck additional route permissions before charging. Body parsing can separate preflight from admission by an arbitrary amount of time. A migration compatibility marker must not admit a previously session-only route in off/shadow.
 -   **Bound audit dedupe without silencing other principals.** Evict old dedupe entries at capacity instead of dropping all new audit events. Quota-cache capacity is separate: refuse new buckets while keeping existing principal budgets enforceable. Emit quota headers only after the transaction commits.
 -   On SQLite, TypeORM nests `DataSource.transaction` as a SAVEPOINT on the shared connection. Quota admission that must survive an unrelated outer rollback needs its own connection (or equivalent independent commit), not only `serial()` around the same DataSource.
