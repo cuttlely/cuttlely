@@ -8,6 +8,8 @@ The UI shows effective mode/source and confirms migration compatibility, private
 
 The shipped app and worker Compose files forward both recovery variables with empty defaults. Empty rollout input remains unset (saved mode wins, unlocked); an empty ignore flag stays off. Host recovery requires container recreation using the same Compose file/options. Standalone upstream Compose v2.39.4 resolved all five app configurations, covering seven services and six recovery/precedence cases per service against the actual rollout parser with saved enforcement on. This is configuration resolution, not a running-container test. `scripts/compose-image.test.mjs` guards the forwarding expressions, and the rollout-admin fixture checks empty-env behavior through the real settings response.
 
+Evaluation-route fixture teardown waits for both completed status and the final SQLite save transaction to commit before closing the shared connection. This corrects the asynchronous closed-handle rejection observed in the follow-up full gate; a delayed final-commit check exercises the race without changing application behavior.
+
 ## Instance operator boundary (local branch)
 
 `CUTTLELY_INSTANCE_OPERATOR` is a host-only JSON binding of an exact account ID and the running database connection fingerprint. It is kept out of writable settings, restored snapshots and startup environment application. Missing/invalid designation closes browser service administration for all owners. Host/CLI recovery remains available; database switches and connection credential/path/TLS changes require explicit host rebinding after restart. Operator designation is rechecked on each request and grants no cross-organization data access.
