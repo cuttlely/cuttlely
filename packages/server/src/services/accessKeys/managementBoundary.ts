@@ -1,3 +1,4 @@
+import { IsNull } from 'typeorm'
 import { AppError } from '../../errors/appError'
 
 /** Transport credentials can execute outside this principal. Never return them to scoped management clients. */
@@ -47,7 +48,11 @@ export const scopedFlowMetadataUpdate: import('express').RequestHandler = (req, 
                 throw new AppError(400, 'Invalid category.')
             patch.category = req.body.category ?? ''
         }
-        if (Object.keys(patch).length) await repo.update(where, patch)
+        if (Object.keys(patch).length) {
+            // A concurrent type conversion cannot turn a scoped metadata edit into a Harness rename.
+            const result = await repo.update({ ...where, type: (current.type ?? IsNull()) as any }, patch)
+            if (!result.affected) throw new AppError(409, 'Flow type changed. Reload before saving.')
+        }
         res.json(redactTransportSecrets(await repo.findOneBy(where)))
     })().catch(next)
 }

@@ -1,4 +1,4 @@
-import { resolveHarnessFlow } from './resources'
+import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { accessRollout, compareLegacy } from './rollout'
 import { AccessKeyPolicyError, FlowOriginPolicyError } from './errors'
 import { recordKeyUse } from './audit'
@@ -18,6 +18,8 @@ import { callerPolicyAllows, Operation, operationPermissions, readPolicy, Resour
 
 interface AccessContext {
     key: ApiKey
+    // Defined only for enforced key execution. Even an empty map requires a stable pin downstream.
+    harnessIds?: Record<string, string>
     admitted: Set<string>
     ownerPermissions?: string[]
     checks: Map<string, [Operation, string, ResourceGrant | undefined]>
@@ -197,7 +199,7 @@ async function authorizeFlowV2Body(req: Request, flow: ChatFlow, charge = true):
     )
         throw new AppError(401, 'Unauthorized')
     const operation = flowOperation(req)
-    const key = await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), false)
+    await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), false)
     if (req.headers['content-type']?.toLowerCase().startsWith('multipart/form-data')) {
         await authorizeKey(req, 'upload', flow.workspaceId, flowResource(flow), false)
         // Fields arrive after file storage starts. Apply the same conservative check to retained legacy bearer values.
@@ -213,8 +215,11 @@ async function authorizeFlowV2Body(req: Request, flow: ChatFlow, charge = true):
         req.headers.accept?.includes('text/event-stream')
     )
         await authorizeKey(req, 'stream', flow.workspaceId, flowResource(flow), false)
-    if (operation === 'predict' && flow.type === 'HARNESS')
+    const harnessIds: Record<string, string> = {}
+    if (operation === 'predict' && flow.type === 'HARNESS') {
         await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(flow), false)
+        harnessIds[flow.name] = flow.id
+    }
     if (operation === 'predict') {
         // Nested execution uses the presenting principal, never the flow's old bound key.
         if (typeof flow.flowData === 'string') {
@@ -230,13 +235,21 @@ async function authorizeFlowV2Body(req: Request, flow: ChatFlow, charge = true):
             const harness = await resolveHarnessFlow(name, flow.workspaceId)
             if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
             await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
+            harnessIds[name] = harness.id
         }
         const { checkChatflowOrigin } = await import('../../utils/domainValidation')
         const origin = checkChatflowOrigin(flow.chatbotConfig, req.headers.origin)
         if (!origin.allowed) throw new FlowOriginPolicyError(origin.error)
     }
-    await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), charge)
-    setAccessContext(req, key)
+    const admittedKey = await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), charge)
+    // Never lower an authorized canvas to a mutable name. Keep explicitly checked identities even
+    // if a concurrent replacement makes that name disappear from the wider nested-call grant set.
+    if (operation === 'predict' && accessRollout() === 'on')
+        accessContext(req)!.harnessIds = {
+            ...(Object.keys(harnessIds).length ? await keyHarnessIds(admittedKey) : {}),
+            ...harnessIds,
+            ...accessContext(req)!.harnessIds
+        }
     return true
 }
 

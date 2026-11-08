@@ -139,7 +139,8 @@ export function configureHarnessRuntime({ contextFor } = {}) {
 // Before a run row is opened. A harness with no team is not in the caller's team.
 // Both empty is an offline run with no team on either side.
 export function assertHarnessWorkspace(name, flowOptions, record) {
-    assertHarnessCaller(record?.name || name, flowOptions?.harnessCaller)
+    const expected = flowOptions?.expectedHarnessChatflowId
+    assertHarnessCaller(record?.name || name, flowOptions?.harnessCaller, { requirePin: true, expectedChatflowId: expected })
     let harness = record
     if (!harness) {
         try {
@@ -149,7 +150,6 @@ export function assertHarnessWorkspace(name, flowOptions, record) {
         }
     }
     if (!harness) return
-    const expected = flowOptions?.expectedHarnessChatflowId
     if (expected !== undefined && (typeof expected !== 'string' || !expected || harness.chatflowId !== expected)) {
         throw new HarnessError('harness_changed', `Harness "${name}" changed after authorization.`)
     }

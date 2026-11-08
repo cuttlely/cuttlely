@@ -104,17 +104,24 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     const source = req.get('x-request-from') === 'internal' ? 'playground' : 'api'
     let workspaceId = ''
     let caller: IHarnessCaller
+    let expectedChatflowId: string | undefined
     try {
         workspaceId = activeWorkspace(req)
         caller = await harnessCallerFor(req)
-        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, caller)
+        expectedChatflowId = caller.via === 'api_key' ? caller.harnessIds?.[req.params.name] : undefined
+        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, caller, { expectedChatflowId })
     } catch (error) {
         next(error)
         return
     }
     if (!isStreamingRequest(req)) {
         try {
-            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source, workspaceId, caller })
+            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
+                source,
+                workspaceId,
+                caller,
+                expectedChatflowId
+            })
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -133,6 +140,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
             source,
             workspaceId,
             caller,
+            expectedChatflowId,
             signal,
             onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
         })
@@ -152,10 +160,12 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
 const startBackgroundRun = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const workspaceId = activeWorkspace(req)
+        const caller = await harnessCallerFor(req)
         const started = await harnessesService.startBackgroundRun(req.params.name, req.body || {}, {
             workspaceId,
             source: 'api',
-            caller: await harnessCallerFor(req),
+            caller,
+            expectedChatflowId: caller.via === 'api_key' ? caller.harnessIds?.[req.params.name] : undefined,
             track: trackBackgroundRun,
             onSettled: (outcome) => noteBackgroundRunSettled(req.params.name, outcome)
         })

@@ -437,7 +437,10 @@ it('edits metadata without entering the canvas save path or changing an existing
         .send({ name: 'Updated name', category: 'Fixture' })
     expect(response.status).toBe(200)
     expect(canvasSave).not.toHaveBeenCalled()
-    expect(mockMetadataUpdate).toHaveBeenCalledWith({ id: FLOW, workspaceId: 'one' }, { name: 'Updated name', category: 'Fixture' })
+    expect(mockMetadataUpdate).toHaveBeenCalledWith(
+        { id: FLOW, workspaceId: 'one', type: 'CHATFLOW' },
+        { name: 'Updated name', category: 'Fixture' }
+    )
     expect(scheduled.flowData).toBe('{"existingSchedule":true}')
     expect(response.body.mcpServerConfig).toBeUndefined()
 })

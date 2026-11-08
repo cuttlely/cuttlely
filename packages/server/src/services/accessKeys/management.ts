@@ -31,6 +31,7 @@ function interactive(req: Request) {
 }
 export async function target(req: Request): Promise<ApiKey> {
     const user = interactive(req)
+    if (typeof req.params.id !== 'string' || !req.params.id.trim()) throw new AppError(412, 'Access key id is required.')
     const row = await (await accessData()).getRepository(ApiKey).findOneBy({ id: req.params.id, workspaceId: user.activeWorkspaceId })
     if (!row) throw new AppError(404, 'Access key not found.')
     const grants = await (await accessData()).getRepository(ApiKeyResource).findBy({ principalId: row.id })
@@ -179,6 +180,10 @@ export const createAccessKey: RequestHandler = action(async (req) => {
     if (!(await data.getRepository(Workspace).findOneBy({ id: user.activeWorkspaceId }))) throw new AppError(401, 'Workspace unavailable.')
     const result = await serial(() =>
         data.transaction(async (manager) => {
+            // Authority can change while this request waits for another lifecycle writer.
+            await policyInput(req)
+            if (!(await manager.getRepository(Workspace).findOneBy({ id: user.activeWorkspaceId })))
+                throw new AppError(401, 'Workspace unavailable.')
             const key = manager.getRepository(ApiKey).create({
                 id: randomUUID(),
                 keyName: req.body.keyName.trim(),

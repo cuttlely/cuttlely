@@ -6,17 +6,17 @@ import { accessData } from './data'
 import { principalActive } from './credentials'
 import { accessRollout } from './rollout'
 
-/** Stable canvas IDs are converted to names only at the existing runtime boundary. Deleted/recreated names inherit nothing. */
-export async function keyHarnessNames(key: ApiKey, forRun = true): Promise<string[]> {
-    if (!key.accessPolicy) return Array.isArray(key.harnesses) ? key.harnesses : []
-    if (!principalActive(key)) return []
-    if (key.accessPolicy.legacy && accessRollout() !== 'on') return Array.isArray(key.harnesses) ? key.harnesses : []
+/** Retain stable identities at admission, including Harness cards called by another Harness. */
+export async function keyHarnessIds(key: ApiKey, forRun = true): Promise<Record<string, string>> {
+    if (!key.accessPolicy) return {}
+    if (!principalActive(key)) return {}
+    if (key.accessPolicy.legacy && accessRollout() !== 'on') return {}
     if (
         !(forRun
             ? key.accessPolicy.scopes.includes('harness:run')
             : key.accessPolicy.scopes.some((s) => ['harness:run', 'harness:read', 'api:read'].includes(s)))
     )
-        return []
+        return {}
     const data = await accessData()
     const flows = await data.getRepository(ChatFlow).findBy({ workspaceId: key.workspaceId, type: 'HARNESS' })
     const eligible = []
@@ -26,10 +26,16 @@ export async function keyHarnessNames(key: ApiKey, forRun = true): Promise<strin
         const actual = await resolveHarnessFlow(flow.name, key.workspaceId)
         if (actual?.id === flow.id) eligible.push(flow)
     }
-    if (key.accessPolicy.allResources) return eligible.map((f) => f.name)
+    if (key.accessPolicy.allResources) return Object.fromEntries(eligible.map((f) => [f.name, f.id]))
     const grants = await data.getRepository(ApiKeyResource).findBy({ principalId: key.id, resourceType: 'HARNESS' })
     const ids = new Set(grants.map((g) => g.resourceId))
-    return eligible.filter((f) => ids.has(f.id)).map((f) => f.name)
+    return Object.fromEntries(eligible.filter((f) => ids.has(f.id)).map((f) => [f.name, f.id]))
+}
+
+/** Off/shadow keep the legacy name-list contract. Enforced execution retains the IDs too. */
+export async function keyHarnessNames(key: ApiKey, forRun = true): Promise<string[]> {
+    if (!key.accessPolicy || (key.accessPolicy.legacy && accessRollout() !== 'on')) return Array.isArray(key.harnesses) ? key.harnesses : []
+    return Object.keys(await keyHarnessIds(key, forRun))
 }
 
 /** Resolve the runtime's actual canvas ID, rather than an arbitrary SQL row with the same display name. */

@@ -50,7 +50,11 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
                     req,
                     res,
                     chatflow,
-                    await flowHarnessCaller(accessContext(req)?.key.id || chatflow.apikeyid, chatflow.workspaceId),
+                    await flowHarnessCaller(
+                        accessContext(req)?.key.id || chatflow.apikeyid,
+                        chatflow.workspaceId,
+                        accessContext(req)?.harnessIds
+                    ),
                     {
                         canvas: 'live',
                         sessionToken

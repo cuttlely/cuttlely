@@ -1239,6 +1239,14 @@ const assertRunRequest = async (
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
+    if (
+        caller?.via === 'api_key' &&
+        caller.harnessIds !== undefined &&
+        (!access.expectedChatflowId ||
+            !Object.prototype.hasOwnProperty.call(caller.harnessIds, name) ||
+            caller.harnessIds[name] !== access.expectedChatflowId)
+    )
+        throw new AppError(StatusCodes.FORBIDDEN, 'An authorized Harness canvas id is required for this access-key run.')
     const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
     const harness = await requireHarness(name, workspaceId)
     if (
@@ -1302,7 +1310,7 @@ const startRun = async (
         caller: IHarnessCaller
         // Set by the canvas run. A flow with no list of its own may start that canvas.
         allowFlow?: boolean
-        // Access-key admission may pin the authorized canvas id across name re-resolution.
+        // Required for enforced key callers; retained through runtime and queue name re-resolution.
         expectedChatflowId?: string
     }
 ) => {
@@ -1410,7 +1418,7 @@ const startBackgroundRun = async (
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
-        // Access-key admission may pin the authorized canvas id across name re-resolution.
+        // Required for enforced key callers; retained through runtime and queue name re-resolution.
         expectedChatflowId?: string
     }
 ) => {
@@ -1659,6 +1667,7 @@ const startCanvasRun = async (
         ...runOpts,
         allowFlow: true,
         workspaceId: chatflow.workspaceId,
+        expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
 }
@@ -1674,7 +1683,9 @@ const replayCheck = async (
     // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
     // An API key that does not list this harness, or no caller at all, is refused here too.
     assertRouteCaller(chatflow.name, opts.caller)
-    await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller)
+    await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller, {
+        expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined
+    })
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -1690,6 +1701,7 @@ const replayCheck = async (
         workspaceId: chatflow.workspaceId,
         caller: opts.caller,
         replay: true,
+        expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
 }

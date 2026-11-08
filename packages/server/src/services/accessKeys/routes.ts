@@ -1,4 +1,4 @@
-import { resolveHarnessFlow } from './resources'
+import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { assertSafeManagementWrite, redactTransportSecrets } from './managementBoundary'
 import { accessRollout } from './rollout'
 import { RequestHandler } from 'express'
@@ -61,6 +61,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (root === 'harnesses' && parts[4] === 'diagnostics') throw new AppError(403, 'Harness diagnostics require a signed-in author.')
         let operation: Operation = read ? 'api:read' : 'api:write'
         let resource
+        const harnessIds: Record<string, string> = {}
         const data = await accessData()
         if (
             ['chatflows', 'flow-versions', 'flow-drafts', 'chatmessage', 'leads', 'chatflows-streaming', 'chatflows-uploads'].includes(root)
@@ -91,6 +92,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             const flow = await resolveHarnessFlow(name, key.workspaceId)
             if (!flow || flow.name !== name) throw new AppError(403, 'Resource is not available to this access key.')
             resource = flowResource(flow)
+            harnessIds[name] = flow.id
             if (parts[2] === 'runs') operation = read ? 'harness:read' : 'harness:run'
         } else if (root === 'dashflows' && parts[1]) {
             resource = { resourceType: 'DASHFLOW' as const, resourceId: parts[1] }
@@ -115,6 +117,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     // Pin for refresh and account-report alike so a same-name recreation cannot inherit the grant.
                     _res.locals.accessKeyDashboardRevision = dashboard.revision
                     _res.locals.accessKeyDashboardHarnessId = harness.id
+                    harnessIds[harness.name] = harness.id
                 }
             } catch (error) {
                 if (error instanceof mod.DashFlowError) throw new AppError((error as any).status, (error as Error).message)
@@ -157,6 +160,8 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             true,
             additionalPermissions
         )
+        if (['harness:run', 'dashflow:report'].includes(operation))
+            accessContext(req)!.harnessIds = { ...(await keyHarnessIds(admittedKey)), ...harnessIds, ...accessContext(req)!.harnessIds }
         if (!req.user?.id) {
             if (!req.user?.apiKeyId) {
                 const { OPEN_SOURCE_FEATURES } = await import('../../identity/constants')

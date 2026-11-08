@@ -74,6 +74,10 @@ const mockChatImages = jest.fn((..._args: unknown[]) => [] as unknown[])
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
     default: {
+        getHarness: async (name: string) => {
+            const flow = [...mockDb.chatflows.values()].find((f) => f.type === 'HARNESS' && f.name === name)
+            return flow ? { chatflowId: flow.id, workspaceId: flow.workspaceId } : undefined
+        },
         startCanvasRun: (...args: unknown[]) => mockStartCanvasRun(...args),
         chatImages: (...args: unknown[]) => mockChatImages(...args)
     }
@@ -161,7 +165,7 @@ describe('POST /api/v1/prediction/:id', () => {
             {
                 source: 'playground',
                 canvas: 'live',
-                caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'] }
+                caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'], harnessIds: { 'bakery-team': HARNESS_ID } }
             }
         )
         expect(mockBuildChatflow).not.toHaveBeenCalled()

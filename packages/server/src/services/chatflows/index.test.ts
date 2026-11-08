@@ -48,12 +48,27 @@ function makeQb() {
     return qb
 }
 
+const mockTransaction = async (fn: (manager: any) => Promise<unknown>) =>
+    fn({
+        getRepository: () => ({
+            ...mockRepo,
+            findOneBy: async (where: any) => {
+                const found = await mockRepo.findOneBy(where)
+                if (found?.id === where.id) return found
+                // The row passed to updateChatflow represents the persisted pre-image in this unit fixture.
+                const original = mockRepo.merge.mock.calls.at(-1)?.[0]
+                if (Object.keys(where).length === 2 && where.id === original?.id && where.workspaceId === original?.workspaceId)
+                    return { ...original }
+                return found
+            }
+        }),
+        createQueryBuilder: () => makeQb()
+    })
+
 const mockAppServer = {
     AppDataSource: {
         getRepository: jest.fn().mockReturnValue(mockRepo),
-        transaction: jest.fn(async (fn: (manager: any) => Promise<unknown>) =>
-            fn({ getRepository: () => mockRepo, createQueryBuilder: () => makeQb() })
-        ),
+        transaction: jest.fn(mockTransaction),
         driver: { escape: (name: string) => `"${name}"` },
         options: {},
         getMetadata: () => ({ tableName: 'flow_version_state' })
@@ -222,6 +237,7 @@ const SAVE_ARGS = {
 
 beforeEach(() => {
     jest.clearAllMocks()
+    mockAppServer.AppDataSource.transaction.mockReset().mockImplementation(mockTransaction)
     casExecute = null
     mockConditionalPatch = null
     liveWriteHooks.beforeLiveWrite = null
@@ -504,7 +520,10 @@ describe('updateChatflow', () => {
         const result = await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
 
         expect(mockRepo.merge).toHaveBeenCalled()
-        expect(mockRepo.update).toHaveBeenCalledWith({ id: existingFlow.id, workspaceId: 'ws-1' }, expect.any(Object))
+        expect(mockRepo.update).toHaveBeenCalledWith(
+            { id: existingFlow.id, workspaceId: 'ws-1', type: existingFlow.type },
+            expect.any(Object)
+        )
         expect(result).toBe(merged)
         expect(flowVersionsService.recordFlowVersion).toHaveBeenCalledWith(merged, {})
     })
@@ -521,7 +540,10 @@ describe('updateChatflow', () => {
         })
         const result = await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
         expect(result.flowData).toBe(updates.flowData)
-        expect(mockRepo.update).toHaveBeenCalledWith({ id: existingFlow.id, workspaceId: 'ws-1' }, expect.any(Object))
+        expect(mockRepo.update).toHaveBeenCalledWith(
+            { id: existingFlow.id, workspaceId: 'ws-1', type: existingFlow.type },
+            expect.any(Object)
+        )
     })
 
     it('passes a history label with this one save and hands back its record result', async () => {
@@ -1613,7 +1635,7 @@ describe('harnesses a saved canvas names', () => {
         const previous = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'same-name', flowData: makePlainFlowData() })
         const placeholder = makePlainFlowData()
         const saved = { ...previous, flowData: placeholder }
-        mockRepo.findOneBy.mockResolvedValue(undefined)
+        mockRepo.findOneBy.mockImplementation(async (where: any) => (where.id === previous.id && !where.name ? previous : undefined))
         mockRepo.merge.mockReturnValue(saved)
         mockRepo.save.mockResolvedValue(saved)
         ;((global as any).__harnessCanWaitForRoster as jest.Mock).mockReturnValue(true)

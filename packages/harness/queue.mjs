@@ -32,6 +32,8 @@ export function workerConcurrency() {
 
 function jobPayload(args) {
     const flow = args.flowOptions || {}
+    if (flow.harnessCaller?.harnessIds !== undefined)
+        assertHarnessCaller(args.name, flow.harnessCaller, { requirePin: true, expectedChatflowId: flow.expectedHarnessChatflowId })
     return {
         name: args.name,
         chatId: args.chatId,

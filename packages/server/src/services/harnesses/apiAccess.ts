@@ -194,6 +194,11 @@ export async function callerKeyHarnesses(req: Request): Promise<string[] | null>
 export async function harnessCallerFor(req: Request): Promise<IHarnessCaller> {
     const keyId = callerApiKeyId(req)
     if (keyId === null) return { via: 'session' }
+    const { accessContext } = await import('../accessKeys/authorization')
+    const { accessRollout } = await import('../accessKeys/rollout')
+    const context = accessContext(req)
+    const ids = accessRollout() === 'on' && context ? context.harnessIds || {} : undefined
+    if (ids !== undefined) return { via: 'api_key', apiKeyId: keyId, harnesses: Object.keys(ids), harnessIds: { ...ids } }
     return { via: 'api_key', apiKeyId: keyId, harnesses: (await callerKeyHarnesses(req)) || [] }
 }
 

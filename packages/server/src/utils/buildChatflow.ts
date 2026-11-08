@@ -1308,7 +1308,8 @@ export const utilBuildChatflow = async (
         // The in-app chat passes the signed-in person. Every other call, internal or not (MCP, webhook, prediction),
         // runs for the flow's own API key and that key's list, or as a keyless flow.
         const harnessCaller =
-            options.harnessCaller ?? (await flowHarnessCaller(accessContext(req)?.key.id || chatflow.apikeyid, workspaceId))
+            options.harnessCaller ??
+            (await flowHarnessCaller(accessContext(req)?.key.id || chatflow.apikeyid, workspaceId, accessContext(req)?.harnessIds))
 
         const executeData: IExecuteFlowParams = {
             harnessCaller,

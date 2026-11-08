@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Enforced access-key Harness runs retain authorized canvas IDs through sync, streaming, async, Harness cards/tools and serialized workers; omitted IDs refuse execution. Stale ordinary flow saves and concurrent scoped Harness renames return conflicts. Key management refuses missing IDs and rechecks creation authority under its writer lock. Anonymous private prediction is refused before JSON parsing.
+
 -   Dashflows account reports carry the authorized Harness canvas ID through runtime and queued execution, refusing same-name replacements before tools run. Bound flow type changes reconcile derived grants in the conditional row transaction. Flow writers match canvas ID and workspace, and access-key lifecycle writers recheck the current principal and grants under their mutation lock. SQLite quota admission refuses nesting inside a primary transaction and preserves sibling lock settings.
 
 -   Access-key SQLite quota admission commits independently of unrelated outer transactions; Dashflows refresh also pins the authorized Harness canvas ID; legacy binding grant cleanup uses the locked former type; lead body UUIDs stay canonical after admission.

@@ -16,6 +16,20 @@ export function migratedKeyForToken(keys: Map<string, any>, token: string): ApiK
 export function fixtureAccessData(flows: Map<string, any>) {
     return {
         getRepository: (entity: { name: string }) => ({
+            findBy: async (where: any) => {
+                if (entity.name === 'ChatFlow')
+                    return [...flows.values()].filter((f) => Object.entries(where).every(([k, v]) => f[k] === v))
+                if (entity.name === 'ApiKeyResource')
+                    return [...flows.values()]
+                        .filter((f) => f.apikeyid === where.principalId || f.fixtureGrantIds?.includes(where.principalId))
+                        .map((f) => ({
+                            principalId: where.principalId,
+                            resourceType: f.type === 'HARNESS' ? 'HARNESS' : 'CHATFLOW',
+                            resourceId: f.id
+                        }))
+                        .filter((g) => !where.resourceType || g.resourceType === where.resourceType)
+                return []
+            },
             findOneBy: async (where: any) => {
                 if (entity.name === 'Workspace') return { id: where.id, organizationId: 'fixture-org' }
                 if (entity.name === 'Organization') return { id: where.id }

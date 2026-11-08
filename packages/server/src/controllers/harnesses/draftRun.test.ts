@@ -28,11 +28,17 @@ test('POST /api/v1/harnesses/:name/runs does not receive a draft roster', async 
         res,
         jest.fn()
     )
-    expect(assertRunRequest).toHaveBeenCalledWith('bakery-team', { question: 'hi' }, 'team-a', { via: 'session' })
+    expect(assertRunRequest).toHaveBeenCalledWith(
+        'bakery-team',
+        { question: 'hi' },
+        'team-a',
+        { via: 'session' },
+        { expectedChatflowId: undefined }
+    )
     expect(startRun).toHaveBeenCalledWith(
         'bakery-team',
         { question: 'hi' },
-        { source: 'api', workspaceId: 'team-a', caller: { via: 'session' } }
+        { source: 'api', workspaceId: 'team-a', caller: { via: 'session' }, expectedChatflowId: undefined }
     )
     expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
     expect(startCanvasRun).not.toHaveBeenCalled()

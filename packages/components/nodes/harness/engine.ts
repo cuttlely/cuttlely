@@ -20,6 +20,7 @@ export interface HarnessFlowOptions {
     // Who the run acts for: { via: 'session' }, { via: 'flow' }, or { via: 'api_key', apiKeyId, harnesses }.
     // The engine refuses a run without one, and a key runs only the harnesses on its list.
     harnessCaller?: unknown
+    expectedHarnessChatflowId?: unknown
 }
 
 export interface HarnessRunArgs {

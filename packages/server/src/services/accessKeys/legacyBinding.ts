@@ -112,11 +112,11 @@ export async function saveFlowPreservingAccess(
     return serial(() =>
         data.transaction(async (manager) => {
             const repo = manager.getRepository(ChatFlow)
-            // Compensation can restore a different type after a failed harness sync.
-            const former =
-                flow.type !== undefined && resourceTypeOf(flow.type) !== resourceTypeOf(previous.type)
-                    ? await repo.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
-                    : undefined
+            // Compare with the transactional pre-image, even for an ordinary category/name save.
+            // A stale snapshot must not restore a former type and strand its derived grant.
+            const former = await repo.findOneBy({ id: flow.id, workspaceId: flow.workspaceId })
+            if (!former || (flow.type === previous.type && former.type !== previous.type))
+                throw new AppError(409, 'Flow type changed. Reload before saving.')
             if (requestedMode !== undefined) {
                 if (!['public', 'private'].includes(requestedMode || '')) throw new AppError(400, 'Invalid API access mode.')
                 // Drivers that report changed-rows (SQLite/MySQL without FOUND_ROWS) return affected=0 for a no-op.
@@ -150,10 +150,10 @@ export async function saveFlowPreservingAccess(
                 webhookSecretConfigured: _configured,
                 ...patch
             } = flow
-            const result = await repo.update({ id: flow.id, workspaceId: flow.workspaceId }, patch)
+            const result = await repo.update({ id: flow.id, workspaceId: flow.workspaceId, type: (former.type ?? IsNull()) as any }, patch)
             if (!result.affected) throw new AppError(409, 'Flow changed. Reload before saving.')
             const saved = await repo.findOneByOrFail({ id: flow.id, workspaceId: flow.workspaceId })
-            if (former) await reconcileLegacyBoundTypeChange(manager, saved, former.type, former.name)
+            await reconcileLegacyBoundTypeChange(manager, saved, former.type, former.name)
             return saved
         })
     )

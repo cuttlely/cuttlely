@@ -12,7 +12,7 @@ const KINDS = new Set(['session', 'api_key', 'flow'])
  * Every harness run and canvas sync names who it acts for. A missing or unknown caller is refused, and an API key
  * runs only the harnesses on its list. `allow` narrows the kinds a call accepts.
  */
-export function assertHarnessCaller(name, caller, { allow = KINDS } = {}) {
+export function assertHarnessCaller(name, caller, { allow = KINDS, requirePin = false, expectedChatflowId } = {}) {
     const via = caller && typeof caller === 'object' ? caller.via : undefined
     if (typeof via !== 'string' || !KINDS.has(via) || !allow.has(via)) {
         throw new HarnessError(CALLER_REQUIRED, `Harness "${name || ''}" cannot run without a caller identity.`)
@@ -25,6 +25,17 @@ export function assertHarnessCaller(name, caller, { allow = KINDS } = {}) {
     if (!caller.harnesses.includes(name)) {
         throw new HarnessError(KEY_NOT_ALLOWED, `This API key may not run harness "${name}".`)
     }
+    if (
+        requirePin &&
+        caller.harnessIds !== undefined &&
+        (typeof expectedChatflowId !== 'string' ||
+            !expectedChatflowId ||
+            !caller.harnessIds ||
+            !Object.hasOwn(caller.harnessIds, name) ||
+            caller.harnessIds[name] !== expectedChatflowId)
+    ) {
+        throw new HarnessError('harness_changed', `Harness "${name}" requires its authorized canvas id.`)
+    }
     return caller
 }
 
@@ -35,7 +46,10 @@ export function serializableCaller(caller) {
     return {
         via: 'api_key',
         apiKeyId: typeof caller.apiKeyId === 'string' ? caller.apiKeyId.slice(0, 128) : '',
-        harnesses: Array.isArray(caller.harnesses) ? caller.harnesses.filter((item) => typeof item === 'string') : []
+        harnesses: Array.isArray(caller.harnesses) ? caller.harnesses.filter((item) => typeof item === 'string') : [],
+        ...(caller.harnessIds !== undefined
+            ? { harnessIds: caller.harnessIds && typeof caller.harnessIds === 'object' ? { ...caller.harnessIds } : {} }
+            : {})
     }
 }
 
