@@ -1,3 +1,4 @@
+import { accessContext } from '../../services/accessKeys/authorization'
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { ExternalAgentError } from '../../utils/externalAgentAuth'
@@ -77,7 +78,7 @@ const handleRpc = async (req: A2aRequest, res: Response, next: NextFunction) => 
             return
         }
 
-        const caller = a2aCallerKey(chatflow)
+        const caller = a2aCallerKey(chatflow, accessContext(req)?.key.id)
 
         if (parsed.method === 'tasks/get') {
             const taskId = parseTaskIdParams(parsed.params)

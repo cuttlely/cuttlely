@@ -10,13 +10,14 @@ import { validateFlowAPIKey } from './validateKey'
 
 /**
  * Per-flow check for vector upsert, before multer. External calls need the flow's API key.
- * Both external and internal calls need a session whose active workspace owns the flow.
+ * Internal calls require an interactive session. Both callers' active workspaces must own the flow.
  * A miss is 401 or 404 and writes nothing.
  */
 export const authorizeVectorUpsert =
     (isInternal: boolean): RequestHandler =>
     async (req: Request, _res: Response, next: NextFunction) => {
         try {
+            if (isInternal && !req.user?.id) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             const chatflowid = req.params.id
             const chatflow = chatflowid
                 ? await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id: chatflowid })

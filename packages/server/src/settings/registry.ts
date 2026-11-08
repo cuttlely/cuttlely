@@ -1956,6 +1956,11 @@ export interface KeptOutGroup {
 
 export const KEPT_OUT: KeptOutGroup[] = [
     {
+        group: 'Inbound access rollout',
+        keys: ['INBOUND_ACCESS_V2', 'CUTTLELY_API_KEY_INSTANCES'],
+        why: 'Authorization rollout and replica admission must be configured by the deployment operator, outside browser settings.'
+    },
+    {
         group: 'Encryption and sign-in secrets',
         keys: [
             'FLOWISE_SECRETKEY_OVERWRITE',
@@ -2106,6 +2111,8 @@ export interface ReadOnlyDef {
  * The status API returns key, set, source, and readOnly. It does not return a value, length, or hash.
  */
 export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
+    { key: 'INBOUND_ACCESS_V2', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'CUTTLELY_API_KEY_INSTANCES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
     { key: 'PORT', readOnly: true, check: 'port', whenUnset: 'unset' },
     { key: 'HOST', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'CUTTLELY_DATA_DIR', readOnly: true, check: 'nonblank', whenUnset: 'default' },

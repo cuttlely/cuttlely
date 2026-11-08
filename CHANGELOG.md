@@ -4,6 +4,55 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Prediction attempts refused by access-key preflight count toward the configured flow/IP rate limit; authorization refusals still consume no per-key quota.
+-   Streaming prediction origin refusals use literal plain text when recognized by the prediction middleware/controller. The access-key reference now distinguishes access-key preflight refusals, which return JSON even for streaming callers.
+-   Access-key policies show unavailable resource grants with an explicit remove-only action, so a deleted flow cannot block edits to the remaining grants. Flow deletion retires exact grants transactionally within its workspace, preventing same-ID recreation from reviving access.
+-   Access-key quota admission waits for complete route authorization, including RBAC, canvas references and run/report ownership. Authorization refusals leave quota available; application errors after authorization remain charged.
+-   The custom assistant API dialog preserves existing off/shadow bindings and removes unsupported add/replace choices, while ordinary Chatflow binding controls remain available.
+-   Principal expiry edits cap modern credentials in the same transaction as the principal update. Extending a principal before or after the cutoff cannot extend or revive an issued bearer; rotation inherits the new expiry.
+
+-   Granted Harness canvas item, draft and version API reads retain their read-authorized identity map through downstream canvas checks. `api:read` plus the exact grant and view permission suffices without Harness execution scope. The custom assistant API dialog and rollout guide now state that exact assistant grants are unsupported and existing private assistant integrations require off/shadow mode.
+
+-   Enforced access-key Harness runs retain authorized canvas IDs through sync, streaming, async, Harness cards/tools and serialized workers; omitted IDs refuse execution. Stale ordinary flow saves and concurrent scoped Harness renames return conflicts. Key management refuses missing IDs and rechecks creation authority under its writer lock. Anonymous private prediction is refused before JSON parsing.
+
+-   Dashflows account reports carry the authorized Harness canvas ID through runtime and queued execution, refusing same-name replacements before tools run. Bound flow type changes reconcile derived grants in the conditional row transaction. Flow writers match canvas ID and workspace, and access-key lifecycle writers recheck the current principal and grants under their mutation lock. SQLite quota admission refuses nesting inside a primary transaction and preserves sibling lock settings.
+
+-   Access-key SQLite quota admission commits independently of unrelated outer transactions; Dashflows refresh also pins the authorized Harness canvas ID; legacy binding grant cleanup uses the locked former type; lead body UUIDs stay canonical after admission.
+
+-   Access-key preflight covers retained bearers and adapter `X-API-Key` headers before parsers and file storage. Identity-store failures during resource authentication return sanitized unavailable responses, and shadow probes no longer emit enforced-denial events.
+-   Dashflows refresh binds execution to the authorized revision. Key diagnostics and unpublished account reports are refused before quota admission; keyed refresh-status reads use view permission. Guard errors preserve dashboard statuses, published reads avoid draft loads, and lead bodies accept uppercase flow UUIDs.
+-   Access-key lifecycle operations recheck each granted resource family. Creation refuses a missing workspace before minting a secret; post-commit lifecycle audit failures cannot hide that secret. Migration reports flag malformed Harness lists and unsupported bound flow types and return a review-required exit status.
+-   Canceling an owner invitation that was accepted during confirmation refreshes the user list after the conflict response.
+
+-   Access keys preserve session-only Dashflows access in off/shadow, refresh downstream route permissions before admission, and require retained bindings even on public flows. Resource-authentication store failures remain unavailable responses; the legacy verification handler retains its existing error contract outside enforcement preflight.
+-   The flow API dialog waits for a known rollout mode before changing access and preserves the private label while scoped access is unavailable.
+-   Access-key confirmation and success messages describe principal revocation, all credentials and affected resource grants.
+-   Principal expiry edits cannot extend or revive retained legacy bearers. Full audit dedupe caches evict old entries rather than drop other principals’ events, and shadow audits identify the actual operation. Quota headers describe committed counts; existing minute buckets remain usable at capacity.
+-   Flow updates refuse mixed API-access changes and canvas restoration before storing uploaded files. Malformed encoded Harness names return a client error before admission.
+
+-   Usage API documentation correctly identifies owner login and model-price write examples as session-authenticated commands, without requiring a legacy bearer.
+
+-   Orchestrate and A2A access-key preflight refusals preserve the documented adapter error envelope, including invalid credentials and caller-policy failures before JSON parsing.
+
+-   Dashflows account-report keys authorize the published Harness, matching execution even when the draft references a different Harness. Refresh continues to authorize the editable definition.
+
+-   With access-key enforcement on, lead creation requires access to its parent flow; anonymous creation is allowed only for explicitly public flows. Off and shadow preserve legacy anonymous collection.
+
+-   Access-key admission revalidates credentials, principals and current owner access after preflight so retirement or revocation while the request body arrives prevents execution without consuming quota. Already-admitted operations may finish.
+
+-   Internal vector upsert requires an interactive session before file storage. Harness prediction checks the target canvas's run authority, including current owner permissions, before quota admission or streaming. Migrated legacy keys retain their exact Harness allowlists with enforcement off or in shadow mode. Feedback and file operations require their own scope and parent-flow grant without requiring referenced Harness execution authority.
+-   User Management (`/users`) lets an active organization owner cancel another person’s pending owner invitation and revoke its invite links across the organization’s teams. Active owners remain read-only in the UI; accepted invitations, self-removal and removal of the last active owner are refused.
+
+### Added
+
+-   Access Keys unifies SDK/Settings keys and per-flow inbound keys in one list per workspace, with multiple keys, explicit resource/operation grants, expiry, rotation with 0–24 hours of grace, revocation, display prefixes, exact-origin and IP/CIDR allowlists, per-key RPM and daily/monthly UTC quotas, usage counters and audit events. Multiple keys can access the same published flow, Harness or Dashflows report. New keys grant no resources.
+
+### Upgrade notes / breaking changes
+
+-   Existing bearer values migrate without forced rotation, and public embeds and share links remain available. Review the [Access keys rollout guide](./docs/reference/access-keys.md), validate a restored backup with `node scripts/access-keys-migration-report.cjs`, and compare flow decisions with `INBOUND_ACCESS_V2=shadow` before enabling `on`. Shadow does not charge quotas or simulate all routes/limits. The default is `off`. Scoped key management requires an interactive session, and new keys cannot reach unregistered API endpoints or change public-access settings. Admission supports one API instance; minute counters are per process and reset on restart, while UTC quota counters persist in SQL. Redis/multi-instance limiting, browser delegation, usage exports/alerts, asynchronous telemetry batching, legacy-adapter removal and termination of already-admitted runs are not implemented. Admitted streams/background runs may finish.
+
 ### Changed
 
 -   Dependency update for an open Dependabot alert in the bundled agent runtime: `hermes/uv.lock` moves oauthlib to 4.0.1.

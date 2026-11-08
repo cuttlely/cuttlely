@@ -1,3 +1,4 @@
+import { endpointAccessSelection, endpointAccessUpdate } from '../apikey/endpointAccess'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect, useMemo } from 'react'
@@ -7,6 +8,7 @@ import PropTypes from 'prop-types'
 import {
     Tabs,
     Tab,
+    Button,
     Dialog,
     DialogContent,
     DialogTitle,
@@ -21,7 +23,6 @@ import {
 import { CopyBlock, atomOneDark } from 'react-code-blocks'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useTheme } from '@mui/material/styles'
-import { useAuth } from '@/hooks/useAuth'
 
 // Project import
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
@@ -90,6 +91,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     const dispatch = useDispatch()
     const theme = useTheme()
     const chatflow = useSelector((state) => state.canvas.chatflow)
+    const isCustomAssistant = chatflow?.type === 'ASSISTANT'
     const apiConfig = chatflow?.apiConfig ? JSON.parse(chatflow.apiConfig) : {}
     const overrideConfigStatus = apiConfig?.overrideConfig?.status !== undefined ? apiConfig.overrideConfig.status : false
 
@@ -119,6 +121,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     }, [isWebhookFlow, isScheduleFlow])
     const [value, setValue] = useState(0)
     const [apiKeys, setAPIKeys] = useState([])
+    const [rollout, setRollout] = useState(null)
     const [chatflowApiKeyId, setChatflowApiKeyId] = useState('')
     const [selectedApiKey, setSelectedApiKey] = useState({})
     const exampleApiKey = selectedApiKey?.apiKey || '<your-api-key>'
@@ -133,36 +136,38 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     const getIsChatflowStreamingApi = useApi(chatflowsApi.getIsChatflowStreaming)
     const getConfigApi = useApi(configApi.getConfig)
     const getAllVariablesApi = useApi(variablesApi.getAllVariables)
-    const isGlobal = useSelector((state) => state.auth.isGlobal)
-    const { hasPermission } = useAuth()
 
-    // Memoize keyOptions to prevent recreation on hover
-    const keyOptions = useMemo(() => {
-        if (!getAllAPIKeysApi.data) return []
-
-        const options = [
-            {
-                label: 'No Authorization',
-                name: ''
-            }
-        ]
-
-        for (const key of getAllAPIKeysApi.data) {
-            options.push({
-                label: key.keyName,
-                name: key.id
-            })
-        }
-
-        if (isGlobal || hasPermission('apikeys:create')) {
-            options.push({
-                label: '- Add New Key -',
-                name: 'addnewkey'
-            })
-        }
-
-        return options
-    }, [getAllAPIKeysApi.data, isGlobal, hasPermission])
+    // Off/shadow preserve the legacy binding workflow; enforced access uses many principal grants.
+    const keyOptions = useMemo(
+        () =>
+            rollout === 'on'
+                ? [
+                      { label: 'Public (no key required)', name: '' },
+                      {
+                          label: isCustomAssistant ? 'Private (custom assistant grants unsupported)' : 'Private (selected access keys)',
+                          name: 'accesskeys'
+                      }
+                  ]
+                : [
+                      { label: 'Public (no key required)', name: '' },
+                      ...(dialogProps.apiAccessMode === 'private' && !dialogProps.chatflowApiKeyId
+                          ? [{ label: 'Private (scoped access keys unavailable)', name: 'accesskeys' }]
+                          : []),
+                      ...(isCustomAssistant && dialogProps.chatflowApiKeyId
+                          ? [{ label: 'Private (existing legacy binding; changes unavailable)', name: dialogProps.chatflowApiKeyId }]
+                          : []),
+                      ...apiKeys
+                          .filter(
+                              (key) =>
+                                  !isCustomAssistant &&
+                                  key.accessPolicy?.legacy &&
+                                  !key.disabledAt &&
+                                  (!key.legacyRevokedAt || new Date(key.legacyRevokedAt) > new Date())
+                          )
+                          .map((key) => ({ label: key.keyName, name: key.id }))
+                  ],
+        [rollout, apiKeys, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId, isCustomAssistant]
+    )
 
     const onCheckBoxChanged = (newVal) => {
         setCheckbox(newVal)
@@ -173,16 +178,16 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     }
 
     const onApiKeySelected = (keyValue) => {
+        if (isCustomAssistant && ['off', 'shadow'].includes(rollout) && keyValue) return
         if (keyValue === 'addnewkey') {
             navigate('/apikey')
             return
         }
+        const updateBody = endpointAccessUpdate(rollout, keyValue)
+        if (!updateBody) return
         setChatflowApiKeyId(keyValue)
         const selectedKey = apiKeys.find((key) => key.id === keyValue)
         setSelectedApiKey(selectedKey || {})
-        const updateBody = {
-            apikeyid: keyValue
-        }
         updateChatflowApi.request(dialogProps.chatflowid, updateBody)
     }
 
@@ -329,7 +334,7 @@ print(response.json())
 `
         } else if (codeLang === 'JavaScript') {
             const headers = [`"Content-Type": "${webhookContentType}"`]
-            if (apiKey) headers.push(`Authorization: "Bearer ${apiKey}"`)
+            if (apiKey) headers.push(`Authorization: "Bearer " + process.env.CUTTLELY_API_KEY`)
             if (webhookEnableAuth) headers.push(`"${webhookSignatureHeader}": "<signature>"`)
             const bodyLine = sendsBody ? `,\n        body: ${isJson ? `JSON.stringify(${sampleBodyJs})` : sampleBodyJs}` : ''
             return `const response = await fetch(
@@ -368,7 +373,8 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
@@ -413,12 +419,13 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
             headers: {
-                Authorization: "Bearer ${exampleApiKey}",
+                Authorization: "Bearer " + process.env.CUTTLELY_API_KEY,
                 "Content-Type": "application/json"
             },
             method: "POST",
@@ -554,7 +561,7 @@ async function query(formData) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
-            headers: { Authorization: "Bearer ${exampleApiKey}" },
+            headers: { Authorization: "Bearer " + process.env.CUTTLELY_API_KEY },
             method: "POST",
             body: formData
         }
@@ -595,7 +602,8 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
@@ -647,12 +655,13 @@ output = query({
 })
 `
         } else if (codeLang === 'JavaScript') {
-            return `async function query(data) {
+            return `// Node.js server only. Keep CUTTLELY_API_KEY in your server environment.
+async function query(data) {
     const response = await fetch(
         "${baseURL}/api/v1/prediction/${dialogProps.chatflowid}",
         {
             headers: {
-                Authorization: "Bearer ${exampleApiKey}",
+                Authorization: "Bearer " + process.env.CUTTLELY_API_KEY,
                 "Content-Type": "application/json"
             },
             method: "POST",
@@ -688,37 +697,37 @@ query({
 body_data = {
     "agentModelConfig": {
         "agentAgentflow_0": {
-            "openAIApiKey": "sk-my-openai-1st-key"
+            "temperature": "0.3"
         },
         "agentAgentflow_1": {
-            "openAIApiKey": "sk-my-openai-2nd-key"
+            "temperature": "0.7"
         }
     }
 }`
             } else if (codeLang === 'JavaScript') {
                 return `// Specify multiple values for a config parameter by specifying the node id
-formData.append("agentModelConfig[agentAgentflow_0][openAIApiKey]", "sk-my-openai-1st-key")
-formData.append("agentModelConfig[agentAgentflow_1][openAIApiKey]", "sk-my-openai-2nd-key")`
+formData.append("agentModelConfig[agentAgentflow_0][temperature]", "0.3")
+formData.append("agentModelConfig[agentAgentflow_1][temperature]", "0.7")`
             } else if (codeLang === 'cURL') {
-                return `-F "agentModelConfig[agentAgentflow_0][openAIApiKey]=sk-my-openai-1st-key" \\
--F "agentModelConfig[agentAgentflow_1][openAIApiKey]=sk-my-openai-2nd-key" \\`
+                return `-F "agentModelConfig[agentAgentflow_0][temperature]=0.3" \\
+-F "agentModelConfig[agentAgentflow_1][temperature]=0.7" \\`
             }
         } else {
             if (codeLang === 'Python') {
                 return `# Specify multiple values for a config parameter by specifying the node id
 body_data = {
-    "openAIApiKey": {
-        "chatOpenAI_0": "sk-my-openai-1st-key",
-        "openAIEmbeddings_0": "sk-my-openai-2nd-key"
+    "temperature": {
+        "chatOpenAI_0": "0.3",
+        "openAIEmbeddings_0": "0.7"
     }
 }`
             } else if (codeLang === 'JavaScript') {
                 return `// Specify multiple values for a config parameter by specifying the node id
-formData.append("openAIApiKey[chatOpenAI_0]", "sk-my-openai-1st-key")
-formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
+formData.append("temperature[chatOpenAI_0]", "0.3")
+formData.append("temperature[openAIEmbeddings_0]", "0.7")`
             } else if (codeLang === 'cURL') {
-                return `-F "openAIApiKey[chatOpenAI_0]=sk-my-openai-1st-key" \\
--F "openAIApiKey[openAIEmbeddings_0]=sk-my-openai-2nd-key" \\`
+                return `-F "temperature[chatOpenAI_0]=0.3" \\
+-F "temperature[openAIEmbeddings_0]=0.7" \\`
             }
         }
     }
@@ -729,10 +738,10 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
     "overrideConfig": {
         "agentModelConfig": {
             "agentAgentflow_0": {
-                "openAIApiKey": "sk-my-openai-1st-key"
+                "temperature": "0.3"
             },
             "agentAgentflow_1": {
-                "openAIApiKey": "sk-my-openai-2nd-key"
+                "temperature": "0.7"
             }
         }
     }
@@ -740,9 +749,9 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
         } else {
             return `{
     "overrideConfig": {
-        "openAIApiKey": {
-            "chatOpenAI_0": "sk-my-openai-1st-key",
-            "openAIEmbeddings_0": "sk-my-openai-2nd-key"
+        "temperature": {
+            "chatOpenAI_0": "0.3",
+            "openAIEmbeddings_0": "0.7"
         }
     }
 }`
@@ -753,16 +762,24 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
         if (getAllAPIKeysApi.data) {
             setAPIKeys(getAllAPIKeysApi.data)
 
-            if (dialogProps.chatflowApiKeyId) {
-                setChatflowApiKeyId(dialogProps.chatflowApiKeyId)
+            if (dialogProps.apiAccessMode === 'private' || (dialogProps.apiAccessMode !== 'public' && dialogProps.chatflowApiKeyId)) {
+                setChatflowApiKeyId(endpointAccessSelection(rollout, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId))
                 setSelectedApiKey(getAllAPIKeysApi.data.find((key) => key.id === dialogProps.chatflowApiKeyId))
+            } else {
+                setChatflowApiKeyId('')
+                setSelectedApiKey({})
             }
         }
-    }, [dialogProps, getAllAPIKeysApi.data])
+    }, [dialogProps, getAllAPIKeysApi.data, rollout])
 
     useEffect(() => {
         if (show) {
+            setRollout(null)
             getAllAPIKeysApi.request()
+            apiKeyApi
+                .options()
+                .then((result) => setRollout(result.data.rollout))
+                .catch(() => setRollout(null))
             getIsChatflowStreamingApi.request(dialogProps.chatflowid)
         }
 
@@ -849,7 +866,7 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
                                             }
                                             iconPosition='start'
                                             key={index}
-                                            label={codeLang}
+                                            label={codeLang === 'JavaScript' ? 'JavaScript (server)' : codeLang}
                                             {...a11yProps(index)}
                                         ></Tab>
                                     ))}
@@ -859,18 +876,50 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
                                 <Available permission={'chatflows:update,agentflows:update'}>
                                     <Dropdown
                                         name='SelectKey'
+                                        disabled={!['off', 'shadow', 'on'].includes(rollout)}
                                         disableClearable={true}
                                         options={keyOptions}
                                         onSelect={(newValue) => onApiKeySelected(newValue)}
-                                        value={dialogProps.chatflowApiKeyId ?? chatflowApiKeyId ?? 'Choose an API key'}
+                                        value={chatflowApiKeyId}
                                     />
                                 </Available>
                             </div>
                         </div>
+                        {!['off', 'shadow', 'on'].includes(rollout) && (
+                            <p>Access settings are unavailable until the rollout status can be loaded.</p>
+                        )}
+                        {rollout === 'on' && isCustomAssistant && (
+                            <p>
+                                Custom assistants do not support exact resource grants. Existing private assistant bindings fail with
+                                enforcement on. Keep enforcement off or in shadow mode for these integrations.
+                            </p>
+                        )}
+                        {['off', 'shadow'].includes(rollout) && isCustomAssistant && (
+                            <p>
+                                Adding or replacing a custom assistant legacy binding is unavailable. Existing bindings can still run in off
+                                or shadow mode. Select Public to remove a binding.
+                            </p>
+                        )}
+                        <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>
+                        {chatflowApiKeyId && (
+                            <p>
+                                Principals with a grant to this flow:{' '}
+                                {apiKeys
+                                    .filter(
+                                        (key) =>
+                                            key.accessPolicy?.allResources ||
+                                            key.resources?.some((grant) => grant.resourceId === dialogProps.chatflowid)
+                                    )
+                                    .map((key) => key.keyName)
+                                    .join(', ') || 'None'}
+                                . Referenced Harnesses require additional grants.
+                            </p>
+                        )}
                         {chatflowApiKeyId && !selectedApiKey?.apiKey && (
                             <p>
-                                This key is stored as a hash. Paste the value you copied when it was created. The samples use
-                                &lt;your-api-key&gt;.
+                                Manage the many keys that may call this flow in Access Keys. Each needs this resource and the requested
+                                operations. Samples use &lt;your-api-key&gt;; keep that bearer value on your server, including when using
+                                JavaScript.
                             </p>
                         )}
                         <div style={{ marginTop: 10 }}></div>
@@ -880,7 +929,8 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
                                     <>
                                         <p>You cannot use API key while embedding/sharing chatbot.</p>
                                         <p>
-                                            Please select <b>&quot;No Authorization&quot;</b> from the dropdown at the top right corner.
+                                            Please select <b>&quot;Public (no key required)&quot;</b> from the dropdown at the top right
+                                            corner.
                                         </p>
                                     </>
                                 )}

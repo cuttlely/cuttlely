@@ -46,6 +46,33 @@ const keysEqual = (left: string, right: string): boolean => {
 
 const BEARER_PREFIX = 'Bearer '
 
+/** Shared header-only validation can run before the bounded adapter JSON parsers. */
+export function externalAgentHeaders(req: Request): void {
+    const authorization = headerString(req.headers.authorization)
+    const apiKey = headerString(req.headers['x-api-key'])
+    const hasAuthorization = authorization !== undefined && authorization !== ''
+    const hasApiKey = apiKey !== undefined && apiKey !== ''
+
+    if (hasAuthorization && !authorization.startsWith(BEARER_PREFIX)) {
+        throw new ExternalAgentError(StatusCodes.UNAUTHORIZED, 'unauthorized', 'authentication_error', 'Unauthorized')
+    }
+
+    const bearerKey = hasAuthorization ? authorization.slice(BEARER_PREFIX.length) : undefined
+
+    if (hasAuthorization && hasApiKey) {
+        if (!keysEqual(bearerKey as string, apiKey)) {
+            throw new ExternalAgentError(
+                StatusCodes.BAD_REQUEST,
+                'credentials_conflict',
+                'invalid_request_error',
+                'Authorization and X-API-Key do not match'
+            )
+        }
+    } else if (!hasAuthorization && hasApiKey) {
+        req.headers.authorization = `${BEARER_PREFIX}${apiKey}`
+    }
+}
+
 /**
  * Header syntax for IBM's Bearer and API-key schemes. The flow's key is still checked by
  * `authorizeFlowAccess`. Moves the parsed body to `req.orchestrate` and clears `req.body`
@@ -53,30 +80,7 @@ const BEARER_PREFIX = 'Bearer '
  */
 export const externalAgentAuth: RequestHandler = (req: Request, _res: Response, next: NextFunction) => {
     try {
-        const authorization = headerString(req.headers.authorization)
-        const apiKey = headerString(req.headers['x-api-key'])
-        const hasAuthorization = authorization !== undefined && authorization !== ''
-        const hasApiKey = apiKey !== undefined && apiKey !== ''
-
-        if (hasAuthorization && !authorization.startsWith(BEARER_PREFIX)) {
-            throw new ExternalAgentError(StatusCodes.UNAUTHORIZED, 'unauthorized', 'authentication_error', 'Unauthorized')
-        }
-
-        const bearerKey = hasAuthorization ? authorization.slice(BEARER_PREFIX.length) : undefined
-
-        if (hasAuthorization && hasApiKey) {
-            if (!keysEqual(bearerKey as string, apiKey)) {
-                throw new ExternalAgentError(
-                    StatusCodes.BAD_REQUEST,
-                    'credentials_conflict',
-                    'invalid_request_error',
-                    'Authorization and X-API-Key do not match'
-                )
-            }
-        } else if (!hasAuthorization && hasApiKey) {
-            req.headers.authorization = `${BEARER_PREFIX}${apiKey}`
-        }
-
+        externalAgentHeaders(req)
         ;(req as Request & { orchestrate?: unknown }).orchestrate = req.body
         req.body = {}
         next()
@@ -87,17 +91,20 @@ export const externalAgentAuth: RequestHandler = (req: Request, _res: Response, 
 
 const allowKeyless = (): boolean => process.env.CUTTLELY_ORCHESTRATE_ALLOW_KEYLESS === 'true' && process.env.NODE_ENV !== 'production'
 
+export function assertExternalFlowKeyed(flow: { apikeyid?: string | null; apiAccessMode?: string | null } | undefined): void {
+    const keyed = typeof flow?.apikeyid === 'string' && flow.apikeyid.length > 0
+    if (keyed || flow?.apiAccessMode === 'private' || allowKeyless()) return
+    throw new ExternalAgentError(
+        StatusCodes.FORBIDDEN,
+        'keyless_flow',
+        'permission_error',
+        'Bind an API key to this flow to call it from Orchestrate.'
+    )
+}
 export const refuseKeylessFlow: RequestHandler = (_req: Request, res: Response, next: NextFunction) => {
     try {
-        const flow = res.locals.chatflow as { apikeyid?: string | null } | undefined
-        const keyed = typeof flow?.apikeyid === 'string' && flow.apikeyid.length > 0
-        if (keyed || allowKeyless()) return next()
-        throw new ExternalAgentError(
-            StatusCodes.FORBIDDEN,
-            'keyless_flow',
-            'permission_error',
-            'Bind an API key to this flow to call it from Orchestrate.'
-        )
+        assertExternalFlowKeyed(res.locals.chatflow)
+        next()
     } catch (error) {
         next(error)
     }

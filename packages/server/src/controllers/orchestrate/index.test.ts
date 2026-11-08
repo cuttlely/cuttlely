@@ -1,3 +1,5 @@
+import { parsePolicy } from '../../services/accessKeys/policy'
+import { accessKeyPreflight } from '../../services/accessKeys/preflight'
 /**
  * HTTP contract for POST /api/v1/orchestrate/:id and /:id/chat/completions.
  * buildChatflow is mocked at the service boundary except where a test names a real helper.
@@ -21,7 +23,10 @@ jest.mock('../../utils/logger', () => ({ __esModule: true, default: mockLogger }
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('../../utils/accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>() }
@@ -129,6 +134,7 @@ const streamBody = () => ({ model: 'any', messages: [{ role: 'user', content: 'H
 
 function makeApp() {
     const app = express()
+    app.use(accessKeyPreflight)
     app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
     app.use(express.json({ limit: '50mb' }))
     app.use(express.urlencoded({ limit: '50mb', extended: true }))
@@ -284,8 +290,8 @@ describe('Orchestrate auth matrix', () => {
 
     it('keyless flow is 403 except header syntax, even with a key', async () => {
         expectIbmError(await post(F, hi), 403, 'keyless_flow')
-        expectIbmError(await post(F, hi, withKey()), 403, 'keyless_flow')
-        expectIbmError(await post(F, hi, { Authorization: 'Bearer other' }), 403, 'keyless_flow')
+        expectIbmError(await post(F, hi, withKey()), 403, 'access_denied')
+        expectIbmError(await post(F, hi, { Authorization: 'Bearer other' }), 401, 'unauthorized')
         expectIbmError(await post(F, hi, { Authorization: KEY_K }), 401, 'unauthorized')
         expectIbmError(await post(F, hi, { Authorization: `Bearer ${KEY_K}`, 'X-API-Key': 'other' }), 400, 'credentials_conflict')
     })
@@ -294,8 +300,8 @@ describe('Orchestrate auth matrix', () => {
         process.env.CUTTLELY_ORCHESTRATE_ALLOW_KEYLESS = 'true'
         process.env.NODE_ENV = 'test'
         expect((await post(F, hi)).status).toBe(200)
-        expect((await post(F, hi, withKey())).status).toBe(200)
-        expect((await post(F, hi, { Authorization: 'Bearer other' })).status).toBe(200)
+        expectIbmError(await post(F, hi, withKey()), 403, 'access_denied')
+        expectIbmError(await post(F, hi, { Authorization: 'Bearer other' }), 401, 'unauthorized')
         process.env.NODE_ENV = 'production'
         expectIbmError(await post(F, hi), 403, 'keyless_flow')
         process.env.NODE_ENV = 'test'
@@ -310,10 +316,10 @@ describe('Orchestrate auth matrix', () => {
             403,
             'origin_not_allowed'
         )
-        ;(apikeyService.getApiKeyById as jest.Mock).mockImplementationOnce(async () => {
+        ;(apikeyService.getApiKey as jest.Mock).mockImplementationOnce(async () => {
             throw new Error('lookup failed')
         })
-        expectIbmError(await post(K, hi, withKey()), 401, 'unauthorized')
+        expectIbmError(await post(K, hi, withKey()), 503, 'unavailable')
     })
 })
 
@@ -844,4 +850,49 @@ describe('Orchestrate file links', () => {
             else delete process.env.SECRETKEY_PATH
         }
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../../services/accessKeys/data', () => ({
+    accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../../services/accessKeys/limiter', () => ({
+    ...jest.requireActual('../../services/accessKeys/limiter'),
+    consume: jest.fn(async () => undefined)
+}))
+jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
+})
+
+it.each(['inactive', 'caller policy'])('orchestrate preflight preserves the adapter error envelope for %s credentials', async (failure) => {
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    if (failure === 'caller policy')
+        mockApiKeys.set('preflight-key', {
+            id: 'preflight-key',
+            workspaceId: WS,
+            apiSecret: generateSecretHash(token),
+            permissions: ['chatflows:view'],
+            accessPolicy: parsePolicy({ scopes: ['predict'], origins: ['https://allowed.example'], allowNoOrigin: false })
+        } as any)
+    try {
+        const response = await request(app)
+            .post('/api/v1/orchestrate/' + K)
+            .set('Authorization', 'Bearer ' + token)
+            .set('Content-Type', 'application/json')
+            .send('{invalid')
+        expect(response.status).toBe(failure === 'inactive' ? 401 : 403)
+        expect(response.body).toEqual({
+            error: {
+                message: failure === 'inactive' ? 'Unauthorized' : 'Caller policy refused this request.',
+                type: failure === 'inactive' ? 'authentication_error' : 'permission_error',
+                code: failure === 'inactive' ? 'unauthorized' : 'access_denied'
+            }
+        })
+        expect(response.headers['content-type']).not.toContain('text/event-stream')
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
+    } finally {
+        mockApiKeys.delete('preflight-key')
+    }
 })

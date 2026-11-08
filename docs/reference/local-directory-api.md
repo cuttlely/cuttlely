@@ -44,6 +44,12 @@ Lowering a role ends every local session for that person and bumps their permiss
 
 A team role and the organization role are separate. `PUT /api/v1/users/:id/role` and `PUT /api/v1/workspaceuser` change the role on that team and leave the organization role as it is. The exception is Owner: assigning Owner also sets the organization role to owner, and assigning any other role to someone who is currently an owner sets the organization role back to `member`. Invite (`POST /api/v1/account/invite`) stores the chosen role on the team and stores `member` on the organization, unless the chosen role is Owner.
 
+## Cancel a pending owner invitation
+
+The OSS **Users** page (`/users`) lets an active organization owner cancel another pending owner invitation. It sends `DELETE /api/v1/organizationuser?organizationId=<id>&userId=<id>&invitationOnly=true` through a signed-in session. The server rechecks active ownership and target status under the organization-removal lock, removes that organization's memberships and revokes invite links across its teams in the same transaction. Other organizations' memberships and links remain separate.
+
+An already accepted invitation returns `409` (`This invitation is no longer pending. Refresh the user list.`); a missing membership returns `404`. Self-removal returns `403` when another active owner exists; the last active owner retains the `409` protection. Active owners remain **Super User, read-only** in the Users UI. This conditional cancellation does not remove an accepted owner. The generic organization-removal API, without `invitationOnly=true`, still allows an active owner to remove another active owner when multiple active owners exist.
+
 ## Last owner
 
 An enabled owner is an active user whose organization membership is active and whose organization role is `owner`. Team rows are not part of that count. A disabled user does not count. An owner with no team still counts.

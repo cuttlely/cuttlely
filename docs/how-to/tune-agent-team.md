@@ -96,7 +96,7 @@ For a specialist that should tolerate a short busy period, set **Capacity wait (
 
 ## Call the published team from your app
 
-A HARNESS canvas id works directly on `POST /api/v1/prediction/:id`; a chatflow with a Harness card also works. The public route runs Live. The signed-in canvas chat runs its draft when one exists. Bind the API key to the flow and tick the harness under **Harnesses this key may run** before calling it.
+A HARNESS canvas id works directly on `POST /api/v1/prediction/:id`; a chatflow with a Harness card also works. The public route runs Live. The signed-in canvas chat runs its draft when one exists. With [access-key enforcement enabled](../reference/access-keys.md), set the flow private in **API Endpoint** and grant the flow plus its referenced Harness in **Access Keys**, with `predict` and `harness:run` (`stream` too for streaming). New keys have no scopes or resources. Enforcement defaults to `off`; existing bindings and Harness-name lists remain the compatibility path.
 
 For a follow-up, send the returned `chatId` and its `sessionToken` together. A direct HARNESS canvas stream returns them in `harness.recorded`; a non-streaming response returns them in JSON. A HARNESS canvas refuses uploads with 400. Use a chatflow with a Harness card when the question needs an uploaded file. [API examples](../api.md#agentflows-and-harnesses) include a direct two-turn call, streaming and background runs.
 

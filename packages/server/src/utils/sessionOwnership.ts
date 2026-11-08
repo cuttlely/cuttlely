@@ -1,3 +1,4 @@
+import { accessContext } from '../services/accessKeys/authorization'
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto'
 import fs from 'fs'
 import os from 'os'
@@ -182,6 +183,8 @@ export function sessionCaller(req: Request, chatflow: ChatflowSessionRef, isInte
     if (isInternal && userId && workspaceId) {
         return { kind: 'user', key: `user:${workspaceId}:${userId}` }
     }
+    const principalId = accessContext(req)?.key.id || req.user?.apiKeyId
+    if (!isInternal && principalId) return { kind: 'apiKey', key: `key:${principalId}` }
     if (!isInternal && chatflow.apikeyid) {
         return { kind: 'apiKey', key: `key:${chatflow.apikeyid}` }
     }

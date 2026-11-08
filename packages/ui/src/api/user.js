@@ -10,8 +10,8 @@ const getUserByUserIdOrganizationId = (organizationId, userId) =>
     client.get(`/organizationuser?organizationId=${organizationId}&userId=${userId}`)
 const getOrganizationsByUserId = (userId) => client.get(`/organizationuser?userId=${userId}`)
 const updateOrganizationUser = (body) => client.put(`/organizationuser`, body)
-const deleteOrganizationUser = (organizationId, userId) =>
-    client.delete(`/organizationuser?organizationId=${organizationId}&userId=${userId}`)
+const deleteOrganizationUser = (organizationId, userId, invitationOnly = false) =>
+    client.delete(`/organizationuser?organizationId=${organizationId}&userId=${userId}${invitationOnly ? '&invitationOnly=true' : ''}`)
 
 const getAdditionalSeatsQuantity = (subscriptionId) =>
     client.get(`/organization/additional-seats-quantity?subscriptionId=${subscriptionId}`)

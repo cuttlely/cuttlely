@@ -128,7 +128,7 @@ const teamFeatures = [
     },
     {
         title: 'Audit log',
-        text: 'Sign-ins, lockouts, invites and role changes, with who did what and when.',
+        text: 'Sign-ins, invites, role changes, and access-key lifecycle and aggregate usage events.',
         href: '/docs/how-to/audit-log/',
         icon: 'list-format'
     }
@@ -165,7 +165,7 @@ const howTos = [
     },
     {
         title: 'Local login',
-        text: 'Email and password accounts kept in Cuttlely, with one-time invite links.',
+        text: 'Local accounts and one-time invite links. Active owners can cancel another pending owner invite; active owners stay read-only.',
         href: '/docs/how-to/auth-sso/#set-up-local-login',
         image: localLoginShot,
         alt: 'The Sign In page with Local login active and an example email filled in.'
@@ -378,8 +378,15 @@ const howTos = [
                     with two specialists, <code>baker</code> and <code>orders</code>.
                 </p>
                 <p class="cl-note">
-                    Put the team behind a chatflow with one Harness card, publish it, and bind a key from <strong>API Keys</strong>. On that key, tick the harness under
-                    <strong>Harnesses this key may run</strong>: every key, including keys made before upgrading to 1.3.0, starts with an empty list, so the call answers <code>403</code> until the harness is ticked.
+                    Put the team behind a chatflow with one Harness card and publish it. With access-key enforcement enabled, create a key in <strong>Access Keys</strong>,
+                    grant the chatflow and its referenced Harness with <code>predict</code> and <code>harness:run</code>, and set the flow private in <strong>API Endpoint</strong>.
+                    New keys start with no grants or scopes. <a href="/docs/reference/access-keys/">Enforcement defaults to off</a>; validate migration on a restored backup and compare shadow decisions before enabling it.
+                    Existing keys keep working without rotation.
+                </p>
+                <p class="cl-note">
+                    SDK/Settings and per-flow keys share one workspace list. Each key has expiry, RPM and daily/monthly UTC quotas, exact-origin and IP/CIDR allowlists,
+                    rotation with up to 24 hours of grace, revocation, prefixes, usage counters and audit events. Provider credentials and public share/embed links stay separate.
+                    Limiting supports one API instance; minute counters reset on restart. <a href="/docs/reference/access-keys/#verification-and-follow-ons">See current limits and follow-ons</a>.
                 </p>
             </div>
             <div class="cl-code-pair">
@@ -750,7 +757,7 @@ const howTos = [
             <ul class="cl-checks">
                 <li>
                     <strong>External agent.</strong> Register a published chatflow under <strong>AI Gateway</strong> → <strong>Agent directory</strong> →
-                    <strong>Add agent</strong>. A native agent calls it as a collaborator, and chats keep context across turns. The flow needs a bound API key.
+                    <strong>Add agent</strong>. A native agent calls it as a collaborator, and chats keep context across turns. The flow must be private and accept a key with prediction access; enforcement off uses the legacy binding.
                     <a href="/docs/how-to/orchestrate/">Orchestrate guide</a>.
                 </li>
                 <li>

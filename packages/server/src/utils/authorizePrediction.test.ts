@@ -69,7 +69,10 @@ jest.mock('./index', () => {
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('./accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>() }
@@ -453,6 +456,34 @@ describe('Prediction access: /prediction checks the flow key before multer', () 
         expect(mockState.sseClients).toEqual([])
     })
 
+    it.each([
+        { target: app, flowId: O, token: KEY_O, mode: 'on', seam: 'scoped exception' },
+        { target: app, flowId: FO, token: undefined, mode: 'off', seam: 'keyless middleware' },
+        { target: oldApp, flowId: O, token: KEY_O, mode: 'off', seam: 'standalone controller' }
+    ])('serves configured origin refusal as literal text at the $seam', async ({ target, flowId, token, mode }) => {
+        const flow = mockDb.chatflows.get(flowId)
+        const originalConfig = flow.chatbotConfig
+        const previousMode = process.env.INBOUND_ACCESS_V2
+        const message = '<img src=x onerror="document.body.textContent=123"> & embed refused'
+        flow.chatbotConfig = JSON.stringify({ allowedOrigins: [ALLOWED_ORIGIN], allowedOriginsError: message })
+        process.env.INBOUND_ACCESS_V2 = mode
+        try {
+            const call = request(target).post(`/api/v1/prediction/${flowId}`).set('Origin', DISALLOWED_ORIGIN)
+            if (token) call.set('Authorization', `Bearer ${token}`)
+            const response = await hangGuard(call.send({ streaming: true }))
+            expect(response.status).toBe(403)
+            expect(response.text).toBe(message)
+            expect(response.headers['content-type']).toMatch(/^text\/plain; charset=utf-8$/)
+            expect(mockState.sseClients).toEqual([])
+            expect(mockState.multerWrites).toEqual([])
+            expect(uploadDirEntries()).toEqual([])
+            if (target === app) expect(mockState.multerRuns).toBe(0)
+        } finally {
+            flow.chatbotConfig = originalConfig
+            process.env.INBOUND_ACCESS_V2 = previousMode
+        }
+    })
+
     it('16: allowed origins - no key or a wrong key from a disallowed Origin -> 401 (the key decides first), 0 writes', async () => {
         const attempts: Record<string, string>[] = [
             { Origin: DISALLOWED_ORIGIN },
@@ -497,4 +528,15 @@ describe('Prediction access: /prediction checks the flow key before multer', () 
         expectNoWritesAndNoMulter()
         expect(mockState.controllerCalls).toBe(0)
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../services/accessKeys/data', () => ({
+    accessData: async () => require('./accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

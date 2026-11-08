@@ -279,9 +279,10 @@ describe('the server schedule tick', () => {
                 work({
                     getRepository: () => ({
                         findBy: async () => keyRows.map((row) => ({ ...row })),
-                        save: async (row) => {
-                            keyRows.splice(0, 1, row)
-                            return row
+                        update: async (where, patch) => {
+                            const row = keyRows.find((key) => key.id === where.id && key.workspaceId === where.workspaceId)
+                            if (row) Object.assign(row, patch)
+                            return { affected: row ? 1 : 0 }
                         }
                     })
                 })

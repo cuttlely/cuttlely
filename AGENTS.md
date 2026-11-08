@@ -10,6 +10,8 @@ Cuttlely 1.6.1 gives applications agent teams (harnesses) that apps call through
 
 ## While working
 
+-   Inbound API/SDK authorization changes follow [Access keys](./docs/reference/access-keys.md). Keep provider credentials and public share transports separate. New principals grant nothing; run the access-key execution fixtures and route tests alongside the full verification gate. Rollout defaults to `INBOUND_ACCESS_V2=off`.
+
 -   Before a push or a pull request, run `pnpm verify` on Node 24. A change that is only docs or markdown can use `pnpm verify --fast`.
 -   When project state changes, update `.projects/cuttlely/` in the same change. Before a push or a pull request, run the `refresh-project-handoff` skill once. The notes are public: no secrets, personal names, private hosts, machine paths, customer data, or business notes.
 -   Never commit or print secrets: model keys, tokens, `.cuttlely/`, or any `.env` file.

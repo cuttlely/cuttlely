@@ -428,7 +428,22 @@
             "packages/components/nodes/tools/WebBrowser/sourcePage.test.ts",
             "packages/server/src/routes/dashflows/**",
             "packages/server/src/services/dashflows/**",
-            "packages/ui/src/views/dashflows/**"
+            "packages/ui/src/views/dashflows/**",
+            "packages/server/src/services/accessKeys/**",
+            "packages/server/src/services/apikey/**",
+            "packages/server/src/controllers/apikey/**",
+            "packages/server/src/routes/apikey/**",
+            "packages/server/src/database/entities/ApiKey*.ts",
+            "packages/server/src/database/migrations/AccessKeys.ts",
+            "packages/server/src/database/migrations/accessKeyGrants.ts",
+            "packages/server/src/database/migrations/*/1801300000000-AccessKeys.ts",
+            "packages/server/src/utils/accessKeyTestFixtures.ts",
+            "packages/ui/src/views/apikey/**",
+            "packages/ui/src/api/apikey.js",
+            "packages/ui/src/views/chatflows/APICodeDialog.test.js",
+            "packages/ui/src/views/users/index.test.js",
+            "packages/ui/src/views/users/userActions.js",
+            "packages/ui/src/views/users/userActions.test.js"
         ],
         "inherited": [
             "packages/server/**",
@@ -734,7 +749,10 @@
                 "packages/ui/src/views/auth/signIn.test.js",
                 "packages/ui/src/views/authentication/RecoveryWarningBanner.test.js",
                 "packages/ui/src/views/apikey/index.test.js",
-                "packages/ui/src/views/apikey/ownerNotice.js"
+                "packages/ui/src/views/apikey/ownerNotice.js",
+                "packages/ui/src/views/users/index.test.js",
+                "packages/ui/src/views/users/userActions.js",
+                "packages/ui/src/views/users/userActions.test.js"
             ],
             "entryPoints": [
                 "packages/server/src/database/entities/identity/IdentitySetupCode.ts",
@@ -889,7 +907,8 @@
                 "packages/ui/src/ui-component/dialog/inviteDialogState.js",
                 "packages/ui/src/ui-component/dialog/invitePayload.js",
                 "packages/ui/src/utils/roleLabel.js",
-                "packages/ui/src/views/auth/resolveLogin.js"
+                "packages/ui/src/views/auth/resolveLogin.js",
+                "packages/ui/src/views/users/userActions.js"
             ]
         },
         {
@@ -1350,6 +1369,49 @@
                 "packages/ui/src/utils/analystStatus.js",
                 "packages/ui/src/views/canvas/NodeLinkNotes.jsx",
                 "packages/ui/src/views/canvas/PostgresPanelSections.jsx"
+            ]
+        },
+        {
+            "name": "Access keys",
+            "paths": [
+                "packages/server/src/services/accessKeys/**",
+                "packages/server/src/services/apikey/**",
+                "packages/server/src/controllers/apikey/**",
+                "packages/server/src/routes/apikey/**",
+                "packages/server/src/database/entities/ApiKey*.ts",
+                "packages/server/src/database/migrations/AccessKeys.ts",
+                "packages/server/src/database/migrations/accessKeyGrants.ts",
+                "packages/server/src/database/migrations/*/1801300000000-AccessKeys.ts",
+                "packages/server/src/utils/accessKeyTestFixtures.ts",
+                "packages/ui/src/views/apikey/**",
+                "packages/ui/src/api/apikey.js",
+                "packages/ui/src/views/chatflows/APICodeDialog.test.js"
+            ],
+            "entryPoints": [
+                "packages/ui/src/views/apikey/endpointAccess.js",
+                "packages/server/src/services/accessKeys/authorization.ts",
+                "packages/server/src/services/accessKeys/errors.ts",
+                "packages/server/src/services/accessKeys/management.ts",
+                "packages/server/src/services/accessKeys/preflight.ts",
+                "packages/server/src/services/accessKeys/resources.ts",
+                "packages/server/src/services/accessKeys/routes.ts",
+                "packages/server/src/services/accessKeys/policy.ts",
+                "packages/server/src/services/apikey/index.ts",
+                "packages/server/src/controllers/apikey/index.ts",
+                "packages/server/src/routes/apikey/index.ts",
+                "packages/server/src/utils/accessKeyTestFixtures.ts",
+                "packages/server/src/database/entities/ApiKey.ts",
+                "packages/server/src/database/entities/ApiKeyCredential.ts",
+                "packages/server/src/database/entities/ApiKeyResource.ts",
+                "packages/server/src/database/entities/ApiKeyUsage.ts",
+                "packages/server/src/database/entities/ApiKeyReport.ts",
+                "packages/server/src/database/migrations/sqlite/1801300000000-AccessKeys.ts",
+                "packages/server/src/database/migrations/postgres/1801300000000-AccessKeys.ts",
+                "packages/server/src/database/migrations/mysql/1801300000000-AccessKeys.ts",
+                "packages/server/src/database/migrations/mariadb/1801300000000-AccessKeys.ts",
+                "packages/server/src/services/accessKeys/credentials.ts",
+                "packages/server/src/services/accessKeys/managementBoundary.ts",
+                "packages/server/src/services/accessKeys/legacyBinding.ts"
             ]
         }
     ]

@@ -113,7 +113,7 @@ Node 20+ 및 Docker
 
 -   [역할과 권한](./docs/how-to/roles-and-permissions.md). 팀, 기본 제공 역할, 각 페이지와 라우트의 권한 키.
 -   [로그인](./docs/how-to/sign-in.md). 첫 계정을 만듭니다. 팀은 AuthKit 없이 로컬 사용자(`CUTTLELY_LOCAL_USERS`)로 로그인할 수 있습니다. AuthKit은 나중에 켤 수 있으며, 인증된 이메일이 기존 로컬 사용자와 연결됩니다.
--   [AuthKit 없이 사용자 관리하기](./docs/how-to/users-without-authkit.md). 로컬 사용자, 초대 및 재설정 링크, 기본 제공되는 Owner, Admin, Builder, Viewer 역할, 세션. 초대받은 사람은 AuthKit 사용 여부와 관계없이 본인에게 온 일회용 초대 링크로만 참여할 수 있습니다: [사용자 초대하기](./docs/how-to/sign-in.md#invite-people).
+-   [AuthKit 없이 사용자 관리하기](./docs/how-to/users-without-authkit.md). 로컬 사용자, 초대 및 재설정 링크, 기본 제공되는 Owner, Admin, Builder, Viewer 역할, 세션. 활성 소유자는 다른 사람의 대기 중인 소유자 초대를 취소할 수 있으며, 활성 소유자 행은 읽기 전용입니다. 초대받은 사람은 AuthKit 사용 여부와 관계없이 본인에게 온 일회용 초대 링크로만 참여할 수 있습니다: [사용자 초대하기](./docs/how-to/sign-in.md#invite-people).
 -   [감사 로그](./docs/how-to/audit-log.md). 로그인, 잠금, 초대, 재설정, 역할 변경, 사용자 비활성화, 설정 변경.
 -   [서버 설정](./docs/how-to/server-settings.md). 로그인, 데이터베이스, 스토리지 등을 **Admin**에서 바꿉니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
 
@@ -131,7 +131,9 @@ Node 20+ 및 Docker
 
 <a id="use-a-team-from-your-app"></a>
 
-**Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 그 키의 **Harnesses this key may run**에서 하네스를 체크하세요. 새 키는 어떤 하네스도 실행하지 못하며, 체크하기 전까지 호출은 `403`이 됩니다. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
+[액세스 키 적용을 활성화한 뒤](./docs/reference/access-keys.md) **Access Keys**에서 주체를 만들고 챗플로우와 참조하는 하네스를 허용합니다. `predict`와 `harness:run` 범위를 선택하고 **API Endpoint**에서 플로우를 비공개로 설정합니다. 새 키에는 리소스 권한이 없습니다.
+
+`INBOUND_ACCESS_V2`의 기본값은 `off`입니다. 활성화 전에 복원한 백업에서 마이그레이션을 확인하고 `shadow`로 결정을 비교하세요. 기존 키는 교체 없이 계속 작동합니다. SDK 키와 플로우 키는 **Access Keys**의 같은 목록에서 관리하며, 제공자 자격 증명과 공개 공유 링크는 별도로 유지됩니다.
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
@@ -159,6 +161,8 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산했고 `orders`는 픽업 요일을 확인했습니다. 전체 응답에는 토큰, 소요 시간, 출처, 팀이 만든 이미지도 들어 있습니다. 나머지는 [API 가이드](./docs/api.md)에서 다룹니다. API 키, 스트리밍, 대화 메모리, 파일 업로드, 오류, 그리고 키를 여러분의 서버에만 두는 실행 가능한 예제 웹 앱이 있습니다. 오래 걸리는 턴은 같은 키로 `POST /api/v1/harnesses/<name>/runs/async`에서 백그라운드로 시작하고 답변은 나중에 가져올 수 있으며, 하네스를 cron 일정으로 실행할 수도 있습니다: [API 키로 앱에서 실행하기](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [일정으로 실행하기](./docs/how-to/harnesses.md#run-it-on-a-schedule). 참고: [하네스용 Prediction API](./docs/how-to/harnesses.md#prediction-api), [챗플로우에서 하네스 호출하기](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
+[액세스 키 제어와 제한](./docs/reference/access-keys.md).
+
 ## 모든 플로우를 MCP 서버로
 
 <a id="every-flow-an-mcp-server"></a>
@@ -175,7 +179,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 <a id="call-a-flow-from-ibm-watsonx-orchestrate"></a>
 
-게시된 챗플로우를 외부 에이전트로 등록하면 Orchestrate 네이티브 에이전트가 협업자로서 질문을 넘깁니다. 플로우에는 연결된 API 키가 필요하며, 키가 없는 플로우는 거부됩니다. 플로우를 원격 MCP 툴킷으로 가져오는 방법도 문서로 나와 있습니다. [Orchestrate에서 챗플로우 호출하기](./docs/how-to/orchestrate.md) · [챗플로우를 Orchestrate 툴킷으로 사용하기](./docs/how-to/orchestrate-mcp.md)
+게시된 챗플로우를 외부 에이전트로 등록하면 Orchestrate 네이티브 에이전트가 협업자로서 질문을 넘깁니다. 플로우를 비공개로 설정하고 예측 접근 권한이 있는 키를 사용합니다. 적용이 꺼져 있는 동안에는 기존 키 연결이 필요합니다. 플로우를 원격 MCP 툴킷으로 가져오는 방법도 문서로 나와 있습니다. [Orchestrate에서 챗플로우 호출하기](./docs/how-to/orchestrate.md) · [챗플로우를 Orchestrate 툴킷으로 사용하기](./docs/how-to/orchestrate-mcp.md)
 
 ## 작은 컨텍스트, 큰 답변
 

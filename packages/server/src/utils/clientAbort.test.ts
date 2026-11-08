@@ -203,7 +203,7 @@ describe('Client abort: streaming prediction, client disconnects after 3 tokens'
         jest.doMock('../services/chatflows', () => ({
             __esModule: true,
             default: {
-                getChatflowById: async (id: string) => ({ id, workspaceId: 'ws-1', apikeyid: '' }),
+                getChatflowById: async (id: string) => ({ id, workspaceId: 'ws-1', apikeyid: '', apiAccessMode: 'public' }),
                 checkIfChatflowIsValidForStreaming: async () => ({ isStreaming: true })
             }
         }))

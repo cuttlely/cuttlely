@@ -1167,6 +1167,7 @@ function httpHarnessError(error: unknown) {
     if (code === 'name_clash' || code === 'name_taken') return new AppError(StatusCodes.CONFLICT, message)
     if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
     if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
+    if (code === 'harness_changed') return new AppError(StatusCodes.CONFLICT, 'Harness changed after authorization. Retry the report.')
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
@@ -1234,12 +1235,26 @@ const assertRunRequest = async (
     body: Record<string, unknown>,
     workspaceId: string | null | undefined,
     caller: IHarnessCaller | undefined,
-    access: { allowFlow?: boolean } = {}
+    access: { allowFlow?: boolean; expectedChatflowId?: string } = {}
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
+    if (
+        caller?.via === 'api_key' &&
+        caller.harnessIds !== undefined &&
+        (!access.expectedChatflowId ||
+            !Object.prototype.hasOwnProperty.call(caller.harnessIds, name) ||
+            caller.harnessIds[name] !== access.expectedChatflowId)
+    )
+        throw new AppError(StatusCodes.FORBIDDEN, 'An authorized Harness canvas id is required for this access-key run.')
     const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
     const harness = await requireHarness(name, workspaceId)
+    if (
+        access.expectedChatflowId !== undefined &&
+        (typeof harness.chatflowId !== 'string' || harness.chatflowId !== access.expectedChatflowId)
+    ) {
+        throw new AppError(StatusCodes.CONFLICT, 'Harness changed after authorization. Retry the report.')
+    }
     const question = questionOf(body || {})
     if (!question.trim()) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'A harness run needs a question.')
@@ -1274,6 +1289,9 @@ function takeJobRunId(payload: unknown): string | undefined {
     return runId
 }
 
+// Test seam: pause after admission and context loading, before runtime name resolution.
+export const runAdmissionHooks: { beforeDispatch: null | (() => Promise<void>) } = { beforeDispatch: null }
+
 const startRun = async (
     name: string,
     body: Record<string, unknown>,
@@ -1292,10 +1310,15 @@ const startRun = async (
         caller: IHarnessCaller
         // Set by the canvas run. A flow with no list of its own may start that canvas.
         allowFlow?: boolean
+        // Required for enforced key callers; retained through runtime and queue name re-resolution.
+        expectedChatflowId?: string
     }
 ) => {
     assertHarnessAvailable(name)
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, { allowFlow: opts.allowFlow === true })
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
+        allowFlow: opts.allowFlow === true,
+        expectedChatflowId: opts.expectedChatflowId
+    })
     const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
@@ -1313,6 +1336,7 @@ const startRun = async (
     let harnessTrace: ReturnType<typeof openHarnessRunTrace> | undefined
     let recorded: Record<string, unknown> | null = null
     const flowOptions: Record<string, unknown> = { ...(runtime?.flowOptions || {}), ...harnessNodeOptions(opts.caller) }
+    if (opts.expectedChatflowId !== undefined) flowOptions.expectedHarnessChatflowId = opts.expectedChatflowId
     // The server context copies the harness file. The run compares the caller's team.
     if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
@@ -1325,6 +1349,7 @@ const startRun = async (
             replay: opts.replay === true,
             draft: Boolean(opts.record)
         })
+        if (runAdmissionHooks.beforeDispatch) await runAdmissionHooks.beforeDispatch()
         const payload = await run({
             name,
             chatId: prepared.chatId,
@@ -1392,7 +1417,11 @@ const startBackgroundRun = async (
         caller: IHarnessCaller
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
+        // API admission follows run/chat authorization and precedes the first queued history write.
+        admit?: () => Promise<IHarnessCaller>
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
+        // Required for enforced key callers; retained through runtime and queue name re-resolution.
+        expectedChatflowId?: string
     }
 ) => {
     // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
@@ -1405,7 +1434,10 @@ const startBackgroundRun = async (
     let chatId: string
     let history: Awaited<ReturnType<typeof loadHarness>>
     try {
-        prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+        prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
+            expectedChatflowId: opts.expectedChatflowId
+        })
+        if (opts.admit) opts.caller = await opts.admit()
         const apiKeyId = callerKeyId(opts.caller)
         const source = opts.source || 'api'
         chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
@@ -1422,7 +1454,13 @@ const startBackgroundRun = async (
         running = startRun(
             name,
             { ...body, question: prepared.question, chatId },
-            { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
+            {
+                source,
+                workspaceId: opts.workspaceId,
+                runId,
+                caller: opts.caller,
+                expectedChatflowId: opts.expectedChatflowId
+            }
         )
     } catch (error) {
         release()
@@ -1632,6 +1670,7 @@ const startCanvasRun = async (
         ...runOpts,
         allowFlow: true,
         workspaceId: chatflow.workspaceId,
+        expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
 }
@@ -1647,7 +1686,9 @@ const replayCheck = async (
     // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
     // An API key that does not list this harness, or no caller at all, is refused here too.
     assertRouteCaller(chatflow.name, opts.caller)
-    await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller)
+    await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller, {
+        expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined
+    })
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -1663,6 +1704,7 @@ const replayCheck = async (
         workspaceId: chatflow.workspaceId,
         caller: opts.caller,
         replay: true,
+        expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
 }

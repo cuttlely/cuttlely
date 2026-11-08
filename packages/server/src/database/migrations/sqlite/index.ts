@@ -1,3 +1,4 @@
+import { AccessKeys1801300000000 } from './1801300000000-AccessKeys'
 import { Init1693835579790 } from './1693835579790-Init'
 import { ModifyChatFlow1693920824108 } from './1693920824108-ModifyChatFlow'
 import { ModifyChatMessage1693921865247 } from './1693921865247-ModifyChatMessage'
@@ -168,5 +169,6 @@ export const sqliteMigrations = [
     AddSessionConvergence1801100000000,
     AddWorkosSessionId1801150000000,
     AddScimProvisioning1801200000000,
-    AddScimGroups1801200000001
+    AddScimGroups1801200000001,
+    AccessKeys1801300000000
 ]

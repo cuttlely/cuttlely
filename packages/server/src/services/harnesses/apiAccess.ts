@@ -66,7 +66,7 @@ export async function removeHarnessFromKeyLists(workspaceId: string, name: strin
             const list = harnessAllowlist(key.harnesses)
             if (!list.includes(name)) continue
             key.harnesses = list.filter((item) => item !== name)
-            await repo.save(key)
+            await repo.update({ id: key.id, workspaceId }, { harnesses: key.harnesses })
             changed += 1
         }
         return changed
@@ -184,6 +184,9 @@ export async function callerKeyHarnesses(req: Request): Promise<string[] | null>
     if (!keyId) return []
     const key = await storedKey(keyId)
     if (!key || key.workspaceId !== callerOf(req).activeWorkspaceId) return []
+    const { keyHarnessNames } = await import('../accessKeys/resources')
+    if ('accessPolicy' in key)
+        return keyHarnessNames(key as import('../../database/entities/ApiKey').ApiKey, !['GET', 'HEAD'].includes(req.method))
     return harnessAllowlist(key.harnesses)
 }
 
@@ -191,6 +194,11 @@ export async function callerKeyHarnesses(req: Request): Promise<string[] | null>
 export async function harnessCallerFor(req: Request): Promise<IHarnessCaller> {
     const keyId = callerApiKeyId(req)
     if (keyId === null) return { via: 'session' }
+    const { accessContext } = await import('../accessKeys/authorization')
+    const { accessRollout } = await import('../accessKeys/rollout')
+    const context = accessContext(req)
+    const ids = accessRollout() === 'on' && context ? context.harnessIds || {} : undefined
+    if (ids !== undefined) return { via: 'api_key', apiKeyId: keyId, harnesses: Object.keys(ids), harnessIds: { ...ids } }
     return { via: 'api_key', apiKeyId: keyId, harnesses: (await callerKeyHarnesses(req)) || [] }
 }
 
@@ -360,6 +368,21 @@ export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: bool
             }
             const refused = harnessRefusedFor(caller, names)
             if (refused === null) {
+                const { accessContext, authorizeKey } = await import('../accessKeys/authorization')
+                const context = accessContext(req)
+                // Keep nested canvas prerequisites in the admission recheck after a principal refresh.
+                if (context?.routeAdmission && caller.via === 'api_key')
+                    for (const name of new Set(names)) {
+                        const resourceId = caller.harnessIds?.[name]
+                        if (resourceId)
+                            await authorizeKey(
+                                req,
+                                context.routeAdmission.operation,
+                                context.key.workspaceId,
+                                { resourceType: 'HARNESS', resourceId },
+                                false
+                            )
+                    }
                 next()
                 return
             }

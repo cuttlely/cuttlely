@@ -114,7 +114,21 @@ A person an admin adds is stored as a pending invite (`invited`). They have no a
 -   **Revoked or removed invalidates.** A newer link for the same person replaces the older one. Disabling a pending person, or removing them from the team or the organization, marks their open links used, so adding them back does not bring an old link back. Enabling a user never makes a pending invite active.
 -   **An email match alone never activates.** A sign-in whose email matches a pending invite does not activate it, even when the identity provider reports the email as verified. The sign-in page shows `You have a pending invite. Open the invite link from your email to join.` and the person stays pending.
 
+In **User Management** (`/users`), an active organization owner can cancel another pending owner invitation. The server rechecks ownership and pending status under its removal lock, revokes invite links in the same transaction, and refuses an already accepted invitation, self-removal and the last active owner. Active owners stay read-only in this UI. The generic organization-removal API still allows another active owner to be removed when multiple active owners exist; that is separate from invitation-only cancellation.
+
 Issued, used, and refused links are audit rows with a short reason. They do not store the token, the URL, or the email. People added before 1.3.0 were stored as active, not pending, so these rules do not cover them until they are removed and invited again ([Upgrading](./docs/upgrading.md#invites-after-130)). The full flow is in [Invite people](./docs/how-to/sign-in.md#invite-people).
+
+## Inbound access keys
+
+**Access Keys** unifies SDK/Settings and per-flow inbound keys in one workspace list. It is separate from outbound provider **Credentials**, MCP tokens, webhook signatures and public share/embed links. Keep bearer secrets on your server. Browser delegation is not implemented.
+
+`INBOUND_ACCESS_V2` defaults to `off`, preserving legacy decisions; new scoped keys, policy edits and rotation require `on`. Before enabling it, validate the migration on a restored backup with `node scripts/access-keys-migration-report.cjs` and compare legacy/scoped flow decisions in `shadow`. Existing bearer values survive without rotation. Back up the encryption key as well as the database: new credentials use it for their HMAC digest. [Access keys](./docs/reference/access-keys.md) describes the migration and rollback limits.
+
+With enforcement on, new keys start with no scopes or resource grants. Each request checks the key's workspace, current owner access, permissions, scopes, resource grants, expiry/revocation, exact-origin and IP/CIDR restrictions, and quotas. Only explicitly registered API operations accept scoped keys. All-resource grants need `apikeys:grant-all` and confirmation. Key management writes require a signed-in session. Origin checks do not replace authentication; IP checks rely on a correctly configured `TRUST_PROXY` boundary.
+
+New secrets are revealed once; lists expose prefixes and last-four characters, never bearers or verifiers. Rotation defaults to one hour of overlap, capped at 24 hours, and never extends an earlier credential's cutoff. Revoke the principal or one credential to stop new requests. Already-admitted streams/background runs may finish.
+
+RPM admission is process-local and resets on restart; daily/monthly UTC counters persist atomically in SQL. Admission requires one API instance (`CUTTLELY_API_KEY_INSTANCES=1`, the default). Redis/multi-instance limiting, usage exports/alerts, asynchronous telemetry batching, legacy-adapter removal and termination of admitted runs are not implemented. Audit lifecycle records and aggregate usage/refusal events omit bearer values and request payloads.
 
 ## Stored files
 

@@ -11,6 +11,9 @@ export enum EnumChatflowType {
     ETL = 'ETL'
 }
 
+/** New flows deliberately preserve public creation; access is never inferred from an absent key. */
+export const EXPLICIT_LEGACY_PUBLIC = 'public'
+
 @Entity()
 export class ChatFlow implements IChatFlow {
     @PrimaryGeneratedColumn('uuid')
@@ -30,6 +33,10 @@ export class ChatFlow implements IChatFlow {
 
     @Column({ nullable: true })
     apikeyid?: string
+
+    /** Null preserves the historical public/key-bound decision. */
+    @Column({ type: 'varchar', length: 16, nullable: true })
+    apiAccessMode?: string | null
 
     @Column({ nullable: true, type: 'text' })
     chatbotConfig?: string

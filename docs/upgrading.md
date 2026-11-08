@@ -135,6 +135,24 @@ Configure `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, restart, then select WorkOS u
 
 An upgrade copies legacy WorkOS subjects from `externalId` into provider-scoped links when the installation has a stable WorkOS provider identity. That attributable state must finish before generic OIDC can be activated. If an installation used WorkOS and later returned to Local login without retaining a stable WorkOS provider identity, those subjects are recorded as unmigrated and inert. They cannot match the configured OIDC provider, do not block OIDC activation, and remain visible as a count on **Admin** > **Auth / SSO**.
 
+## Inbound access-key migration and opt-in
+
+For a build containing the inbound access-key migration, back up the application database and installation encryption key together. Validate on a restored backup before changing live enforcement. With a built server and the restored database's normal connection environment, run:
+
+```bash
+node scripts/access-keys-migration-report.cjs
+```
+
+This read-only report prints aggregate counts for legacy bindings and Harness-name resolution, without secrets. On SQLite and PostgreSQL, startup applies the migration in a single transaction and a failure rolls it back. On MySQL and MariaDB, `ALTER TABLE` and `CREATE TABLE` commit implicitly, so a failed migration can leave a partially applied schema; recover by stopping the server and restoring the database and installation encryption key from the backup taken before the upgrade, then fix the cause and restart. MySQL/MariaDB migration paths have not been exercised against a live server in this release's validation. Review orphan/cross-workspace bindings and unresolved names; none grant access. Existing bearer values, owners and workspaces are preserved without forced rotation. Existing flow bindings and Harness lists become exact resource grants, never all-resource access. Public share/embed transports and provider credentials remain separate.
+
+`INBOUND_ACCESS_V2=off` is the default. It preserves legacy authorization and leaves new issuance, policy edits and rotation unavailable; revocation remains available. Set `shadow` and restart to serve legacy flow decisions while comparing scoped flow authorization. Review access-key use events in **Admin > Audit log** for `shadowMismatch`, `legacyAllowed` and `scopedAllowed`. This does not simulate quota admission or every route: exercise the [route matrix](./reference/access-keys.md#api-route-matrix) separately. Enable `on` only after migration diagnostics and measured parity have been reviewed.
+
+**Access Keys** now holds SDK/Settings and per-flow keys in one workspace list. New keys have no operations or resources. Policy saves replace migration compatibility with the explicit grants/scopes shown, without changing the bearer. Keep `CUTTLELY_API_KEY_INSTANCES=1` (default); RPM is per process and resets on restart, while daily/monthly UTC counters persist in SQL. Redis/multi-instance limiting is not implemented.
+
+To roll back enforcement, restore `off` and restart. Scoped principals are then refused and legacy principals use the compatibility path. Retain the added schema: modern credentials cannot be reconstructed as legacy secrets by downgrading tables. [Full migration and rollback reference](./reference/access-keys.md#rollout-and-migration).
+
+User Management also supports cancellation of another pending owner invitation by an active organization owner in **Users** (`/users`). Invite links are revoked; accepted invitations, self-removal and the last active owner are refused. Active owners remain read-only in the UI.
+
 ## Invites after 1.3.0
 
 From 1.3.0 an invited person joins only through their own one-time invite link. The link is single use, expires after the invite link lifetime (72 hours by default), works only for that person and the email it was sent to, and stops working when a newer link replaces it or the person is disabled or removed from the team or the organization. A sign-in whose email matches a pending invite never activates it, even when the email is verified, and shows `You have a pending invite. Open the invite link from your email to join.`

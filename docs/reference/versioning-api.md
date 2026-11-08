@@ -2,7 +2,7 @@
 
 These routes read a flow's version history, restore a version, keep a [copy in GitHub](#copy-to-github), and [promote a flow from Dev to Prod](#promote-from-dev-to-prod). The app uses them for **Version history**, the version page, the **Version History** settings page and the promote page (From Dev on the saved Dev and Prod pair). Drafts, Publish, Roll back and the behavior check before Publish are in the [Drafts API](./drafts-api.md). How to use all of it from the app: [Version history](../how-to/versioning.md), starting with [the lifecycle at a glance](../how-to/versioning.md#the-lifecycle-at-a-glance).
 
-All routes are under `/api/v1/flow-versions`. A signed-in session works, and so does an API key with the permissions below. With an API key, the workspace is the key's workspace.
+All routes are under `/api/v1/flow-versions`. A signed-in session works. New scoped keys support the granted item reads described below; retained legacy keys keep their earlier permission-based behavior. With an API key, the workspace is the key's workspace.
 
 The flow must be in the caller's active workspace. Any other flow id returns 404. A version id (`:sha`) is 7 to 40 lowercase hex characters, a full or short Git commit id. Anything else returns 400.
 
@@ -15,6 +15,8 @@ The flow must be in the caller's active workspace. Any other flow id returns 404
 | `POST` | `/:chatflowId/:sha/restore` | `chatflows:update` or `agentflows:update`, then the update permission for the flow's type |
 
 The [GitHub routes](#copy-to-github) and the [promote routes](#promote-from-dev-to-prod) are for the organization owner only.
+
+New scoped access keys may read a granted flow's versions with `api:read` plus its workspace view permission. Restore and other canvas/publication mutations require a signed-in session; the permission-based API-key behavior below applies to retained legacy keys. Enforcement defaults to `off`; see [Access keys](./access-keys.md#api-route-matrix).
 
 ## Status
 

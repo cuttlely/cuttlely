@@ -65,6 +65,7 @@ export interface IChatFlow {
     deployed?: boolean
     isPublic?: boolean
     apikeyid?: string
+    apiAccessMode?: string | null
     analytic?: string
     speechToText?: string
     textToSpeech?: string
@@ -492,6 +493,8 @@ export interface IExecuteFlowParams extends IPredictionQueueAppServer {
 export interface IApiKeyAccess {
     apiKeyId: string
     harnesses: string[]
+    // Present for enforced access-key admission; names alone never authorize these runs.
+    harnessIds?: Record<string, string>
 }
 
 /**

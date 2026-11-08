@@ -22,7 +22,7 @@ You need:
 
 -   A Cuttlely server that Orchestrate can reach (`$CUTTLELY_URL`). A local server needs a public HTTPS URL in front of it; the demo runbook starts `scripts/orchestrate-live-proxy.mjs` so the tunnel only forwards Orchestrate `external_chat` and A2A routes.
 -   A chatflow that already answers in the canvas chat. Its id is in the address bar and in **API Endpoint** (`</>`).
--   An API key bound to that chatflow. A flow with no bound key is refused (`403` `keyless_flow`). `deployed` is not the gate; the bound key is, the same as [`POST /api/v1/prediction/:id`](../api.md#ask-a-chatflow).
+-   A private chatflow and an access key with prediction access. With enforcement on, grant the flow and `predict` in **Access Keys** (`stream` too for streaming, plus referenced Harness grants/`harness:run`). With enforcement off, the legacy bound key is required. Explicitly public flows are refused (`403` `keyless_flow`); `deployed` is not the gate. [Access-key rollout](../reference/access-keys.md).
 
 The demo flow uses a Grok chat model (`chatXAI`, `grok-4.20-0309-non-reasoning`) with an xAI credential. Add that credential in **Credentials** off-screen, then pick it on the Grok card. Do not put a key in the imported JSON, in the YAML, or in a screenshot.
 
@@ -132,7 +132,7 @@ Errors on the Orchestrate routes, before any stream starts, use `{ "error": { "m
 | 400    | `thread_id_invalid`    | `X-IBM-THREAD-ID` fails the pattern or is repeated. Orchestrate routes only; A2A uses `contextId`.                                                          |
 | 400    | `credentials_conflict` | `Authorization` and `X-API-Key` differ.                                                                                                                     |
 | 401    | `unauthorized`         | Missing, malformed or wrong key, or a lookup error.                                                                                                         |
-| 403    | `keyless_flow`         | The flow has no bound API key. Bind one in **API Endpoint**.                                                                                                |
+| 403    | `keyless_flow`         | The flow is public. Choose private access in **API Endpoint** and grant prediction access; enforcement off requires a legacy binding.                       |
 | 403    | `origin_not_allowed`   | A browser `Origin` is outside the flow's allowed origins.                                                                                                   |
 | 404    | `flow_not_found`       | No chatflow with that id.                                                                                                                                   |
 | 409    | `thread_busy`          | Another stream is still open on that thread. In queue mode the check is per replica.                                                                        |

@@ -265,3 +265,9 @@ From a terminal (in Docker, prefix with `docker compose exec -u node cuttlely`):
 Under **Agent runtime** > **Limits**, **Evidence budget (bytes)** controls the protected source detail available to specialists for analysis. The default is **40000**, with a range of **4096** to **262144**. Review and save, then restart to apply. A host-set value locks the field.
 
 To increase this for one specialist, set **Evidence budget (bytes)** in that Harness Specialist's additional parameters. Blank inherits the Admin default. Larger budgets can reduce extra calls for long descriptions but increase input-token use; small model-context limits still apply. Output tokens and report validation are unchanged. See [Evidence budget](../reference/trusted-outputs.md#evidence-budget).
+
+## Inbound access keys
+
+Manage inbound API and SDK keys on **Access Keys**, not in provider **Credentials**. SDK/Settings keys and per-flow keys share this workspace list. With enforcement on, each key has resource/operation grants, expiry, RPM and UTC quotas, exact-origin/IP allowlists, rotation/revocation, counters and audit events. New keys grant no resources or operations.
+
+`INBOUND_ACCESS_V2` is host-only and defaults to `off`; it is not a runtime limit switch. Set it on the host and restart. Validate migration on a restored backup with `node scripts/access-keys-migration-report.cjs`, then compare legacy/scoped flow decisions with `shadow` before enabling `on`. Existing keys need no rotation. Admission supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`); minute counters reset on restart. **Page loads a minute** and flow/IP limits still apply independently. [Access-key controls and rollout](../reference/access-keys.md).

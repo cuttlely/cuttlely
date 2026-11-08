@@ -383,6 +383,7 @@ const CanvasHeader = ({
             title: 'Embed in website or use as API',
             chatflowid: chatflow.id,
             chatflowApiKeyId: chatflow.apikeyid,
+            apiAccessMode: chatflow.apiAccessMode,
             isFormDataRequired,
             isSessionMemory,
             isAgentCanvas,

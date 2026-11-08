@@ -74,6 +74,10 @@ const mockChatImages = jest.fn((..._args: unknown[]) => [] as unknown[])
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
     default: {
+        getHarness: async (name: string) => {
+            const flow = [...mockDb.chatflows.values()].find((f) => f.type === 'HARNESS' && f.name === name)
+            return flow ? { chatflowId: flow.id, workspaceId: flow.workspaceId } : undefined
+        },
         startCanvasRun: (...args: unknown[]) => mockStartCanvasRun(...args),
         chatImages: (...args: unknown[]) => mockChatImages(...args)
     }
@@ -83,6 +87,7 @@ const mockStored = new Map<string, { id: string; workspaceId: string; apiSecret:
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
     default: {
+        getApiKey: jest.fn(async (token: string) => require('../../utils/accessKeyTestFixtures').migratedKeyForToken(mockStored, token)),
         getApiKeyById: async (id: string) => mockStored.get(id) ?? null
     }
 }))
@@ -160,7 +165,7 @@ describe('POST /api/v1/prediction/:id', () => {
             {
                 source: 'playground',
                 canvas: 'live',
-                caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'] }
+                caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'], harnessIds: { 'bakery-team': HARNESS_ID } }
             }
         )
         expect(mockBuildChatflow).not.toHaveBeenCalled()
@@ -318,4 +323,15 @@ describe('POST /api/v1/prediction/:id', () => {
         expect(res.text).not.toContain('harness.partial')
         expect(res.text).not.toContain('harness.final')
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../../services/accessKeys/data', () => ({
+    accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

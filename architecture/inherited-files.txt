@@ -974,7 +974,6 @@ packages/server/src/commands/start.ts
 packages/server/src/commands/user.ts
 packages/server/src/commands/worker.ts
 packages/server/src/controllers/agentflowv2-generator/index.ts
-packages/server/src/controllers/apikey/index.ts
 packages/server/src/controllers/assistants/index.ts
 packages/server/src/controllers/attachments/index.ts
 packages/server/src/controllers/chat-messages/index.ts
@@ -1030,7 +1029,6 @@ packages/server/src/controllers/versions/index.ts
 packages/server/src/controllers/webhook-listener/index.ts
 packages/server/src/controllers/webhook/index.test.ts
 packages/server/src/controllers/webhook/index.ts
-packages/server/src/database/entities/ApiKey.ts
 packages/server/src/database/entities/Assistant.ts
 packages/server/src/database/entities/ChatFlow.ts
 packages/server/src/database/entities/ChatMessage.ts
@@ -1285,7 +1283,6 @@ packages/server/src/queue/ScheduleQueue.test.ts
 packages/server/src/queue/ScheduleQueue.ts
 packages/server/src/queue/UpsertQueue.ts
 packages/server/src/routes/agentflowv2-generator/index.ts
-packages/server/src/routes/apikey/index.ts
 packages/server/src/routes/assistants/index.ts
 packages/server/src/routes/attachments/index.ts
 packages/server/src/routes/chat-messages/index.ts
@@ -1357,7 +1354,6 @@ packages/server/src/schedule/ScheduleBeat.ts
 packages/server/src/schedule/ScheduleExecutor.test.ts
 packages/server/src/schedule/ScheduleExecutor.ts
 packages/server/src/services/agentflowv2-generator/index.ts
-packages/server/src/services/apikey/index.ts
 packages/server/src/services/assistants/index.ts
 packages/server/src/services/attachments/index.ts
 packages/server/src/services/chat-messages/index.ts
@@ -1515,7 +1511,6 @@ packages/ui/src/App.jsx
 packages/ui/src/ErrorBoundary.jsx
 packages/ui/src/__mocks__/styleMock.js
 packages/ui/src/api/account.api.js
-packages/ui/src/api/apikey.js
 packages/ui/src/api/assistants.js
 packages/ui/src/api/attachments.js
 packages/ui/src/api/audit.js
@@ -1857,9 +1852,6 @@ packages/ui/src/views/agentflowsv2/IterationNode.jsx
 packages/ui/src/views/agentflowsv2/MarketplaceCanvas.jsx
 packages/ui/src/views/agentflowsv2/StickyNote.jsx
 packages/ui/src/views/agentflowsv2/index.css
-packages/ui/src/views/apikey/APIKeyDialog.css
-packages/ui/src/views/apikey/APIKeyDialog.jsx
-packages/ui/src/views/apikey/index.jsx
 packages/ui/src/views/assistants/custom/AddCustomAssistantDialog.jsx
 packages/ui/src/views/assistants/custom/CustomAssistantConfigurePreview.jsx
 packages/ui/src/views/assistants/custom/CustomAssistantLayout.jsx

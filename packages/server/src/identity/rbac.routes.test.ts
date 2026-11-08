@@ -17,6 +17,20 @@ import { TeamAccess } from './sqlStore'
 
 const hits = { n: 0 }
 
+jest.mock(
+    '../services/accessKeys/management',
+    () =>
+        new Proxy(
+            {},
+            {
+                get: () => (_req: Request, res: express.Response) => {
+                    hits.n += 1
+                    res.status(200).json({ ok: true })
+                }
+            }
+        )
+)
+
 jest.mock('../controllers/harnesses', () => ({
     __esModule: true,
     default: new Proxy(

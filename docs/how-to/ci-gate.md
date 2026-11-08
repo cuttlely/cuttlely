@@ -6,7 +6,7 @@ The check asks the flow's recent questions again, once on Live and once on the d
 
 ## Run it
 
-The command reads the API key from `CUTTLELY_API_KEY`. It does not take the key as a flag. Create the key under **API Keys** with both permissions for the flow's type. Starting the check needs update, and reading the result needs view. A key with only the update permission can start the check, and the command then gets 403 when it reads the result.
+The command reads the API key from `CUTTLELY_API_KEY`. It does not take the key as a flag. This command requires an existing legacy key: new scoped keys cannot invoke draft test/check routes, even with `api:write`. Legacy issuance is disabled by this branch’s rollout gate; do not create a new scoped key for this command. Use the signed-in Publish dialog for draft checks. A retained legacy key needs both permissions for the flow's type. Starting the check needs update, and reading the result needs view. A key with only the update permission can start the check, and the command then gets 403 when it reads the result.
 
 | Flow      | Permissions the key needs                 |
 | --------- | ----------------------------------------- |
