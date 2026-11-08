@@ -108,4 +108,4 @@ Inbound API and SDK authorization is in `packages/server/src/services/accessKeys
 
 `architecture/boundaries.json` assigns inbound access-key code and the existing key-management seam to the Access keys subsystem. Adapter crossings to flow/runtime/storage code are recorded with an explicit reason; `node scripts/check-boundaries.mjs` checks that boundary.
 
-`packages/server/src/identity/instanceOperator.ts` checks host-designated service authority independently of tenant roles and binds it to the actual database connection. Host onboarding, database changes and recovery are in [Instance operator](../../docs/how-to/instance-operator.md).
+`packages/server/src/identity/instanceOperator.ts` checks host-backed service authority independently of tenant roles and binds it to the actual database connection. `operatorBinding.ts` supplies the host CLI break-glass default from a private file when the explicit host override is unset; `none` revokes browser administration. The user CLI creates/resets/binds the selected active owner. Host onboarding, database changes and recovery are in [Instance operator](../../docs/how-to/instance-operator.md).
