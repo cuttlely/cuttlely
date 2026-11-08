@@ -44,6 +44,8 @@ Revoke a principal to block new requests using any of its credentials. Revoke an
 
 ## Caller policies and counters
 
+A flow's embed-origin refusal returns JSON for ordinary prediction requests and `text/plain; charset=utf-8` for streaming refusals before any stream starts. Configured refusal messages are displayed as literal text.
+
 Origins are exact normalized HTTP(S) origins, with no paths, wildcards or Referer fallback. Adding an origin allowlist defaults to refusing a missing Origin. You may explicitly allow server callers without an Origin. An empty origin list has no origin restriction. CORS and Origin never replace the bearer.
 
 IP rules accept exact IPv4/IPv6 addresses and CIDRs. An empty list has no IP restriction. Checks use Express `req.ip` and the deployment's `TRUST_PROXY` configuration, never arbitrary forwarded headers. Leave proxy trust off unless the deployment has a known trusted proxy boundary.

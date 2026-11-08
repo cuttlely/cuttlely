@@ -4,6 +4,7 @@ import { ApiKey } from '../../database/entities/ApiKey'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { parsePolicy } from './policy'
 import { AccessKeyLimitError } from './errors'
+import { rateLimit } from 'express-rate-limit'
 
 const mockKeys = new Map<string, ApiKey>()
 let mockKeyError: Error | undefined
@@ -128,6 +129,17 @@ function req(token = 'fixture-token', body = {}): Request {
 function grant(id = FLOW, type = 'CHATFLOW', principal = 'key') {
     mockGrants.add(`${principal}:${type}:${id}`)
 }
+// Use production's express-rate-limit middleware independently of mocked accepted-key quotas.
+function predictionRoute(app: express.Express, target: ChatFlow, execute: express.RequestHandler): void {
+    app.post(
+        '/api/v1/prediction/:id',
+        rateLimit({ windowMs: 60_000, max: 2, message: 'Fixture flow request limit reached.' }),
+        (req, _res, next) => {
+            void authorizeFlowKey(req, target).then(() => next(), next)
+        },
+        execute
+    )
+}
 beforeEach(() => {
     mockKeys.clear()
     mockKeyError = undefined
@@ -235,13 +247,7 @@ it.each(['principal permission', 'owner permission', 'legacy owner permission', 
         })
         const app = express()
         app.use(express.json())
-        app.post(
-            '/api/v1/prediction/:id',
-            (req, _res, next) => {
-                void authorizeFlowKey(req, harness).then(() => next(), next)
-            },
-            execute
-        )
+        predictionRoute(app, harness, execute)
         app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
             res.status(error.statusCode || 500).json({})
         )
@@ -580,13 +586,7 @@ it.each(['credential retired', 'principal revoked', 'principal expired', 'owner 
             next()
         })
         app.use(express.json())
-        app.post(
-            '/api/v1/prediction/:id',
-            (req, _res, next) => {
-                void authorizeFlowKey(req, flow).then(() => next(), next)
-            },
-            execute
-        )
+        predictionRoute(app, flow, execute)
         app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) =>
             res.status(error.statusCode || 500).json({ message: error.message })
         )
@@ -969,4 +969,23 @@ it('sanitizes a legacy grant-store outage at the flow authorization boundary', a
     } finally {
         mockIdentityError = previous
     }
+})
+
+it('limits prediction authorization attempts before checking a key or starting application work', async () => {
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    grant()
+    const execute = jest.fn((_req: Request, res: express.Response) => res.json({ ok: true }))
+    const app = express()
+    predictionRoute(app, flow, execute)
+    app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
+    const call = (token: string) =>
+        request(app)
+            .post('/api/v1/prediction/' + FLOW)
+            .set('Authorization', 'Bearer ' + token)
+    expect((await call('invalid')).status).toBe(401)
+    expect((await call('fixture-token')).status).toBe(200)
+    expect((await call('fixture-token')).status).toBe(429)
+    expect((await call('another-invalid')).status).toBe(429)
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
 })

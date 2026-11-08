@@ -98,7 +98,7 @@ for (const kind of ['deleted', 'retained']) {
             fireEvent.click(screen.getByRole('button', { name: 'Save' }))
             await waitFor(() => expect(mockStatuses).toEqual([403]))
             expect(mockSubmissions[0].resources.some((row) => row.resourceId === missingId)).toBe(true)
-            console.log('round12 evidence:', kind, 'GET retains missing grant; actual dialog PUT=403')
+            process.stdout.write(`round12 evidence: ${kind} GET retains missing grant; actual dialog PUT=403\n`)
             fireEvent.click(screen.getByRole('button', { name: 'Remove unavailable CHATFLOW ' + missingId }))
             expect(screen.queryByRole('button', { name: 'Remove unavailable CHATFLOW ' + missingId })).toBeNull()
             expect(screen.queryByRole('checkbox', { name: new RegExp(missingId) })).toBeNull()
@@ -110,6 +110,6 @@ for (const kind of ['deleted', 'retained']) {
             { resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121202' }
         ])
         expect(mockSubmissions.at(-1).permissions).toEqual(['chatflows:view'])
-        console.log('round12 evidence:', kind, 'explicit desired policy saved; B retained')
+        process.stdout.write(`round12 evidence: ${kind} explicit desired policy saved; B retained\n`)
     })
 }

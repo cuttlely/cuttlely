@@ -121,7 +121,7 @@ export const authorizeFlowAccess =
                 const origin = checkChatflowOrigin(chatflow.chatbotConfig, req.headers.origin)
                 if (!origin.allowed) {
                     // Same answer as the controller: plain text for a (parsed) streaming request, else the JSON error.
-                    if (isStreamingRequest(req)) return res.status(StatusCodes.FORBIDDEN).send(origin.error)
+                    if (isStreamingRequest(req)) return res.status(StatusCodes.FORBIDDEN).type('text/plain').send(origin.error)
                     throw new AppError(StatusCodes.FORBIDDEN, origin.error)
                 }
             }
@@ -135,7 +135,7 @@ export const authorizeFlowAccess =
             next()
         } catch (error) {
             if (error instanceof FlowOriginPolicyError && options.checkOrigin && isStreamingRequest(req))
-                return res.status(403).send(error.message)
+                return res.status(403).type('text/plain').send(error.message)
             // No stream has started here, so the error handler answers with the JSON error (it only stays silent once headers are sent).
             next(error)
         }

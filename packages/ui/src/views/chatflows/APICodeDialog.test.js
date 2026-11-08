@@ -95,7 +95,6 @@ for (const mode of ['off', 'shadow'])
             expect(select).not.toBeNull()
             expect(select.disabled).toBe(false)
             const replacement = [...select.options].find((option) => option.value === 'replacement' && !option.disabled)
-            console.log('round11 dialog choice', mode, fixture, 'replacement selectable=', !!replacement)
             if (fixture === 'CHATFLOW control') {
                 expect(replacement).toBeDefined()
                 act(() => {

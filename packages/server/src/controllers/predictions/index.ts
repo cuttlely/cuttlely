@@ -105,7 +105,7 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             }
         } else {
             if (isStreamingRequest(req)) {
-                return res.status(StatusCodes.FORBIDDEN).send(unauthorizedOriginError)
+                return res.status(StatusCodes.FORBIDDEN).type('text/plain').send(unauthorizedOriginError)
             }
             throw new AppError(StatusCodes.FORBIDDEN, unauthorizedOriginError)
         }
