@@ -689,6 +689,11 @@
             "reason": "OIDC discovery, token, and signing-key retrieval must use the existing guarded request implementation."
         },
         {
+            "from": "packages/server/src/identity/operatorBinding.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "The host-only operator binding logs sanitized provisioning and revocation notices through the existing server logger; no authority or tenant data is delegated to the inherited logger."
+        },
+        {
             "from": "packages/server/src/identity/ossPlatform.ts",
             "to": "packages/server/src/Interface.ts"
         },
