@@ -2503,6 +2503,16 @@
             "to": "packages/ui/src/store/actions.js"
         },
         {
+            "from": "packages/ui/src/views/chatflows/APICodeDialog.test.js",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Access-key UI regression mounts the inherited API dialog and spies on its existing chatflow API writer"
+        },
+        {
+            "from": "packages/ui/src/views/chatflows/APICodeDialog.test.js",
+            "to": "packages/ui/src/views/chatflows/APICodeDialog.jsx",
+            "reason": "Access-key UI regression mounts the inherited API dialog and spies on its existing chatflow API writer"
+        },
+        {
             "from": "packages/ui/src/views/dashflows/AccountReport.jsx",
             "to": "packages/ui/src/api/client.js",
             "reason": "Dashflows reuses the existing authenticated API client, report renderer, authorization hook, server errors and logger."

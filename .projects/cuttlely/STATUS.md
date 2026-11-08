@@ -4,6 +4,8 @@ Placeholder harness validation checks name ownership before refusing an existing
 
 Registered key routes prepare authorization without charging and commit admission only after route RBAC, canvas/reference checks and run/report ownership succeed. Authorization refusals leave quota untouched; application errors after complete authorization stay charged. Modern credential rows and retained legacy bearers retain their earliest principal-expiry cutoff transactionally, so extending a principal before or after lapse cannot revive or extend an issued bearer. Rotation inherits the replacement expiry. The custom assistant dialog preserves existing off/shadow bindings but offers no unsupported add/replace choice; ordinary Chatflow binding controls remain available.
 
+The API dialog regression is explicitly assigned to the Access keys subsystem in `architecture/boundaries.json`.
+
 Current-tree focused validation passes 121 real SQLite/production fixtures, 573 server tests across 31 suites, 17 UI tests, repository typechecking and architecture-boundary checks. These focused results do not replace full verification on the committed head; the exact-head result is recorded in `.verify/verify-report.json`.
 
 Harness canvas item, saved-draft and version reads retain their read-authorized identity map through the production route stack. Exact Harness grants, `api:read` and view RBAC suffice without execution scope; missing grants still refuse admission. Custom assistants (`ASSISTANT`) remain outside the release's exact grant types: migration reports bound assistants as unsupported, and their private integrations require off/shadow mode. The API dialog and access-key reference state that limitation.

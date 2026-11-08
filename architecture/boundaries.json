@@ -1383,7 +1383,8 @@
                 "packages/server/src/database/migrations/*/1801300000000-AccessKeys.ts",
                 "packages/server/src/utils/accessKeyTestFixtures.ts",
                 "packages/ui/src/views/apikey/**",
-                "packages/ui/src/api/apikey.js"
+                "packages/ui/src/api/apikey.js",
+                "packages/ui/src/views/chatflows/APICodeDialog.test.js"
             ],
             "entryPoints": [
                 "packages/ui/src/views/apikey/endpointAccess.js",
