@@ -31,6 +31,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             if (root === 'dashflows') throw new AppError(403, 'Sign in to your team to use Dashflows.')
             return
         }
+        if (root === 'apikey') throw new AppError(403, 'Sign in to manage access keys.')
         const read = ['GET', 'HEAD'].includes(req.method)
         const route = '/' + parts.join('/')
         const method = req.method === 'HEAD' ? 'GET' : req.method
@@ -150,19 +151,23 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     : ['chatflows:create', 'chatflows:update', 'agentflows:create', 'agentflows:update']
                 : root === 'dashflows'
                 ? [read ? 'chatflows:view' : 'chatflows:update']
+                : root === 'chatflows' && parts[1] === 'has-changed'
+                ? ['chatflows:update', 'agentflows:update']
                 : undefined
-        // Legacy management retains its existing RBAC and resource behavior, explicitly flagged by migration.
-        const admittedKey = await authorizeKey(
-            req,
-            operation,
-            key.workspaceId,
-            key.accessPolicy?.legacy && ['api:read', 'api:write'].includes(operation) ? undefined : resource,
-            true,
-            additionalPermissions
-        )
+        // Prepare registered operations without charging. Their route/controller commits admission
+        // only after all operation-specific guards. Unregistered legacy management retains compatibility.
+        const admittedKey = await authorizeKey(req, operation, key.workspaceId, resource, !registered, additionalPermissions, true)
+        if (registered)
+            accessContext(req)!.routeAdmission = {
+                operation,
+                workspaceId: key.workspaceId,
+                resource,
+                permissions: additionalPermissions,
+                harnessIds
+            }
         if (['harness:run', 'dashflow:report'].includes(operation))
             accessContext(req)!.harnessIds = { ...(await keyHarnessIds(admittedKey)), ...harnessIds, ...accessContext(req)!.harnessIds }
-        else if (operation === 'api:read' && ['chatflows', 'flow-versions', 'flow-drafts'].includes(root))
+        else if (['api:read', 'feedback:read', 'feedback:write'].includes(operation))
             // Canvas guards use the admitted identity map too; read authority does not require harness:run.
             accessContext(req)!.harnessIds = await keyHarnessIds(admittedKey, false)
         if (!req.user?.id) {
@@ -173,7 +178,11 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
                     permissions: admittedKey.permissions,
                     features: { ...OPEN_SOURCE_FEATURES },
                     activeWorkspaceId: key.workspaceId,
-                    activeOrganizationId: undefined,
+                    activeOrganizationId: (
+                        await data
+                            .getRepository((await import('../../database/entities/identity')).Workspace)
+                            .findOneBy({ id: key.workspaceId })
+                    )?.organizationId,
                     activeOrganizationProductId: OSS_PRODUCT_ID,
                     isOrganizationAdmin: false,
                     apiKeyId: key.id,

@@ -368,6 +368,21 @@ export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: bool
             }
             const refused = harnessRefusedFor(caller, names)
             if (refused === null) {
+                const { accessContext, authorizeKey } = await import('../accessKeys/authorization')
+                const context = accessContext(req)
+                // Keep nested canvas prerequisites in the admission recheck after a principal refresh.
+                if (context?.routeAdmission && caller.via === 'api_key')
+                    for (const name of new Set(names)) {
+                        const resourceId = caller.harnessIds?.[name]
+                        if (resourceId)
+                            await authorizeKey(
+                                req,
+                                context.routeAdmission.operation,
+                                context.key.workspaceId,
+                                { resourceType: 'HARNESS', resourceId },
+                                false
+                            )
+                    }
                 next()
                 return
             }

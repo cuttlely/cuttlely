@@ -153,9 +153,13 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
                       ...(dialogProps.apiAccessMode === 'private' && !dialogProps.chatflowApiKeyId
                           ? [{ label: 'Private (scoped access keys unavailable)', name: 'accesskeys' }]
                           : []),
+                      ...(isCustomAssistant && dialogProps.chatflowApiKeyId
+                          ? [{ label: 'Private (existing legacy binding; changes unavailable)', name: dialogProps.chatflowApiKeyId }]
+                          : []),
                       ...apiKeys
                           .filter(
                               (key) =>
+                                  !isCustomAssistant &&
                                   key.accessPolicy?.legacy &&
                                   !key.disabledAt &&
                                   (!key.legacyRevokedAt || new Date(key.legacyRevokedAt) > new Date())
@@ -174,6 +178,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     }
 
     const onApiKeySelected = (keyValue) => {
+        if (isCustomAssistant && ['off', 'shadow'].includes(rollout) && keyValue) return
         if (keyValue === 'addnewkey') {
             navigate('/apikey')
             return
@@ -887,6 +892,12 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                             <p>
                                 Custom assistants do not support exact resource grants. Existing private assistant bindings fail with
                                 enforcement on. Keep enforcement off or in shadow mode for these integrations.
+                            </p>
+                        )}
+                        {['off', 'shadow'].includes(rollout) && isCustomAssistant && (
+                            <p>
+                                Adding or replacing a custom assistant legacy binding is unavailable. Existing bindings can still run in off
+                                or shadow mode. Select Public to remove a binding.
                             </p>
                         )}
                         <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>

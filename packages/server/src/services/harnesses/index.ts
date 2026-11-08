@@ -1417,6 +1417,8 @@ const startBackgroundRun = async (
         caller: IHarnessCaller
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
+        // API admission follows run/chat authorization and precedes the first queued history write.
+        admit?: () => Promise<IHarnessCaller>
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
         // Required for enforced key callers; retained through runtime and queue name re-resolution.
         expectedChatflowId?: string
@@ -1435,6 +1437,7 @@ const startBackgroundRun = async (
         prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
             expectedChatflowId: opts.expectedChatflowId
         })
+        if (opts.admit) opts.caller = await opts.admit()
         const apiKeyId = callerKeyId(opts.caller)
         const source = opts.source || 'api'
         chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`

@@ -192,6 +192,587 @@ function latch() {
 }
 const esm = (file) => import(path.join(__dirname, '../packages/harness', file))
 
+test('round11 draft denial precedes committed quota admission through production routes', async () => {
+    const data = await database()
+    try {
+        await workspaceFixture(data)
+        const id = '77777777-7777-4777-8777-777777777777'
+        await data
+            .getRepository(ChatFlow)
+            .save({ id, name: 'Draft caller', workspaceId: 'team-a', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}' })
+        await data.getRepository(FlowVersionState).save({
+            chatflowId: id,
+            workspaceId: 'team-a',
+            draftFlowData: '{"nodes":[{"data":{"inputs":{"harnessName":"ungranted"}}}],"edges":[]}'
+        })
+        const key = await data.getRepository(ApiKey).save({
+            id: 'draft-denial',
+            apiKey: '',
+            apiSecret: '',
+            keyName: 'Draft denial',
+            workspaceId: 'team-a',
+            permissions: ['chatflows:view'],
+            accessPolicy: parsePolicy({ scopes: ['api:read'], rpm: 0, daily: 1 }),
+            harnesses: []
+        })
+        await data.getRepository(ApiKeyResource).save({ principalId: key.id, resourceType: 'CHATFLOW', resourceId: id })
+        const { secret } = await data.transaction((manager) =>
+            serverRequire('./src/services/accessKeys/credentials.ts').mintCredential(manager, key)
+        )
+        const express = serverRequire('express'),
+            request = serverRequire('supertest'),
+            http = express()
+        http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+        http.use(express.json())
+        http.use('/api/v1', serverRequire('./src/services/accessKeys/routes.ts').accessKeyRouteGuard)
+        for (const route of ['flow-drafts', 'chatflows'])
+            http.use('/api/v1/' + route, serverRequire('./src/routes/' + route + '/index.ts').default)
+        http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+        const denied = await request(http)
+            .get('/api/v1/flow-drafts/' + id)
+            .set('Authorization', 'Bearer ' + secret)
+        const afterDenial = await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id })
+        const allowed = await request(http)
+            .get('/api/v1/chatflows/' + id)
+            .set('Authorization', 'Bearer ' + secret)
+        console.log('round11 draft:', JSON.stringify({ denied: denied.status, afterDenial, nextAllowed: allowed.status }))
+        assert.equal(denied.status, 403)
+        assert.deepEqual(afterDenial, [], 'authorization refusal must not commit quota')
+        assert.equal(allowed.status, 200)
+    } finally {
+        await data.destroy()
+    }
+})
+
+for (const mode of ['off', 'shadow'])
+    test('round11 assistant binding production control: ' + mode, async () => {
+        const data = await database(true)
+        const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+        try {
+            await workspaceFixture(data)
+            const { generateSecretHash, storedApiKeyLookup } = serverRequire('./src/utils/apiKey.ts')
+            for (const key of ['old', 'replacement'])
+                await data.query(
+                    'INSERT INTO apikey (id, apiKey, apiSecret, keyName, workspaceId, permissions, harnesses) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        key,
+                        storedApiKeyLookup('fixture-assistant-' + key),
+                        generateSecretHash('fixture-assistant-' + key),
+                        key,
+                        'team-a',
+                        '[]',
+                        '[]'
+                    ]
+                )
+            const ids = [
+                '88888888-8888-4888-8888-888888888881',
+                '88888888-8888-4888-8888-888888888882',
+                '88888888-8888-4888-8888-888888888883'
+            ]
+            for (const [index, id] of ids.entries())
+                await data.query('INSERT INTO chat_flow (id, name, type, workspaceId, apikeyid, flowData) VALUES (?, ?, ?, ?, ?, ?)', [
+                    id,
+                    'Binding fixture',
+                    index === 2 ? 'CHATFLOW' : 'ASSISTANT',
+                    'team-a',
+                    index === 1 ? 'old' : null,
+                    '{"nodes":[],"edges":[]}'
+                ])
+            await data.transaction((manager) => serverRequire('./src/database/migrations/AccessKeys.ts').addAccessKeys(manager.queryRunner))
+            process.env.INBOUND_ACCESS_V2 = mode
+            setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: [] }) })
+            const express = serverRequire('express'),
+                request = serverRequire('supertest'),
+                http = express()
+            http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+            http.use(express.json())
+            http.post('/api/v1/prediction/:id', serverRequire('./src/utils/authorizeFlowAccess.ts').authorizePrediction, (_req, res) =>
+                res.json({ admitted: true })
+            )
+            http.use((req, _res, next) => {
+                req.user = { id: 'fixture', activeWorkspaceId: 'team-a', activeOrganizationId: 'org-a', permissions: [], features: {} }
+                next()
+            })
+            http.use('/api/v1/chatflows', serverRequire('./src/routes/chatflows/index.ts').default)
+            http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+            const retained = await request(http)
+                .post('/api/v1/prediction/' + ids[1])
+                .set('Authorization', 'Bearer fixture-assistant-old')
+            assert.equal(retained.status, 200)
+            for (const [index, id] of ids.entries()) {
+                const response = await request(http)
+                    .put('/api/v1/chatflows/' + id)
+                    .set('x-request-from', 'internal')
+                    .send({ apikeyid: 'replacement', apiAccessMode: 'private' })
+                console.log(
+                    'round11 binding:',
+                    mode,
+                    index === 0 ? 'first assistant' : index === 1 ? 'replace assistant' : 'CHATFLOW control',
+                    response.status
+                )
+                assert.equal(response.status, index === 2 ? 200 : 403, response.body.message)
+            }
+            assert.equal(
+                (
+                    await request(http)
+                        .post('/api/v1/prediction/' + ids[1])
+                        .set('Authorization', 'Bearer fixture-assistant-old')
+                ).status,
+                200
+            )
+            assert.equal((await data.getRepository(ChatFlow).findOneByOrFail({ id: ids[2] })).apikeyid, 'replacement')
+        } finally {
+            process.env.INBOUND_ACCESS_V2 = 'on'
+            setTeamPermissionLookup(null)
+            await data.destroy()
+        }
+    })
+
+for (const kind of [
+    'missing top grant',
+    'draft type RBAC',
+    'has-changed RBAC',
+    'Harness rename',
+    'foreign run',
+    'foreign result',
+    'foreign chat sync',
+    'foreign chat async',
+    'diagnostics',
+    'dashboard off',
+    'foreign receipt',
+    'expired receipt',
+    'foreign file chat',
+    'feedback parent mismatch',
+    'public adapter',
+    'draft granted read',
+    'authorized controller 403',
+    'own run',
+    'own result',
+    'run list',
+    'streaming capability',
+    'upload capability',
+    'lead read',
+    'message read',
+    'policy replaced after preparation',
+    'route RBAC removed after preparation',
+    'legacy key management'
+])
+    test('round11 complete authorization before quota: ' + kind, async () => {
+        const data = await database()
+        const store = await esm('store.mjs'),
+            history = await esm('history.mjs')
+        const dashflows = serverRequire('./src/services/dashflows/index.ts'),
+            oldRuntime = dashflows.runtime
+        const drafts = serverRequire('./src/services/flow-drafts/index.ts').default,
+            oldDraftStatus = drafts.getDraftStatus
+        const F = '77777777-7777-4777-8777-777777777771',
+            G = '77777777-7777-4777-8777-777777777772',
+            H = '77777777-7777-4777-8777-777777777773'
+        const name = 'quota-boundary'
+        const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+        try {
+            await workspaceFixture(data)
+            for (const id of [F, G, H])
+                await data.getRepository(ChatFlow).save({
+                    id,
+                    name: id === H ? name : 'Quota control',
+                    workspaceId: 'team-a',
+                    type: id === H ? 'HARNESS' : kind === 'draft type RBAC' && id === F ? 'ASSISTANT' : 'CHATFLOW',
+                    apiAccessMode: kind === 'public adapter' && id === F ? 'public' : 'private',
+                    flowData: '{"nodes":[],"edges":[]}'
+                })
+            if (kind === 'streaming capability')
+                await data.getRepository(ChatFlow).update({ id: F }, { chatbotConfig: '{"postProcessing":{"enabled":true}}' })
+            store.saveHarness(
+                {
+                    name,
+                    chatflowId: H,
+                    workspaceId: 'team-a',
+                    chief: { model: { nodeName: 'fixture' } },
+                    specialists: [{ name: 'writer', instructions: 'Fixture' }]
+                },
+                { overwrite: true }
+            )
+            const foreign = history.beginHarnessRun({
+                name,
+                chatId: 'foreign-chat',
+                source: 'api',
+                input: 'Fixture',
+                apiKeyId: 'another-key'
+            })
+            const key = await data.getRepository(ApiKey).save({
+                id: 'boundary-' + kind,
+                keyName: kind,
+                apiKey: '',
+                apiSecret: '',
+                workspaceId: 'team-a',
+                harnesses: [],
+                permissions: kind.includes('RBAC') ? ['chatflows:view'] : ['chatflows:view', 'chatflows:update', 'chatflows:delete'],
+                accessPolicy: parsePolicy({
+                    scopes: [
+                        'api:read',
+                        'api:write',
+                        'harness:read',
+                        'harness:run',
+                        'feedback:read',
+                        'feedback:write',
+                        'dashflow:read',
+                        'dashflow:report',
+                        'upload',
+                        'predict'
+                    ],
+                    rpm: 1,
+                    daily: 1
+                })
+            })
+            if (kind === 'policy replaced after preparation' || kind === 'legacy key management') {
+                key.accessPolicy.legacy = true
+                await data.getRepository(ApiKey).save(key)
+            }
+            const own = history.beginHarnessRun({ name, chatId: 'owned-chat', source: 'api', input: 'Fixture', apiKeyId: key.id })
+            for (const [resourceType, resourceId] of [
+                ['CHATFLOW', G],
+                ['CHATFLOW', F],
+                ['HARNESS', H],
+                ['DASHFLOW', 'quota-dashboard']
+            ]) {
+                if (['missing top grant', 'policy replaced after preparation'].includes(kind) && resourceId === F) continue
+                await data.getRepository(ApiKeyResource).save({ principalId: key.id, resourceType, resourceId })
+            }
+            const { secret } = await data.transaction((manager) =>
+                serverRequire('./src/services/accessKeys/credentials.ts').mintCredential(manager, key)
+            )
+            process.env.CUTTLELY_DASH_FLOWS = kind === 'dashboard off' || kind.includes('after preparation') ? 'false' : 'true'
+            dashflows.runtime = async () => ({
+                DashFlowError: class extends Error {},
+                dashStore: () => ({ published: () => ({ revision: 1, definition: { harness: name }, snapshot: { cards: [] } }) })
+            })
+            if (kind.includes('receipt'))
+                await data.getRepository(entities.ApiKeyReport).save({
+                    runId: foreign.id,
+                    dashboardId: 'quota-dashboard',
+                    principalId: kind === 'foreign receipt' ? 'another-key' : key.id,
+                    createdAt: new Date(Date.now() - (kind === 'expired receipt' ? 8 * 86400000 : 0))
+                })
+            if (kind === 'draft granted read')
+                await data.getRepository(FlowVersionState).save({
+                    chatflowId: F,
+                    workspaceId: 'team-a',
+                    draftFlowData: JSON.stringify({ nodes: [{ data: { inputs: { harnessName: name } } }], edges: [] })
+                })
+            if (kind === 'feedback parent mismatch')
+                await data.getRepository(entities.ChatMessage).save({
+                    id: 'quota-message',
+                    chatflowid: F,
+                    chatId: 'quota-chat',
+                    role: 'apiMessage',
+                    chatType: 'EXTERNAL',
+                    content: 'Fixture'
+                })
+            if (kind === 'authorized controller 403')
+                drafts.getDraftStatus = async () => {
+                    throw new (serverRequire('./src/errors/appError').AppError)(403, 'Fixture application failure after authorization')
+                }
+            const express = serverRequire('express'),
+                request = serverRequire('supertest'),
+                http = express()
+            http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+            http.use(express.json())
+            http.use('/api/v1', serverRequire('./src/services/accessKeys/routes.ts').accessKeyRouteGuard)
+            if (kind.includes('after preparation')) {
+                setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: [] }) })
+                const management = express()
+                management.use(express.json())
+                management.use((req, _res, next) => {
+                    req.user = {
+                        id: 'fixture',
+                        activeWorkspaceId: 'team-a',
+                        permissions: ['chatflows:view', 'chatflows:update', 'chatflows:delete'],
+                        isOrganizationAdmin: true
+                    }
+                    next()
+                })
+                management.use('/api/v1/apikey', serverRequire('./src/routes/apikey/index.ts').default)
+                management.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+                let edited = false
+                http.use(async (_req, _res, next) => {
+                    try {
+                        if (!edited) {
+                            edited = true
+                            const changed = await request(management)
+                                .put('/api/v1/apikey/' + key.id)
+                                .send({
+                                    keyName: kind,
+                                    permissions: ['chatflows:view'],
+                                    accessPolicy: { scopes: ['api:read'], rpm: 1, daily: 1 },
+                                    expiresAt: null,
+                                    resources: (kind === 'policy replaced after preparation' ? [G] : [F, G]).map((resourceId) => ({
+                                        resourceType: 'CHATFLOW',
+                                        resourceId
+                                    }))
+                                })
+                            assert.equal(changed.status, 200, changed.body.message)
+                        }
+                        next()
+                    } catch (error) {
+                        next(error)
+                    }
+                })
+            }
+            for (const [prefix, route] of [
+                ['chatflows', 'chatflows'],
+                ['flow-drafts', 'flow-drafts'],
+                ['harnesses', 'harnesses'],
+                ['dashflows', 'dashflows'],
+                ['get-upload-file', 'get-upload-file'],
+                ['feedback', 'feedback'],
+                ['orchestrate', 'orchestrate'],
+                ['chatmessage', 'chat-messages'],
+                ['leads', 'leads'],
+                ['chatflows-streaming', 'chatflows-streaming'],
+                ['chatflows-uploads', 'chatflows-uploads'],
+                ['apikey', 'apikey']
+            ])
+                http.use('/api/v1/' + prefix, serverRequire('./src/routes/' + route + '/index.ts').default)
+            http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+            let method = 'get',
+                target = '/chatflows/' + F,
+                body
+            let expected = 403
+            if (kind === 'draft type RBAC' || kind === 'draft granted read' || kind === 'authorized controller 403')
+                target = '/flow-drafts/' + F
+            if (kind === 'has-changed RBAC') target = '/chatflows/has-changed/' + F + '/1'
+            if (kind === 'route RBAC removed after preparation') target = '/chatflows/has-changed/' + F + '/1'
+            if (kind === 'Harness rename') {
+                method = 'put'
+                target = '/chatflows/' + H
+                body = { name: 'Key rename' }
+            }
+            if (kind === 'foreign run' || kind === 'foreign result') {
+                target = '/harnesses/' + name + '/runs/' + foreign.id + (kind === 'foreign result' ? '/result' : '')
+                expected = 404
+            }
+            if (kind.startsWith('foreign chat')) {
+                method = 'post'
+                target = '/harnesses/' + name + '/runs' + (kind.endsWith('async') ? '/async' : '')
+                body = { question: 'Fixture', chatId: 'foreign-chat' }
+            }
+            if (kind === 'diagnostics') target = '/harnesses/' + name + '/runs/' + foreign.id + '/diagnostics'
+            if (kind === 'dashboard off') target = '/dashflows/quota-dashboard/published'
+            if (kind.includes('receipt')) {
+                target = '/dashflows/quota-dashboard/reports/' + foreign.id
+                expected = 404
+            }
+            if (kind === 'foreign file chat') target = '/get-upload-file?chatflowId=' + F + '&chatId=foreign-chat&fileName=fixture.png'
+            if (kind === 'feedback parent mismatch') {
+                method = 'post'
+                target = '/feedback'
+                body = { messageId: 'quota-message', chatflowid: G }
+                expected = 400
+            }
+            if (kind === 'public adapter') {
+                method = 'post'
+                target = '/orchestrate/' + F
+                body = { messages: [{ role: 'user', content: 'Fixture' }] }
+            }
+            if (kind === 'legacy key management') target = '/apikey/options'
+            if (kind === 'draft granted read') expected = 200
+            if (kind === 'own run' || kind === 'own result') {
+                target = '/harnesses/' + name + '/runs/' + own.id + (kind === 'own result' ? '/result' : '')
+                expected = 200
+            }
+            if (kind === 'run list') {
+                target = '/harnesses/' + name + '/runs'
+                expected = 200
+            }
+            for (const [label, prefix] of [
+                ['streaming capability', 'chatflows-streaming'],
+                ['upload capability', 'chatflows-uploads'],
+                ['lead read', 'leads'],
+                ['message read', 'chatmessage']
+            ])
+                if (kind === label) {
+                    target = '/' + prefix + '/' + F
+                    expected = 200
+                }
+            const response = await request(http)
+                [method]('/api/v1' + target)
+                .set('Authorization', 'Bearer ' + secret)
+                .send(body)
+            const usage = await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id })
+            const control = await request(http)
+                .get('/api/v1/chatflows/' + G)
+                .set('Authorization', 'Bearer ' + secret)
+            const admitted = expected === 200 || kind === 'authorized controller 403'
+            console.log(
+                'round11 boundary:',
+                kind,
+                JSON.stringify({
+                    status: response.status,
+                    quota: usage.map(({ operation, accepted }) => ({ operation, accepted })),
+                    next: control.status
+                })
+            )
+            assert.equal(response.status, expected, response.body.message || response.body.error?.message)
+            if (!admitted) {
+                assert.deepEqual(usage, [])
+                assert.equal(response.headers['x-ratelimit-day-remaining'], undefined)
+            } else assert.ok(usage.every((row) => row.accepted === 1) && usage.length === 4)
+            assert.equal(control.status, admitted ? 429 : 200, control.body.message)
+            if (kind === 'foreign chat async')
+                assert.equal(
+                    serverRequire('./src/settings/runs.ts').runsInProgress(),
+                    0,
+                    'denied async admission releases lifecycle tracking'
+                )
+        } finally {
+            drafts.getDraftStatus = oldDraftStatus
+            dashflows.runtime = oldRuntime
+            process.env.CUTTLELY_DASH_FLOWS = 'false'
+            setTeamPermissionLookup(null)
+            store.deleteHarness(name)
+            await data.destroy()
+        }
+    })
+
+test('round11 modern expiry management lifecycle preserves irreversible credential cutoff', async () => {
+    const data = await database()
+    const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+    const originalNow = Date.now
+    let now = originalNow()
+    Date.now = () => now
+    try {
+        await workspaceFixture(data)
+        setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: [] }) })
+        const id = '99999999-9999-4999-8999-999999999999'
+        await data
+            .getRepository(ChatFlow)
+            .save({ id, name: 'Expiry', type: 'CHATFLOW', workspaceId: 'team-a', flowData: '{"nodes":[],"edges":[]}' })
+        const express = serverRequire('express'),
+            request = serverRequire('supertest'),
+            http = express()
+        http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+        http.use(express.json())
+        http.use((req, _res, next) => {
+            if (!req.headers.authorization)
+                req.user = { id: 'fixture', activeWorkspaceId: 'team-a', permissions: ['chatflows:view'], features: {} }
+            next()
+        })
+        http.use('/api/v1', serverRequire('./src/services/accessKeys/routes.ts').accessKeyRouteGuard)
+        http.use('/api/v1/apikey', serverRequire('./src/routes/apikey/index.ts').default)
+        http.use('/api/v1/chatflows', serverRequire('./src/routes/chatflows/index.ts').default)
+        http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+        const body = {
+            keyName: 'Expiry',
+            permissions: ['chatflows:view'],
+            accessPolicy: { scopes: ['api:read'], rpm: 0 },
+            resources: [{ resourceType: 'CHATFLOW', resourceId: id }],
+            expiresAt: null
+        }
+        const read = (secret) =>
+            request(http)
+                .get('/api/v1/chatflows/' + id)
+                .set('Authorization', 'Bearer ' + secret)
+        const results = []
+        for (const extendBefore of [false, true]) {
+            const start = now
+            const created = await request(http).post('/api/v1/apikey').send(body)
+            assert.equal(created.status, 200, created.body.message)
+            const key = created.body.find((row) => row.apiKey)
+            assert.ok(key)
+            assert.equal((await read(key.apiKey)).status, 200)
+            const edit = (expiry) =>
+                request(http)
+                    .put('/api/v1/apikey/' + key.id)
+                    .send({ ...body, expiresAt: new Date(expiry).toISOString() })
+            assert.equal((await edit(start + 60000)).status, 200)
+            now = start + (extendBefore ? 30000 : 60001)
+            if (!extendBefore) assert.equal((await read(key.apiKey)).status, 401, 'principal lapse is refused')
+            assert.equal((await edit(start + 3600000)).status, 200)
+            now = start + 60001
+            const retried = await read(key.apiKey)
+            const rotated = await request(http)
+                .post('/api/v1/apikey/' + key.id + '/rotate')
+                .send({ graceSeconds: 0 })
+            assert.equal(rotated.status, 200, rotated.body.message)
+            assert.equal((await read(rotated.body.apiKey)).status, 200)
+            assert.equal((await read(key.apiKey)).status, 401)
+            results.push({ extendBefore, oldBearerAfterCutoff: retried.status })
+            now = start + 120000
+        }
+        console.log('round11 modern expiry:', JSON.stringify(results))
+        for (const control of ['own expiry', 'revoked', 'legacy']) {
+            const start = now
+            let key, secret
+            if (control === 'legacy') {
+                const { generateSecretHash, storedApiKeyLookup } = serverRequire('./src/utils/apiKey.ts')
+                secret = 'fixture-round11-legacy-expiry'
+                key = await data.getRepository(ApiKey).save({
+                    id: 'expiry-legacy',
+                    apiKey: storedApiKeyLookup(secret),
+                    apiSecret: generateSecretHash(secret),
+                    keyName: 'Legacy expiry',
+                    workspaceId: 'team-a',
+                    permissions: ['chatflows:view'],
+                    harnesses: [],
+                    accessPolicy: { ...parsePolicy(body.accessPolicy), legacy: true }
+                })
+            } else {
+                const created = await request(http)
+                    .post('/api/v1/apikey')
+                    .send({ ...body, expiresAt: control === 'own expiry' ? new Date(start + 60000).toISOString() : null })
+                assert.equal(created.status, 200)
+                key = created.body.find((row) => row.apiKey)
+                secret = key.apiKey
+            }
+            assert.equal((await read(secret)).status, 200)
+            if (control === 'revoked')
+                assert.equal(
+                    (
+                        await request(http)
+                            .post('/api/v1/apikey/' + key.id + '/credentials/' + key.credentials[0].id + '/revoke')
+                            .send({})
+                    ).status,
+                    200
+                )
+            if (control === 'legacy') {
+                assert.equal(
+                    (
+                        await request(http)
+                            .put('/api/v1/apikey/' + key.id)
+                            .send({ ...body, expiresAt: new Date(start + 60000).toISOString() })
+                    ).status,
+                    200
+                )
+                now = start + 60001
+                assert.equal((await read(secret)).status, 401)
+            }
+            assert.equal(
+                (
+                    await request(http)
+                        .put('/api/v1/apikey/' + key.id)
+                        .send({ ...body, expiresAt: new Date(start + 3600000).toISOString() })
+                ).status,
+                200
+            )
+            now = start + 60001
+            const denied = await read(secret)
+            console.log('round11 expiry control:', control, denied.status)
+            assert.equal(denied.status, 401)
+            now = start + 120000
+        }
+        assert.deepEqual(
+            results.map((row) => row.oldBearerAfterCutoff),
+            [401, 401],
+            'principal extensions cannot extend an already-issued credential'
+        )
+    } finally {
+        Date.now = originalNow
+        setTeamPermissionLookup(null)
+        await data.destroy()
+    }
+})
+
 async function workspaceFixture(data) {
     const { User, Workspace, Organization } = entities
     await data.getRepository(User).save({

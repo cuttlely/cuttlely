@@ -1,3 +1,4 @@
+import { admitAccessKey } from '../../services/accessKeys/authorization'
 import express from 'express'
 import chatMessageController from '../../controllers/chat-messages'
 import { requireAnyPermission } from '../../identity/rbac'
@@ -15,6 +16,7 @@ router.get(
     ['/', '/:id'],
     requireAnyPermission('chatflows:view,chatflows:update,agentflows:view,agentflows:update'),
     requireHarnessCanvasAccess({ body: false }),
+    admitAccessKey,
     chatMessageController.getAllChatMessages
 )
 
@@ -23,6 +25,7 @@ router.put(
     ['/abort/', '/abort/:chatflowid/:chatid'],
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
     requireHarnessCanvasAccess({ idParam: 'chatflowid', body: false }),
+    admitAccessKey,
     chatMessageController.abortChatMessage
 )
 
@@ -31,6 +34,7 @@ router.delete(
     ['/', '/:id'],
     requireAnyPermission('chatflows:delete,agentflows:delete,assistants:delete'),
     requireHarnessCanvasAccess({ body: false }),
+    admitAccessKey,
     chatMessageController.removeAllChatMessages
 )
 

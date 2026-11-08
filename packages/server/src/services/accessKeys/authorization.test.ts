@@ -99,7 +99,7 @@ jest.mock('./data', () => ({
     })
 }))
 
-import { accessContext, authorizeFlowKey, authorizeKey, flowOperation, setAccessContext } from './authorization'
+import { accessContext, admitAccessKey, authorizeFlowKey, authorizeKey, flowOperation, setAccessContext } from './authorization'
 import { accessKeyRouteGuard } from './routes'
 import { accessKeyPreflight } from './preflight'
 import { scopedFlowMetadataUpdate } from './managementBoundary'
@@ -721,7 +721,7 @@ it.each(['key', 'owner'])('rechecks route RBAC after %s permission removal durin
     })
     app.use(express.json())
     app.use('/api/v1', accessKeyRouteGuard)
-    app.delete('/api/v1/chatmessage/:id', execute)
+    app.delete('/api/v1/chatmessage/:id', admitAccessKey, execute)
     app.use((error: any, _req: Request, res: express.Response, _next: express.NextFunction) => res.status(error.statusCode || 500).json({}))
     const response = await request(app)
         .delete('/api/v1/chatmessage/' + FLOW)
@@ -907,7 +907,7 @@ it('accepts uppercase flow UUIDs from a lead body', async () => {
     const seen: string[] = []
     const app = express()
     app.use(express.json())
-    app.use('/api/v1', accessKeyRouteGuard, (req, res) => {
+    app.use('/api/v1', accessKeyRouteGuard, admitAccessKey, (req, res) => {
         seen.push(String(req.body?.chatflowid))
         res.json({})
     })

@@ -91,17 +91,20 @@ export const externalAgentAuth: RequestHandler = (req: Request, _res: Response, 
 
 const allowKeyless = (): boolean => process.env.CUTTLELY_ORCHESTRATE_ALLOW_KEYLESS === 'true' && process.env.NODE_ENV !== 'production'
 
+export function assertExternalFlowKeyed(flow: { apikeyid?: string | null; apiAccessMode?: string | null } | undefined): void {
+    const keyed = typeof flow?.apikeyid === 'string' && flow.apikeyid.length > 0
+    if (keyed || flow?.apiAccessMode === 'private' || allowKeyless()) return
+    throw new ExternalAgentError(
+        StatusCodes.FORBIDDEN,
+        'keyless_flow',
+        'permission_error',
+        'Bind an API key to this flow to call it from Orchestrate.'
+    )
+}
 export const refuseKeylessFlow: RequestHandler = (_req: Request, res: Response, next: NextFunction) => {
     try {
-        const flow = res.locals.chatflow as { apikeyid?: string | null; apiAccessMode?: string | null } | undefined
-        const keyed = typeof flow?.apikeyid === 'string' && flow.apikeyid.length > 0
-        if (keyed || flow?.apiAccessMode === 'private' || allowKeyless()) return next()
-        throw new ExternalAgentError(
-            StatusCodes.FORBIDDEN,
-            'keyless_flow',
-            'permission_error',
-            'Bind an API key to this flow to call it from Orchestrate.'
-        )
+        assertExternalFlowKeyed(res.locals.chatflow)
+        next()
     } catch (error) {
         next(error)
     }

@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
+import { completeAccessKeyAdmission } from '../../services/accessKeys/authorization'
 import harnessesService from '../../services/harnesses'
 import {
     callerApiKeyId,
@@ -69,7 +70,9 @@ const deleteHarness = async (req: Request, res: Response, next: NextFunction) =>
 
 const listRuns = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.listRuns(req.params.name, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) }))
+        const runs = await harnessesService.listRuns(req.params.name, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) })
+        await completeAccessKeyAdmission(req)
+        return res.json(runs)
     } catch (error) {
         next(error)
     }
@@ -77,9 +80,11 @@ const listRuns = async (req: Request, res: Response, next: NextFunction) => {
 
 const getRun = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(
-            await harnessesService.getRun(req.params.name, req.params.runId, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) })
-        )
+        const run = await harnessesService.getRun(req.params.name, req.params.runId, activeWorkspace(req), {
+            apiKeyId: callerApiKeyId(req)
+        })
+        await completeAccessKeyAdmission(req)
+        return res.json(run)
     } catch (error) {
         next(error)
     }
@@ -110,6 +115,8 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         caller = await harnessCallerFor(req)
         expectedChatflowId = caller.via === 'api_key' ? caller.harnessIds?.[req.params.name] : undefined
         await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, caller, { expectedChatflowId })
+        await completeAccessKeyAdmission(req)
+        caller = await harnessCallerFor(req)
     } catch (error) {
         next(error)
         return
@@ -161,11 +168,16 @@ const startBackgroundRun = async (req: Request, res: Response, next: NextFunctio
     try {
         const workspaceId = activeWorkspace(req)
         const caller = await harnessCallerFor(req)
+        const expectedChatflowId = caller.via === 'api_key' ? caller.harnessIds?.[req.params.name] : undefined
         const started = await harnessesService.startBackgroundRun(req.params.name, req.body || {}, {
             workspaceId,
             source: 'api',
             caller,
-            expectedChatflowId: caller.via === 'api_key' ? caller.harnessIds?.[req.params.name] : undefined,
+            admit: async () => {
+                await completeAccessKeyAdmission(req)
+                return harnessCallerFor(req)
+            },
+            expectedChatflowId,
             track: trackBackgroundRun,
             onSettled: (outcome) => noteBackgroundRunSettled(req.params.name, outcome)
         })
@@ -180,9 +192,11 @@ const startBackgroundRun = async (req: Request, res: Response, next: NextFunctio
 const getRunResult = async (req: Request, res: Response, next: NextFunction) => {
     try {
         res.setHeader('Cache-Control', 'no-store')
-        return res.json(
-            await harnessesService.getRunResult(req.params.name, req.params.runId, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) })
-        )
+        const result = await harnessesService.getRunResult(req.params.name, req.params.runId, activeWorkspace(req), {
+            apiKeyId: callerApiKeyId(req)
+        })
+        await completeAccessKeyAdmission(req)
+        return res.json(result)
     } catch (error) {
         next(error)
     }

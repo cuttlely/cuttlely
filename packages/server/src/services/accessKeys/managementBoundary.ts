@@ -48,6 +48,8 @@ export const scopedFlowMetadataUpdate: import('express').RequestHandler = (req, 
                 throw new AppError(400, 'Invalid category.')
             patch.category = req.body.category ?? ''
         }
+        const { completeAccessKeyAdmission } = await import('./authorization')
+        await completeAccessKeyAdmission(req)
         if (Object.keys(patch).length) {
             // A concurrent type conversion cannot turn a scoped metadata edit into a Harness rename.
             const result = await repo.update({ ...where, type: (current.type ?? IsNull()) as any }, patch)

@@ -1,5 +1,5 @@
 import { accessRollout } from '../../services/accessKeys/rollout'
-import { accessContext } from '../../services/accessKeys/authorization'
+import { accessContext, completeAccessKeyAdmission } from '../../services/accessKeys/authorization'
 import { bearerDashboardReport, bearerDashboardResult } from '../../services/accessKeys/dashflowReports'
 import express, { Request, Response, NextFunction } from 'express'
 import { requireAnyPermission } from '../../identity/rbac'
@@ -54,6 +54,7 @@ router.get(
     action(async (req, res, ws) => {
         const result = (await runtime()).dashStore().published(req.params.id, ws)
         await harnessesService.getHarness(result.definition.harness, ws)
+        await completeAccessKeyAdmission(req)
         res.setHeader('Cache-Control', 'no-store')
         return res.json(result)
     })
@@ -69,7 +70,11 @@ router.get(
 router.get(
     '/:id/refresh-status',
     (req, res, next) => (req.user?.apiKeyId ? view : edit)(req, res, next),
-    action(async (req, res, ws) => res.json((await runtime()).dashStore().status(req.params.id, ws)))
+    action(async (req, res, ws) => {
+        const status = (await runtime()).dashStore().status(req.params.id, ws)
+        await completeAccessKeyAdmission(req)
+        return res.json(status)
+    })
 )
 router.put(
     '/:id',
@@ -80,8 +85,9 @@ router.post(
     '/:id/refresh',
     edit,
     harnessRunRateLimit('start'),
-    action(async (req, res, ws) =>
-        res
+    action(async (req, res, ws) => {
+        await completeAccessKeyAdmission(req)
+        return res
             .status(202)
             .json(
                 await startDashboardRefresh(
@@ -92,7 +98,7 @@ router.post(
                     res.locals.accessKeyDashboardHarnessId
                 )
             )
-    )
+    })
 )
 router.post(
     '/:id/cancel-refresh',

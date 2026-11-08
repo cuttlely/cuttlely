@@ -5,7 +5,13 @@ import orchestrateController from '../../controllers/orchestrate'
 import predictionsController from '../../controllers/predictions'
 import { AppError } from '../../errors/appError'
 import { authorizeFlowAccess } from '../../utils/authorizeFlowAccess'
-import { ExternalAgentError, externalAgentAuth, refuseKeylessFlow, sendExternalAgentError } from '../../utils/externalAgentAuth'
+import {
+    ExternalAgentError,
+    externalAgentAuth,
+    assertExternalFlowKeyed,
+    refuseKeylessFlow,
+    sendExternalAgentError
+} from '../../utils/externalAgentAuth'
 import { threadLogHash } from '../../utils/externalThread'
 import logger from '../../utils/logger'
 
@@ -104,7 +110,14 @@ router.post(
     orchestrateLogHook,
     wrap(predictionsController.getRateLimiterMiddleware),
     wrap(externalAgentAuth),
-    wrap(authorizeFlowAccess({ getChatflowId: (req) => req.params.id, keyOnly: true, checkOrigin: true })),
+    wrap(
+        authorizeFlowAccess({
+            getChatflowId: (req) => req.params.id,
+            keyOnly: true,
+            checkOrigin: true,
+            beforeAdmission: (_req, flow) => assertExternalFlowKeyed(flow)
+        })
+    ),
     wrap(refuseKeylessFlow),
     wrap(orchestrateController.createCompletion)
 )

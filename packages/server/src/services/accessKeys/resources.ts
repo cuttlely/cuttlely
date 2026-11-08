@@ -14,7 +14,9 @@ export async function keyHarnessIds(key: ApiKey, forRun = true): Promise<Record<
     if (
         !(forRun
             ? key.accessPolicy.scopes.includes('harness:run')
-            : key.accessPolicy.scopes.some((s) => ['harness:run', 'harness:read', 'api:read'].includes(s)))
+            : key.accessPolicy.scopes.some((s) =>
+                  ['harness:run', 'harness:read', 'api:read', 'feedback:read', 'feedback:write'].includes(s)
+              ))
     )
         return {}
     const data = await accessData()

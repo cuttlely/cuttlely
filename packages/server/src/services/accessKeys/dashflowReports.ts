@@ -4,6 +4,7 @@ import { AppError } from '../../errors/appError'
 import { hasPublishedAccount } from '../../routes/dashflows/public'
 import { trackBackgroundRun } from '../../settings/runs'
 import { accessData } from './data'
+import { completeAccessKeyAdmission } from './authorization'
 import { runtime } from '../dashflows'
 import harnessesService from '../harnesses'
 import { harnessCallerFor } from '../harnesses/apiAccess'
@@ -30,6 +31,7 @@ export const bearerDashboardReport: RequestHandler = action(async (req, res, nex
                 throw new AppError(409, 'Harness changed after authorization. Retry the report.')
             expectedChatflowId = record.chatflowId
         }
+        await completeAccessKeyAdmission(req)
         const caller = await harnessCallerFor(req)
         if (reportAdmissionHooks.afterCaller) await reportAdmissionHooks.afterCaller()
         const started = await harnessesService.startBackgroundRun(
@@ -71,6 +73,7 @@ export const bearerDashboardResult: RequestHandler = action(async (req, res, nex
         const result = await harnessesService.getRunResult(view.definition.harness, req.params.runId, req.user!.activeWorkspaceId!, {
             apiKeyId: req.user!.apiKeyId!
         })
+        await completeAccessKeyAdmission(req)
         res.json({
             finished: result.finished,
             status: result.status,

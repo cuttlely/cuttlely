@@ -6,6 +6,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key quota admission waits for complete route authorization, including RBAC, canvas references and run/report ownership. Authorization refusals leave quota available; application errors after authorization remain charged.
+-   The custom assistant API dialog preserves existing off/shadow bindings and removes unsupported add/replace choices, while ordinary Chatflow binding controls remain available.
+-   Principal expiry edits cap modern credentials in the same transaction as the principal update. Extending a principal before or after the cutoff cannot extend or revive an issued bearer; rotation inherits the new expiry.
+
 -   Granted Harness canvas item, draft and version API reads retain their read-authorized identity map through downstream canvas checks. `api:read` plus the exact grant and view permission suffices without Harness execution scope. The custom assistant API dialog and rollout guide now state that exact assistant grants are unsupported and existing private assistant integrations require off/shadow mode.
 
 -   Enforced access-key Harness runs retain authorized canvas IDs through sync, streaming, async, Harness cards/tools and serialized workers; omitted IDs refuse execution. Stale ordinary flow saves and concurrent scoped Harness renames return conflicts. Key management refuses missing IDs and rechecks creation authority under its writer lock. Anonymous private prediction is refused before JSON parsing.

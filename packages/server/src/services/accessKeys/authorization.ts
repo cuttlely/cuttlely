@@ -2,7 +2,7 @@ import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { accessRollout, compareLegacy } from './rollout'
 import { AccessKeyPolicyError, FlowOriginPolicyError } from './errors'
 import { recordKeyUse } from './audit'
-import { Request } from 'express'
+import { Request, RequestHandler } from 'express'
 import { DataSource } from 'typeorm'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
@@ -18,11 +18,18 @@ import { callerPolicyAllows, Operation, operationPermissions, readPolicy, Resour
 
 interface AccessContext {
     key: ApiKey
-    // Defined only for enforced key execution. Even an empty map requires a stable pin downstream.
+    // Enforced authorization retains stable identities. Even an empty map requires a pin downstream.
     harnessIds?: Record<string, string>
     admitted: Set<string>
     ownerPermissions?: string[]
-    checks: Map<string, [Operation, string, ResourceGrant | undefined]>
+    checks: Map<string, [Operation, string, ResourceGrant | undefined, string[] | undefined, boolean]>
+    routeAdmission?: {
+        operation: Operation
+        workspaceId: string
+        resource?: ResourceGrant
+        permissions?: string[]
+        harnessIds: Record<string, string>
+    }
 }
 const contexts = new WeakMap<Request, AccessContext>()
 export function accessContext(req: Request): AccessContext | undefined {
@@ -94,7 +101,8 @@ async function checkKey(
     workspaceId: string,
     resource?: ResourceGrant,
     charge = true,
-    requiredPermissions?: string[]
+    requiredPermissions?: string[],
+    legacyManagement = false
 ): Promise<ApiKey> {
     // Preflight can run long before the body finishes. Refresh credential, principal and owner
     // at admission; an already admitted operation keeps its request-local authentication.
@@ -105,6 +113,9 @@ async function checkKey(
     if (key.workspaceId !== workspaceId) throw new AppError(401, 'Unauthorized')
     const policy = key.accessPolicy ? readPolicy(key.accessPolicy) : undefined
     if (!policy) throw new AccessKeyPolicyError('Access policy unavailable. Run database migrations.')
+    const requestedResource = resource
+    // Compatibility belongs to the refreshed policy, never to an earlier request snapshot.
+    if (legacyManagement && policy.legacy && ['api:read', 'api:write'].includes(operation)) resource = undefined
     const ownerPermissions = accessContext(req)?.ownerPermissions
     if (
         ownerPermissions &&
@@ -115,7 +126,16 @@ async function checkKey(
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError('Operation is not allowed by this access key.')
     // Revalidate prerequisites (for example stream or nested Harness authority) against the
     // refreshed principal too, before any quota is consumed.
-    if (pending) for (const check of pending.checks.values()) await checkKey(req, ...check, false)
+    if (pending) {
+        const context = accessContext(req)!
+        context.routeAdmission = pending.routeAdmission
+        if (pending.routeAdmission)
+            context.harnessIds = {
+                ...(await keyHarnessIds(key, ['harness:run', 'dashflow:report'].includes(pending.routeAdmission.operation))),
+                ...pending.routeAdmission.harnessIds
+            }
+        for (const check of pending.checks.values()) await checkKey(req, check[0], check[1], check[2], false, check[3], check[4])
+    }
     const data = await accessData()
     if (resource && !(await hasGrant(data, key, resource))) throw new AccessKeyPolicyError('Resource is not allowed by this access key.')
     if (!policy.legacy && !operationPermissions(operation, resource).some((permission) => key.permissions.includes(permission)))
@@ -132,8 +152,31 @@ async function checkKey(
     }
     if (req.user?.apiKeyId === key.id && !req.user.id) req.user.permissions = key.permissions
     ctx.admitted.add(admission)
-    ctx.checks.set(admission, [operation, workspaceId, resource])
+    ctx.checks.set(admission + ':' + (requiredPermissions || []).join(',') + ':' + legacyManagement, [
+        operation,
+        workspaceId,
+        requestedResource,
+        requiredPermissions,
+        legacyManagement
+    ])
     return key
+}
+
+/** Called after route-specific authorization, before application work or response headers. */
+export async function completeAccessKeyAdmission(req: Request, permissions?: string[]): Promise<void> {
+    const plan = accessContext(req)?.routeAdmission
+    if (!plan) return // sessions, public transports, off/shadow and legacy unregistered compatibility
+    for (const group of (req.res?.locals.accessKeyPermissionChecks || []) as string[][])
+        await authorizeKey(req, plan.operation, plan.workspaceId, plan.resource, false, group, true)
+    if (permissions) await authorizeKey(req, plan.operation, plan.workspaceId, plan.resource, false, permissions, true)
+    await authorizeKey(req, plan.operation, plan.workspaceId, plan.resource, true, plan.permissions, true)
+}
+export async function checkAccessKeyRoutePermissions(req: Request, permissions: string[]): Promise<void> {
+    const plan = accessContext(req)?.routeAdmission
+    if (plan) await authorizeKey(req, plan.operation, plan.workspaceId, plan.resource, false, permissions, true)
+}
+export const admitAccessKey: RequestHandler = (req, _res, next) => {
+    void completeAccessKeyAdmission(req).then(() => next(), next)
 }
 export async function authorizeKey(
     req: Request,
@@ -141,10 +184,11 @@ export async function authorizeKey(
     workspaceId: string,
     resource?: ResourceGrant,
     charge = true,
-    requiredPermissions?: string[]
+    requiredPermissions?: string[],
+    legacyManagement = false
 ): Promise<ApiKey> {
     try {
-        const key = await checkKey(req, operation, workspaceId, resource, charge, requiredPermissions)
+        const key = await checkKey(req, operation, workspaceId, resource, charge, requiredPermissions, legacyManagement)
         if (charge) void recordKeyUse(req, key, operation, 'accepted').catch(() => undefined)
         return key
     } catch (error) {

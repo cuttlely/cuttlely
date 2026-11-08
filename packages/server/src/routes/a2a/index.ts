@@ -5,7 +5,13 @@ import a2aController from '../../controllers/a2a'
 import predictionsController from '../../controllers/predictions'
 import { AppError } from '../../errors/appError'
 import { authorizeFlowAccess } from '../../utils/authorizeFlowAccess'
-import { ExternalAgentError, externalAgentAuth, refuseKeylessFlow, sendExternalAgentError } from '../../utils/externalAgentAuth'
+import {
+    ExternalAgentError,
+    externalAgentAuth,
+    assertExternalFlowKeyed,
+    refuseKeylessFlow,
+    sendExternalAgentError
+} from '../../utils/externalAgentAuth'
 import logger from '../../utils/logger'
 import { isJsonContentType } from '../orchestrate'
 import { assertA2aPublicBaseUrl } from '../../services/a2a/agentCard'
@@ -158,7 +164,14 @@ router.get(
     a2aLogHook,
     wrap(predictionsController.getRateLimiterMiddleware),
     wrap(externalAgentAuth),
-    wrap(authorizeFlowAccess({ getChatflowId: (req) => req.params.id, keyOnly: true, checkOrigin: true })),
+    wrap(
+        authorizeFlowAccess({
+            getChatflowId: (req) => req.params.id,
+            keyOnly: true,
+            checkOrigin: true,
+            beforeAdmission: (_req, flow) => assertExternalFlowKeyed(flow)
+        })
+    ),
     wrap(refuseKeylessFlow),
     wrap(a2aController.getAgentCard)
 )
@@ -167,7 +180,14 @@ router.post(
     a2aLogHook,
     wrap(predictionsController.getRateLimiterMiddleware),
     wrap(externalAgentAuth),
-    wrap(authorizeFlowAccess({ getChatflowId: (req) => req.params.id, keyOnly: true, checkOrigin: true })),
+    wrap(
+        authorizeFlowAccess({
+            getChatflowId: (req) => req.params.id,
+            keyOnly: true,
+            checkOrigin: true,
+            beforeAdmission: (_req, flow) => assertExternalFlowKeyed(flow)
+        })
+    ),
     wrap(refuseKeylessFlow),
     wrap(a2aController.handleRpc)
 )

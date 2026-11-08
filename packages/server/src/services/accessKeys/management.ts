@@ -260,11 +260,20 @@ export const updateAccessKey: RequestHandler = action(async (req) => {
     await withLifecycleTarget(req, snapshot, async (manager, fresh) => {
         await policyInput(req)
         const repo = manager.getRepository(ApiKey)
-        // The retained bearer has no credential row. Preserve its earliest principal-expiry
-        // cutoff before replacing that expiry, using the same monotonic retirement field as rotation.
+        // Principal activity is reversible; an issued bearer's earliest expiry is not. Cap
+        // every credential in the same transaction before replacing the principal expiry.
         const cutoffs = [fresh.expiresAt, input.expiresAt].filter((date): date is Date => !!date)
         if (cutoffs.length) {
             const cutoff = new Date(Math.min(...cutoffs.map((date) => new Date(date).getTime())))
+            await manager
+                .getRepository(ApiKeyCredential)
+                .createQueryBuilder()
+                .update()
+                .set({ expiresAt: cutoff })
+                .where('principalId = :id', { id: key.id })
+                .andWhere('(expiresAt IS NULL OR expiresAt > :cutoff)', { cutoff })
+                .execute()
+            // Retained legacy bearers have no credential row.
             await repo
                 .createQueryBuilder()
                 .update()
