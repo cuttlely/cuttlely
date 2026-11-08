@@ -7,7 +7,7 @@ you may not use this file except in compliance with the License.
 
 # Choose the sign-in method
 
-Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The page is available to an owner or a role with **Authentication: Manage**.
+Open **Admin** > **Auth / SSO** to see the method used for ordinary sign-in. The page is available to an owner or a role with **Authentication: Manage**. Global method/provider configuration additionally requires the [instance operator](./instance-operator.md) and active ownership. Root status, organization-scoped SCIM and recovery-alert acknowledgment retain their tenant permission gates.
 
 The available methods are **Local login**, **Generic OIDC**, and **WorkOS**. The durable active method controls ordinary sign-in; the WorkOS and local settings remain available when their method is selected. SCIM user and group provisioning is configured separately on this page.
 
@@ -35,7 +35,7 @@ Lockouts, password changes, and the API routes are in [Users without AuthKit](./
 
 ## Set up WorkOS
 
-1. Set `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, and the other values in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md), then restart. The owner can also fill these in from **Admin** > **Server Settings** > **Sign-in & identity** with **Set up AuthKit**; those values apply after a restart.
+1. Set `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, and the other values in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md), then restart. The instance operator, signed in as an active owner, can also fill these in from **Admin** > **Server Settings** > **Sign-in & identity** with **Set up AuthKit**; those values apply after a restart.
 2. Give an active owner a local password: run `CUTTLELY_LOCAL_ADMIN=true pnpm user --email owner@example.com` from source, or `docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email owner@example.com` with Docker Compose, and enter the password at the prompt. See [In a terminal](./sign-in.md#in-a-terminal). WorkOS activation returns `409 Conflict` until owner recovery is ready.
 3. Change the method to **WorkOS** as described in [Change the method](#change-the-method).
 4. Invite people as described in [Invite people](./sign-in.md#invite-people).

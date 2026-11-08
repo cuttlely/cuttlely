@@ -6,7 +6,7 @@ Instance-operator settings for this server. The page is **Admin** > **Server Set
 
 `PUT /api/v1/server-settings`
 
-The caller must be the host-designated instance operator and an active organization owner, with a server-validated interactive session. Every request rechecks the host designation and running database connection. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
+Reading full settings or writing settings requires the designated instance operator and active organization ownership, with a server-validated interactive session. The root GET also returns a limited capability notice to other active owners, as described below. Each protected configuration request rechecks the designation and running database connection. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
 
 These settings are instance-wide. One install has one settings file. A workspace role cannot read or change them, including a workspace admin whose session lists permissions from another workspace. Ownership is a tenant role and does not confer service administration. A designated operator can use a workspace only with its existing tenant membership. A workspace in another organization does not carry that role.
 
@@ -14,7 +14,7 @@ These settings are instance-wide. One install has one settings file. A workspace
 
 ## Read
 
-`GET` returns every setting the page knows. Each setting includes its key, label, help, type, and where the value comes from.
+`GET` returns every setting the page knows to the instance operator. Each setting includes its key, label, help, type, and where the value comes from.
 
 | Field       | Meaning                                                                                                                                                                                                                                               |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -42,6 +42,8 @@ Active owners with a live, server-validated interactive session may call these n
 | `POST /api/v1/server-settings/operator/claim`   | Redeem proof for genuinely Unclaimed authority.                                                                                                                                                                              |
 | `POST /api/v1/server-settings/operator/recover` | Redeem separate recovery proof for safe Disabled/corrupt authority or an inactive bound owner at the current connection; this does not reopen ordinary claim.                                                                |
 | `POST /api/v1/server-settings/operator/rebind`  | Redeem fresh proof after a database connection change; only the previously bound active owner is eligible.                                                                                                                   |
+
+For the current operator, `GET /api/v1/server-settings/operator` also returns `operator.userId`, `operator.source`, `mutable` and eligible same-organization owners with their IDs and emails. Raw host designation values, database fingerprints and proof codes are not returned. Nonoperators receive only the limited status described above.
 
 All proof POSTs require recent authentication (within ten minutes), `x-request-from: internal`, explicit `CLAIM`, `RECOVER` or `REBIND` confirmation and current state eligibility. Issuance and wrong attempts are rate-limited. Redemption requires the single-use host-log code within five minutes, bound to purpose, installation, user, requesting session, authentication epoch, database fingerprint and authority generation. Any defined host operator override disables issuance and redemption. Unsafe files require host recovery. These endpoints grant no global permission to organization owners; only successful explicit host-proven designation establishes operator authority. `POST /api/v1/server-settings/operator/transfer` and `/revoke` still require the current operator, recent authentication and confirmation, and are disabled by any defined host override. See [operator onboarding and recovery](../how-to/instance-operator.md) for state, rate-limit and recovery details.
 
@@ -156,7 +158,7 @@ When the host has set the variable, `PUT` is 409 and the file is unchanged:
 }
 ```
 
-A host lock on any other setting is 400 `INVALID`, with a message that the host set it. `CUTTLELY_HISTORY_KEEP` and the invite and mail settings are the exception: a saved value wins, and the field stays editable. The settings list and the host-only list are small and fixed. They are not paged.
+A write refused solely for host locks on runtime switches or `INBOUND_ACCESS_V2` is 409 `LOCKED`. Host locks on other writable settings remain 400 `INVALID`, with a message that the host set them. Additional validation errors can make a mixed-error response 400. `CUTTLELY_HISTORY_KEEP` and editable invite and mail settings use saved values first and stay editable; `SMTP_PASSWORD` remains read-only. The settings list and the host-only list are small and fixed. They are not paged.
 
 While the switch is off, `POST /api/v1/flow-drafts/:id/check` returns 409 with the message `The publish check is turned off on this server.` That includes a start that selects questions with `count`, `questions`, or `questionIds`. No new question is replayed. `GET` and `DELETE` of `/api/v1/flow-drafts/:id/check/:checkId` still return the check, so one that is already running can be read and stopped. `GET /api/v1/flow-drafts/:id/check/history` still returns the stored question list. It does not start a check. `GET /api/v1/flow-drafts/:id/check` (the setup, with no check id) returns 200 with `publishCheck: false`, `unavailable.code` `disabled`, and an empty question list. A check that is already running is still in `check`, with its `id` and `status`. Publish itself still succeeds. A passing test set that was already stored can still publish. A new check cannot be started until the switch is on again. With the variable unset, the check behaves as it did before this setting existed.
 
@@ -183,11 +185,11 @@ If one of these locks people out, set the same variable on the host to a value i
 
 `GET /api/v1/server-settings/history?cursor=&limit=`
 
-Organization owner only. The same 401 and 403 rules as the other settings routes apply. A workspace admin, a member, and a user in another workspace are 403.
+Instance operator and active organization owner only. The same session and ownership gates as service configuration apply; another organization owner, a workspace admin or a member does not gain history access. The operator must retain active organization ownership and current workspace membership.
 
-Newest first. Each row has when (`at`), who (`actorId` is the user id when a person did it, and `by` is the label the admin page already shows), the key, and the old and new value. A secret is `{ "key": "NAME", "secret": "changed" }`. The old and new values are not stored on a first save, a replacement, a removal, a failed save (nothing is written), or a rollback.
+Newest first. Each row has when (`at`), who (`actorId` is the user id when a person did it, and `by` is the label the admin page already shows), the key, and the old and new value. A secret is `{ "key": "NAME", "secret": "changed" }`. For secrets, old and new values are never stored, including on a first save, replacement, removal or rollback. A rejected save writes no history row. Operator lifecycle changes intentionally record previous and new operator user IDs under `operator_user_id`; raw host designation values, database fingerprints and proof codes are excluded.
 
-`by` stays the existing label: an email for a person, `command line`, or `safe boot`. The response does not add a display name. A save sets `event` to `server_setting.updated`.
+`by` is an email for ordinary person-initiated settings saves, `admin panel` for panel operator lifecycle changes, `command line` for the CLI, or `safe boot`. The response does not add a display name. Ordinary settings saves use `event: "server_setting.updated"`; panel operator lifecycle events use `instance_operator_` plus their action, and host binding changes use `instance_operator_binding`.
 
 `CUTTLELY_HISTORY_KEEP` is how many of these rows to keep. It is a setting on Admin > Server Settings, under Security & network, in the History group (Settings changes to keep). It is not an environment-only row. The default is 1000. A saved value must be a whole number from 100 to 10000, and a save outside that range is refused. A value saved on the page wins over `CUTTLELY_HISTORY_KEEP` in the environment. With nothing saved, a valid environment value is used, then 1000. A host value outside 100 to 10000 is ignored. The field stays editable when the environment sets it. `effective` is the number in effect. `source` is `panel` when the page saved it, `host` when only the environment sets it, or `default`. The page says panel, env, or default for those three. On each new row the file is rewritten to the newest rows only, under a lock, as one temporary file moved into place. A row that is still inside that cap is not dropped when two saves append at the same time. A cursor that pointed at a row now past the cap reads the older rows that are still kept, or an empty page when none remain.
 
@@ -196,7 +198,7 @@ Newest first. Each row has when (`at`), who (`actorId` is the user id when a per
 | `limit`  | Page size. Default 50. A number above 100 is treated as 100. `0` or a value that is not a whole number is 400 `INVALID`.              |
 | `cursor` | Opaque value from `nextCursor`. Rows strictly older than that row. Omit it for the first page. Anything else is 400 `INVALID_CURSOR`. |
 
-A rejected save, including a host-locked name, does not append a history row. Saving and appending the history row is one step. If the history row cannot be written, the settings file is put back and the response is 500 `{ "code": "HISTORY_FAILED" }`. The body does not include the value. Two saves in one process run one after the other, so the later row's old value is the earlier row's new value.
+For ordinary settings saves, a rejected save, including a host-locked name, does not append a history row. Saving and appending the history row is one step. If the history row cannot be written, the settings file is put back and the response is 500 `{ "code": "HISTORY_FAILED" }`. The body does not include the value. Two saves in one process run one after the other, so the later row's old value is the earlier row's new value.
 
 `nextCursor` is null on the last page.
 
@@ -347,10 +349,10 @@ The error body does not include the submitted text. A rejected write is not adde
 
 An empty string clears any of these, the same as other ordinary settings. A restart applies them.
 
-Knowing that a secret exists is enough to operate the server. Returning the secret, how long it is, a hash of it, the path it was read from, or the Redis address would tell a stolen owner session more than it needs.
+Knowing that a secret exists is enough to operate the server. Returning the secret, how long it is, a hash of it, the path it was read from, or the Redis address would tell a stolen operator session more than it needs.
 
 ## Access-key rollout
 
-`INBOUND_ACCESS_V2` is an instance-operator-only, service-wide runtime select (`off`, `shadow`, `on`; default `off`) under Security & network. Use the existing `PUT /api/v1/server-settings` with `values.INBOUND_ACCESS_V2`; writes require an interactive session and `x-request-from: internal`. Workspace admins, access keys and unauthenticated callers are rejected by the existing settings gates. This does not grant workspace-specific rollout authority.
+`INBOUND_ACCESS_V2` is an instance-operator-only, service-wide runtime select (`off`, `shadow`, `on`; default `off`) under Security & network. Use the existing `PUT /api/v1/server-settings` with `values.INBOUND_ACCESS_V2`; writes require an interactive session, recent authentication (within ten minutes) and `x-request-from: internal`. The panel reviews and confirms the mode change before sending the write. Stale authentication returns 403 `RECENT_AUTH_REQUIRED` before saving. Workspace admins, access keys and unauthenticated callers are rejected by the existing settings gates. This does not grant workspace-specific rollout authority.
 
 The setting’s `effective`, `source` (`host`, `panel`, `default`) and `locked` fields describe what new requests use. A nonempty host value wins and locks writes with `409 LOCKED`, even when it is `off`. An invalid host mode is reported as `effective: "invalid"`; access-key checks retain 503. An invalid saved mode reports effective `off`, source `panel`, and an explanation without echoing the invalid bytes. Saving persists in `settings/server.json` and applies on the next request; it never writes the host environment and needs no restart. `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` ignores the saved mode. History changes include effective `from`/`to` and `fromSource`/`toSource`. Discard, retry, CLI restore and safe boot preserve the current rollout value. See [Access keys](./access-keys.md#rollout-and-migration) for compatibility warnings and the single-instance requirement.

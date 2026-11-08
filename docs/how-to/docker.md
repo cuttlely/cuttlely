@@ -8,7 +8,7 @@ The database is SQLite unless you change it. Compose leaves `DATABASE_TYPE` unse
 
 Postgres is [from-source.md](./from-source.md): `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, and `DATABASE_PASSWORD`. The Render Blueprint sets those for a hosted database ([render.md](./render.md)). Cuttlely does not read `DATABASE_URL`.
 
-The owner can also switch from the browser: **Admin**, then **Server Settings**, then **Database**, then **Switch database**. It tests the new database first, says whether it is empty or already has Cuttlely data, explains how you sign in afterwards, and asks you to type `RESTART`. Nothing is copied between databases, and **Switch back** returns to the previous one. A database set in `.env` or the compose file shows as set by the host and can only be changed there.
+The [instance operator](./instance-operator.md), signed in as an active organization owner, can also switch from the browser: **Admin**, then **Server Settings**, then **Database**, then **Switch database**. It tests the new database first, says whether it is empty or already has Cuttlely data, explains how you sign in afterwards, and asks you to type `RESTART`. Nothing is copied between databases, and **Switch back** returns to the previous one. A database set in `.env` or the compose file shows as set by the host and can only be changed there.
 
 ```bash
 git clone https://github.com/cuttlely/cuttlely.git

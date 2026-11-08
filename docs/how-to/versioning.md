@@ -2,7 +2,7 @@
 
 Cuttlely keeps every saved version of a flow. You can see what changed in each save, compare an old version with the flow as it is now, see who made each change, and put an old version back.
 
-History covers every canvas: chatflows, agentflows, harnesses, and ETL pipelines. It is on by default. It needs no setup and no network. Versions are kept in a Git repo on the server, next to the rest of Cuttlely's data. The owner can also [keep a copy in GitHub](#keep-a-copy-in-github), and use it to [move a flow from Dev to Prod](#move-a-flow-from-dev-to-prod). Credentials are kept by name only, and password and other known secret fields are never written to history. Secret-looking text you type into a prompt or another text field, such as an API key or a Bearer token, is hidden from history. Keep keys in credentials anyway.
+History covers every canvas: chatflows, agentflows, harnesses, and ETL pipelines. It is on by default. It needs no setup and no network. Versions are kept in a Git repo on the server, next to the rest of Cuttlely's data. The instance operator with active ownership can also [keep a copy in GitHub](#keep-a-copy-in-github). Organization owners retain the separate ability to [move a flow from Dev to Prod](#move-a-flow-from-dev-to-prod). Credentials are kept by name only, and password and other known secret fields are never written to history. Secret-looking text you type into a prompt or another text field, such as an API key or a Bearer token, is hidden from history. Keep keys in credentials anyway.
 
 Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). What a harness is: [Harnesses](./harnesses.md). Pipelines: [ETL](./etl.md). The routes, settings, and file format are in the reference pages: [History API](../reference/versioning-api.md), [Drafts API](../reference/drafts-api.md), [History settings](../reference/versioning-settings.md), and [Version files](../reference/version-files.md).
 
@@ -329,7 +329,7 @@ History is a Git repo in a `versions` folder in the Cuttlely data directory:
 
 The repo has one folder per flow under `flows/`. You can read it with ordinary Git, for example `git log` in that folder. The file layout is in [Version files](../reference/version-files.md). Do not edit the repo while Cuttlely is running.
 
-The repo stays on the server unless the owner connects GitHub. Then every new version is also copied there: see [Keep a copy in GitHub](#keep-a-copy-in-github). Cuttlely uses its own Git settings: it does not read your global Git config or Git credentials, and its commits skip hooks. The server needs `git` on its path. The Docker image includes it.
+The repo stays on the server unless the instance operator, signed in as an active owner, connects GitHub. Then every new version is also copied there: see [Keep a copy in GitHub](#keep-a-copy-in-github). Cuttlely uses its own Git settings: it does not read your global Git config or Git credentials, and its commits skip hooks. The server needs `git` on its path. The Docker image includes it.
 
 Back it up with the rest of the data directory. `docker compose down -v` deletes the Docker volume, and the history with it.
 
@@ -337,13 +337,13 @@ Deleting a flow adds a last version named `Deleted <flow name>`. The deleted flo
 
 ## Keep a copy in GitHub
 
-History always stays on the server. The owner can also connect a GitHub repository, so every version is copied there a few seconds after it is saved. That gives you an off-server copy you can browse on GitHub.
+History always stays on the server. The instance operator, signed in as an active owner, can also connect a GitHub repository, so every version is copied there a few seconds after it is saved. That gives you an off-server copy you can browse on GitHub.
 
-Open **Admin**, then **Version History**. Only the owner (Super User) sees this page, because the connection is for the whole server.
+Open **Admin**, then **Version History**. The page uses the owner (Super User) UI gate; connecting GitHub and changing global environment configuration additionally require the [instance operator](./instance-operator.md), because they affect the whole server.
 
 ### Right after setup
 
-Setup does not stop at a GitHub page: after **Sign Up** you land in Cuttlely, so a new owner can try a flow first. When you have flows worth keeping, open **Admin**, then **Version History**, and connect GitHub there. The same card also opens on its own at `/setup/github`.
+Setup does not stop at a GitHub page: after **Sign Up** you land in Cuttlely, so a new owner can try a flow first. When you have flows worth keeping, the instance operator with active ownership can open **Admin**, then **Version History**, and connect GitHub there; a new owner is not automatically an operator. The same card also opens on its own at `/setup/github`.
 
 ![The Version History page under Admin. One GitHub card says Keep a copy of every version in your own GitHub repository, shows a Not connected chip, explains that keys are never copied, and has a Connect GitHub button. Below it, This server is, with Dev, Prod and Not set.](../images/versioning/github-not-connected.png)
 

@@ -14,7 +14,7 @@ The owner password form shows when the durable active method is Local login, the
 | Docker      | On for the default owner-only Local method. The start script turns the flag on when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, for a WorkOS deployment. |
 | Render      | Off. Owner recovery is always available at `/owner-recovery`; run `pnpm user` first if the owner needs a password.                                                                                          |
 
-With the flag off, Local users off, and no available selected remote method, the sign-in page says `Sign-in is not configured.` and still offers **Owner recovery**. A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn an ordinary sign-in method back on.
+With the flag off, Local users off, and no available selected remote method, the sign-in page says `Sign-in is not configured.` and still offers **Owner recovery**. With local sign-in already enabled on the host, a server with no account opens the account-only `/setup` flow. Without a configured sign-in method, configure one on the host first. When accounts already exist, that page also says how to turn an ordinary sign-in method back on.
 
 ![The Sign In page. Under the Cuttlely logo and the Sign In title, the only line is Sign-in is not configured.](../images/sign-in/signin-not-configured.png)
 
@@ -30,7 +30,7 @@ The first account is the owner, shown as **Super User**. You can create it in th
 
 ### In the browser
 
-On a new install, opening the app goes to `/setup`. Open the link in the ready block, or paste the setup code. The account form appears only after the code is accepted. Fill in your name, email, and password, then select **Create account**. The page is pictured in [From source](./from-source.md#in-the-browser).
+On a new install with local sign-in enabled on the host, opening the app goes to the account-only `/setup` flow. Open the link in the ready block, or paste the setup code. The account form appears only after the code is accepted. Fill in your name, email, and password, then select **Create account**. The page is pictured in [From source](./from-source.md#in-the-browser).
 
 Show the block with:
 
@@ -130,7 +130,7 @@ While WorkOS is the durable active method, `/signin` shows the WorkOS button and
 
 To add people, see [Invite people](#invite-people). Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
 
-The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the value used to seal one temporary setup-test session, and runs a real test sign-in with the new values before anything is saved. Application sessions remain database-backed. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
+The [instance operator](./instance-operator.md), signed in as an active owner, can also configure these values in the browser after sign-in is available: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the value used to seal one temporary setup-test session, and runs a real test sign-in with the new values before anything is saved. Application sessions remain database-backed. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
 
 Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md).
 
