@@ -2,9 +2,11 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
-## Unreleased
+## Planned in 1.7.0 (unreleased)
 
--   [Access keys](../reference/access-keys.md). One inbound API/SDK key list, explicit grants, caller allowlists, expiry, rotation/revocation, quotas and counters. Enforcement defaults to `off`; validate a restored-backup migration and compare shadow flow decisions before enabling it.
+-   [Designate the instance operator](./instance-operator.md). The CLI-bound break-glass owner configures by default; existing installs need one explicit host bind step. Overrides, revocation and recovery. Read the [1.7.0 upgrade warnings](../upgrading.md) before deployment.
+
+-   [Create and manage access keys](./access-keys.md). Create a scoped key, restrict callers, call a private flow, rotate and revoke it. Enforcement defaults to `off`; follow operator rollout first. [Policy and route reference](../reference/access-keys.md).
 -   [Pending owner invitations](./users-without-authkit.md). An active owner can cancel another pending owner invite and revoke its links; active owners remain read-only in the Users UI.
 
 ## New in 1.6.1

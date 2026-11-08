@@ -5,6 +5,7 @@ import fs from 'fs'
 import { Request, RequestHandler } from 'express'
 import { DataSourceOptions } from 'typeorm'
 import { resolveTeamAccess } from './rbac'
+import { operatorNotice, readOperatorBinding, validOperatorIdentity } from './operatorBinding'
 
 export const INSTANCE_OPERATOR_KEY = 'CUTTLELY_INSTANCE_OPERATOR'
 export const INSTANCE_OPERATOR_NOTICE = 'Only the instance operator can change server-wide settings'
@@ -58,13 +59,19 @@ export function operatorDatabaseFingerprint(options: DataSourceOptions): string 
 
 /** Malformed, missing or ambiguous host input grants nothing. No user/email/organization fallback. */
 export function operatorDesignation(env: Env): { userId: string; database: string } | null {
+    if (env[INSTANCE_OPERATOR_KEY] === undefined) return readOperatorBinding(env)
+    if (env[INSTANCE_OPERATOR_KEY] === 'none') {
+        operatorNotice('Host override none revokes all browser service administration.')
+        return null
+    }
     try {
         const value = JSON.parse(env[INSTANCE_OPERATOR_KEY] ?? '')
-        if (!value || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'database,userId') return null
-        if (typeof value.userId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.userId)) return null
-        if (typeof value.database !== 'string' || !/^[a-f0-9]{64}$/.test(value.database)) return null
+        if (!value || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'database,userId')
+            throw new Error('invalid designation')
+        if (!validOperatorIdentity(value)) throw new Error('invalid designation')
         return { userId: value.userId, database: value.database }
     } catch {
+        operatorNotice('Invalid host override. Browser service administration is closed; correct CUTTLELY_INSTANCE_OPERATOR on the host.')
         return null
     }
 }
@@ -74,7 +81,13 @@ export async function isInstanceOperator(req: Request, env: Env = process.env): 
     const designation = operatorDesignation(env)
     if (!designation || designation.userId !== req.user?.id) return false
     const { getDataSource } = await import('../DataSource')
-    if (operatorDatabaseFingerprint(getDataSource().options) !== designation.database) return false
+    if (operatorDatabaseFingerprint(getDataSource().options) !== designation.database) {
+        operatorNotice(
+            'Database connection does not match the host binding. Browser service administration is closed; verify the database and rebind on the host.'
+        )
+        return false
+    }
+    operatorNotice('')
     // Re-read active tenant/user status too. Designation never changes tenant ownership or permissions.
     return (await resolveTeamAccess(designation.userId, req.user?.activeWorkspaceId ?? '')).owner
 }

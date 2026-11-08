@@ -54,6 +54,10 @@ for (const [file, names] of [
     })
 }
 
+test('the root Compose file omits an unset operator override so the host CLI file can supply the default', () => {
+    assert.equal(service('docker-compose.yml').environment.CUTTLELY_INSTANCE_OPERATOR, null)
+})
+
 test('the image build allowlist names packages that exist and build', () => {
     const root = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
     const filters = [...root.scripts['build:docker'].matchAll(/--filter=(\.\/\S+)/g)].map((match) => match[1])

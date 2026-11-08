@@ -8,7 +8,7 @@
 
 The host-designated instance operator must be signed in with a real browser session and be an active owner of the current organization. Other organization owners see **Only the instance operator can change server-wide settings** and receive no configuration or history metadata. Workspace admins, API keys and bearer-only callers are refused. There is no first-account or oldest-owner exception.
 
-**Upgrade/setup requirement:** when `CUTTLELY_INSTANCE_OPERATOR` is absent or invalid, every owner loses browser service administration. Configure sign-in and create/recover the selected account on the host first, then designate it. Host environment settings and the settings CLI remain available. [Operator onboarding, database binding and lost-operator recovery](./instance-operator.md).
+**Upgrade/setup requirement:** the host CLI break-glass account can configure by default after successful create/reset records its private host binding. Existing installations need one explicit host bind step: `pnpm user --email you@example.com --bind-operator`, or a password CLI rerun. An unset `CUTTLELY_INSTANCE_OPERATOR` uses the valid file; host JSON overrides it and `none` revokes all browser administration. Missing, corrupt or mismatched binding and invalid overrides fail closed. Configure sign-in on the host first. Host environment settings and the settings CLI remain available. [Operator onboarding, database binding and lost-operator recovery](./instance-operator.md).
 
 ### Community prompt
 

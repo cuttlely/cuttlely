@@ -31,7 +31,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.6.1 を公開しました。** Dashflows BETA（Experimental、既定オフ）は、証拠パネルの確認、パイプライン日付範囲の最大 6 時間キャッシュ、任意の公開スナップショットリンクとアカウント単位のヘルスレポートを整えます。破壊的変更はありません。イメージ `1.6.1` を pull するか、`npm i cuttlely@1.6.1` を実行してください。1.4.10 以前からアップグレードする場合は、まず [1.5.0 のアップグレード注記](./CHANGELOG.md#150---2026-11-01) をお読みください。[変更履歴](./CHANGELOG.md#161---2026-11-06)
+**計画中の 1.7.0（未公開）は、スコープ付き API キーとホスト側のサービス管理を追加します。** セキュリティ例外によるリリースであり、アップグレード作業が必要です。データベース、暗号化キー、設定をバックアップし、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を準備してください。ホスト CLI で作成またはパスワードを再設定した緊急復旧用の所有者は、専用ファイルにバインドされ、既定のオペレーターになります。既存環境では `pnpm user --email you@example.com --bind-operator` をホストで一度実行するか、パスワード CLI を再実行してください。他の所有者には権限を付与しません。ホストの `CUTTLELY_INSTANCE_OPERATOR` JSON がファイルより優先され、`none` はブラウザー管理をすべて無効にします。バインドが不正または欠落している場合は管理できません。新規セットアップではホスト側でサインインを設定します。セットアップコードでサービス設定は変更できません。アクセスキーの適用は既定でオフです。[アップグレード時の注意](./docs/upgrading.md) · [変更履歴](./CHANGELOG.md)。公開後はイメージ `1.7.0` または `cuttlely@1.7.0` を指定してください。
 
 ## 目次
 
@@ -161,7 +161,7 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。時間のかかるターンは、同じキーで `POST /api/v1/harnesses/<name>/runs/async` からバックグラウンドで開始し、答えを後で取得できます。ハーネスは cron のスケジュールで実行することもできます：[API キーでアプリから実行する](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key)、[スケジュールで実行する](./docs/how-to/harnesses.md#run-it-on-a-schedule)。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
 
-[アクセスキーの制御と制限](./docs/reference/access-keys.md)。
+[キーの作成と管理](./docs/how-to/access-keys.md)。[アクセスキーの制御と制限](./docs/reference/access-keys.md)。
 
 ## すべてのフローを MCP サーバーに
 

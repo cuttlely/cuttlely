@@ -943,7 +943,7 @@ export async function announceFirstRunSetup(
     }
     if (!localAdmin && noSignInMethod(env)) {
         log(
-            '🔑 [server]: Configure sign-in on the host, restart, then create the first owner with the user CLI or account setup. Browser server configuration requires CUTTLELY_INSTANCE_OPERATOR. See docs/how-to/instance-operator.md.'
+            '🔑 [server]: Configure sign-in on the host, restart, then create the first owner with the user CLI or account setup. The host CLI break-glass account becomes the default instance operator after CLI creation/reset or explicit --bind-operator; host CUTTLELY_INSTANCE_OPERATOR overrides it. See docs/how-to/instance-operator.md.'
         )
         return 'recover'
     }

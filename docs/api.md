@@ -1,5 +1,7 @@
 # Use the Cuttlely API in your own web app
 
+For a step-by-step private-flow setup, see [Create and manage access keys](./how-to/access-keys.md).
+
 Every chatflow, agentflow and harness you build in Cuttlely can answer questions for your own website or app. Your server sends the question to Cuttlely's prediction API with an API key, and Cuttlely sends back the answer, either whole or token by token. This guide covers how to do that safely.
 
 Bakery outputs on this page come from real runs against a local Cuttlely server with the `gpt-4.1-mini` model, using a made-up bakery. Session tokens are replaced with `<session token>`. Larkfield Home order snippets in the Orchestrate examples are illustrative made-up demo data, not a recorded model run.

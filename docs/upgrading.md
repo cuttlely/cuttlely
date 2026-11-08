@@ -4,11 +4,18 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
-## Instance operator migration
+## 1.7.0 security-exception upgrade (planned/unreleased)
 
-**Browser service administration now fails closed.** Set the host-only `CUTTLELY_INSTANCE_OPERATOR` designation before using Server settings after upgrading. Existing organization ownership does not confer this privilege; with an unset/invalid designation all owners lose browser service writes and sensitive settings reads. Saved settings and rollout modes remain effective according to existing precedence. Host env and `pnpm settings` recovery remain available.
+The planned 1.7.0 release changes previously allowed browser service administration under the approved [security exception](./releases.md#what-counts-as-a-breaking-change). Back up before upgrading and retain a host/CLI recovery route. The release and image are not published by these changes.
 
-Follow [operator onboarding and recovery](./how-to/instance-operator.md). Bind the selected active owner's exact ID to the effective database connection fingerprint and restart. A database switch, deployment path move or connection credential/TLS change requires explicit host rebinding. A setup code alone can no longer configure sign-in; configure it on the host and create/recover the first account with the user CLI or host-enabled local account setup. No live identity value or activation is supplied by this upgrade.
+1. Back up the application database, installation encryption key and saved settings, including the host-only operator binding when one exists.
+2. Existing installations need one host step with the incoming build against the effective running database: `pnpm user --email you@example.com --bind-operator`. This explicitly binds an existing active owner accepted by the password CLI without changing its password. Alternatively rerun `pnpm user --email you@example.com` for a password reset and binding. The old build may not have the bind command. No upgrade or sign-in automatically chooses an owner.
+3. For fresh installs, configure sign-in on the host first. Creating the first break-glass owner with the host user CLI also binds it as the default operator. Browser account setup creates only an account; follow it with the bind command. A setup code cannot configure the service.
+4. With `CUTTLELY_INSTANCE_OPERATOR` unset, the bound active owner can configure the service. An explicit host JSON binding overrides the file; `none` revokes all browser administration. Empty/invalid overrides, a missing/corrupt file, inactive ownership or a database mismatch fail closed. Removing an override can restore file authority. Verify the intended precedence before signing in.
+5. Database connection credential/TLS/path changes require reviewing and rebinding against the destination. If a password operation succeeds but binding fails, the command exits nonzero and gives bind-only recovery instructions. Keep host access available. Follow [operator onboarding and recovery](./how-to/instance-operator.md).
+6. Preserve the access-key rollout mode. Enforcement remains Off by default; operator onboarding does not activate it. Compose forwards `INBOUND_ACCESS_V2` and `CUTTLELY_IGNORE_ADMIN_SETTINGS` for host recovery. Recreate containers with the original Compose file/options; a plain restart retains old environment values. Blank recovery inputs preserve saved rollout settings.
+
+Saved settings and rollout modes retain their existing precedence. Other organization owners, workspace admins, API keys, anonymous callers and the bootstrap email receive no service authority. Host environment and settings CLI recovery remain available. This minor security-exception release intentionally closes prior service access and is not an action-free upgrade.
 
 ## What to back up
 
@@ -23,7 +30,7 @@ Everything Cuttlely keeps is in one folder:
 
 Inside it, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
 
-`settings/` holds the server settings file the admin panel saves (`server.json`, its last good copy and a change history). Secrets in it are encrypted with the same key.
+`settings/` holds the server settings file the admin panel saves (`server.json`, its last good copy and a change history). Secrets in it are encrypted with the same key. The separate host-only `instance-operator.json` binds the CLI break-glass account to the database connection; browser/CLI settings restore never restores it.
 
 If you set `DATABASE_PATH`, `SECRETKEY_PATH`, `CUTTLELY_DATA_DIR` or `FLOWISE_SECRETKEY_OVERWRITE` yourself, back up what they point to, and keep the key value. `CUTTLELY_SECRETKEY_OVERWRITE` is the same key. If both are set and the values differ, Cuttlely refuses to start.
 

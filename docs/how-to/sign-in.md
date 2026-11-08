@@ -22,7 +22,7 @@ With the flag off, Local users off, and no available selected remote method, the
 
 Configure sign-in on the host before browser setup. Enable `CUTTLELY_LOCAL_ADMIN=true`, restart, and create the first owner with `pnpm user --email you@example.com` (password prompt), or use the account-only setup link from the server log. A setup code cannot write service configuration or designate an operator. For WorkOS-only setup, configure its credentials and bootstrap email on the host before signing in.
 
-If accounts already exist, use `/owner-recovery`, setting the selected owner's password with the host user CLI if necessary. Browser changes to global sign-in settings require the host-designated instance operator as well as existing recent authentication. [Operator onboarding and lost-operator recovery](./instance-operator.md) explains the required host designation; no organization owner receives it automatically.
+If accounts already exist, use `/owner-recovery`, setting the selected owner's password with the host user CLI if necessary. The host CLI break-glass account is the default instance operator after successful CLI creation/reset writes its private host binding. For an existing account, run `pnpm user --email you@example.com --bind-operator` without a password reset. Browser changes to global sign-in settings require that bound active owner and existing recent authentication. An explicit host `CUTTLELY_INSTANCE_OPERATOR` JSON override wins; `none` revokes all browser administration. [Operator onboarding and recovery](./instance-operator.md) explains file safety, upgrade binding and recovery. Organization ownership or a bootstrap email alone grants nothing.
 
 ## Create the first account
 
@@ -45,7 +45,7 @@ docker compose logs cuttlely | grep "Setup code"
 
 The code is in the link fragment. It lasts 60 minutes from when it is printed and stops working once the first account exists. A restart or a second copy of the server keeps a live code, so the first printed link still works for register and the setup page. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. An expired code is replaced when register or a setup page finds it, or on a one-minute check, and the new link is printed. The same link works through Docker's published port: open it on that host, or open `/setup` and paste the code. Without the code, the form does not appear.
 
-After **Create account** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
+After **Create account** you are signed in and land in Cuttlely. Browser account creation does not write a host operator binding; run the explicit host bind command before administering service settings. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
 
 ### In a terminal
 
@@ -68,6 +68,8 @@ It ends with:
 ```text
 [INFO]: Super User created for you@example.com.
 ```
+
+A successful CLI create or reset for an active owner also saves the host-only operator binding. With no host override, that account can configure the service by default. Existing active CLI owners can use `pnpm user --email you@example.com --bind-operator` without changing their password. If binding fails after a password update, the command exits nonzero with explicit recovery instructions; repair the host directory/history and rerun the bind-only command.
 
 On a fresh owner-only install, this command selects Local login in the same transaction that creates the owner, just like browser setup. It does not replace a durable method that is already selected.
 

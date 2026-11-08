@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.6.1이 나왔습니다.** Dashflows BETA(Experimental, 기본 꺼짐)는 증거 패널 확인, 파이프라인 날짜 범위의 최대 6시간 캐시, 선택적 공개 스냅샷 링크와 계정 단위 헬스 리포트를 다듬습니다. 호환성을 깨는 변경은 없습니다. 이미지 `1.6.1`을 pull하거나 `npm i cuttlely@1.6.1`을 실행하세요. 1.4.10 이하에서 업그레이드한다면 먼저 [1.5.0 업그레이드 노트](./CHANGELOG.md#150---2026-11-01)를 읽으세요. [변경 기록](./CHANGELOG.md#161---2026-11-06)
+**계획된 1.7.0(미출시)은 범위가 지정된 API 키와 호스트 기반 서비스 관리를 추가합니다.** 보안 예외를 적용한 릴리스이며 업그레이드 작업이 필요합니다. 데이터베이스, 암호화 키, 설정을 백업하고 배포 전에 [운영자 지정 및 복구](./docs/how-to/instance-operator.md)를 준비하세요. 호스트 CLI로 생성하거나 비밀번호를 재설정한 긴급 복구 소유자는 전용 파일에 바인딩되어 기본 운영자가 됩니다. 기존 설치는 호스트에서 `pnpm user --email you@example.com --bind-operator`를 한 번 실행하거나 비밀번호 CLI를 다시 실행해야 합니다. 다른 소유자에게는 권한을 부여하지 않습니다. 호스트의 `CUTTLELY_INSTANCE_OPERATOR` JSON이 파일보다 우선하고 `none`은 모든 브라우저 관리를 취소합니다. 바인딩이 없거나 잘못되면 관리가 차단됩니다. 새 설치는 호스트에서 로그인을 먼저 설정해야 하며 설정 코드로 서비스 구성을 바꿀 수 없습니다. 액세스 키 적용은 기본적으로 꺼져 있습니다. [업그레이드 주의사항](./docs/upgrading.md) · [변경 기록](./CHANGELOG.md). 게시 후 이미지 `1.7.0` 또는 `cuttlely@1.7.0`을 지정하세요.
 
 ## 목차
 
@@ -161,7 +161,7 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산했고 `orders`는 픽업 요일을 확인했습니다. 전체 응답에는 토큰, 소요 시간, 출처, 팀이 만든 이미지도 들어 있습니다. 나머지는 [API 가이드](./docs/api.md)에서 다룹니다. API 키, 스트리밍, 대화 메모리, 파일 업로드, 오류, 그리고 키를 여러분의 서버에만 두는 실행 가능한 예제 웹 앱이 있습니다. 오래 걸리는 턴은 같은 키로 `POST /api/v1/harnesses/<name>/runs/async`에서 백그라운드로 시작하고 답변은 나중에 가져올 수 있으며, 하네스를 cron 일정으로 실행할 수도 있습니다: [API 키로 앱에서 실행하기](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [일정으로 실행하기](./docs/how-to/harnesses.md#run-it-on-a-schedule). 참고: [하네스용 Prediction API](./docs/how-to/harnesses.md#prediction-api), [챗플로우에서 하네스 호출하기](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
-[액세스 키 제어와 제한](./docs/reference/access-keys.md).
+[키 생성 및 관리](./docs/how-to/access-keys.md). [액세스 키 제어와 제한](./docs/reference/access-keys.md).
 
 ## 모든 플로우를 MCP 서버로
 

@@ -2,15 +2,19 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.0] - Unreleased
 
 ### Added
+
+-   Host-only break-glass operator binding in `settings/instance-operator.json`, atomically written with owner-only permissions and excluded from all settings writes/restores. CLI binding changes are audited without secrets. Provisioning failures exit nonzero with explicit credential status and bind-only recovery instructions.
 
 -   An instance-operator-only **Access-key enforcement** selector in **Admin > Server settings > Security & network > Access keys**. The service-wide off/shadow/on choice persists and applies on the next request, with effective mode/source, host locking, explicit compatibility and single-instance warnings, and audited changes. Default remains off; host `INBOUND_ACCESS_V2` always wins, including a forced off for recovery. Invalid saved values fail safe to off; invalid host values retain 503. General restore actions preserve the current rollout choice. Inbound resource authorization, quota and admission rules are unchanged.
 
 ### Upgrade notes / breaking changes
 
--   Browser service administration now requires host-only `CUTTLELY_INSTANCE_OPERATOR`, binding the selected active owner to the running database connection. Unset or invalid fails closed: ordinary owners lose Server settings writes and sensitive configuration/history reads. Host environment and settings CLI recovery remain available. Database switches require explicit host rebinding. Public setup codes can create an account only when sign-in is host-enabled; they cannot configure the service. See [operator onboarding and recovery](./docs/how-to/instance-operator.md).
+-   Planned 1.7.0 uses the approved [security exception](./docs/releases.md#what-counts-as-a-breaking-change): this minor release closes previously allowed service access and requires upgrade action. Back up the application database, encryption key and settings before deployment, and retain host/CLI recovery. It is not published by this change. Existing installations need one explicit host `pnpm user --email you@example.com --bind-operator` step with the incoming build, or a password CLI rerun. No account is inferred or automatically bound on upgrade. Database connection credential/TLS/path changes require reviewing and rebinding. Fresh setup requires host-configured sign-in; a setup code can create only an account, not configure the service. Compose forwards `INBOUND_ACCESS_V2` and `CUTTLELY_IGNORE_ADMIN_SETTINGS` for host recovery; recreate containers to apply host changes. Enforcement remains default Off and activation is separate. See [upgrade warnings](./docs/upgrading.md) and [operator recovery](./docs/how-to/instance-operator.md).
+
+-   The host CLI break-glass account is the default instance operator after successful first-owner creation or active-owner password reset records a private host binding. An explicit bind-only command selects an existing active owner accepted by the same CLI rules without changing its password. With `CUTTLELY_INSTANCE_OPERATOR` unset, the file must match the interactive session, active ownership and running database connection on every request. Explicit host JSON overrides it; `none` revokes all browser service administration. Missing, corrupt or mismatched files and invalid overrides fail closed. Other owners lose Server settings writes and sensitive configuration/history reads. Host environment and settings CLI recovery remain available. Database switches require explicit host rebinding. Public setup codes can create an account only when sign-in is host-enabled; they cannot configure the service. See [operator onboarding and recovery](./docs/how-to/instance-operator.md).
 
 ### Fixed
 
