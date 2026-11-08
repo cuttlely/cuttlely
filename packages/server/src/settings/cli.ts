@@ -92,9 +92,11 @@ function unsetSetting(env: Env, name: string | undefined): CliResult {
     try {
         return withSettingsLockSync(dir, () => {
             const file = path.join(dir, SETTINGS_FILE)
+            let original: string
             let parsed: { values?: Record<string, unknown> }
             try {
-                parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+                original = fs.readFileSync(file, 'utf8')
+                parsed = JSON.parse(original)
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === 'ENOENT')
                     return { code: 0, lines: [`There is no settings file, so ${name} is not saved there.`] }
@@ -120,7 +122,12 @@ function unsetSetting(env: Env, name: string | undefined): CliResult {
             const after = { ...before }
             delete after[name]
             const changes = settingFor(name) ? describeChanges(before, after, env) : []
-            appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
+            try {
+                appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
+            } catch (error) {
+                writeFileAtomic(dir, SETTINGS_FILE, original)
+                throw error
+            }
             return { code: 0, lines: [`Removed ${name} from the settings file. ${appliesLater(name)}`] }
         })
     } catch (error) {
@@ -152,7 +159,12 @@ function restoreLastGood(env: Env): CliResult {
         line = `No settings have started successfully yet, so the settings file was set aside. ${NEXT_START}`
     }
     const after = fs.existsSync(file) ? readSettingsFile(dir, key).values : {}
-    appendHistory(dir, { kind: 'restore', by: BY, changes: describeChanges(before, after, env), outcome: 'ok' })
+    try {
+        appendHistory(dir, { kind: 'restore', by: BY, changes: describeChanges(before, after, env), outcome: 'ok' })
+    } catch (error) {
+        writeFileAtomic(dir, SETTINGS_FILE, current)
+        throw error
+    }
     return { code: 0, lines: [line, `The previous file is kept as ${path.join(dir, ROLLED_BACK_FILE)}.`] }
 }
 

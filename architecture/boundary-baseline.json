@@ -388,6 +388,11 @@
             "to": "packages/server/src/commands/base.ts"
         },
         {
+            "from": "packages/server/src/commands/settings.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "Service administration binds a host-designated account to the actual application database connection; the host fingerprint CLI and request gate read DataSource options instead of trusting draft settings or duplicating connection resolution."
+        },
+        {
             "from": "packages/server/src/controllers/a2a/index.test.ts",
             "to": "packages/server/src/Interface.ts",
             "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
@@ -672,6 +677,11 @@
         {
             "from": "packages/server/src/identity/http.ts",
             "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/identity/instanceOperator.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "Service administration binds a host-designated account to the actual application database connection; the host fingerprint CLI and request gate read DataSource options instead of trusting draft settings or duplicating connection resolution."
         },
         {
             "from": "packages/server/src/identity/oidcProvider.ts",

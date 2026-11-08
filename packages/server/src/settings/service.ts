@@ -29,6 +29,8 @@ import { checkValue } from './validate'
 type Env = Record<string, string | undefined>
 
 export interface ServiceDeps {
+    /** Internal request boundary; omitted only by trusted host/CLI/startup callers. Never a payload field. */
+    authorize?: () => Promise<void>
     env: Env
     state: StartState
     /** The credential encryption key (created if missing). */
@@ -341,6 +343,7 @@ export function guidedOnly(setting: SettingDef): string | null {
 }
 
 export async function saveChanges(deps: ServiceDeps, input: unknown, by: string, actorId?: string): Promise<SettingsView> {
+    await deps.authorize?.()
     const changes = input && typeof input === 'object' ? (input as { values?: unknown }).values : undefined
     if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
         throw new SettingsError(400, 'BAD_REQUEST', 'Send the changed settings as values.')
@@ -428,6 +431,7 @@ export async function writeValues(
     note?: string,
     actorId?: string
 ): Promise<SettingsView> {
+    await deps.authorize?.()
     try {
         return await withSettingsLock(deps.state.dir, () => writeValuesLocked(deps, normalized, by, kind, note, actorId))
     } catch (error) {
@@ -485,6 +489,7 @@ async function writeValuesLocked(
     if (changes.length) {
         const file = path.join(state.dir, SETTINGS_FILE)
         const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+        await deps.authorize?.()
         writeSettingsFile(state.dir, next, { key, by, preserve })
         invalidateRuntimeCache()
         try {
@@ -514,6 +519,7 @@ function restoreSettingsFile(dir: string, previousRaw: string | null): void {
 
 /** Puts the file back the way it was when the server started. */
 export async function discardChanges(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
+    await deps.authorize?.()
     try {
         return await withSettingsLock(deps.state.dir, async () => {
             const { state } = deps
@@ -544,6 +550,7 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
 
 /** Try it again: puts back the settings safe boot set aside, to apply at the next restart. */
 export async function retryRolledBack(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
+    await deps.authorize?.()
     try {
         return await withSettingsLock(deps.state.dir, () => retryRolledBackLocked(deps, by, actorId))
     } catch (error) {
@@ -637,6 +644,7 @@ export async function restartNow(
     by: string,
     options: { wait?: boolean; actorId?: string } = {}
 ): Promise<RestartAnswer> {
+    await deps.authorize?.()
     const view = await getView(deps)
     if (!view.restart.inPlace) return { restarting: false, steps: view.restart.steps }
     const waitingFor = options.wait ? runsInProgress() : 0

@@ -20,6 +20,7 @@ import {
 import { hashSessionToken } from './password'
 import type { IdentityStore } from './store'
 import { applicationDataSource, applicationSql, identityStore } from './production'
+import { requireInstanceOperator } from './instanceOperator'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
 import {
@@ -97,6 +98,12 @@ async function auditAttempt(who: { id: string; organizationId: string }, detail:
 }
 
 identityAuthenticationRouter.use(requirePermission('authentication:manage'))
+identityAuthenticationRouter.use((req, res, next) => {
+    // SCIM and recovery alerts are organization administration, not host configuration.
+    if (req.path.startsWith('/scim-') || req.path === '/acknowledge-recovery-alert' || (req.method === 'GET' && req.path === '/'))
+        return next()
+    return requireInstanceOperator()(req, res, next)
+})
 
 const switchStageStore = new MemoryStore()
 const switchApplyStore = new MemoryStore()

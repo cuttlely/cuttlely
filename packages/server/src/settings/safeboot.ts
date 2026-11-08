@@ -61,14 +61,19 @@ export function beginStart(dir: string, key: string | null, now = new Date()): B
         if (restored !== null) writeFileAtomic(dir, SETTINGS_FILE, restored)
         else fs.rmSync(settingsPath, { force: true })
         const after = readSettingsFile(dir, key).values
-        appendHistory(dir, {
-            at: now.toISOString(),
-            kind: 'rollback',
-            by: 'safe boot',
-            changes: describeChanges(before, after),
-            note: `The last ${state.pending} starts did not finish, so the last settings that worked were restored.`,
-            outcome: 'ok'
-        })
+        try {
+            appendHistory(dir, {
+                at: now.toISOString(),
+                kind: 'rollback',
+                by: 'safe boot',
+                changes: describeChanges(before, after),
+                note: `The last ${state.pending} starts did not finish, so the last settings that worked were restored.`,
+                outcome: 'ok'
+            })
+        } catch (error) {
+            writeFileAtomic(dir, SETTINGS_FILE, current)
+            throw error
+        }
         result = {
             rolledBack: true,
             message: `Server settings: the last ${state.pending} starts did not finish, so the last settings that worked were restored. The settings that did not start are kept in ${ROLLED_BACK_FILE}.`

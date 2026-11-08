@@ -1,3 +1,7 @@
+// Isolate retained legacy setup-handler internals. Actual App.config tests assert the public operator gate closes these flows.
+jest.mock('../identity/instanceOperator', () => ({
+    requireInstanceOperator: () => (_req: unknown, _res: unknown, next: () => void) => next()
+}))
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import fs from 'fs'
@@ -28,7 +32,7 @@ import {
 import { resetSetupFailures, setupFailureLimited } from '../identity/setupLimit'
 import { CreateOwnerInput, CreateOwnerOptions, SetupCodeRejected, UserRow } from '../identity/types'
 import { StartState } from './apply'
-import { AuthKitDeps, AuthKitPort, resetAuthKitTests } from './authkit'
+import { AuthKitDeps, AuthKitPort, handleAuthKitTestCallback, resetAuthKitTests } from './authkit'
 import { readHistory } from './history'
 import { endSetupSessions, SETUP_COOKIE_PATHS } from './setup-session'
 import { readSettingsFile, writeSettingsFile } from './store'
@@ -37,7 +41,7 @@ jest.mock('./bootstrap', () => ({
     startState: { dir: '', hostKeys: [], atStart: {}, applied: [], unreadable: [], problems: [] }
 }))
 
-import { authKitTestCallback, isAuthKitTestCallback, setAuthKitDeps, setServerSettingsDeps } from '../routes/server-settings/index'
+import { isAuthKitTestCallback, setAuthKitDeps, setServerSettingsDeps } from '../routes/server-settings/index'
 import setupRouter, { setSetupUsers } from '../routes/server-setup/index'
 
 // Made-up people and obviously fake values only. No real WorkOS account is used anywhere in these tests.
@@ -142,7 +146,8 @@ function server(trustProxy: boolean | number = false) {
     app.use(cookieParser())
     app.use('/api/v1/server-setup', setupRouter)
     app.get('/api/v1/auth/callback', (req, res, next) => {
-        if (isAuthKitTestCallback(req)) return void authKitTestCallback(req, res, next)
+        if (isAuthKitTestCallback(req))
+            return void handleAuthKitTestCallback({ env, state, key: async () => KEY }, fakeKit(), req, res).catch(next)
         res.status(418).send('normal sign-in')
     })
     return app
@@ -188,7 +193,7 @@ describe('the setup link in the log', () => {
     it('is printed only when nobody can sign in, with the public address', async () => {
         const lines: string[] = []
         const log = (line: string) => lines.push(line)
-        expect(await announceFirstRunSetup(3000, async () => 0, log, false, env)).toBe('setup')
+        expect(await announceFirstRunSetup(3000, async () => 0, log, true, { ...env, CUTTLELY_LOCAL_ADMIN: 'true' })).toBe('setup')
         const block = lines.join('\n')
         expect(block).toContain('https://rosas-bakery.example/setup#code=')
         expect(block).toContain(serverSetupLink(3000, env))
@@ -202,6 +207,21 @@ describe('the setup link in the log', () => {
         const authKitOn = { ...env, ...FAKE }
         expect(await announceFirstRunSetup(3000, async () => 0, log, false, authKitOn)).toBe('none')
         expect(lines).toEqual([])
+    })
+
+    it('requires host sign-in configuration instead of advertising a browser configuration capability', async () => {
+        const lines: string[] = []
+        expect(
+            await announceFirstRunSetup(
+                3000,
+                async () => 0,
+                (line) => lines.push(line),
+                false,
+                env
+            )
+        ).toBe('recover')
+        expect(lines.join(' ')).toContain('Configure sign-in on the host')
+        expect(lines.join(' ')).not.toContain('code=')
     })
 
     it('does not announce recovery while the durable OIDC method is active', async () => {
@@ -547,8 +567,8 @@ describe('an expired setup code', () => {
             3000,
             async () => created.length,
             (line) => lines.push(line),
-            false,
-            env
+            true,
+            { ...env, CUTTLELY_LOCAL_ADMIN: 'true' }
         )
         await setupCodeReady()
         return firstRunSetupCode()
@@ -851,8 +871,8 @@ describe('begin and hint limits', () => {
             3000,
             async () => created.length,
             (line) => lines.push(line),
-            false,
-            env
+            true,
+            { ...env, CUTTLELY_LOCAL_ADMIN: 'true' }
         )
         await setupCodeReady()
         const code = firstRunSetupCode()

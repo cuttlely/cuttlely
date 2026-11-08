@@ -14,6 +14,7 @@ import {
     OIDC_TEST_START_LIMIT
 } from './rateLimit'
 import { applicationDataSource, applicationSql, buildAuthContext, identityStore } from './production'
+import { requireInstanceOperator } from './instanceOperator'
 import { requirePermission } from './rbac'
 import {
     beginOidcAuthorization,
@@ -191,7 +192,7 @@ function auditCallbackLimitDue(clientAddress: string, now = Date.now()): boolean
     return true
 }
 
-oidcAdminRouter.use(requirePermission('authentication:manage'))
+oidcAdminRouter.use(requirePermission('authentication:manage'), requireInstanceOperator())
 
 oidcAdminRouter.get('/', async (_req, res) => {
     cacheNoStore(res)

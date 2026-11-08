@@ -73,3 +73,5 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Bring your existing flows
 
 -   [Bring your existing flows](./bring-your-flows.md). What opens today, and what is not supported yet. The rule-by-rule details are in [Flowise migration wizard](./flowise-migration-wizard.md).
+
+[Designate the instance operator](./how-to/instance-operator.md): host-controlled service administration, upgrade setup and recovery.

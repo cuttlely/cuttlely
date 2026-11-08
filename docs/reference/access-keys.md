@@ -8,7 +8,7 @@ Provider credentials remain outbound secrets in **Credentials**. Public embeds, 
 
 Back up the application database and the installation encryption key before upgrading. The encryption key also provides the domain-separated HMAC pepper for new credentials; replacing it invalidates those credentials.
 
-**Admin > Server settings > Security & network > Access keys > Access-key enforcement** controls rollout for every workspace on this service. It uses the same interactive organization-owner authority as Server settings. Workspace admins, API keys and other bearer-only callers cannot change it. `INBOUND_ACCESS_V2` remains the host override:
+**Admin > Server settings > Security & network > Access keys > Access-key enforcement** controls rollout for every workspace on this service. It requires the same host-designated [instance operator](../how-to/instance-operator.md) as Server settings. Missing or invalid `CUTTLELY_INSTANCE_OPERATOR` closes all browser service writes; an ordinary organization owner has no global rollout authority. Workspace admins, API keys and other bearer-only callers cannot change it. `INBOUND_ACCESS_V2` remains the host override:
 
 | Value           | Behavior                                                                                                                                                                                                |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -19,6 +19,7 @@ serverRequire('ts-node').register({
 })
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-rollout-admin-'))
 // Explicitly isolate this fixture from the full gate's INBOUND_ACCESS_V2=on.
+delete process.env.CUTTLELY_INSTANCE_OPERATOR
 delete process.env.INBOUND_ACCESS_V2
 delete process.env.CUTTLELY_SETTINGS_HOST_KEYS
 delete process.env.CUTTLELY_IGNORE_ADMIN_SETTINGS
@@ -41,10 +42,11 @@ const { applyAdminSettings } = serverRequire('./src/settings/apply.ts')
 const { setServerSettingsDeps } = serverRequire('./src/routes/server-settings/index.ts')
 const { readHistory } = serverRequire('./src/settings/history.ts')
 const { readSettingsFile, writeSettingsFile } = serverRequire('./src/settings/store.ts')
+const { operatorDatabaseFingerprint } = serverRequire('./src/identity/instanceOperator.ts')
 const { rolloutState } = serverRequire('./src/settings/accessRollout.ts')
 const request = serverRequire('supertest')
 
-test('service rollout admin production contract', async (t) => {
+test('instance operator and service rollout production contract', async (t) => {
     const data = new DataSource({
         type: 'sqlite',
         database: path.join(root, 'fixture.sqlite'),
@@ -60,7 +62,7 @@ test('service rollout admin production contract', async (t) => {
         serverRequire('./src/DataSource.ts').getDataSource = () => data
         const { User, Organization, Workspace, Role, OrganizationUser, WorkspaceUser, ApiKey, ApiKeyResource, ApiKeyUsage, ChatFlow } =
             entities
-        for (const id of ['owner', 'admin'])
+        for (const id of ['owner', 'admin', 'other'])
             await data
                 .getRepository(User)
                 .save({ id, name: 'Fixture', email: id + '@example.invalid', status: 'active', createdBy: id, updatedBy: id })
@@ -68,21 +70,36 @@ test('service rollout admin production contract', async (t) => {
         await data
             .getRepository(Workspace)
             .save({ id: 'team', organizationId: 'org', name: 'Fixture', createdBy: 'owner', updatedBy: 'owner' })
-        for (const id of ['owner', 'admin']) {
-            await data.getRepository(Role).save({ id: 'role-' + id, name: id, permissions: '["*"]' })
-            await data
-                .getRepository(OrganizationUser)
-                .save({ organizationId: 'org', userId: id, roleId: 'role-' + id, status: 'active', createdBy: 'owner', updatedBy: 'owner' })
-            await data
-                .getRepository(WorkspaceUser)
-                .save({ workspaceId: 'team', userId: id, roleId: 'role-' + id, status: 'active', createdBy: 'owner', updatedBy: 'owner' })
+        await data.getRepository(Organization).save({ id: 'org-b', name: 'Other organization', createdBy: 'other', updatedBy: 'other' })
+        await data
+            .getRepository(Workspace)
+            .save({ id: 'team-b', organizationId: 'org-b', name: 'Other team', createdBy: 'other', updatedBy: 'other' })
+        process.env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({ userId: 'owner', database: operatorDatabaseFingerprint(data.options) })
+        for (const id of ['owner', 'admin', 'other']) {
+            await data.getRepository(Role).save({ id: 'role-' + id, name: id === 'other' ? 'owner' : id, permissions: '["*"]' })
+            await data.getRepository(OrganizationUser).save({
+                organizationId: id === 'other' ? 'org-b' : 'org',
+                userId: id,
+                roleId: 'role-' + id,
+                status: 'active',
+                createdBy: 'owner',
+                updatedBy: 'owner'
+            })
+            await data.getRepository(WorkspaceUser).save({
+                workspaceId: id === 'other' ? 'team-b' : 'team',
+                userId: id,
+                roleId: 'role-' + id,
+                status: 'active',
+                createdBy: 'owner',
+                updatedBy: 'owner'
+            })
         }
         const production = serverRequire('./src/identity/production.ts')
         await production.applyAuthKitSwitchOnBoot(data)
         const { issueApplicationSession } = serverRequire('./src/identity/handlers.ts')
         const ctx = await production.buildAuthContext({ cookies: {}, headers: {}, query: {}, protocol: 'http' })
         const cookies = {}
-        for (const id of ['owner', 'admin']) {
+        for (const id of ['owner', 'admin', 'other']) {
             const session = await issueApplicationSession(ctx, id, 'local')
             assert.ok(session, 'real application session issued')
             cookies[id] = 'cuttlely-local-session=' + session.token
@@ -155,6 +172,253 @@ test('service rollout admin production contract', async (t) => {
                 .set('Authorization', 'Bearer ' + bearer)
                 .send({ question: 'fixture' })
 
+        const operatorBinding = process.env.CUTTLELY_INSTANCE_OPERATOR
+        const call = (method, route, body, cookie = cookies.owner) =>
+            request(app.app)
+                [method]('/api/v1/' + route)
+                .set('Cookie', cookie)
+                .set('x-request-from', 'internal')
+                .send(body)
+        const blockedPaths = [
+            ['put', 'server-settings', { values: { INBOUND_ACCESS_V2: 'on' } }],
+            ['put', 'server-settings', { values: { DATABASE_TYPE: 'postgres', DATABASE_HOST: 'attacker.invalid' } }],
+            ['put', 'server-settings', { values: { STORAGE_TYPE: 's3' } }],
+            ['get', 'server-settings/history'],
+            ['get', 'server-settings/read-only'],
+            ['get', 'server-settings/read-only/PORT'],
+            ['post', 'server-settings/restart'],
+            ['post', 'server-settings/discard'],
+            ['post', 'server-settings/retry'],
+            ['post', 'server-settings/test', { kind: 'database', values: {} }],
+            ['post', 'server-settings/database/check'],
+            ['post', 'server-settings/database/switch', { confirm: 'RESTART' }],
+            ['post', 'server-settings/database/restore', { confirm: 'RESTART' }],
+            ['post', 'server-settings/authkit/check'],
+            ['post', 'server-settings/authkit/test'],
+            ['get', 'server-settings/authkit/test'],
+            ['post', 'server-settings/authkit/apply'],
+            ['patch', 'server-settings'],
+            ['delete', 'server-settings'],
+            ['put', 'server-settings/read-only/PORT'],
+            ['patch', 'server-settings/read-only'],
+            ['patch', 'server-settings/read-only/PORT'],
+            ['delete', 'server-settings/read-only'],
+            ['delete', 'server-settings/read-only/PORT']
+        ]
+        await t.test(
+            'two organization owners: only designated operator sees service config; all other paths deny without metadata',
+            async () => {
+                const before = rolloutState()
+                const visible = await call('get', 'server-settings', undefined, cookies.other)
+                assert.equal(visible.status, 200)
+                assert.deepEqual(visible.body, {
+                    instanceOperator: false,
+                    message: 'Only the instance operator can change server-wide settings'
+                })
+                for (const cookie of [cookies.other, cookies.admin])
+                    for (const [method, route, body] of blockedPaths) {
+                        const response = await call(method, route, body, cookie)
+                        assert.equal(response.status, 403, method + ' ' + route + ': ' + response.text)
+                        assert.ok(
+                            !response.text.includes(root) &&
+                                !response.text.includes('DATABASE_HOST') &&
+                                !response.text.includes(operatorBinding)
+                        )
+                    }
+                assert.deepEqual(rolloutState(), before)
+                assert.equal((await get()).body.instanceOperator, true)
+            }
+        )
+        await t.test('anonymous, API keys and bearer sessions cannot reach any service administration path', async () => {
+            for (const [method, route, body] of blockedPaths) {
+                for (const bearer of [null, secret, legacyBearer, cookies.owner.split('=')[1]]) {
+                    let pending = request(app.app)[method]('/api/v1/' + route)
+                    if (bearer) pending = pending.set('Authorization', 'Bearer ' + bearer)
+                    const response = await pending.send(body)
+                    assert.ok([401, 503].includes(response.status), method + route + ': ' + response.text)
+                    assert.ok(!response.text.includes(root) && !response.text.includes(operatorBinding))
+                }
+            }
+        })
+        await t.test('missing, malformed, foreign and revoked host designations fail closed on the next request', async () => {
+            for (const value of [
+                undefined,
+                '',
+                '{}',
+                'invalid',
+                JSON.stringify({ userId: 'owner', database: 'x' }),
+                JSON.stringify({ userId: 'owner', database: '0'.repeat(64) }),
+                JSON.stringify({ userId: 'owner', database: operatorDatabaseFingerprint(data.options), extra: true })
+            ]) {
+                if (value === undefined) delete process.env.CUTTLELY_INSTANCE_OPERATOR
+                else process.env.CUTTLELY_INSTANCE_OPERATOR = value
+                assert.equal((await get()).body.instanceOperator, false)
+                for (const [method, route, body] of blockedPaths) assert.equal((await call(method, route, body)).status, 403, route)
+            }
+            process.env.CUTTLELY_INSTANCE_OPERATOR = operatorBinding
+            assert.equal((await get()).body.instanceOperator, true)
+        })
+        await t.test('a different SQLite identity database with a copied operator ID cannot inherit host authority', async () => {
+            const foreign = new DataSource({ ...data.options, database: path.join(root, 'foreign.sqlite') })
+            await foreign.initialize()
+            await foreign.runMigrations()
+            // Copy the actual identity/session rows, so the tested rejection is the connection binding, not missing rows.
+            for (const table of [
+                'user',
+                'organization',
+                'workspace',
+                'role',
+                'organization_user',
+                'workspace_user',
+                ...(await data.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'identity_%'")).map((r) => r.name)
+            ]) {
+                const rows = await data.query('SELECT * FROM "' + table + '"')
+                for (const row of rows) {
+                    const keys = Object.keys(row)
+                    await foreign.query(
+                        'INSERT OR REPLACE INTO "' +
+                            table +
+                            '" (' +
+                            keys.map((k) => '"' + k + '"').join(',') +
+                            ') VALUES (' +
+                            keys.map(() => '?').join(',') +
+                            ')',
+                        Object.values(row)
+                    )
+                }
+            }
+            serverRequire('./src/DataSource.ts').getDataSource = () => foreign
+            app.AppDataSource = foreign
+            try {
+                assert.equal((await save('on')).status, 403)
+                const foreignView = await get()
+                assert.equal(foreignView.status, 200, 'real copied session remains valid in substituted DB')
+                assert.equal(foreignView.body.instanceOperator, false)
+            } finally {
+                serverRequire('./src/DataSource.ts').getDataSource = () => data
+                app.AppDataSource = data
+                await foreign.destroy()
+            }
+            assert.equal(rolloutState().value, 'off')
+        })
+        await t.test('operator can save DB/storage and use test, history, restart and restore paths', async () => {
+            const routes = serverRequire('./src/routes/server-settings/index.ts')
+            const dbDrivers = {
+                ...serverRequire('./src/settings/connection.ts').defaultDrivers(),
+                home: () => root,
+                pg: () => ({
+                    connect: async () => {},
+                    end: async () => {},
+                    query: async (text) => ({
+                        rows: text.includes('version()')
+                            ? [{ version: 'PostgreSQL 16.4' }]
+                            : text.includes('has_schema_privilege')
+                            ? [{ allowed: true }]
+                            : []
+                    })
+                })
+            }
+            routes.setConnectionDrivers(() => dbDrivers)
+            assert.equal(
+                (
+                    await call('post', 'server-settings/database/switch', {
+                        confirm: 'RESTART',
+                        values: {
+                            DATABASE_TYPE: 'postgres',
+                            DATABASE_HOST: 'fixture.invalid',
+                            DATABASE_PORT: '5432',
+                            DATABASE_NAME: 'fixture',
+                            DATABASE_USER: 'fixture'
+                        }
+                    })
+                ).status,
+                200
+            )
+            assert.equal((await call('put', 'server-settings', { values: { STORAGE_TYPE: 'local' } })).status, 200)
+            assert.equal((await call('get', 'server-settings/history')).status, 200)
+            assert.equal((await call('get', 'server-settings/read-only')).status, 200)
+            assert.equal((await call('post', 'server-settings/restart')).status, 202)
+            const storageTest = await call('post', 'server-settings/test', { kind: 'storage', values: { STORAGE_TYPE: 'local' } })
+            assert.equal(storageTest.status, 200, storageTest.text)
+            assert.equal(storageTest.body.ok, true)
+            const tested = await call('post', 'server-settings/test', {
+                kind: 'database',
+                values: { DATABASE_TYPE: 'postgres', DATABASE_HOST: 'fixture.invalid', DATABASE_NAME: 'fixture', DATABASE_USER: 'fixture' }
+            })
+            assert.equal(tested.status, 200, tested.text)
+            assert.equal(tested.body.ok, true)
+            // Same running DB: writing draft settings never changes the binding before restart.
+            assert.equal((await get()).body.instanceOperator, true)
+            const switched = await call('post', 'server-settings/database/switch', {
+                confirm: 'RESTART',
+                values: { DATABASE_TYPE: 'sqlite' }
+            })
+            assert.equal(switched.status, 200, switched.text)
+            const restored = await call('post', 'server-settings/database/restore', { confirm: 'RESTART' })
+            assert.equal(restored.status, 200, restored.text)
+            assert.equal((await call('post', 'server-settings/discard')).status, 200)
+            routes.setConnectionDrivers(serverRequire('./src/settings/connection.ts').defaultDrivers)
+        })
+        await t.test('the audit list cannot disclose service settings history through tenant ownership', async () => {
+            const hidden = await call('get', 'audit?type=setting_change', undefined, cookies.other)
+            assert.equal(hidden.status, 200, hidden.text)
+            assert.deepEqual(hidden.body.events, [])
+            const visible = await call('get', 'audit?type=setting_change')
+            assert.equal(visible.status, 200, visible.text)
+            assert.ok(visible.body.events.length > 0)
+            assert.ok(visible.body.events.every((e) => !e.organizationId || e.organizationId === 'org'))
+        })
+        await t.test('global authentication, OIDC and version host settings require the operator too', async () => {
+            for (const [method, route] of [
+                ['post', 'authentication-settings/stage'],
+                ['post', 'authentication-settings/apply'],
+                ['put', 'authentication-settings/oidc'],
+                ['get', 'authentication-settings/oidc'],
+                ['put', 'flow-versions/environment'],
+                ['get', 'flow-versions/github']
+            ]) {
+                const denied = await call(method, route, {}, cookies.other)
+                assert.equal(denied.status, 403, route + ': ' + denied.text)
+            }
+            const revokedCallback = await request(app.app)
+                .get('/api/v1/auth/callback?state=dfst.fixture&code=fake')
+                .set('Cookie', cookies.other)
+            assert.equal(revokedCallback.status, 403)
+            const operatorCallback = await request(app.app)
+                .get('/api/v1/auth/callback?state=dfst.fixture&code=fake')
+                .set('Cookie', cookies.owner)
+            assert.equal(operatorCallback.status, 302, 'current real operator session reaches the callback handler')
+        })
+        await t.test('designation is kept out of generic/guided writes, restore, bootstrap, batch helper and CLI injection', async () => {
+            const attempt = await call('put', 'server-settings', {
+                values: { CUTTLELY_INSTANCE_OPERATOR: operatorBinding, INBOUND_ACCESS_V2: 'on' }
+            })
+            assert.equal(attempt.status, 400, attempt.text)
+            assert.equal(rolloutState().value, 'off')
+            for (const route of ['owner', 'authkit/check', 'authkit/test', 'authkit/apply', 'open']) {
+                const denied = await request(app.app)
+                    .post('/api/v1/server-setup/' + route)
+                    .set('x-request-from', 'internal')
+                    .send({ values: { CUTTLELY_INSTANCE_OPERATOR: operatorBinding } })
+                assert.equal(denied.status, 403, route + denied.text)
+            }
+            // Poison historical bytes exactly as a restore/file injection might; no host designation is synthesized.
+            const injected = JSON.stringify({ version: 1, values: { CUTTLELY_INSTANCE_OPERATOR: operatorBinding, LOG_LEVEL: 'info' } })
+            fs.mkdirSync(dir, { recursive: true })
+            fs.writeFileSync(path.join(dir, 'server.rolled-back.json'), injected)
+            assert.equal((await call('post', 'server-settings/retry')).status, 200)
+            delete process.env.CUTTLELY_INSTANCE_OPERATOR
+            assert.equal(applyAdminSettings(process.env).atStart.CUTTLELY_INSTANCE_OPERATOR, undefined)
+            assert.equal(process.env.CUTTLELY_INSTANCE_OPERATOR, undefined)
+            const records = serverRequire('./src/settings/env-cli.ts').startRecords(process.env, null, () => {})
+            assert.ok(!records.some((r) => r.startsWith('CUTTLELY_INSTANCE_OPERATOR=')))
+            assert.equal((await save('on')).status, 403)
+            const cli = serverRequire('./src/settings/cli.ts').runSettingsCli(['restore'], process.env)
+            assert.equal(cli.code, 0)
+            assert.equal(process.env.CUTTLELY_INSTANCE_OPERATOR, undefined)
+            process.env.CUTTLELY_INSTANCE_OPERATOR = operatorBinding
+            assert.equal((await call('post', 'server-settings/discard')).status, 200)
+        })
         await t.test('default off without activation and no scoped admission', async () => {
             assert.equal((await get()).status, 200)
             assert.deepEqual(rolloutState(), { value: 'off', source: 'default', locked: false })
@@ -216,6 +480,38 @@ test('service rollout admin production contract', async (t) => {
                 ).status,
                 401
             )
+        })
+        await t.test('another organization owner cannot disable the first organization enforcement or read its flow', async () => {
+            assert.equal((await save('off', cookies.other)).status, 403)
+            assert.equal(rolloutState().value, 'on')
+            assert.equal(
+                (
+                    await request(app.app)
+                        .get('/api/v1/chatflows/' + flow.id)
+                        .set('Cookie', cookies.other)
+                ).status,
+                404
+            )
+            const foreignFlow = await data.getRepository(ChatFlow).save({
+                id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                name: 'Other tenant',
+                type: 'CHATFLOW',
+                workspaceId: 'team-b',
+                flowData: '{"nodes":[],"edges":[]}'
+            })
+            assert.equal(
+                (
+                    await request(app.app)
+                        .get('/api/v1/chatflows/' + foreignFlow.id)
+                        .set('Cookie', cookies.owner)
+                ).status,
+                404,
+                'operator designation does not grant cross-org data access'
+            )
+            const before = await data.getRepository(ApiKeyUsage).findBy({ principalId: scoped.id })
+            assert.equal((await predict(secret)).status, 200)
+            const after = await data.getRepository(ApiKeyUsage).findBy({ principalId: scoped.id })
+            for (const row of after) assert.equal(row.accepted, before.find((old) => old.id === row.id).accepted + 1)
         })
         await t.test('saved choice survives new App.config and startup reload', async () => {
             await reload()
@@ -297,7 +593,7 @@ test('service rollout admin production contract', async (t) => {
             assert.deepEqual(activation.changes, [
                 { key: 'INBOUND_ACCESS_V2', from: 'off', to: 'on', fromSource: 'default', toSource: 'panel' }
             ])
-            for (const sensitive of [secret, legacyBearer, key, 'fixture-invalid-sensitive-value'])
+            for (const sensitive of [secret, legacyBearer, key, JSON.parse(operatorBinding).database, 'fixture-invalid-sensitive-value'])
                 assert.ok(!JSON.stringify(rows).includes(sensitive))
         })
         await t.test('audit-write failure rolls the setting back without activation', async () => {
@@ -311,6 +607,36 @@ test('service rollout admin production contract', async (t) => {
             } finally {
                 fs.rmdirSync(history)
                 fs.writeFileSync(history, prior)
+            }
+        })
+        await t.test('restore/retry/CLI/safe-boot audit failures keep the exact current settings', async () => {
+            const history = path.join(dir, 'history.jsonl')
+            const priorHistory = fs.readFileSync(history)
+            const file = path.join(dir, 'server.json')
+            const prior = fs.readFileSync(file)
+            writeSettingsFile(dir, { LOG_LEVEL: 'info', INBOUND_ACCESS_V2: 'off' }, { key })
+            const current = fs.readFileSync(file)
+            fs.writeFileSync(path.join(dir, 'server.rolled-back.json'), JSON.stringify({ version: 1, values: { LOG_LEVEL: 'debug' } }))
+            fs.writeFileSync(path.join(dir, 'server.last-good.json'), JSON.stringify({ version: 1, values: { LOG_LEVEL: 'error' } }))
+            fs.unlinkSync(history)
+            fs.mkdirSync(history)
+            try {
+                for (const route of ['discard', 'retry']) {
+                    assert.equal((await call('post', 'server-settings/' + route)).status, 500)
+                    assert.deepEqual(fs.readFileSync(file), current)
+                }
+                const cli = serverRequire('./src/settings/cli.ts').runSettingsCli
+                for (const args of [['restore'], ['unset', 'LOG_LEVEL']]) {
+                    assert.throws(() => cli(args, process.env))
+                    assert.deepEqual(fs.readFileSync(file), current)
+                }
+                fs.writeFileSync(path.join(dir, 'boot.json'), JSON.stringify({ pending: 2 }))
+                assert.throws(() => serverRequire('./src/settings/safeboot.ts').beginStart(dir, key))
+                assert.deepEqual(fs.readFileSync(file), current)
+            } finally {
+                fs.rmdirSync(history)
+                fs.writeFileSync(history, priorHistory)
+                fs.writeFileSync(file, prior)
             }
         })
         await t.test('safe boot never restores an older rollout choice', async () => {

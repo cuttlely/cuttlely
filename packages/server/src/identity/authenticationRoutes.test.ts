@@ -1,3 +1,5 @@
+import { operatorDatabaseFingerprint } from './instanceOperator'
+jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import express from 'express'
 import request from 'supertest'
@@ -89,6 +91,7 @@ function app(cookieOrCookies: string | Record<string, string> = {}, recent?: str
     const server = express()
     server.use(express.json())
     server.use((req, _res, next) => {
+        ;(req as typeof req & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         req.user = {
             id: 'owner-1',
             activeOrganizationId: 'org-1',
@@ -107,7 +110,7 @@ describe('authentication settings routes', () => {
     beforeEach(async () => {
         await resetAuthenticationRouteLimitsForTests()
         jest.clearAllMocks()
-        setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: ['authentication:manage'] }) })
+        setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: ['authentication:manage'] }) })
         readAuthenticationState.mockResolvedValue(state)
         findSuperUser.mockResolvedValue({ id: 'owner-1', credential: 'bcrypt' })
         localAccountOpen.mockResolvedValue(true)
@@ -554,4 +557,16 @@ describe('authentication settings routes', () => {
         }
         expect(status).toBe(429)
     })
+})
+
+const priorOperator = process.env.CUTTLELY_INSTANCE_OPERATOR
+beforeEach(() => {
+    process.env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: 'owner-1',
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
+})
+afterAll(() => {
+    if (priorOperator === undefined) delete process.env.CUTTLELY_INSTANCE_OPERATOR
+    else process.env.CUTTLELY_INSTANCE_OPERATOR = priorOperator
 })

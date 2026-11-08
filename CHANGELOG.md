@@ -6,9 +6,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   An owner-only **Access-key enforcement** selector in **Admin > Server settings > Security & network > Access keys**. The service-wide off/shadow/on choice persists and applies on the next request, with effective mode/source, host locking, explicit compatibility and single-instance warnings, and audited changes. Default remains off; host `INBOUND_ACCESS_V2` always wins, including a forced off for recovery. Invalid saved values fail safe to off; invalid host values retain 503. General restore actions preserve the current rollout choice. Authorization, quota and admission rules are unchanged.
+-   An instance-operator-only **Access-key enforcement** selector in **Admin > Server settings > Security & network > Access keys**. The service-wide off/shadow/on choice persists and applies on the next request, with effective mode/source, host locking, explicit compatibility and single-instance warnings, and audited changes. Default remains off; host `INBOUND_ACCESS_V2` always wins, including a forced off for recovery. Invalid saved values fail safe to off; invalid host values retain 503. General restore actions preserve the current rollout choice. Inbound resource authorization, quota and admission rules are unchanged.
+
+### Upgrade notes / breaking changes
+
+-   Browser service administration now requires host-only `CUTTLELY_INSTANCE_OPERATOR`, binding the selected active owner to the running database connection. Unset or invalid fails closed: ordinary owners lose Server settings writes and sensitive configuration/history reads. Host environment and settings CLI recovery remain available. Database switches require explicit host rebinding. Public setup codes can create an account only when sign-in is host-enabled; they cannot configure the service. See [operator onboarding and recovery](./docs/how-to/instance-operator.md).
 
 ### Fixed
+
+-   Service-wide settings, restart, tests, restore/retry/discard, guided configuration, global authentication/OIDC and version-history host configuration require the designated instance operator. Other organization owners cannot switch databases to acquire authority. Settings history is operator-only through both Server settings and Audit log. Operator designation grants no cross-organization data access. Recovery writes retain previous settings on audit failure.
 
 -   Prediction attempts refused by access-key preflight count toward the configured flow/IP rate limit; authorization refusals still consume no per-key quota.
 -   Streaming prediction origin refusals use literal plain text when recognized by the prediction middleware/controller. The access-key reference now distinguishes access-key preflight refusals, which return JSON even for streaming callers.

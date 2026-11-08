@@ -20,30 +20,9 @@ With the flag off, Local users off, and no available selected remote method, the
 
 ### When nobody can sign in yet
 
-A server with no account, the password sign-in off and no AuthKit (for example Render without the WorkOS values) prints a ready block when it starts. The link uses Render's public address, or `APP_URL` when it is set, and the code is in the fragment:
+Configure sign-in on the host before browser setup. Enable `CUTTLELY_LOCAL_ADMIN=true`, restart, and create the first owner with `pnpm user --email you@example.com` (password prompt), or use the account-only setup link from the server log. A setup code cannot write service configuration or designate an operator. For WorkOS-only setup, configure its credentials and bootstrap email on the host before signing in.
 
-```text
-2026-10-09 12:00:00 [INFO]: ✅ Cuttlely is ready — finish setup:
-2026-10-09 12:00:00 [INFO]:    https://your-service.onrender.com/setup#code=madeupcode000001      ← open on this machine
-2026-10-09 12:00:00 [INFO]:    Setup code: madeupcode000001   (valid 60 min, works once)
-```
-
-The page reads the code, then removes it from the address. It opens **Sign-in & identity**, with two choices:
-
--   **Use a password for now** creates the owner account and turns the password sign-in on.
--   **Set up AuthKit** runs the same four steps as Server settings. The owner email is required, and the test sign-in must use it. Nothing is saved until the test passes.
-
-Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A code lasts 60 minutes. A restart, or a second copy of the server on the same database, keeps a live code: the link printed first still works. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. While setup is still open, an expired code is replaced when a setup request finds it, or on a one-minute check, and the new link is printed. The ready block is printed again every five minutes while setup is still open, using that live code.
-
-If accounts already exist but the candidate for the durable selected method is unavailable, there is no setup link. The browser opens the Sign In page with **Sign-in is not configured.** Environment settings make Local or WorkOS available as candidates; they do not change the recorded selection. Open `/owner-recovery`, using `pnpm user --email you@example.com` first if the owner needs a password, then fix the selected candidate or choose the ordinary method under **Admin** > **Auth / SSO**.
-
-![Choose how people sign in. Two cards: Use a password for now, and Set up AuthKit. The note says this page works once.](../images/server-settings/setup-link-choose.png)
-
-![Create the owner account, with empty fields for Your name, Email, Password and Password again, and Create account and restart.](../images/server-settings/setup-link-password.png)
-
-![Set up AuthKit opened from the setup link, on Connect WorkOS, with a Staging chip. The API key is masked. Client ID reads client_demo_bakery.](../images/server-settings/setup-link-authkit.png)
-
-![This setup link can't be used. The note says to copy it again from the server log. Go to sign in is the button.](../images/server-settings/setup-link-closed.png)
+If accounts already exist, use `/owner-recovery`, setting the selected owner's password with the host user CLI if necessary. Browser changes to global sign-in settings require the host-designated instance operator as well as existing recent authentication. [Operator onboarding and lost-operator recovery](./instance-operator.md) explains the required host designation; no organization owner receives it automatically.
 
 ## Create the first account
 

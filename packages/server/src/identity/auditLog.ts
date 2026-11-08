@@ -179,8 +179,8 @@ export interface AuditScope {
     workspaceId: string | null
     /** Owner of the active team's organization. */
     owner: boolean
-    /** The earliest active organization owner. Sees sign-ins that matched no account. */
-    serverOwner?: boolean
+    /** Host-designated service operator. Sees service settings history and unmatched sign-ins only. */
+    instanceOperator?: boolean
 }
 
 export interface AuditQuery {
@@ -417,27 +417,6 @@ export async function organizationsForUser(sql: Sql, userId: string): Promise<st
     return [...ids]
 }
 
-/**
- * The earliest active organization owner. Unknown-account sign-ins are shown only to this person.
- * A missing table or a failed read returns false, so those rows stay hidden.
- */
-export async function callerIsServerOwner(sql: Sql, userId: string): Promise<boolean> {
-    try {
-        const rows = await sql.query(
-            `SELECT u.${q(sql.type, 'id')} AS ${q(sql.type, 'id')}
-             FROM ${q(sql.type, 'user')} u
-             INNER JOIN ${q(sql.type, 'organization_user')} ou ON ou.${q(sql.type, 'userId')} = u.${q(sql.type, 'id')}
-             INNER JOIN ${q(sql.type, 'role')} r ON r.${q(sql.type, 'id')} = ou.${q(sql.type, 'roleId')}
-             WHERE LOWER(r.${q(sql.type, 'name')}) = 'owner' AND LOWER(u.${q(sql.type, 'status')}) = 'active'
-             ORDER BY u.${q(sql.type, 'createdDate')} ASC
-             LIMIT 1`
-        )
-        return cell(rows[0] || {}, 'id') === userId
-    } catch {
-        return false
-    }
-}
-
 function cell(row: Record<string, unknown>, name: string): unknown {
     if (name in row) return row[name]
     const found = Object.keys(row).find((key) => key.toLowerCase() === name.toLowerCase())
@@ -521,7 +500,7 @@ export async function pageAudit(sql: Sql, scope: AuditScope, query: AuditQuery):
 
     const where: string[] = []
     const params: unknown[] = []
-    if (scope.owner && scope.serverOwner) {
+    if (scope.owner && scope.instanceOperator) {
         where.push(`(${q(sql.type, 'organizationId')} = ? OR ${q(sql.type, 'organizationId')} = '')`)
         params.push(scope.organizationId)
     } else {
@@ -571,7 +550,7 @@ export async function pageAudit(sql: Sql, scope: AuditScope, query: AuditQuery):
         .map(mapRow)
         .filter((row): row is AuditEvent => row !== null && Boolean(row.id))
         .map((event) => ({ event, atMs: Date.parse(event.at), source: 'db' as const }))
-    const includeHistory = Boolean(scope.owner) && (!type || type === 'setting_change') && !user
+    const includeHistory = Boolean(scope.owner && scope.instanceOperator) && (!type || type === 'setting_change') && !user
     const fromHistory: OrderedEvent[] = includeHistory
         ? historyEvents(query.historyDir, now, days)
               .map((event) => ({ event, atMs: Date.parse(event.at), source: 'history' as const }))

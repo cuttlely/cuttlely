@@ -1974,6 +1974,11 @@ export interface KeptOutGroup {
 
 export const KEPT_OUT: KeptOutGroup[] = [
     {
+        group: 'Instance operator',
+        keys: ['CUTTLELY_INSTANCE_OPERATOR'],
+        why: 'Host-only designation for service administration. Never loaded from saved settings.'
+    },
+    {
         group: 'Inbound access rollout',
         keys: ['CUTTLELY_API_KEY_INSTANCES'],
         why: 'Replica admission must be configured by the deployment operator, outside browser settings.'

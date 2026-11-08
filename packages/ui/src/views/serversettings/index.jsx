@@ -280,6 +280,14 @@ const ServerSettings = () => {
         )
     }
 
+    if (data?.instanceOperator === false) {
+        return (
+            <MainCard title='Server settings'>
+                <Alert severity='info'>Only the instance operator can change server-wide settings</Alert>
+            </MainCard>
+        )
+    }
+
     const sections = data?.sections ?? []
     const searching = query.trim() !== ''
     const visibleIn = (sectionId) =>

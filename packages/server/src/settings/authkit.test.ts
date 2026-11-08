@@ -1,3 +1,6 @@
+jest.mock('../identity/middleware', () => ({ attachIdentitySession: async (req: { user?: unknown }) => req.user ?? null }))
+jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
+import { operatorDatabaseFingerprint } from '../identity/instanceOperator'
 import express, { Request } from 'express'
 import fs from 'fs'
 import os from 'os'
@@ -73,6 +76,7 @@ function app(user: object | null = OWNER, session: string | null = SESSION) {
     server.use(express.json())
     server.use((req, _res, next) => {
         if (user) (req as Request).user = user as Express.User
+        ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = Boolean(user)
         ;(req as Request).cookies = session ? { 'cuttlely-local-session': session } : {}
         next()
     })
@@ -113,6 +117,10 @@ beforeEach(() => {
     keyAnswer = 'rejected'
     resetAuthKitTests()
     writeSettingsFile(dir, { CUTTLELY_LOCAL_ADMIN: 'true' }, { key: KEY, by: 'owner' })
+    env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: 'owner-1',
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
     setServerSettingsDeps(() => ({ env, state, key: async () => KEY }))
     setAuthKitDeps(fakeKit)
     setTeamPermissionLookup({ accessFor: async (userId) => ({ owner: userId === 'owner-1', permissions: [] }) })
@@ -218,11 +226,22 @@ describe('test sign-in', () => {
         expect(readSettingsFile(dir, KEY).values.CUTTLELY_LOCAL_ADMIN).toBe('true')
     })
 
+    it('does not keep a test proof when its history cannot be recorded', async () => {
+        const testState = await startTest()
+        const history = path.join(dir, 'history.jsonl')
+        if (fs.existsSync(history)) fs.rmSync(history)
+        fs.mkdirSync(history)
+        const response = await app().get(`/api/v1/auth/callback?code=fake-code&state=${encodeURIComponent(testState)}`)
+        expect(response.status).toBe(500)
+        expect(fs.existsSync(path.join(dir, AUTHKIT_PROOF_FILE))).toBe(false)
+    })
+
     it('must come back to the same browser session', async () => {
         const testState = await startTest()
-        await app(null, 'another-session').get(`/api/v1/auth/callback?code=fake-code&state=${encodeURIComponent(testState)}`)
+        const denied = await app(null, 'another-session').get(`/api/v1/auth/callback?code=fake-code&state=${encodeURIComponent(testState)}`)
+        expect(denied.status).toBe(403)
         const status = (await app().get('/api/v1/server-settings/authkit/test')).body
-        expect(status.status).toBe('failed')
+        expect(status.status).toBe('waiting')
         expect(exchanged).toHaveLength(0)
         expect(fs.existsSync(path.join(dir, AUTHKIT_PROOF_FILE))).toBe(false)
     })
@@ -311,7 +330,12 @@ describe('password sign-in stays on until a test passes', () => {
 
     it('does not get in the way when the host turned password sign-in off already', async () => {
         fs.rmSync(path.join(dir, SETTINGS_FILE))
-        env = { CUTTLELY_DATA_DIR: data, CUTTLELY_LOCAL_ADMIN: 'false', ...FAKE }
+        env = {
+            CUTTLELY_DATA_DIR: data,
+            CUTTLELY_LOCAL_ADMIN: 'false',
+            ...FAKE,
+            CUTTLELY_INSTANCE_OPERATOR: env.CUTTLELY_INSTANCE_OPERATOR
+        }
         state.hostKeys = ['CUTTLELY_LOCAL_ADMIN', ...Object.keys(FAKE)]
         expect(
             (

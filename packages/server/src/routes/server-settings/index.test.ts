@@ -1,3 +1,5 @@
+jest.mock('../../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
+import { operatorDatabaseFingerprint } from '../../identity/instanceOperator'
 import express, { Request } from 'express'
 import fs from 'fs'
 import os from 'os'
@@ -42,6 +44,7 @@ function app(user: object | null) {
     server.use(express.json())
     server.use((req, _res, next) => {
         if (user) (req as Request).user = user as Express.User
+        ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = Boolean(user)
         next()
     })
     server.use('/api/v1/server-settings', router)
@@ -85,6 +88,10 @@ beforeEach(() => {
         problems: [],
         rawAtStart: null
     }
+    env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: 'owner-1',
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
     setServerSettingsDeps(() => ({ env, state, key: async () => KEY }))
     setTeamPermissionLookup({ accessFor: async (userId) => ({ owner: userId === 'owner-1', permissions: [] }) })
 })
@@ -241,7 +248,7 @@ describe('saving settings', () => {
 
     it('never leaves the server without a way to sign in', async () => {
         state.hostKeys = []
-        env = { CUTTLELY_DATA_DIR: env.CUTTLELY_DATA_DIR }
+        env = { CUTTLELY_DATA_DIR: env.CUTTLELY_DATA_DIR, CUTTLELY_INSTANCE_OPERATOR: env.CUTTLELY_INSTANCE_OPERATOR }
         const res = await app(OWNER)
             .put('/api/v1/server-settings')
             .send({ values: { CUTTLELY_LOCAL_ADMIN: 'false' } })

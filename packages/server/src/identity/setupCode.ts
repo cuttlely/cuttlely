@@ -941,6 +941,12 @@ export async function announceFirstRunSetup(
         )
         return 'recover'
     }
+    if (!localAdmin && noSignInMethod(env)) {
+        log(
+            '🔑 [server]: Configure sign-in on the host, restart, then create the first owner with the user CLI or account setup. Browser server configuration requires CUTTLELY_INSTANCE_OPERATOR. See docs/how-to/instance-operator.md.'
+        )
+        return 'recover'
+    }
     await claimLiveCode()
     startSetupCodeWatch(countUsers, localAdmin, env)
     if (heldByOther || !issuedPlain) {

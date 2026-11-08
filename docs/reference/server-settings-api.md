@@ -1,14 +1,14 @@
 # Server settings API
 
-Owner-only settings for this server. The page is **Admin** > **Server Settings**. This page is the HTTP API. A runtime limit applies on the next use. Every other saved value applies at the next start.
+Instance-operator settings for this server. The page is **Admin** > **Server Settings**. This page is the HTTP API. A runtime limit applies on the next use. Every other saved value applies at the next start.
 
 `GET /api/v1/server-settings`
 
 `PUT /api/v1/server-settings`
 
-The caller must be the organization owner, with a signed-in session. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
+The caller must be the host-designated instance operator and an active organization owner, with a server-validated interactive session. Every request rechecks the host designation and running database connection. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
 
-These settings are instance-wide. One install has one settings file. A workspace role cannot read or change them, including a workspace admin whose session lists permissions from another workspace. The organization owner is an organization role, so that person can call this API from any workspace in that organization. A workspace in another organization does not carry that role.
+These settings are instance-wide. One install has one settings file. A workspace role cannot read or change them, including a workspace admin whose session lists permissions from another workspace. Ownership is a tenant role and does not confer service administration. A designated operator can use a workspace only with its existing tenant membership. A workspace in another organization does not carry that role.
 
 `GET` and `PUT` above are for ordinary settings. Env-only values are a separate list, [Read-only host values](#read-only-host-values). An ordinary setting still includes `value` (or `secret` for a secret). A read-only row does not.
 
@@ -28,6 +28,8 @@ These settings are instance-wide. One install has one settings file. A workspace
 | `locked`    | `true` when the host set the variable, so `PUT` cannot change it. Invite and mail settings stay editable: a saved value overrides the host. `SMTP_PASSWORD` is always locked.                                                                         |
 
 `source`, `boundedBy`, `runtime`, `range`, and `unit` are response fields. A `PUT` body does not send them.
+
+A nonoperator organization owner receives only `{ "instanceOperator": false, "message": "Only the instance operator can change server-wide settings" }` from the root GET. Operator views include `instanceOperator: true`. Every other settings route, including history, read-only status, connection tests, guided setup, database switch/restore, restart, discard and retry, returns 403 `INSTANCE_OPERATOR_REQUIRED` to a nonoperator. No setting values, paths or history are included. `CUTTLELY_INSTANCE_OPERATOR` is kept out of browser settings entirely; mixed writes containing it are rejected atomically. [Host designation and recovery](../how-to/instance-operator.md).
 
 ## Write
 
@@ -99,7 +101,7 @@ The question cap default of 100 and the concurrency default of 2 are the same nu
 
 ## Publish check switch
 
-`CUTTLELY_PUBLISH_CHECK` is a runtime switch on the same routes. It is not a new URL. The organization owner reads and updates it with `GET` and `PUT /api/v1/server-settings`. A missing session, an expired session, an invalid session cookie, and an API key are 401 `{ "error": "Unauthorized Access" }`. A signed-in caller who is not the owner is 403 `{ "message": "Forbidden" }`. A caller with no user id is 403. These settings are instance-wide. The body and the query do not take a workspace id. A `workspaceId` sent beside `values` is ignored. A workspace id sent as a setting name is an unknown key and is refused. There is no `/api/v1/workspaces/:id/server-settings` route. A caller in one workspace cannot read or change this switch through another workspace's id.
+`CUTTLELY_PUBLISH_CHECK` is a runtime switch on the same routes. It is not a new URL. The designated instance operator reads and updates it with `GET` and `PUT /api/v1/server-settings`. A missing session, an expired session, an invalid session cookie, and an API key are 401 `{ "error": "Unauthorized Access" }`. A signed-in caller who is not the owner is 403 `{ "message": "Forbidden" }`. A caller with no user id is 403. These settings are instance-wide. The body and the query do not take a workspace id. A `workspaceId` sent beside `values` is ignored. A workspace id sent as a setting name is an unknown key and is refused. There is no `/api/v1/workspaces/:id/server-settings` route. A caller in one workspace cannot read or change this switch through another workspace's id.
 
 The mutable value is stored in the settings file, the same file as the other Server settings. History records the old and new value (`true` or `false`). It is not a secret, so the history row is not reduced to "changed". A host value that is exactly `true` or `false` wins, and `PUT` cannot change it while that variable is set.
 
@@ -335,6 +337,6 @@ Knowing that a secret exists is enough to operate the server. Returning the secr
 
 ## Access-key rollout
 
-`INBOUND_ACCESS_V2` is an owner-only, service-wide runtime select (`off`, `shadow`, `on`; default `off`) under Security & network. Use the existing `PUT /api/v1/server-settings` with `values.INBOUND_ACCESS_V2`; writes require an interactive session and `x-request-from: internal`. Workspace admins, access keys and unauthenticated callers are rejected by the existing settings gates. This does not grant workspace-specific rollout authority.
+`INBOUND_ACCESS_V2` is an instance-operator-only, service-wide runtime select (`off`, `shadow`, `on`; default `off`) under Security & network. Use the existing `PUT /api/v1/server-settings` with `values.INBOUND_ACCESS_V2`; writes require an interactive session and `x-request-from: internal`. Workspace admins, access keys and unauthenticated callers are rejected by the existing settings gates. This does not grant workspace-specific rollout authority.
 
 The setting’s `effective`, `source` (`host`, `panel`, `default`) and `locked` fields describe what new requests use. A nonempty host value wins and locks writes with `409 LOCKED`, even when it is `off`. An invalid host mode is reported as `effective: "invalid"`; access-key checks retain 503. An invalid saved mode reports effective `off`, source `panel`, and an explanation without echoing the invalid bytes. Saving persists in `settings/server.json` and applies on the next request; it never writes the host environment and needs no restart. `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` ignores the saved mode. History changes include effective `from`/`to` and `fromSource`/`toSource`. Discard, retry, CLI restore and safe boot preserve the current rollout value. See [Access keys](./access-keys.md#rollout-and-migration) for compatibility warnings and the single-instance requirement.
