@@ -257,6 +257,14 @@ export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): 
             return { via: 'api_key', apiKeyId: key.id, harnesses }
         }
 
+        // Match authorizeFlowV2Body: a retained legacy migration grant must not override a replacement binding.
+        if (
+            key.accessPolicy?.legacy &&
+            flow.apikeyid &&
+            (flow.apikeyid !== key.id || !(await hasGrant(await accessData(), key, flowResource(flow))))
+        )
+            throw new AccessKeyAuthenticationError()
+
         await requireNestedCapability(key, 'predict', flowResource(flow))
         const requiredHarnesses: ChatFlow[] = []
         if (flow.type === 'HARNESS') requiredHarnesses.push(flow)

@@ -290,6 +290,28 @@ it('never lets a stale migration grant override a replacement legacy binding', a
     await expect(authorizeFlowKey(req(), { ...flow, apikeyid: 'replacement-key' })).rejects.toMatchObject({ statusCode: 401 })
     expect(mockConsume).not.toHaveBeenCalled()
 })
+it('applies the same replacement legacy binding rule on nested access-key calls', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = {
+            ...key({ scopes: ['predict'] }),
+            accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+        }
+        mockKeys.set('fixture-token', principal)
+        grant()
+        await expect(authorizeNestedFlowKey(principal.id, { ...flow, apikeyid: 'replacement-key' })).rejects.toMatchObject({
+            statusCode: 401
+        })
+        await expect(authorizeNestedFlowKey(principal.id, { ...flow, apikeyid: principal.id })).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
 it('checks expiry, revoke and the owner’s current workspace membership and permissions', async () => {
     grant()
     const valid = key({ scopes: ['predict'] })
