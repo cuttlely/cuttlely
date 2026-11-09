@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.0)
+# Cuttlely FAQ (1.7.1)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.0?
+### What's new in 1.7.1?
+
+Flow-first access-key presets, automatic prediction prerequisites, a server check with one-click fixes, copyable examples, correct saved Private access and private copies. PostgreSQL flow deletion removes grants and private bindings atomically. See [Access keys](./docs/how-to/access-keys.md). Use matching 1.7.1 server and widget packages.
+
+### What changed in 1.7.0?
 
 Scoped access keys and host-backed service administration. This security-exception release requires upgrade action: back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment. Only verified host CLI bindings grandfather; legacy installs without one claim in Server settings with a code from the hosting dashboard or Docker/Compose logs. Only the designated operator can change service-wide settings. Routine lifecycle is in the panel; the CLI is emergency recovery. Enforcement stays Off by default. Read the [upgrade warnings](./docs/upgrading.md) and [changelog](./CHANGELOG.md). To select 1.7.0, pin image `ghcr.io/cuttlely/cuttlely:1.7.0` or install `cuttlely@1.7.0`.
 

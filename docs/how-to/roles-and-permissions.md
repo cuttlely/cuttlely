@@ -90,6 +90,8 @@ After sign-in, someone who is not the organization owner opens the first page in
 
 The table lists every permission key defined in the server and the UI. `scripts/permission-keys.mjs` is that list. `scripts/permission-keys.test.mjs` fails when this table and that list differ, including a key added or removed on only one side, and when a route named here does not check that key.
 
+With scoped access-key enforcement on, prediction and explicitly granted Harness runs use view permission plus the corresponding operation and resource grants. Running a team does not grant editing rights. Session and retained legacy Harness starts keep the create/update gates in the table below; edits, schedules and publication still require their edit permissions.
+
 ## Permission keys
 
 The role dialog offers dataset, evaluator, evaluation, and `logs:view` keys. It leaves out `credentials:share`, `templates:custom-share`, `workspace:export`, `workspace:import`, `sso:manage`, `executions:update`, and `server:owner`.

@@ -40,9 +40,11 @@ Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute c
 
 ![Workspace Access Keys list with existing key rows redacted and Create Key visible.](../images/access-keys/workspace-list.png)
 
-![Unsubmitted policy preview with every visible API operation and resource checkbox unchecked; existing resource names and grant labels are redacted.](../images/access-keys/create-key-policy.png)
+![Call one flow preset with Bakery helper selected and bakeryteam included automatically.](../images/access-keys/create-key-preset.png)
 
-![Add access key dialog warns that policy changes are unavailable while INBOUND_ACCESS_V2 is off. The expiry preview is 2027-02-07T02:40:16.145Z, requests per minute is 60, daily and monthly quotas are 0, Add is disabled and Cancel is available.](../images/access-keys/create-key-dialog-top.png)
+![Server validation explains that Bakery helper also needs bakeryteam and offers Add missing access.](../images/access-keys/access-validation.png)
+
+The preset and validation figures use the actual UI with a local throwaway SQLite route fixture, made-up flow names and no model calls. Any IDs and secrets are redacted. They illustrate the 1.7.1 flow; earlier operator figures retain their original capture provenance.
 
 Presets grant only the resources you pick and the prerequisites shown by the server. The create button requires a resource and an API operation. Direct API creation without explicit scopes/grants still grants nothing; it is not a usable runtime key until configured. Exact grants follow stable IDs: a deleted resource recreated with the same name does not inherit the deleted resource's grant.
 
@@ -50,7 +52,9 @@ Presets grant only the resources you pick and the prerequisites shown by the ser
 
 Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. The access selector shows the state loaded from the server, and a successful save shows **API access saved**. **Create key for this flow** opens the call preset with this flow selected. Workspace-wide prediction keys can also call private flows; the dialog warns when they are present. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
 
-<!-- SCREENSHOT PENDING AK06: actual flow API Endpoint access control, Private selected, no bearer shown; docs/images/access-keys/private-flow.png. Action-only shot not captured. -->
+![After reloading API Endpoint, Saved API access says Private and the selector shows Private: only keys you pick. Create key for this flow is available.](../images/access-keys/private-saved-171.png)
+
+This 1.7.1 figure uses the same local throwaway route fixture; no deployment or enforcement activation is shown.
 
 ## 4. Restrict callers, if needed
 
