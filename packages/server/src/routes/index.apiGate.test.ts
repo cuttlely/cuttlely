@@ -157,7 +157,10 @@ describe('API key gate on the real API router', () => {
     it.each(nimSpellings)('refuses a no-permission API key on %s %s before the router', async (method, path) => {
         const res = await app()[method](path).set('Authorization', 'Bearer no-permission-key')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         for (const handler of allControllers()) expect(handler).not.toHaveBeenCalled()
     })
 
@@ -173,7 +176,10 @@ describe('API key gate on the real API router', () => {
     it('does not treat a non-ASCII letter that lowercases to an ASCII one as part of a public entry', async () => {
         const res = await app().get('/api/v1/chatflows/api%E2%84%AAey/')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         for (const handler of allControllers()) expect(handler).not.toHaveBeenCalled()
     })
 
@@ -189,7 +195,10 @@ describe('API key gate on the real API router', () => {
                     method,
                     path,
                     status: 401,
-                    body: { error: 'Unauthorized Access' }
+                    body: {
+                        error: 'Unauthorized Access',
+                        message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+                    }
                 })
             }
         }
@@ -227,7 +236,10 @@ describe('API key gate on the real API router', () => {
             const next = jest.fn()
             await gate(req, { status } as unknown as Response, next)
             expect(status).toHaveBeenCalledWith(401)
-            expect(json).toHaveBeenCalledWith({ error: 'Unauthorized Access' })
+            expect(json).toHaveBeenCalledWith({
+                error: 'Unauthorized Access',
+                message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+            })
             expect(next).not.toHaveBeenCalled()
         }
         expect(validateAPIKey).not.toHaveBeenCalled()
@@ -264,7 +276,10 @@ describe('API key gate on the real API router', () => {
             .post('/api/v1/orchestrate/11111111-1111-4111-8111-111111111111')
             .set('Content-Type', 'application/json')
             .send({ messages: [{ role: 'user', content: 'Hi' }] })
-        expect(res.body).not.toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).not.toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         expect(res.body.error).toEqual(expect.objectContaining({ code: expect.any(String) }))
     })
 
@@ -273,7 +288,10 @@ describe('API key gate on the real API router', () => {
             .post('/api/v1/a2a/11111111-1111-4111-8111-111111111111')
             .set('Content-Type', 'application/json')
             .send({ jsonrpc: '2.0', id: 1, method: 'message/send', params: { message: { kind: 'message' } } })
-        expect(res.body).not.toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).not.toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('lets signed-out OIDC login and callback requests reach their handlers', async () => {
@@ -293,7 +311,10 @@ describe('API key gate on the real API router', () => {
             expect({ path, status: res.status, body: res.body }).toEqual({
                 path,
                 status: 401,
-                body: { error: 'Unauthorized Access' }
+                body: {
+                    error: 'Unauthorized Access',
+                    message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+                }
             })
         }
     })
@@ -310,7 +331,10 @@ describe('API key gate on the real API router', () => {
                 method,
                 path,
                 status: 401,
-                body: { error: 'Unauthorized Access' }
+                body: {
+                    error: 'Unauthorized Access',
+                    message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+                }
             })
         }
     })
@@ -321,7 +345,10 @@ describe('API key gate on the real API router', () => {
             expect({ path, status: res.status, body: res.body }).toEqual({
                 path,
                 status: 401,
-                body: { error: 'Unauthorized Access' }
+                body: {
+                    error: 'Unauthorized Access',
+                    message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+                }
             })
         }
     })
@@ -336,6 +363,9 @@ describe('API key gate on the real API router', () => {
 
         const callback = await app().get('/api/v1/auth/oidc/callback/provider-1?state=invite-state&code=invite-code')
         expect(callback.status).toBe(302)
-        expect(callback.body).not.toEqual({ error: 'Unauthorized Access' })
+        expect(callback.body).not.toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 })

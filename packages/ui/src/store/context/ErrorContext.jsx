@@ -31,9 +31,9 @@ export const ErrorProvider = ({ children }) => {
                     retryAfter = parsedSeconds
                 }
             }
-            navigate('/rate-limited', { state: { retryAfter } })
+            navigate('/rate-limited', { state: { retryAfter, message: err?.response?.data?.message } })
         } else if (err?.response?.status === 403) {
-            navigate('/unauthorized')
+            navigate('/unauthorized', { state: { message: err?.response?.data?.message } })
         } else if (err?.response?.status === 401) {
             if (ErrorMessage.INVALID_MISSING_TOKEN === err?.response?.data?.message) {
                 store.dispatch(logoutSuccess())

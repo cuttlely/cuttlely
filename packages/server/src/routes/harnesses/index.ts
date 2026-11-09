@@ -2,8 +2,19 @@ import express from 'express'
 import harnessesController from '../../controllers/harnesses'
 import { requireAnyPermission } from '../../identity/rbac'
 import { harnessRunRateLimit, requireHarnessAccess } from '../../services/harnesses/apiAccess'
+import { accessContext } from '../../services/accessKeys/authorization'
 
 const router = express.Router()
+// Scoped execution has explicit operation and resource grants. Legacy/session edit gates stay intact.
+function requireRunPermission(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const context = accessContext(req)
+    const scoped = context?.routeAdmission?.operation === 'harness:run' && !context.key.accessPolicy?.legacy
+    return requireAnyPermission(scoped ? 'chatflows:view,agentflows:view' : 'chatflows:create,chatflows:update,agentflows:create')(
+        req,
+        res,
+        next
+    )
+}
 
 // Every route that names a harness also checks an API key's own harness list. The list route filters to it.
 router.get('/', requireAnyPermission('chatflows:view,agentflows:view'), harnessesController.listHarnesses)
@@ -23,7 +34,7 @@ router.get(
 router.post(
     '/:name/runs/async',
     harnessRunRateLimit('start'),
-    requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
+    requireRunPermission,
     requireHarnessAccess({ auditDenial: true }),
     harnessesController.startBackgroundRun
 )
@@ -51,7 +62,7 @@ router.get(
 router.post(
     '/:name/runs',
     harnessRunRateLimit('start'),
-    requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
+    requireRunPermission,
     requireHarnessAccess({ auditDenial: true }),
     harnessesController.createRun
 )

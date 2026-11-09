@@ -96,3 +96,14 @@ it('refuses an AGENTFLOW write scope the issuer cannot authorize for that family
         mockActorPermissions.delete('agentflows:view')
     }
 })
+
+it('refuses prediction policies missing view permission before minting a secret', async () => {
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    const response = await request(app)
+        .post('/keys')
+        .send({ keyName: 'Incomplete', permissions: [], accessPolicy: { scopes: ['predict'] }, resources: [] })
+    expect(response.status).toBe(400)
+    expect(response.body.message).toContain('predict needs chatflows:view or agentflows:view')
+    expect(response.body.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
+    expect(mockTransaction).not.toHaveBeenCalled()
+})

@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError } from '../services/accessKeys/errors'
 /**
  * Streaming errors: refusals and errors on /api/v1/prediction never leave a request without an answer, whatever `streaming` says.
  *
@@ -182,7 +183,11 @@ describe('Streaming errors: refusals are answered before any stream, for every s
     it.each([...STREAMING_VALUES, ...NON_STREAMING_VALUES].map((value) => [label(value), value]))(
         '3: streaming %s, wrong key -> 401 JSON, no SSE client',
         async (_name, streaming) => {
-            expectJsonError(await post(K, { question: 'hi', streaming }, { Authorization: 'Bearer wrong-key' }), 401, 'Unauthorized')
+            expectJsonError(
+                await post(K, { question: 'hi', streaming }, { Authorization: 'Bearer wrong-key' }),
+                401,
+                new AccessKeyAuthenticationError().message
+            )
             expect(mockState.sseClients).toEqual([])
         }
     )
@@ -333,7 +338,11 @@ describe('Streaming errors: the prediction controller refuses a bad flow key bef
     it.each(STREAMING_VALUES.map((value) => [label(value), value]))(
         '15: streaming %s, wrong key -> 401 JSON, no SSE client, prediction not started',
         async (_name, streaming) => {
-            expectJsonError(await barePost({ question: 'hi', streaming }, { Authorization: 'Bearer wrong-key' }), 401, 'Unauthorized')
+            expectJsonError(
+                await barePost({ question: 'hi', streaming }, { Authorization: 'Bearer wrong-key' }),
+                401,
+                new AccessKeyAuthenticationError().message
+            )
             expect(mockState.sseClients).toEqual([])
             expect(mockState.buildCalls).toBe(0)
         }

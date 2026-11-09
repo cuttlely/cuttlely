@@ -4,9 +4,9 @@ Use an access key when your server calls a private Cuttlely flow. This guide cre
 
 ## Before you start
 
-You need a signed-in workspace account allowed to manage keys and grant the selected operations and resources. A key cannot create another key. You also need a published Chatflow or Agentflow and its ID. If it calls a Harness, note that Harness too.
+You need a signed-in workspace account allowed to manage keys and grant the selected operations and resources. A key cannot create another key. You also need a published Chatflow, Agentflow or Harness and its ID. If it calls a Harness, include that Harness too.
 
-Scoped keys require enforcement **On**. Enforcement is **Off** by default; installing or upgrading does not turn it on. Do not activate it on a live installation merely to follow this guide. Have the instance operator complete the rollout below in a restored test installation first, then schedule production activation separately.
+Scoped keys require enforcement **On**. Enforcement is **Off** by default; installing or upgrading does not turn it on. Do not activate it on a live installation to follow this guide. Have the instance operator complete the rollout below in a restored test installation first, then schedule production activation separately.
 
 Legacy installations without an actual host binding use **Admin > Server settings > Instance operator** for an explicit one-time claim with a code printed only to the host log. Only verified host CLI bindings grandfather automatically; no legacy account, login method or owner role is inferred. The panel supports transfer, revocation with a durable Disabled tombstone, and separately confirmed host-proof recovery/rebind. The CLI is emergency recovery only. Any defined `CUTTLELY_INSTANCE_OPERATOR` value disables panel lifecycle changes; JSON/`none` precedence and invalid/empty fail-closed behavior remain. Read host-log proof in the hosting dashboard or Docker/Compose logs. Only the designated operator can change service settings. See [operator onboarding and recovery](./instance-operator.md).
 
@@ -20,7 +20,7 @@ The figures below were captured on product 1.6.1 at feature head `5c08b125`, bef
 2. Check private custom-assistant integrations before proceeding. Exact custom ASSISTANT grants are unsupported; existing private integrations can work in Off or Shadow but return `401` in On. Keep those installations Off or Shadow until an alternative is ready.
 3. Verify a fresh sign-in (within ten minutes) using Instance operator in Server settings, then as the designated operator open **Admin > Server settings > Security & network > Access keys > Access-key enforcement**. Confirm the effective mode and its source. A nonempty host `INBOUND_ACCESS_V2` overrides and locks the selector, including host-set `off`.
 4. Review a change to **Shadow** and type **APPLY**. Shadow serves legacy decisions and records scoped flow comparisons without charging quotas. It is not a simulation of every route or quota. Check the audit comparisons and separately exercise the routes your app uses in the restored installation.
-5. When ready for that installation, review a change to **On** and type **APPLY**. This affects every workspace on the service, not just yours. A saved mode applies on the next request and persists across restarts. New scoped keys cannot be issued in Off or Shadow.
+5. When ready for that installation, review a change to **On** and type **APPLY**. This affects every workspace on the service. A saved mode applies on the next request and persists across restarts. New scoped keys cannot be issued in Off or Shadow.
 
 ![Access-key enforcement in Server settings shows Default (Off), In effect: off (default), and Default: Off.](../images/access-keys/enforcement-off.png)
 
@@ -31,27 +31,30 @@ Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute c
 ## 2. Create the key
 
 1. In the intended workspace, open **Access Keys** and click **Create Key**. SDK/Settings and per-flow keys share this list; first check that you are in the right workspace.
-2. Enter a **Key Name** and **Service or application**, for example `Orders integration`. Set the **Environment label** to Live or Test. This label does not isolate data or create a separate workspace.
-3. Under **Permissions**, select only the workspace permissions the caller needs. Under **API operations**, select `predict` for a normal prediction request. Permissions and operation scopes must both allow the call.
-4. Under **Resources this key may access**, select the exact flow. If it invokes a Harness, also select that Harness and add `harness:run`, with its execution permissions. Add `stream` for JSON streaming. Multipart prediction needs `predict`, `upload` and `stream` up front; ordinary feedback uses `feedback:read` or `feedback:write` instead of Harness execution authority. See the [route matrix](../reference/access-keys.md#api-route-matrix) for other operations.
-5. Leave **All resources in this workspace, including future resources** off for a single-flow integration. That privileged option requires `apikeys:grant-all` and a separate confirmation. It grants resources, not every operation, and does not remove caller restrictions or quotas.
-6. Choose **Duration preset**, or enter an absolute **Expires at (UTC)** timestamp. The default is 90 days; 30 days, 90 days and No expiry are available. Prefer a finite expiry and plan rotation before it.
-7. Set **Requests per minute**, **Daily UTC quota** and **Monthly UTC quota**. The defaults are 60 per minute and unlimited day/month totals; `0` means unlimited. Start with limits appropriate for this integration.
-8. Click **Add**. Copy the secret once into your server's secret manager, then click **Done**. Cuttlely stores a verifier, not a recoverable secret. Closing the reveal loses the ability to copy it again; rotate if necessary. Do not include the reveal in screenshots.
+2. Start with **Call one chatflow/agentflow**, then pick the chatflows, agentflows or Harnesses your app will call. The form includes `predict`, each flow's required view permission, and referenced Harness grants with `harness:run`. The generated name can be changed. **Read-only API** instead grants reads of the selected resources, without prediction or edits.
+3. Open the collapsed **Advanced: permissions, API operations and resources** only when you need more control. Add `stream` for JSON streaming. Multipart prediction also needs `upload` and `stream`; feedback uses `feedback:read` or `feedback:write`. See the [route matrix](../reference/access-keys.md#api-route-matrix).
+4. Leave **All resources in this workspace, including future resources** off for one integration. This option requires `apikeys:grant-all` and separate confirmation; it includes future resources but does not remove operation, permission, caller or quota checks.
+5. Advanced also contains **Service or application**, the descriptive Live/Test **Environment label**, expiry and limits. The default expiry is 90 days, the minute limit is 60, and day/month quotas are unlimited (`0`). These labels do not isolate data.
+6. Click **Add**. The server checks the complete selection. If anything is missing, read the explanation and use **Add missing access**, then save again. An unavailable or unpublished Harness needs an admin's help; the form keeps your choices while you fix it.
+7. Copy the secret into your server's secret manager. It is shown once with a copy button and cURL/JavaScript examples for the chosen flow. Set `CUTTLELY_API_KEY` on your server before running the examples; they do not embed the secret. Click **Done**. A lost secret requires rotation.
 
 ![Workspace Access Keys list with existing key rows redacted and Create Key visible.](../images/access-keys/workspace-list.png)
 
-![Unsubmitted policy preview with every visible API operation and resource checkbox unchecked; existing resource names and grant labels are redacted.](../images/access-keys/create-key-policy.png)
+![Call one flow preset with Bakery helper selected and bakeryteam included automatically.](../images/access-keys/create-key-preset.png)
 
-![Add access key dialog warns that policy changes are unavailable while INBOUND_ACCESS_V2 is off. The expiry preview is 2027-02-07T02:40:16.145Z, requests per minute is 60, daily and monthly quotas are 0, Add is disabled and Cancel is available.](../images/access-keys/create-key-dialog-top.png)
+![Server validation explains that Bakery helper also needs bakeryteam and offers Add missing access.](../images/access-keys/access-validation.png)
 
-New keys start with no scopes and no resource grants. An empty policy can be saved, but it authorizes no runtime calls. Exact grants follow stable IDs: a deleted resource recreated with the same name does not inherit the deleted resource's grant.
+The preset and validation figures use the actual UI with a local throwaway SQLite route fixture, made-up flow names and no model calls. Any IDs and secrets are redacted. They illustrate the 1.7.1 flow; earlier operator figures retain their original capture provenance.
+
+Presets grant only the resources you pick and the prerequisites shown by the server. The create button requires a resource and an API operation. Direct API creation without explicit scopes/grants still grants nothing; it is not a usable runtime key until configured. Exact grants follow stable IDs: a deleted resource recreated with the same name does not inherit the deleted resource's grant.
 
 ## 3. Make the flow private
 
-Open the flow's **API Endpoint** dialog and select **Private (selected access keys)** when the flow must require a bearer. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
+Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. The access selector shows the state loaded from the server, and a successful save shows **API access saved**. **Create key for this flow** opens the call preset with the saved Chatflow, Agentflow or Harness selected, including when the workspace contains only Harnesses. For a Harness, validation includes `predict`, `harness:run` and the applicable view permission; creation stays disabled until the selection passes validation. Workspace-wide prediction keys can also call private flows; the dialog warns when they are present. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
 
-<!-- SCREENSHOT PENDING AK06: actual flow API Endpoint access control, Private selected, no bearer shown; docs/images/access-keys/private-flow.png. Action-only shot not captured. -->
+![After reloading API Endpoint, Saved API access says Private and the selector shows Private: only keys you pick. Create key for this flow is available.](../images/access-keys/private-saved-171.png)
+
+This 1.7.1 figure uses the same local throwaway route fixture; no deployment or enforcement activation is shown.
 
 ## 4. Restrict callers, if needed
 
@@ -96,7 +99,7 @@ Extending the principal's expiry does not extend an already issued credential. R
 
 ## 7. Revoke access
 
-Use the list's **Revoke** action to revoke the principal and block new requests from every credential belonging to it. Use credential revocation to retire just one secret. Already admitted streams or background runs may finish. Inspect usage and **Admin > Audit log** for lifecycle and policy changes; usage events are aggregated/deduplicated, not a complete per-request ledger.
+Use the list's **Revoke** action to revoke the principal and block new requests from every credential belonging to it. Use credential revocation to retire one secret. Already admitted streams or background runs may finish. Inspect usage and **Admin > Audit log** for lifecycle and policy changes; usage events are aggregated/deduplicated, not a complete per-request ledger.
 
 <!-- SCREENSHOT PENDING AK09: actual principal-revocation confirmation, then revoked list state, using a disposable key; docs/images/access-keys/revoke-confirmation.png and revoked-key.png. Action-only shot not captured. -->
 
@@ -118,3 +121,11 @@ To roll back enforcement, the designated operator reviews **Off** in the selecto
 Use the panel for routine operator transfer/revoke and fresh host-log proof for a changed-connection rebind. Disabled or invalid authority uses the separate RECOVER flow, never ordinary CLAIM. If nobody can sign in or files are unsafe, use the host CLI as the application OS user. Host JSON overrides the managed state; `none`, empty and invalid overrides close panel claims and mutations. See [operator recovery](./instance-operator.md#provisioning-failures-and-recovery).
 
 For complete route details and current limits, use the [access-key reference](../reference/access-keys.md). For server sign-in and settings recovery, use [Server settings](./server-settings.md) and [Startup options](../reference/startup-options.md).
+
+## Prediction permissions and private copies
+
+A prediction key needs `predict`, the exact flow grant, and `chatflows:view` for a chatflow or `agentflows:view` for an agentflow. Selecting prediction in the editor includes its required view permission, and the server checks the combination when you save. A referenced Harness also needs its own grant, `harness:run` and view permission; running a granted team does not require permission to edit it. The Harness permission group explains this prerequisite. Named Harness run routes retain their legacy/session role checks; scoped runs use view permission with their explicit grants.
+
+Duplicating a flow starts the copy **Private**. Access-key grants are not copied, and the canvas says so explicitly. Open **API Endpoint** for the copy and select or create access for its new ID before calling it. The source flow keeps its access. The dialog reloads current saved access from the server, displays **Saved API access: Private** and confirms successful saves. A failed save keeps the previous saved state.
+
+On PostgreSQL and SQLite, deleting a flow removes its private binding and its workspace's exact grants in the same transaction. It leaves the keys themselves and their other grants available. A cleanup failure leaves the original flow and grants in place.

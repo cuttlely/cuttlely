@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.1
+
+-   [Create a working access key](./access-keys.md) with flow-first presets, automatic Harness prerequisites, a server check and copyable examples. Private copies and saved API access fail closed. [Upgrade notes](../upgrading.md).
+
 ## New in 1.7.0
 
 -   [Designate the instance operator](./instance-operator.md). Only actual host bindings grandfather; legacy installs claim in the panel with one host-log code. Routine lifecycle is in the panel; the CLI is emergency recovery. Overrides, revocation and recovery. Read the [1.7.0 upgrade warnings](../upgrading.md) before deployment.

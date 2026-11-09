@@ -129,7 +129,10 @@ describe('harness API runs with an API key', () => {
     it('refuses an unknown key before any harness route runs', async () => {
         const res = await start('not-a-real-key')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         const read = await request(app()).get('/api/v1/harnesses/bakery/runs/run_00000000-0000-4000-8000-000000000000/result')
         expect(read.status).toBe(401)
         expect(handled).toEqual([])

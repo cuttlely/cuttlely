@@ -2,7 +2,25 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.1] - Unreleased
+
+### Added
+
+-   Flow-first access-key presets for calling selected chatflows/agentflows or using the read-only API. Prediction includes required view permission and referenced Harness access. Advanced controls are collapsed for new keys. Server validation explains missing prerequisites and offers a one-click fix; creation reveals the secret once with copyable cURL and server JavaScript examples.
+
+-   API Endpoint offers **Create key for this flow**, preselects the saved chatflow, agentflow or Harness and validates its prerequisites, and warns when workspace-wide prediction keys also have access. The controlled access selector follows saved state after reload.
+
+### Fixed
+
+-   Prediction keys require their flow's view permission, with missing permissions and Harness prerequisites named in refusal messages. Scoped workspace-list refusals explain the signed-in and resource-specific alternatives and link to the guide. Granted Harness execution uses view permission; editing still requires edit rights. Access-key errors explain how to recover and link to the guide.
+
+-   Duplicated flows start Private and explicitly warn that access-key grants are not copied. API Endpoint refreshes saved access from the server, shows Private correctly after reload and confirms successful saves.
+
+-   Deleting a private chatflow with access-key grants on PostgreSQL compares grant principal IDs with the existing UUID key IDs correctly. Grant cleanup and private bindings are removed with the flow in one transaction; failed cleanup rolls back deletion. No schema migration is needed.
+
+### Upgrade notes / breaking changes
+
+-   Existing keys keep their secrets and grants. If a prediction key lacks view permission, edit it in Access Keys and add the permission named by the refusal. Copies start Private with no copied key grants: explicitly select or create access for the new flow. Back up before upgrading; the 1.7.0 operator onboarding and recovery requirements still apply. Enforcement remains default Off.
 
 ## [1.7.0] - 2026-11-09
 
@@ -904,6 +922,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...HEAD
+[1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...HEAD
 [1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/cuttlely/cuttlely/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/cuttlely/cuttlely/compare/v1.5.2...v1.6.0

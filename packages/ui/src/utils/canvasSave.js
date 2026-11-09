@@ -4,6 +4,11 @@ import { stripRawCanvasMarker } from './normalizeCanvasFlow'
 // The credential input key the canvas already moves onto node.data.credential when it saves.
 export const CREDENTIAL_INPUT = 'FLOWISE_CREDENTIAL_ID'
 
+// Keep provenance outside the node graph so the create route can enforce private-copy semantics.
+export function duplicateFlowData(flow) {
+    return JSON.stringify({ ...JSON.parse(flow.flowData), cuttlelyDuplicateSourceId: flow.id })
+}
+
 // A selected credential stays when the input key is present but empty. An import clears that key's
 // value, and a later pick can land on data.credential first. A non-empty input still wins, and
 // clearing both clears the credential.
