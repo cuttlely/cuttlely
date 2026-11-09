@@ -35,6 +35,7 @@ const appHandle = {
     AppDataSource: null
 }
 
+const streamingHelpers = serverRequire('../components/dist/src/streaming.js')
 const componentsStub = {
     EvaluationRunner: class EvaluationRunner {
         async runEvaluations() {
@@ -57,7 +58,12 @@ const componentsStub = {
                 }
             }
         }
-    }
+    },
+    // Real streaming helpers so prediction paths that call resolveShowToolEvents work under the stub.
+    resolveShowToolEvents: streamingHelpers.resolveShowToolEvents,
+    streamChatflowSafe: streamingHelpers.streamChatflowSafe,
+    allowsAgentStyleStream: streamingHelpers.allowsAgentStyleStream,
+    isAgentStyleEvent: streamingHelpers.isAgentStyleEvent
 }
 
 const originalLoad = Module._load
