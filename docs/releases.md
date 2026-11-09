@@ -127,6 +127,7 @@ The release commit reaches `main` only through the release pull request, which n
 -   Promotes of `dev` into `main` use **Create a merge commit**.
 -   A `main` to `dev` sync pull request is merged with a merge commit or by fast-forward, never squashed, so `dev` keeps the commits that are on `main`.
 -   Before starting work, check that `dev` has everything on `main`: `git fetch origin`, then `git rev-list --count origin/dev..origin/main`. If the count is not `0`, sync `main` into `dev` first with a pull request from `main` into `dev`, merged as above, and branch from `dev` after it lands.
+-   `.github/workflows/dev-drift.yml` keeps one open issue titled `dev is N commits behind main` while `dev` is missing commits from `main`, and closes it once `dev` catches up. It runs on every push to `main`, daily, and by hand, and it only opens, updates and closes that issue (`scripts/dev-drift-issue.sh`). It never opens the sync pull request; a person does. Scheduled and push triggers run only from the workflow file on `main`.
 -   Other pull requests into `dev` merge by squash or with a merge commit.
 -   Bring a pull request into `main` up to date with `main` before it merges.
 -   Pull requests into `main` also run the `docker-build` image check from `.github/workflows/test_docker_build.yml`. It is not a required check on `main`; making it required is a founder decision.
