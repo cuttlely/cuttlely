@@ -161,6 +161,16 @@ async function opened() {
 }
 
 beforeEach(() => {
+    // Retained setup-handler unit fixture uses an in-memory account port. This is zero-account
+    // enable-before-create evidence, not proof that a selected provider/ordinary login is usable.
+    jest.spyOn(authenticationState, 'readOrdinarySignInReadiness').mockResolvedValue({
+        activeMethod: null,
+        accountCount: 0,
+        localUser: false,
+        localOwner: false,
+        workosIdentityMatches: false,
+        oidcReady: false
+    })
     data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-setup-'))
     dir = path.join(data, 'settings')
     env = { CUTTLELY_DATA_DIR: data, RENDER: 'true', RENDER_EXTERNAL_URL: 'https://rosas-bakery.example' }

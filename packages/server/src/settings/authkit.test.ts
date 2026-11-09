@@ -1,3 +1,16 @@
+// External-provider/path proof fixture: model an already-selected matching WorkOS installation.
+// Real DB selection, provider-link mismatch and candidate proof checks live in settings-no-way-in.test.cjs.
+jest.mock('../identity/authenticationState', () => ({
+    ...jest.requireActual('../identity/authenticationState'),
+    readOrdinarySignInReadiness: jest.fn(async () => ({
+        activeMethod: 'workos',
+        accountCount: 1,
+        localUser: false,
+        localOwner: true,
+        workosIdentityMatches: true,
+        oidcReady: false
+    }))
+}))
 jest.mock('../identity/middleware', () => ({ attachIdentitySession: async (req: { user?: unknown }) => req.user ?? null }))
 jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
 import { operatorDatabaseFingerprint } from '../identity/instanceOperator'

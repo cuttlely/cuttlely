@@ -18,6 +18,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Server settings saves on local-users-only and generic-OIDC installations no longer fail an unrelated login-method check. Anti-lockout validation applies only to effective sign-in transitions and requires persisted account/provider readiness; removing the last ordinary login still returns `409 NO_WAY_IN` without saving any part of the change. First-owner setup, host precedence and operator authorization remain intact.
+
 -   Service-wide settings, restart, tests, restore/retry/discard, guided configuration, global authentication/OIDC and version-history host configuration require the designated instance operator. Other organization owners cannot switch databases to acquire authority. Settings history is operator-only through both Server settings and Audit log. Operator designation grants no cross-organization data access. Recovery writes retain previous settings on audit failure.
 
 -   Prediction attempts refused by access-key preflight count toward the configured flow/IP rate limit; authorization refusals still consume no per-key quota.

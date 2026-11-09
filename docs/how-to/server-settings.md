@@ -184,7 +184,7 @@ In **Sign-in & identity**, **Set up AuthKit** walks through four steps:
 3. **Session seal**: **Generate seal** makes one. Also the first owner email.
 4. **Test sign-in**: Cuttlely checks the values (including one read-only call to WorkOS), then opens AuthKit with them. Sign in as yourself and you come straight back. Nothing is saved until the test passes and you select **Save AuthKit settings**.
 
-The password sign-in stays on by default as a backup. It can't be turned off until a test sign-in with these exact AuthKit values has passed.
+The owner password form stays on by default. Removing the last ordinary local login requires an established replacement: selected WorkOS with a passed test for these exact AuthKit values and matching installation identity, or a selected, tested active OIDC provider. With Local selected, usable local-user passwords can retain ordinary login independently of the owner-only form. Owner recovery and the CLI remain recovery paths. A change that leaves no established ordinary login is refused with `NO_WAY_IN`; unrelated settings and effective no-ops skip this readiness check. [Sign-in safety on saves](../reference/server-settings-api.md#sign-in-safety-on-saves).
 
 ![Set up AuthKit, Connect WorkOS, with a Staging chip. The API key is masked. Client ID reads client_demo_bakery. Next is at the bottom right.](../images/server-settings/authkit-step-keys.png)
 

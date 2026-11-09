@@ -1,3 +1,16 @@
+// This route unit fixture has synthetic identity/database ports. Real SQL login readiness is exercised by
+// scripts/settings-no-way-in.test.cjs; retain the same writer/authorization/persistence assertions here.
+jest.mock('../../identity/authenticationState', () => ({
+    ...jest.requireActual('../../identity/authenticationState'),
+    readOrdinarySignInReadiness: jest.fn(async () => ({
+        activeMethod: 'local',
+        accountCount: 1,
+        localUser: true,
+        localOwner: true,
+        workosIdentityMatches: false,
+        oidcReady: false
+    }))
+}))
 jest.mock('../../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
 import { operatorDatabaseFingerprint } from '../../identity/instanceOperator'
 import express, { Request } from 'express'

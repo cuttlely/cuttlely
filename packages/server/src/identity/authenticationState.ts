@@ -12,7 +12,14 @@ import { createHash, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { isUsablePasswordHash } from './password'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
-import { oidcProviderKey, oidcRuntimeConfigurationDigest, oidcTestResultAccepted } from './oidcStore'
+import {
+    oidcProviderKey,
+    oidcRuntimeConfigurationDigest,
+    oidcTestResultAccepted,
+    readOidcConfiguration,
+    providerLinkMigrationComplete
+} from './oidcStore'
+import { oidcCallbackUrl } from './cookies'
 
 export type AuthenticationMethod = 'local' | 'workos' | 'oidc'
 export type AuthenticationWarningKind = 'configuration-ambiguous' | 'method-missing' | 'workos-client-mismatch'
@@ -546,6 +553,88 @@ async function usableLocalOwnerExists(runner: QueryRunner): Promise<boolean> {
            AND u.${q(d, 'credential')} <> ''`
     )
     return rows.some((row) => isUsablePasswordHash(String(value(row, 'credential') ?? '')))
+}
+
+/** Database evidence for an ordinary login, never recovery, CLI or operator authority. No provider network calls. */
+export interface OrdinarySignInReadiness {
+    activeMethod: AuthenticationMethod | null
+    accountCount: number
+    localUser: boolean
+    localOwner: boolean
+    workosIdentityMatches: boolean
+    oidcReady: boolean
+}
+
+export async function readOrdinarySignInReadiness(dataSource: DataSource, env: NodeJS.ProcessEnv): Promise<OrdinarySignInReadiness> {
+    const runner = dataSource.createQueryRunner()
+    try {
+        await runner.connect()
+        const state = await selectState(runner)
+        if (!state) throw new Error('AUTH_STATE_MISSING')
+        const d = dialect(runner)
+        const counted = await query(runner, `SELECT COUNT(*) AS ${q(d, 'count')} FROM ${q(d, 'user')}`)
+        const accountCount = Number(value(counted[0] || {}, 'count'))
+        if (!Number.isSafeInteger(accountCount) || accountCount < 0) throw new Error('ACCOUNT_STATE_UNKNOWN')
+        // localAccountOpen also refuses a user with any disabled organization membership.
+        const accounts = await query(
+            runner,
+            `SELECT u.${q(d, 'credential')} AS ${q(d, 'credential')}, r.${q(d, 'name')} AS ${q(d, 'roleName')},
+                    p.${q(d, 'providerKey')} AS ${q(d, 'providerKey')}
+             FROM ${q(d, 'user')} u
+             INNER JOIN ${q(d, 'organization_user')} ou ON ou.${q(d, 'userId')} = u.${q(d, 'id')}
+             INNER JOIN ${q(d, 'role')} r ON r.${q(d, 'id')} = ou.${q(d, 'roleId')}
+             LEFT JOIN ${q(d, 'identity_provider_link')} p ON p.${q(d, 'userId')} = u.${q(d, 'id')}
+             WHERE LOWER(u.${q(d, 'status')}) = 'active' AND LOWER(ou.${q(d, 'status')}) = 'active'
+               AND NOT EXISTS (SELECT 1 FROM ${q(d, 'organization_user')} blocked
+                   WHERE blocked.${q(d, 'userId')} = u.${q(d, 'id')} AND LOWER(blocked.${q(d, 'status')}) = 'disable')`
+        )
+        const local = accounts.filter((row) => isUsablePasswordHash(String(value(row, 'credential') || '')))
+        const linked = Boolean(state.providerKey && accounts.some((row) => value(row, 'providerKey') === state.providerKey))
+        const fingerprint = workosConfigurationFingerprint(env)
+        let oidcReady = false
+        if (state.activeMethod === 'oidc' && linked) {
+            const active = await readOidcConfiguration(dataSource, 'active')
+            const discovery = active?.discovery
+            const { oidcCallbackError } = await import('./oidcProvider')
+            oidcReady = Boolean(
+                active &&
+                    active.issuer &&
+                    active.clientId &&
+                    env[active.clientSecretEnvVar]?.trim() &&
+                    active.health === 'ready' &&
+                    !active.healthError &&
+                    active.fingerprint &&
+                    active.fingerprint === state.configurationFingerprint &&
+                    active.testedFingerprint === active.fingerprint &&
+                    oidcTestResultAccepted(active.testResult) &&
+                    active.testedAt &&
+                    state.providerKey === oidcProviderKey(state.installationId, active.issuer, active.clientId) &&
+                    discovery?.issuer === active.issuer &&
+                    discovery.authorization_endpoint &&
+                    discovery.token_endpoint &&
+                    discovery.jwks_uri &&
+                    !oidcCallbackError(env.RENDER_EXTERNAL_URL?.trim() || env.APP_URL?.trim() || oidcCallbackUrl(undefined, env)) &&
+                    (await providerLinkMigrationComplete(dataSource))
+            )
+        }
+        return {
+            activeMethod: state.activeMethod,
+            accountCount,
+            localUser: local.length > 0,
+            localOwner: local.some((row) => String(value(row, 'roleName')).toLowerCase() === 'owner'),
+            workosIdentityMatches: Boolean(
+                state.activeMethod === 'workos' &&
+                    linked &&
+                    fingerprint &&
+                    state.configurationFingerprint === fingerprint &&
+                    !state.warningKind &&
+                    state.providerKey === stableWorkosProviderKey(state.installationId, fingerprint)
+            ),
+            oidcReady
+        }
+    } finally {
+        await runner.release()
+    }
 }
 
 async function consumeAuthenticationStage(runner: QueryRunner, stage: { id: string; version: number; now?: number }): Promise<void> {

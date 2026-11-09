@@ -25,6 +25,8 @@ import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
 import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
 import { checkValue } from './validate'
+import { readOrdinarySignInReadiness } from '../identity/authenticationState'
+import { signInOptionsBody } from '../identity/signInOptions'
 
 type Env = Record<string, string | undefined>
 
@@ -309,31 +311,69 @@ function authKitView(dir: string, resolved: ResolvedSetting[], hostKeys: Set<str
     }
 }
 
-/** True when the values leave at least one way to sign in. */
-export function hasWayIn(env: Env, hostKeys: Set<string>, values: Record<string, string>): boolean {
-    const resolved = resolveSettings({ env, hostKeys, file: values })
-    const effective = new Map(resolved.map((row) => [row.key, effectiveValue(row)]))
-    const localAdmin = effective.get('CUTTLELY_LOCAL_ADMIN') === 'true'
-    const authKit = ['WORKOS_API_KEY', 'WORKOS_CLIENT_ID', 'WORKOS_REDIRECT_URI', 'WORKOS_COOKIE_PASSWORD'].every((key) =>
-        Boolean((effective.get(key) ?? '').trim())
-    )
-    return localAdmin || authKit
-}
+const SIGN_IN_KEYS = ['CUTTLELY_LOCAL_ADMIN', 'CUTTLELY_LOCAL_USERS', ...AUTHKIT_KEYS] as const
 
 function effectiveMap(env: Env, hostKeys: Set<string>, values: Record<string, string>): Record<string, string> {
     return Object.fromEntries(resolveSettings({ env, hostKeys, file: values }).map((row) => [row.key, effectiveValue(row)]))
 }
 
-/**
- * True when a change turns password sign-in off, or changes AuthKit while password sign-in is off.
- * Either one needs a passed test sign-in with the new AuthKit values first.
- */
-export function needsAuthKitTest(env: Env, hostKeys: Set<string>, before: Record<string, string>, after: Record<string, string>): boolean {
-    const was = effectiveMap(env, hostKeys, before)
-    const will = effectiveMap(env, hostKeys, after)
-    if (will.CUTTLELY_LOCAL_ADMIN === 'true') return false
-    const authKitChanged = AUTHKIT_KEYS.some((name) => (was[name] ?? '') !== (will[name] ?? ''))
-    return was.CUTTLELY_LOCAL_ADMIN === 'true' || authKitChanged
+/** Only effective login transitions need database readiness. Availability flags alone are not proof. */
+async function protectSignInTransition(deps: ServiceDeps, before: Record<string, string>, after: Record<string, string>, key: string) {
+    const hostKeys = new Set(deps.state.hostKeys)
+    const was = effectiveMap(deps.env, hostKeys, before)
+    const will = effectiveMap(deps.env, hostKeys, after)
+    const changed = SIGN_IN_KEYS.filter((name) => was[name] !== will[name])
+    if (!changed.length) return
+    const noWayIn = () =>
+        new SettingsError(
+            409,
+            'NO_WAY_IN',
+            'This would leave no established ordinary sign-in. Keep a usable local login or the selected, tested identity provider.'
+        )
+    let readiness: Awaited<ReturnType<typeof readOrdinarySignInReadiness>>
+    try {
+        // Lazy application seam: unrelated saves never load or query provider/account readiness.
+        const { applicationDataSource } = await import('../identity/production')
+        readiness = await readOrdinarySignInReadiness(applicationDataSource(), { ...deps.env, ...will })
+    } catch {
+        throw noWayIn()
+    }
+    // First-account setup deliberately enables password sign-in before inserting the first owner.
+    // This server-side condition cannot authorize a disable or change provider values.
+    if (
+        readiness.accountCount === 0 &&
+        (readiness.activeMethod === null || readiness.activeMethod === 'local') &&
+        changed.every((name) => (name === 'CUTTLELY_LOCAL_ADMIN' || name === 'CUTTLELY_LOCAL_USERS') && will[name] === 'true')
+    )
+        return
+    // An empty installation may add its first tested AuthKit configuration for the verified bootstrap email.
+    // This is setup-only; a bootstrap email never substitutes for an established account after setup.
+    if (
+        readiness.accountCount === 0 &&
+        readiness.activeMethod === null &&
+        will.CUTTLELY_BOOTSTRAP_EMAIL?.trim() &&
+        authKitComplete(will) &&
+        authKitTested(deps.state.dir, will, key)
+    )
+        return
+    const available = signInOptionsBody({ ...deps.env, ...will }, readiness.activeMethod)
+    if (
+        (available.localUsers && readiness.localUser) ||
+        (available.localAdmin && readiness.localOwner) ||
+        (available.oidc && readiness.oidcReady)
+    )
+        return
+    const tested = authKitTested(deps.state.dir, will, key)
+    if (available.authKit && authKitComplete(will) && readiness.workosIdentityMatches && tested) return
+    if (available.authKit && authKitComplete(will) && !tested) {
+        throw new SettingsError(
+            409,
+            'AUTHKIT_NOT_TESTED',
+            'Run a test sign-in with these exact AuthKit settings before removing the last ordinary login.',
+            [{ key: 'CUTTLELY_LOCAL_ADMIN', message: 'Use Set up AuthKit, then Test sign-in.' }]
+        )
+    }
+    throw noWayIn()
 }
 
 /** Settings that have their own guided flow and cannot be saved here directly. */
@@ -459,27 +499,12 @@ async function writeValuesLocked(
     if (read.exists && read.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         throw new SettingsError(409, 'FILE_DAMAGED', 'The settings file could not be read. Run pnpm settings restore on the server first.')
     }
-    const hostKeys = new Set(state.hostKeys)
     const next: Record<string, string> = { ...read.values }
     for (const [name, value] of Object.entries(normalized)) {
         if (value === '') delete next[name]
         else next[name] = value
     }
-    if (!hasWayIn(deps.env, hostKeys, next)) {
-        throw new SettingsError(
-            409,
-            'NO_WAY_IN',
-            'This would leave no way to sign in. Keep the password sign-in on, or finish setting up AuthKit first.'
-        )
-    }
-    if (needsAuthKitTest(deps.env, hostKeys, read.values, next) && !authKitTested(state.dir, effectiveMap(deps.env, hostKeys, next), key)) {
-        throw new SettingsError(
-            409,
-            'AUTHKIT_NOT_TESTED',
-            'Password sign-in stays on until a test sign-in with these AuthKit settings passes. Use Set up AuthKit, then Test sign-in.',
-            [{ key: 'CUTTLELY_LOCAL_ADMIN', message: 'Run a test sign-in with AuthKit first. Password sign-in stays on until one passes.' }]
-        )
-    }
+    await protectSignInTransition(deps, read.values, next, key)
     const stored = readStoredValues(state.dir)
     const preserve: Record<string, (typeof stored)[string]> = {}
     for (const name of read.unreadable) if (!(name in normalized)) preserve[name] = stored[name]
