@@ -129,7 +129,7 @@ beforeEach(() => {
 })
 
 it('directs each active method to its supported step-up route', () => {
-    expect(reauthenticationTarget('workos')).toBe('/owner-recovery')
+    expect(reauthenticationTarget('workos')).toBe('/api/v1/auth/reauthenticate')
     expect(reauthenticationTarget('oidc')).toBe('/api/v1/auth/oidc/reauthenticate')
     expect(reauthenticationTarget('local')).toBe('/signin?reauth=1')
 })

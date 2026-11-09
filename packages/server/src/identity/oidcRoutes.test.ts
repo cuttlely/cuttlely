@@ -1,3 +1,5 @@
+import { operatorDatabaseFingerprint } from './instanceOperator'
+jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import express from 'express'
 import request from 'supertest'
@@ -33,7 +35,10 @@ jest.mock('./handlers', () => {
     return { ...actual, issueDatabaseSession, establishSession }
 })
 jest.mock('./authenticationRoutes', () => ({ recentlyAuthenticated }))
-jest.mock('./rbac', () => ({ requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next() }))
+jest.mock('./rbac', () => ({
+    resolveTeamAccess: async () => ({ owner: true, permissions: [] }),
+    requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next()
+}))
 jest.mock('./authenticationState', () => ({
     readAuthenticationState
 }))
@@ -86,6 +91,7 @@ function adminApp() {
     const server = express()
     server.use(express.json())
     server.use((req, _res, next) => {
+        ;(req as typeof req & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         req.user = { id: 'admin-1', activeOrganizationId: 'org-1' } as Express.User
         next()
     })
@@ -679,4 +685,16 @@ describe('OIDC invitation starts', () => {
         expect(liveInviteUser).toHaveBeenCalledTimes(20)
         expect(beginOidcAuthorization).not.toHaveBeenCalled()
     })
+})
+
+const priorOperator = process.env.CUTTLELY_INSTANCE_OPERATOR
+beforeEach(() => {
+    process.env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: 'admin-1',
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
+})
+afterAll(() => {
+    if (priorOperator === undefined) delete process.env.CUTTLELY_INSTANCE_OPERATOR
+    else process.env.CUTTLELY_INSTANCE_OPERATOR = priorOperator
 })

@@ -3,6 +3,7 @@
 // A setting marked runtime is read on each use. The others are read at start.
 // A valid host value (Docker .env and compose, Render, the shell, packages/server/.env) wins.
 // A runtime limit with a bad host value uses the saved value, then the default.
+// Access-key rollout is stricter: an invalid nonempty host mode retains 503; invalid saved modes resolve off.
 // Invite and mail settings marked panelFirst are the exception: a saved value overrides the host.
 // SMTP_PASSWORD is envOnly: the page shows whether it is set and never stores it.
 // Variables that must never be changed from a browser are on KEPT_OUT, with the reason.
@@ -165,6 +166,23 @@ const RENDER_DASHBOARD = 'Render (Environment page)'
 
 export const SETTINGS: SettingDef[] = [
     // Experimental
+    {
+        key: 'INBOUND_ACCESS_V2',
+        section: 'security',
+        group: 'Access keys',
+        label: 'Access-key enforcement',
+        help: 'Service-wide rollout for every workspace. Applies on the next request; saved across restarts. Review migration before enabling.',
+        type: 'select',
+        options: [
+            { value: 'off', label: 'Off (legacy compatibility)' },
+            { value: 'shadow', label: 'Shadow (compare legacy decisions)' },
+            { value: 'on', label: 'On (enforce access-key policies)' }
+        ],
+        defaultLabel: 'Off',
+        defaultValue: 'off',
+        runtime: true,
+        risk: 'high'
+    },
     {
         key: 'CUTTLELY_DASH_FLOWS',
         section: 'experimental',
@@ -1956,9 +1974,14 @@ export interface KeptOutGroup {
 
 export const KEPT_OUT: KeptOutGroup[] = [
     {
+        group: 'Instance operator',
+        keys: ['CUTTLELY_INSTANCE_OPERATOR'],
+        why: 'Host-only designation for service administration. Never loaded from saved settings.'
+    },
+    {
         group: 'Inbound access rollout',
-        keys: ['INBOUND_ACCESS_V2', 'CUTTLELY_API_KEY_INSTANCES'],
-        why: 'Authorization rollout and replica admission must be configured by the deployment operator, outside browser settings.'
+        keys: ['CUTTLELY_API_KEY_INSTANCES'],
+        why: 'Replica admission must be configured by the deployment operator, outside browser settings.'
     },
     {
         group: 'Encryption and sign-in secrets',
@@ -2111,7 +2134,6 @@ export interface ReadOnlyDef {
  * The status API returns key, set, source, and readOnly. It does not return a value, length, or hash.
  */
 export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
-    { key: 'INBOUND_ACCESS_V2', readOnly: true, check: 'nonblank', whenUnset: 'default' },
     { key: 'CUTTLELY_API_KEY_INSTANCES', readOnly: true, check: 'nonblank', whenUnset: 'default' },
     { key: 'PORT', readOnly: true, check: 'port', whenUnset: 'unset' },
     { key: 'HOST', readOnly: true, check: 'nonblank', whenUnset: 'unset' },

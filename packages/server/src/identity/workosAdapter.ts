@@ -72,12 +72,20 @@ function rethrow(error: unknown): never {
 }
 
 export const workosPort: WorkosPort = {
-    authorizationUrl(redirectUri: string): string {
-        return client().userManagement.getAuthorizationUrl({
-            provider: 'authkit',
-            redirectUri,
-            clientId: process.env.WORKOS_CLIENT_ID
-        })
+    authorizationUrl(redirectUri: string, options?: { state: string; maxAge: number }): string {
+        const url = new URL(
+            client().userManagement.getAuthorizationUrl({
+                provider: 'authkit',
+                redirectUri,
+                clientId: process.env.WORKOS_CLIENT_ID
+            })
+        )
+        // max_age is supported by AuthKit even on SDK versions that predate the typed maxAge option.
+        if (options) {
+            url.searchParams.set('state', options.state)
+            url.searchParams.set('max_age', String(options.maxAge))
+        }
+        return url.toString()
     },
 
     async authenticate(code: string) {
@@ -86,7 +94,11 @@ export const workosPort: WorkosPort = {
                 code,
                 clientId: process.env.WORKOS_CLIENT_ID
             })
-            return { user: identityOf(response.user), sessionId: sessionIdFromAccessToken(response.accessToken) }
+            return {
+                user: identityOf(response.user),
+                sessionId: sessionIdFromAccessToken(response.accessToken),
+                authenticationTime: authenticationTimeFromCodeExchange(response.accessToken)
+            }
         } catch (error) {
             rethrow(error)
         }
@@ -131,5 +143,15 @@ export const workosPort: WorkosPort = {
 
     async setExternalId(workosUserId: string, ourUserId: string) {
         await client().userManagement.updateUser({ userId: workosUserId, externalId: ourUserId })
+    }
+}
+
+/** Only called on the token returned by the authenticated server-to-WorkOS code exchange, never browser input or refresh. */
+export function authenticationTimeFromCodeExchange(accessToken: string): number | undefined {
+    try {
+        const value = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8')).auth_time
+        return Number.isSafeInteger(value) && value > 0 ? value * 1000 : undefined
+    } catch {
+        return undefined
     }
 }

@@ -12,7 +12,8 @@
 
 import { Request, RequestHandler, Response, Router } from 'express'
 import { settingsDir } from '../settings/store'
-import { AuditQueryError, AUDIT_PAGE_DEFAULT, AUDIT_PAGE_MAX, callerIsServerOwner, pageAudit } from './auditLog'
+import { AuditQueryError, AUDIT_PAGE_DEFAULT, AUDIT_PAGE_MAX, pageAudit } from './auditLog'
+import { isInstanceOperator } from './instanceOperator'
 import { Sql } from './directory'
 import { applicationSql } from './production'
 import { requirePermission, resolveTeamAccess } from './rbac'
@@ -78,10 +79,10 @@ identityAuditRouter.get('/', requireAuditViewer(), (req: Request, res: Response)
                 return
             }
             const sql = readerSql()
-            const serverOwner = access.owner ? await callerIsServerOwner(sql, userId) : false
+            const instanceOperator = await isInstanceOperator(req)
             const page = await pageAudit(
                 sql,
-                { organizationId, workspaceId: workspaceId || null, owner: access.owner, serverOwner },
+                { organizationId, workspaceId: workspaceId || null, owner: access.owner, instanceOperator },
                 {
                     type: one(req.query.type),
                     user: one(req.query.user),

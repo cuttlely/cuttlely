@@ -9,11 +9,10 @@
  */
 
 jest.mock('../DataSource', () => ({
-    getDataSource: () => {
-        throw new Error('database is not used when the audit reader is installed')
-    }
+    getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/operator-audit-fixture.sqlite' } })
 }))
 
+import { operatorDatabaseFingerprint } from './instanceOperator'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -256,7 +255,7 @@ describe('audit list', () => {
 
         const failures = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { type: 'sign_in_failure', user: MEMBER, limit: 10, historyDir: dir, now: NOW, retentionDays: 2 }
         )
         expect(failures.events.map((event) => event.type)).toEqual(['sign_in_failure'])
@@ -265,14 +264,14 @@ describe('audit list', () => {
 
         const page = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 1, historyDir: dir, now: NOW, retentionDays: 2 }
         )
         expect(page.events).toHaveLength(1)
         expect(page.nextCursor).toBeTruthy()
         const next = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 1, cursor: page.nextCursor, historyDir: dir, now: NOW, retentionDays: 2 }
         )
         expect(next.events).toHaveLength(1)
@@ -280,7 +279,7 @@ describe('audit list', () => {
         await expect(
             pageAudit(
                 sql,
-                { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+                { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
                 { limit: 1, cursor: 'not-a-cursor', historyDir: dir, now: NOW, retentionDays: 2 }
             )
         ).rejects.toBeInstanceOf(AuditQueryError)
@@ -359,7 +358,7 @@ describe('audit list', () => {
 
         const owner = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 20, historyDir: dir, now: NOW, retentionDays: 90 }
         )
         expect(owner.events.map((event) => event.workspaceId)).toEqual(expect.arrayContaining([TEAM_A, TEAM_B]))
@@ -391,7 +390,7 @@ describe('audit list', () => {
         expect(hidden.events).toEqual([])
         const page = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { type: 'setting_change', limit: 10, historyDir: dir, now: NOW, retentionDays: 90 }
         )
         const encoded = JSON.stringify(page)
@@ -434,20 +433,20 @@ describe('audit list', () => {
         )
         const page = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 2, historyDir: dir, now: NOW, retentionDays: 90 }
         )
         expect(page.events.map((event) => event.at)).toEqual(['2026-10-10T00:00:00.000Z', '2026-10-05T00:00:00.000Z'])
         expect(page.nextCursor).toBeTruthy()
         const next = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 2, cursor: page.nextCursor, historyDir: dir, now: NOW, retentionDays: 90 }
         )
         expect(next.events.map((event) => event.at)).toEqual(['2026-10-01T00:00:00.000Z'])
     })
 
-    it('hides a sign-in that matched no account from every organization except the server owner', async () => {
+    it('hides a sign-in that matched no account from every organization except the designated operator', async () => {
         const { sql } = memorySql()
         const dir = mkdtempSync(join(tmpdir(), 'cuttlely-audit-'))
         await recordAudit(
@@ -464,10 +463,22 @@ describe('audit list', () => {
             },
             NOW
         )
-        const scope = { workspaceId: TEAM_A, owner: true as const, historyDir: dir, now: NOW, retentionDays: 90, limit: 10 }
-        const orgOwner = await pageAudit(sql, { organizationId: ORG, workspaceId: TEAM_A, owner: true }, scope)
-        const otherOwner = await pageAudit(sql, { organizationId: OTHER_ORG, workspaceId: 'team-z', owner: true }, scope)
-        const serverOwner = await pageAudit(sql, { organizationId: ORG, workspaceId: TEAM_A, owner: true, serverOwner: true }, scope)
+        const scope = {
+            workspaceId: TEAM_A,
+            owner: true,
+            instanceOperator: true as const,
+            historyDir: dir,
+            now: NOW,
+            retentionDays: 90,
+            limit: 10
+        }
+        const orgOwner = await pageAudit(sql, { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: false }, scope)
+        const otherOwner = await pageAudit(
+            sql,
+            { organizationId: OTHER_ORG, workspaceId: 'team-z', owner: true, instanceOperator: false },
+            scope
+        )
+        const serverOwner = await pageAudit(sql, { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true }, scope)
         expect(orgOwner.events).toEqual([])
         expect(otherOwner.events).toEqual([])
         expect(serverOwner.events).toHaveLength(1)
@@ -498,7 +509,7 @@ describe('audit list', () => {
         for (let page = 0; page < 6; page += 1) {
             const result = await pageAudit(
                 sql,
-                { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+                { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
                 { limit: 1, cursor, historyDir: dir, now: NOW, retentionDays: 90 }
             )
             if (!result.events.length) break
@@ -547,7 +558,7 @@ describe('audit list', () => {
         }
         const page = await pageAudit(
             folding,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 5, historyDir: dir, now: NOW, retentionDays: 90 }
         )
         expect(
@@ -579,6 +590,7 @@ describe('audit list', () => {
 })
 
 describe('GET /api/v1/audit', () => {
+    const priorOperator = process.env.CUTTLELY_INSTANCE_OPERATOR
     const { sql } = memorySql()
     const dir = mkdtempSync(join(tmpdir(), 'cuttlely-audit-'))
 
@@ -586,6 +598,7 @@ describe('GET /api/v1/audit', () => {
         const server = express()
         server.use((req, _res, next) => {
             if (user) (req as Request).user = user as Express.User
+            ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = Boolean(user)
             next()
         })
         server.use('/api/v1/audit', identityAuditRouter)
@@ -593,6 +606,10 @@ describe('GET /api/v1/audit', () => {
     }
 
     beforeAll(async () => {
+        process.env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+            userId: OWNER,
+            database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/operator-audit-fixture.sqlite' })
+        })
         setAuditReaderForTests(sql, dir)
         await recordAudit(
             sql,
@@ -640,6 +657,8 @@ describe('GET /api/v1/audit', () => {
     })
 
     afterAll(() => {
+        if (priorOperator === undefined) delete process.env.CUTTLELY_INSTANCE_OPERATOR
+        else process.env.CUTTLELY_INSTANCE_OPERATOR = priorOperator
         setAuditReaderForTests(null)
         setTeamPermissionLookup(null)
     })
@@ -783,7 +802,7 @@ livePg('reads a stored audit row through postgres with quoted aliases', async ()
         )
         const page = await pageAudit(
             sql,
-            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true, instanceOperator: true },
             { limit: 5, historyDir: mkdtempSync(join(tmpdir(), 'cuttlely-audit-pg-')), now: NOW, retentionDays: 90 }
         )
         expect(page.events).toEqual([

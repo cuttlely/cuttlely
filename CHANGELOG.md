@@ -2,9 +2,27 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.0] - Unreleased
+
+### Added
+
+-   Private operator authority in `settings/instance-operator.json`, explicitly claimable from Server settings using host-log proof, atomically written with owner-only permissions and excluded from all settings writes/restores. Panel lifecycle and CLI recovery changes are audited without secrets. Provisioning failures exit nonzero with explicit credential status and bind-only recovery instructions.
+
+-   An instance-operator-only **Access-key enforcement** selector in **Admin > Server settings > Security & network > Access keys**. The service-wide off/shadow/on choice persists and applies on the next request, with effective mode/source, host locking, explicit compatibility and single-instance warnings, and audited changes. Default remains off; host `INBOUND_ACCESS_V2` always wins, including a forced off for recovery. Invalid saved values fail safe to off; invalid host values retain 503. General restore actions preserve the current rollout choice. Inbound resource authorization, quota and admission rules are unchanged.
+
+### Upgrade notes / breaking changes
+
+-   Planned 1.7.0 uses the approved [security exception](./docs/releases.md#what-counts-as-a-breaking-change): this minor release closes previously allowed service access and requires upgrade action. Back up the application database, encryption key and settings before deployment, and retain host/CLI recovery. It is not published by this change. Legacy installations without a verified host binding need an explicit panel claim using one host-log code; the CLI is emergency recovery only. No account is inferred or automatically bound on upgrade. Database connection credential/TLS/path changes require reviewing and rebinding. Fresh setup requires host-configured sign-in; a setup code can create only an account, not configure the service. Compose forwards `INBOUND_ACCESS_V2` and `CUTTLELY_IGNORE_ADMIN_SETTINGS` for host recovery; recreate containers to apply host changes. Enforcement remains default Off and activation is separate. See [upgrade warnings](./docs/upgrading.md) and [operator recovery](./docs/how-to/instance-operator.md).
+
+-   Legacy installs without an actual verified host binding explicitly claim the instance operator in Server settings using a one-time host-log code. Only actual host CLI bindings grandfather automatically; account role, login method and old CLI-password credentials never infer authority. Routine transfer/revoke and fresh host-proof recovery/rebind are in the panel, with recent authentication, durable revocation tombstones and audited atomic updates. The CLI is emergency recovery, run as the application OS user. Host JSON/none precedence remains immutable from the panel. [Operator onboarding](./docs/how-to/instance-operator.md).
 
 ### Fixed
+
+-   Mixed WorkOS/local-users upgrades can disable obsolete local-login flags when selected WorkOS has matching active identity and exact tested AuthKit configuration. The informational upgrade warning stays recorded; unsafe or unknown warnings and missing identity/proof still refuse the transition.
+
+-   Server settings saves on local-users-only and generic-OIDC installations no longer fail an unrelated login-method check. Anti-lockout validation applies only to effective sign-in transitions and requires persisted account/provider readiness; removing the last ordinary login still returns `409 NO_WAY_IN` without saving any part of the change. First-owner setup, host precedence and operator authorization remain intact.
+
+-   Service-wide settings, restart, tests, restore/retry/discard, guided configuration, global authentication/OIDC and version-history host configuration require the designated instance operator. Other organization owners cannot switch databases to acquire authority. Settings history is operator-only through both Server settings and Audit log. Operator designation grants no cross-organization data access. Recovery writes retain previous settings on audit failure.
 
 -   Prediction attempts refused by access-key preflight count toward the configured flow/IP rate limit; authorization refusals still consume no per-key quota.
 -   Streaming prediction origin refusals use literal plain text when recognized by the prediction middleware/controller. The access-key reference now distinguishes access-key preflight refusals, which return JSON even for streaming callers.

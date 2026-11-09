@@ -18,7 +18,7 @@ The owner-only password form also requires `CUTTLELY_LOCAL_ADMIN`, but `/signin`
 
 ## Turn it on
 
-Set `CUTTLELY_LOCAL_USERS` to exactly `true` and restart. In **Admin** > **Server Settings** > **Sign-in & identity**, the switch is **Local user passwords**. It is off unless you set it.
+Set `CUTTLELY_LOCAL_USERS` to exactly `true` on the host and restart. The [instance operator](./instance-operator.md), signed in as an active owner, can also use **Local user passwords** under **Admin > Server Settings > Sign-in & identity**. It is off unless you set it. Browser changes to global sign-in, invite/reset and mail settings require that operator authority; tenant user and session management keep their existing permission checks.
 
 On an existing installation, `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` may be configured while Local login remains selected. The shared local-user form remains the ordinary sign-in page until the durable method changes. The combinations are in the [Auth API](../reference/auth-api.md#active-method-and-compatibility-flags).
 
@@ -40,7 +40,7 @@ Sign out with `POST /api/v1/auth/local/logout` and the same header. Calling it t
 
 ## Turn AuthKit on
 
-Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, restart, then open **Admin** > **Auth / SSO** and switch the ordinary method to WorkOS. `/signin` then shows the WorkOS button and the **Owner recovery** link, not a password form.
+Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` on the host, restart, then, as the instance operator with active ownership, open **Admin** > **Auth / SSO** and switch the ordinary method to WorkOS. `/signin` then shows the WorkOS button and the **Owner recovery** link, not a password form.
 
 The switch transaction ends every interactive session, including the owner's. People sign in again. The owner can use owner recovery. Everyone else uses AuthKit. A later restart does not repeat the session change, and switching back does not restore ended sessions. Environment-only inference selects WorkOS only on a fresh installation or the first boot after this upgrade when no durable authentication state exists. Once that state exists, restarts keep its selected method.
 

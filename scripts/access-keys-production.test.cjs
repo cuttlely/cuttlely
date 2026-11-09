@@ -2067,7 +2067,8 @@ test('real updateChatflow commits a mode-only change and permits an unchanged or
 })
 
 // Use App.config itself: global preflight, parsers, API gate, real prediction router/controller,
-// and RateLimiterManager. Only model execution is replaced after authorization has completed.
+// and RateLimiterManager. Fixture DataSource/running-app accessors and platform identity wire
+// disposable SQLite into the app; buildChatflow is replaced after authorization has completed.
 async function round14App() {
     const { App } = serverRequire('./src/index.ts')
     const { RateLimiterManager } = serverRequire('./src/utils/rateLimit.ts')

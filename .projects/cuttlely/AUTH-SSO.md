@@ -4,6 +4,8 @@
 
 This note records the provider-neutral authentication and provisioning design for Cuttlely. Phase A, generic OIDC (B1) and Phase B2 are on the main line; B2 implements the shared database session, one selected interactive sign-in method, the **Auth / SSO** page, and permanent owner recovery. Phase C SCIM v2 provisioning is on the main line ([#361](https://github.com/cuttlely/cuttlely/pull/361)) and ships in 1.5.0. Phase D remains.
 
+**Superseded by D113 for global configuration authority and D115 for WorkOS freshness:** the phase-design text below does not grant service authority through an owner role or authentication:manage alone. Global method/provider configuration requires the instance operator with active ownership; authentication root GET, organization-scoped SCIM and recovery-alert acknowledgment retain their tenant gates. The WorkOS non-qualification assumption below is historical: verified provider authentication time from the bound reauthentication flow can satisfy recent authentication; refresh or issue time alone cannot. See [D113](./DECISIONS.md#d113-host-designation-governs-service-administration), [D115](./DECISIONS.md#d115-explicit-panel-enrollment-requires-independent-host-proof) and the [current Auth API](../../docs/reference/auth-api.md).
+
 The selectable methods are:
 
 -   **Local login**: Cuttlely credentials and Cuttlely sessions.

@@ -20,6 +20,7 @@ import {
 import { hashSessionToken } from './password'
 import type { IdentityStore } from './store'
 import { applicationDataSource, applicationSql, identityStore } from './production'
+import { requireInstanceOperator } from './instanceOperator'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
 import {
@@ -59,11 +60,15 @@ export async function databaseSessionRecentlyAuthenticated(
     if (!token) return false
     const session = await store.findLocalSession(hashSessionToken(token))
     if (!session) return false
-    const authenticatedAt = session.authenticationMethod === 'oidc' ? session.recentAuthenticationAt : session.issuedAt
+    const authenticatedAt =
+        session.authenticationMethod === 'oidc' || session.authenticationMethod === 'workos'
+            ? session.recentAuthenticationAt
+            : session.issuedAt
     return Boolean(
         authenticatedAt &&
             (session.authenticationMethod === 'local' ||
                 session.authenticationMethod === 'oidc' ||
+                session.authenticationMethod === 'workos' ||
                 session.authenticationMethod === 'recovery') &&
             now >= authenticatedAt.getTime() &&
             now - authenticatedAt.getTime() <= RECENT_MS
@@ -97,6 +102,12 @@ async function auditAttempt(who: { id: string; organizationId: string }, detail:
 }
 
 identityAuthenticationRouter.use(requirePermission('authentication:manage'))
+identityAuthenticationRouter.use((req, res, next) => {
+    // SCIM and recovery alerts are organization administration, not host configuration.
+    if (req.path.startsWith('/scim-') || req.path === '/acknowledge-recovery-alert' || (req.method === 'GET' && req.path === '/'))
+        return next()
+    return requireInstanceOperator()(req, res, next)
+})
 
 const switchStageStore = new MemoryStore()
 const switchApplyStore = new MemoryStore()

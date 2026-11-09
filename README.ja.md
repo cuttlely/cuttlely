@@ -31,7 +31,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.6.1 を公開しました。** Dashflows BETA（Experimental、既定オフ）は、証拠パネルの確認、パイプライン日付範囲の最大 6 時間キャッシュ、任意の公開スナップショットリンクとアカウント単位のヘルスレポートを整えます。破壊的変更はありません。イメージ `1.6.1` を pull するか、`npm i cuttlely@1.6.1` を実行してください。1.4.10 以前からアップグレードする場合は、まず [1.5.0 のアップグレード注記](./CHANGELOG.md#150---2026-11-01) をお読みください。[変更履歴](./CHANGELOG.md#161---2026-11-06)
+**計画中の 1.7.0（未公開）は、スコープ付き API キーとホスト側のサービス管理を追加します。** セキュリティ例外によるリリースであり、アップグレード作業が必要です。データベース、暗号化キー、設定をバックアップし、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を準備してください。検証済みのホスト CLI バインドのみが自動的に引き継がれます。バインドのない既存環境では、Server settings の Instance operator から、ホストログに一度だけ表示されるコードで明示的に CLAIM します。通常の移譲・無効化・再バインドは管理パネルで行い、CLI は緊急復旧専用です。他の所有者にサービス権限は付与されません。ホストの `CUTTLELY_INSTANCE_OPERATOR` JSON がファイルより優先され、`none` はブラウザー管理をすべて無効にします。バインドが不正または欠落している場合は管理できません。新規セットアップではホスト側でサインインを設定します。セットアップコードでサービス設定は変更できません。アクセスキーの適用は既定でオフです。[アップグレード時の注意](./docs/upgrading.md) · [変更履歴](./CHANGELOG.md)。公開後はイメージ `1.7.0` または `cuttlely@1.7.0` を指定してください。
 
 ## 目次
 
@@ -115,7 +115,7 @@ Node 20+ と Docker
 -   [サインイン](./docs/how-to/sign-in.md)。最初のアカウントを作ります。チームは AuthKit なしで、ローカルユーザー（`CUTTLELY_LOCAL_USERS`）でサインインできます。AuthKit はあとからオンにでき、確認済みのメールアドレスが既存のローカルユーザーにひも付きます。
 -   [AuthKit なしのユーザー](./docs/how-to/users-without-authkit.md)。ローカルユーザー、招待とリセットのリンク、組み込みの Owner、Admin、Builder、Viewer のロール、セッション。招待された人は、AuthKit の有無にかかわらず、本人あての 1 回限りの招待リンクからのみ参加できます: [ユーザーを招待する](./docs/how-to/sign-in.md#invite-people)。 有効なオーナーは他の人の承認待ちオーナー招待を取り消せます。有効なオーナーの行は読み取り専用です。
 -   [監査ログ](./docs/how-to/audit-log.md)。サインイン、ロックアウト、招待、リセット、ロールの変更、ユーザーの無効化、設定の変更。
--   [サーバー設定](./docs/how-to/server-settings.md)。サインイン、データベース、ストレージなどを **Admin** から変更します。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
+-   [サーバー設定](./docs/how-to/server-settings.md)。ホスト側で[インスタンスオペレーター](./docs/how-to/instance-operator.md)を指定すると、サインイン、データベース、ストレージなどのサービス全体の設定を **Admin** から変更できます。有効な指定がない場合、ブラウザーからのサービス管理はできません。ホストや CLI からの復旧は引き続き利用できます。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
 
 ## アプリを動かすエージェントチーム
 
@@ -161,7 +161,7 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。時間のかかるターンは、同じキーで `POST /api/v1/harnesses/<name>/runs/async` からバックグラウンドで開始し、答えを後で取得できます。ハーネスは cron のスケジュールで実行することもできます：[API キーでアプリから実行する](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key)、[スケジュールで実行する](./docs/how-to/harnesses.md#run-it-on-a-schedule)。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
 
-[アクセスキーの制御と制限](./docs/reference/access-keys.md)。
+[キーの作成と管理](./docs/how-to/access-keys.md)。[アクセスキーの制御と制限](./docs/reference/access-keys.md)。
 
 ## すべてのフローを MCP サーバーに
 

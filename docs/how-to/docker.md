@@ -8,7 +8,7 @@ The database is SQLite unless you change it. Compose leaves `DATABASE_TYPE` unse
 
 Postgres is [from-source.md](./from-source.md): `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, and `DATABASE_PASSWORD`. The Render Blueprint sets those for a hosted database ([render.md](./render.md)). Cuttlely does not read `DATABASE_URL`.
 
-The owner can also switch from the browser: **Admin**, then **Server Settings**, then **Database**, then **Switch database**. It tests the new database first, says whether it is empty or already has Cuttlely data, explains how you sign in afterwards, and asks you to type `RESTART`. Nothing is copied between databases, and **Switch back** returns to the previous one. A database set in `.env` or the compose file shows as set by the host and can only be changed there.
+The [instance operator](./instance-operator.md), signed in as an active organization owner, can also switch from the browser: **Admin**, then **Server Settings**, then **Database**, then **Switch database**. It tests the new database first, says whether it is empty or already has Cuttlely data, explains how you sign in afterwards, and asks you to type `RESTART`. Nothing is copied between databases, and **Switch back** returns to the previous one. A database set in `.env` or the compose file shows as set by the host and can only be changed there.
 
 ```bash
 git clone https://github.com/cuttlely/cuttlely.git
@@ -18,9 +18,17 @@ docker compose up -d
 
 Compose pulls `ghcr.io/cuttlely/cuttlely:latest`. If it cannot pull it, Compose prints a warning and builds the image from your checkout, which takes several minutes the first time.
 
+## Access-key recovery
+
+The shipped app and worker Compose configurations forward `INBOUND_ACCESS_V2` and `CUTTLELY_IGNORE_ADMIN_SETTINGS` from the host `.env` or `--env-file`. Set `INBOUND_ACCESS_V2=off` to override saved enforcement, or `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` to ignore saved settings. Apply the change with `docker compose up -d --force-recreate`, using the same Compose file and options as the install. `docker compose restart` retains the old container environment.
+
+An empty rollout value leaves the saved mode effective and unlocked; an empty ignore flag is off. A nonempty host rollout mode wins even when ignore-admin is enabled. See [access-key rollout](../reference/access-keys.md#rollout-and-migration).
+
 ## Install with npm
 
 With Node.js 20 or newer and Docker running:
+
+Version `1.7.0` is planned/unreleased; the version pin in the examples is for use after publication.
 
 ```bash
 npx cuttlely start
@@ -33,10 +41,10 @@ npx cuttlely stop
 npx cuttlely status
 npx cuttlely logs
 npx cuttlely upgrade
-npx cuttlely start --port 8080 --tag 1.6.1 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.7.0 --env-file .env --no-open
 ```
 
-`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.6.1` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
+`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.7.0` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
 
 If Docker is missing or not running, the command says so and links to this page. The first account is the same as Compose: the one-time setup link is in `npx cuttlely logs`.
 
@@ -235,3 +243,9 @@ Rules that apply in 1.5.2:
     -   docker: subcommands `run`, `build`, `exec`, `compose`, and flags `-v`, `--volume`, `--mount`, `--volumes-from`, `--privileged`, `--cap-add`, `--security-opt`, `--device`, `--entrypoint`, `--network`, `--pid`, `--ipc`, `--env-file`
 
 Prefer SSE/HTTP when possible. See the [FAQ](../faq.md#are-stdio-mcp-servers-enabled-by-default) for more detail and examples.
+
+## Operator claim and host overrides
+
+Legacy installs without a verified host binding use **Admin > Server settings > Instance operator > CLAIM** and the one-time code in `docker compose logs cuttlely`. The code is not exposed by the browser Logs API. Routine transfer/revoke and fresh host-proof rebind are in the panel; the CLI is emergency recovery, run with `docker compose exec -u node cuttlely pnpm user --email you@example.com --bind-operator`.
+
+Every shipped root, directory, queue source/prebuilt and standalone worker Compose service forwards `CUTTLELY_INSTANCE_OPERATOR` only when present. Unset stays omitted, explicit empty is invalid, `none` revokes browser authority and JSON overrides the file. Every defined value disables panel claim/transfer/revoke/rebind/recovery. Recreate using the same Compose file/options with `docker compose up -d --force-recreate`; a restart keeps the previous environment. Workers receive the same configuration for parity, not because they expose administration HTTP routes. See [operator onboarding and recovery](./instance-operator.md).

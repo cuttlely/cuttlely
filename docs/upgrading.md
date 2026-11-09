@@ -4,6 +4,20 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## 1.7.0 security-exception upgrade (planned/unreleased)
+
+The planned 1.7.0 release changes previously allowed browser service administration under the approved [security exception](./releases.md#what-counts-as-a-breaking-change). Back up before upgrading and retain a host/CLI recovery route. The release and image are not published by these changes.
+
+1. Back up the application database, installation encryption key and saved settings, including the host-only operator binding when one exists.
+2. Only an actual valid host CLI operator binding is inherited automatically. Legacy accounts without one—including older CLI-password owners—must complete the one-time **Admin > Server settings > Instance operator > CLAIM** flow with a code printed only in the hosting log. No account is inferred. The CLI is emergency recovery when nobody can sign in or host files are unsafe; run it as the application OS user.
+3. On a fresh install, configure sign-in on the host, create/sign in to the intended active owner, then explicitly claim from the panel with host-log proof. Browser setup codes create accounts only. A supported host CLI first-owner create/reset already records a verified binding and needs no claim.
+4. With `CUTTLELY_INSTANCE_OPERATOR` entirely unset, a valid managed binding applies. JSON overrides it; `none`, empty or invalid overrides close claims and browser authority. Every defined override disables panel transfer/revoke/rebind/recovery. Removing an override can reveal a prior managed binding.
+5. Use the panel for routine transfer or revoke. Revocation leaves a Disabled tombstone. Disabled/corrupt state needs separately confirmed host-log recovery proof; a changed database requires a fresh host-log REBIND by the previously bound active owner. No ordinary bootstrap reopens after revocation or a DB change. Keep authority/tombstones outside generic database/settings restores.
+6. Recreate containers with the same Compose file/options for host override changes. All shipped root/directory/queue/worker services omit an unset operator override and preserve explicit empty/none/JSON values; a plain restart retains the old container environment.
+7. Access-key enforcement remains **Off** by default. Back up the encryption key and database, rehearse migrations on a restored test installation, resolve review findings and custom-assistant incompatibilities, then plan the separate confirmed Off → Shadow → On activation. MySQL/MariaDB migrations can commit partially; see [access-key rollout](./reference/access-keys.md#rollout-and-migration).
+
+Read [operator onboarding and recovery](./how-to/instance-operator.md) before deployment. No release/image publication or live activation is performed by these changes.
+
 ## What to back up
 
 Everything Cuttlely keeps is in one folder:
@@ -17,7 +31,7 @@ Everything Cuttlely keeps is in one folder:
 
 Inside it, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
 
-`settings/` holds the server settings file the admin panel saves (`server.json`, its last good copy and a change history). Secrets in it are encrypted with the same key.
+`settings/` holds the server settings file the admin panel saves (`server.json`, its last good copy and a change history). Secrets in it are encrypted with the same key. The separate host-only `instance-operator.json` binds the CLI break-glass account to the database connection; browser/CLI settings restore never restores it.
 
 If you set `DATABASE_PATH`, `SECRETKEY_PATH`, `CUTTLELY_DATA_DIR` or `FLOWISE_SECRETKEY_OVERWRITE` yourself, back up what they point to, and keep the key value. `CUTTLELY_SECRETKEY_OVERWRITE` is the same key. If both are set and the values differ, Cuttlely refuses to start.
 
@@ -145,7 +159,7 @@ node scripts/access-keys-migration-report.cjs
 
 This read-only report prints aggregate counts for legacy bindings and Harness-name resolution, without secrets. On SQLite and PostgreSQL, startup applies the migration in a single transaction and a failure rolls it back. On MySQL and MariaDB, `ALTER TABLE` and `CREATE TABLE` commit implicitly, so a failed migration can leave a partially applied schema; recover by stopping the server and restoring the database and installation encryption key from the backup taken before the upgrade, then fix the cause and restart. MySQL/MariaDB migration paths have not been exercised against a live server in this release's validation. Review orphan/cross-workspace bindings and unresolved names; none grant access. Existing bearer values, owners and workspaces are preserved without forced rotation. Existing flow bindings and Harness lists become exact resource grants, never all-resource access. Public share/embed transports and provider credentials remain separate.
 
-`INBOUND_ACCESS_V2=off` is the default. It preserves legacy authorization and leaves new issuance, policy edits and rotation unavailable; revocation remains available. Set `shadow` and restart to serve legacy flow decisions while comparing scoped flow authorization. Review access-key use events in **Admin > Audit log** for `shadowMismatch`, `legacyAllowed` and `scopedAllowed`. This does not simulate quota admission or every route: exercise the [route matrix](./reference/access-keys.md#api-route-matrix) separately. Enable `on` only after migration diagnostics and measured parity have been reviewed.
+`INBOUND_ACCESS_V2=off` is the default. It preserves legacy authorization and leaves new issuance, policy edits and rotation unavailable; revocation remains available. Save **Shadow** in **Admin > Server settings > Security & network > Access keys** (or set host `INBOUND_ACCESS_V2=shadow` and restart) to serve legacy flow decisions while comparing scoped flow authorization. Review access-key use events in **Admin > Audit log** for `shadowMismatch`, `legacyAllowed` and `scopedAllowed`. This does not simulate quota admission or every route: exercise the [route matrix](./reference/access-keys.md#api-route-matrix) separately. Enable `on` only after migration diagnostics and measured parity have been reviewed. The instance-operator panel control applies on the next request and survives restarts. A host mode always overrides it and locks the field; an operator can force `off` there even when the saved mode is `on`. The effective mode and its source are displayed. Review confirmation warns about private custom ASSISTANT integrations returning 401, unresolved Harness names, caller restrictions, quotas and single-instance admission. Disabling is reversible to Off. No installation is activated automatically.
 
 **Access Keys** now holds SDK/Settings and per-flow keys in one workspace list. New keys have no operations or resources. Policy saves replace migration compatibility with the explicit grants/scopes shown, without changing the bearer. Keep `CUTTLELY_API_KEY_INSTANCES=1` (default); RPM is per process and resets on restart, while daily/monthly UTC counters persist in SQL. Redis/multi-instance limiting is not implemented.
 

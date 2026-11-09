@@ -19,6 +19,9 @@ import type { DataSource } from 'typeorm'
 import {
     expiredInviteCookie,
     expiredReauthenticationStateCookie,
+    reauthenticationStateCookie,
+    signedReauthenticationState,
+    reauthenticationRequestTime,
     inviteCookie,
     localCookie,
     sealedCookie,
@@ -421,7 +424,32 @@ export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
 
 export async function handleReauthenticationGet(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
-    return { type: 'redirect', status: 302, url: '/owner-recovery' }
+    const token = ctx.cookies[LOCAL_SESSION_COOKIE]
+    if (!token || !ctx.redirectUri || !ctx.epochBindingSecret) return json(403, { message: 'Sign in before reauthenticating.' })
+    const session = await ctx.store.findLocalSession(hashSessionToken(token))
+    if (
+        !session ||
+        session.authenticationMethod !== 'workos' ||
+        session.authenticationEpoch !== ctx.authenticationEpoch ||
+        localSessionBlock(session, ctx.now) ||
+        !(await authenticationEpochCurrent(ctx)) ||
+        !(await ctx.store.localAccountOpen(session.userId))
+    )
+        return json(403, { message: 'Sign in before reauthenticating.' })
+    const nonce = Buffer.from(
+        JSON.stringify({ userId: session.userId, session: hashSessionToken(token), epoch: ctx.authenticationEpoch, nonce: randomToken() })
+    ).toString('base64url')
+    const state = 'cwor.' + signedReauthenticationState(ctx.now, nonce, ctx.epochBindingSecret)
+    try {
+        return {
+            type: 'redirect',
+            status: 302,
+            url: ctx.workos.authorizationUrl(ctx.redirectUri, { state, maxAge: 0 }),
+            cookies: [reauthenticationStateCookie(state, ctx.secure)]
+        }
+    } catch {
+        return textUnavailable()
+    }
 }
 
 function inviteTokenFrom(ctx: AuthContext): string | undefined {
@@ -455,8 +483,45 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
     if (!ctx.code) return json(400, { message: 'No code provided' })
     try {
+        let reauth: { userId: string; requestedAt: number } | undefined
+        if (ctx.state?.startsWith('cwor.')) {
+            const state = ctx.cookies[REAUTH_STATE_COOKIE]
+            const requestedAt = reauthenticationRequestTime(state?.slice(5), ctx.epochBindingSecret)
+            if (!state || state !== ctx.state || !requestedAt || ctx.now < requestedAt || ctx.now - requestedAt > 10 * 60 * 1000)
+                throw new Error('invalid reauthentication')
+            const context = JSON.parse(Buffer.from(state.split('.')[2], 'base64url').toString('utf8'))
+            const token = ctx.cookies[LOCAL_SESSION_COOKIE]
+            const session = token ? await ctx.store.findLocalSession(hashSessionToken(token)) : null
+            if (
+                !session ||
+                context.session !== hashSessionToken(token!) ||
+                context.userId !== session.userId ||
+                context.epoch !== ctx.authenticationEpoch ||
+                session.authenticationEpoch !== ctx.authenticationEpoch ||
+                session.authenticationMethod !== 'workos' ||
+                localSessionBlock(session, ctx.now) ||
+                !(await ctx.store.localAccountOpen(session.userId))
+            )
+                throw new Error('invalid reauthentication session')
+            reauth = { userId: session.userId, requestedAt }
+        }
         const authenticated = await ctx.workos.authenticate(ctx.code)
+        if (
+            reauth &&
+            (!authenticated.authenticationTime ||
+                authenticated.authenticationTime < reauth.requestedAt - 1000 ||
+                authenticated.authenticationTime > ctx.now ||
+                ctx.now - authenticated.authenticationTime > 10 * 60 * 1000)
+        )
+            throw new Error('fresh authentication required')
         if (!(await authenticationEpochCurrent(ctx))) return { type: 'redirect', status: 302, url: '/signin' }
+        // A reauthentication must prove this already linked account before any linking side effects.
+        if (reauth) {
+            const existing = ctx.findWorkosProviderLinkedUser
+                ? await ctx.findWorkosProviderLinkedUser(authenticated.user.id)
+                : await ctx.store.findUserByExternalId(authenticated.user.id)
+            if (!existing || existing.id !== reauth.userId) throw new Error('reauthentication account changed')
+        }
         const linked = await linkWorkosUser(ctx.store, authenticated.user, {
             bootstrapEmail: ctx.bootstrapEmail,
             inviteToken: inviteTokenFrom(ctx),
@@ -475,6 +540,7 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             await noteSignIn(ctx, 'sign_in_failure', null, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl(linkFailureMessage(linked.reason)) }
         }
+        if (reauth && reauth.userId !== linked.user.id) throw new Error('reauthentication account changed')
         try {
             await ctx.workos.setExternalId(authenticated.user.id, linked.user.id)
         } catch {
@@ -484,17 +550,18 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             { dataSource: ctx.dataSource, authenticationEpoch: ctx.authenticationEpoch, now: ctx.now, store: ctx.store },
             linked.user.id,
             'workos',
-            { workosSessionId: authenticated.sessionId }
+            { workosSessionId: authenticated.sessionId, recentAuthenticationAt: authenticated.authenticationTime }
         )
         if (!issued) {
             await noteSignIn(ctx, 'sign_in_failure', linked.user.id, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
         }
+        if (reauth) await ctx.store.deleteLocalSession(hashSessionToken(ctx.cookies[LOCAL_SESSION_COOKIE]!))
         await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
         return {
             type: 'redirect',
             status: 302,
-            url: '/',
+            url: reauth ? '/server-settings' : '/',
             cookies: [localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs)],
             ...cleared(ctx, [WOS_SESSION_COOKIE, WOS_EPOCH_COOKIE])
         }

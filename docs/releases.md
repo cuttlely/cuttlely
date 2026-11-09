@@ -154,3 +154,5 @@ It then builds the widget, runs `npm pack --dry-run` for both packages, and publ
 -   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
 
 The server itself is not an npm package. The image carries the Python agent runtime. `NPM_TOKEN` is an npm access token for the cuttlely org. It is not stored in this repository. Both packages set `publishConfig.access` to `public`. There is no publish workflow.
+
+Version **1.7.0 is planned/unreleased** under the security exception above. It closes previously allowed browser service administration and changes fresh setup. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default. This documentation does not publish a release or move the supported-version row ahead of publication.

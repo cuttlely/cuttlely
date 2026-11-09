@@ -1,3 +1,5 @@
+import { operatorDatabaseFingerprint } from './instanceOperator'
+jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 
 let mockDataSource: import('typeorm').DataSource
@@ -220,6 +222,7 @@ function application() {
     server.use(express.json())
     server.use(parseTestCookies)
     server.use((req, _res, next) => {
+        ;(req as typeof req & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         req.user = {
             id: OWNER,
             activeOrganizationId: ORGANIZATION,
@@ -328,4 +331,16 @@ describe('OIDC owner recovery method switching', () => {
         expect(staged.status).toBe(409)
         expect(staged.body).toEqual({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the sign-in method.' })
     })
+})
+
+const priorOperator = process.env.CUTTLELY_INSTANCE_OPERATOR
+beforeEach(() => {
+    process.env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: OWNER,
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
+})
+afterAll(() => {
+    if (priorOperator === undefined) delete process.env.CUTTLELY_INSTANCE_OPERATOR
+    else process.env.CUTTLELY_INSTANCE_OPERATOR = priorOperator
 })

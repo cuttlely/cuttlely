@@ -12,9 +12,9 @@ The organization owner of the active team, or a role with `audit:view` on that t
 
 A caller who is not the owner sees events for the active team, and sign-in rows for people in that team. Events for another team, and events for another organization, are left out. The owner sees events for every team in the organization.
 
-Settings changes are the settings history rows. They are included only for the organization owner. A role with `audit:view` does not receive `setting_change` rows. They have no user id, so a `user` filter leaves them out.
+Settings changes are the settings history rows. They are included only for the instance operator with active organization ownership. A role with `audit:view` does not receive `setting_change` rows. Their event-level `userId` is null, so a `user` filter leaves them out; this does not remove operator user IDs intentionally recorded in lifecycle change details.
 
-A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the server owner (the earliest active organization owner). An organization owner of another organization does not receive it.
+A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the instance operator with active organization ownership. No earliest-owner fallback is used; other owners do not receive unmatched rows, and operator status grants no access to another organization’s matched events.
 
 An OIDC refusal that resolves a durable subject link or one pending or inactive account is stored for that user and their organizations. Its detail may include the provider subject because the Cuttlely user is known. A refusal with no matched user follows the unmatched rule above.
 

@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 // Set up AuthKit from the Server settings page: check the values, then a real test sign-in with the values on the
 // page, before anything is saved. The test is bound to the owner's browser session and expires after 10 minutes.
 // The values wait in server memory (never sent back to the browser) and are saved only when the owner chooses to.
@@ -6,10 +8,11 @@ import { Request, Response } from 'express'
 import { LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from '../identity/constants'
 import { isAuthKitEligible } from '../identity/link'
 import { UserRow, WorkosIdentity } from '../identity/types'
-import { AUTHKIT_KEYS, AuthKitProof, authKitEnvironment, authKitFingerprint, writeAuthKitProof } from './authkit-proof'
+import { AUTHKIT_KEYS, AUTHKIT_PROOF_FILE, AuthKitProof, authKitEnvironment, authKitFingerprint, writeAuthKitProof } from './authkit-proof'
 import { TestInputError, cleanMessage, valuesWithDrafts } from './connection'
 import { appendHistory } from './history'
 import { ServiceDeps, SettingsError, SettingsView, writeValues } from './service'
+import { writeFileAtomic } from './store'
 import { setupSessionHash } from './setup-session'
 
 export const AUTHKIT_SECTION = ['signin']
@@ -487,18 +490,28 @@ export async function handleAuthKitTestCallback(deps: ServiceDeps, kit: AuthKitD
     }
     record.signedInAs = identity.email
     const key = await deps.key()
-    writeAuthKitProof(deps.state.dir, {
-        fingerprint: authKitFingerprint(values, key),
-        passedAt: new Date(kit.now()).toISOString(),
-        by: record.by,
-        environment: record.environment
-    })
-    appendHistory(deps.state.dir, {
-        kind: 'test',
-        by: record.by,
-        note: `Test sign-in with AuthKit passed (${record.environment}).`,
-        outcome: 'ok'
-    })
+    await deps.authorize?.()
+    const proofFile = path.join(deps.state.dir, AUTHKIT_PROOF_FILE)
+    const previousProof = fs.existsSync(proofFile) ? fs.readFileSync(proofFile, 'utf8') : null
+    try {
+        writeAuthKitProof(deps.state.dir, {
+            fingerprint: authKitFingerprint(values, key),
+            passedAt: new Date(kit.now()).toISOString(),
+            by: record.by,
+            environment: record.environment
+        })
+        appendHistory(deps.state.dir, {
+            kind: 'test',
+            by: record.by,
+            actorId: record.ownerId,
+            note: `Test sign-in with AuthKit passed (${record.environment}).`,
+            outcome: 'ok'
+        })
+    } catch (error) {
+        if (previousProof === null) fs.rmSync(proofFile, { force: true })
+        else writeFileAtomic(deps.state.dir, AUTHKIT_PROOF_FILE, previousProof)
+        throw error
+    }
     return finish('passed', 'Test sign-in passed. AuthKit works with these settings.')
 }
 
@@ -531,7 +544,7 @@ export async function applyAuthKitTest(
         }
         changes.CUTTLELY_LOCAL_ADMIN = 'false'
     }
-    const view = await writeValues(deps, changes, owner.by, 'save', 'AuthKit set up after a test sign-in passed.')
+    const view = await writeValues(deps, changes, owner.by, 'save', 'AuthKit set up after a test sign-in passed.', owner.id)
     record.applied = true
     record.values = Object.fromEntries(Object.keys(record.values).map((key) => [key, '']))
     return view

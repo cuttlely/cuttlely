@@ -14,7 +14,7 @@ The flow must be in the caller's active workspace. Any other flow id returns 404
 | `GET`  | `/:chatflowId/:sha/diff`    | `chatflows:view` or `agentflows:view`                                                     |
 | `POST` | `/:chatflowId/:sha/restore` | `chatflows:update` or `agentflows:update`, then the update permission for the flow's type |
 
-The [GitHub routes](#copy-to-github) and the [promote routes](#promote-from-dev-to-prod) are for the organization owner only.
+The [GitHub routes](#copy-to-github) and global environment configuration require both the instance operator and active organization ownership. The [promote routes](#promote-from-dev-to-prod) retain their organization-owner gate without an added operator requirement.
 
 New scoped access keys may read a granted flow's versions with `api:read` plus its workspace view permission. Restore and other canvas/publication mutations require a signed-in session; the permission-based API-key behavior below applies to retained legacy keys. Enforcement defaults to `off`; see [Access keys](./access-keys.md#api-route-matrix).
 
@@ -211,7 +211,7 @@ The response has `restoredTo: "draft"`, `draft` (the draft status), `version: nu
 
 ## Copy to GitHub
 
-An owner can connect a GitHub repository so every new version is copied there. In the app this is the GitHub card on **Admin**, then **Version History** (`/version-history`), which only an owner sees. How to set it up, and which token to make: [Keep a copy in GitHub](../how-to/versioning.md#keep-a-copy-in-github). These routes need a signed-in organization owner (Super User). A role grant is not enough, and an API key always gets 403, because the connection is for the whole server.
+The instance operator, signed in as an active organization owner, can connect a GitHub repository so every new version is copied there. In the app this is the GitHub card on **Admin**, then **Version History** (`/version-history`), which only an owner sees. How to set it up, and which token to make: [Keep a copy in GitHub](../how-to/versioning.md#keep-a-copy-in-github). These GitHub and global environment configuration routes require both active organization ownership and the [instance operator](../how-to/instance-operator.md). A role grant is not enough, and API keys cannot configure this server-wide connection.
 
 | Method   | Route               | What it does                                              |
 | -------- | ------------------- | --------------------------------------------------------- |
@@ -398,7 +398,7 @@ Switching this server, or saving a list that changes what it reads or copies, wh
 
 ## Promote from Dev to Prod
 
-On a server that has a previous environment (Prod, in the saved pair), these routes list the flows with a new version from that environment, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. Promotion moves only to the next environment. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On the first environment the list is empty and Promote is 409. Staging, and any environment that is not first, may promote from the previous one.
+On a server that has a previous environment (Prod, in the saved pair), these routes list the flows with a new version from that environment, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. Promotion moves only to the next environment. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner; unlike global GitHub/environment configuration, promotion does not add an instance-operator gate. On the first environment the list is empty and Promote is 409. Staging, and any environment that is not first, may promote from the previous one.
 
 The list also returns `environments` (the order), `source` (the previous server identity) and `target` (this server). A saved Dev and Prod label returns dev, then prod, with `source` `dev`.
 

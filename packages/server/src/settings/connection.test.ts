@@ -1,3 +1,5 @@
+jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
+import { operatorDatabaseFingerprint } from '../identity/instanceOperator'
 import express, { Request } from 'express'
 import fs from 'fs'
 import net from 'net'
@@ -81,6 +83,7 @@ function app(user: object | null = OWNER) {
     server.use(express.json())
     server.use((req, _res, next) => {
         if (user) (req as Request).user = user as Express.User
+        ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = Boolean(user)
         next()
     })
     server.use('/api/v1/server-settings', router)
@@ -114,6 +117,10 @@ beforeEach(() => {
     pgError = null
     bucketCalls = []
     bucketError = null
+    env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: 'owner-1',
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
     setServerSettingsDeps(() => ({ env, state, key: async () => KEY }))
     setConnectionDrivers(() => fakeDrivers())
     setTeamPermissionLookup({ accessFor: async (userId) => ({ owner: userId === 'owner-1', permissions: [] }) })

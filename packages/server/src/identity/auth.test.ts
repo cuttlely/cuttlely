@@ -410,9 +410,72 @@ describe('identity auth', () => {
         if (result.type === 'redirect') expect(result.url).toContain('provider=authkit')
     })
 
-    it('GET /auth/reauthenticate directs WorkOS sessions to owner recovery', async () => {
+    it('GET /auth/reauthenticate requires an existing WorkOS database session', async () => {
         const result = await handleReauthenticationGet(ctx({ workosConfigured: true }))
-        expect(result).toMatchObject({ type: 'redirect', status: 302, url: '/owner-recovery' })
+        expect(result).toMatchObject({ type: 'json', status: 403 })
+    })
+
+    it('WorkOS reauthentication binds state/session/account and accepts only fresh code-exchange auth_time', async () => {
+        const store = new MemoryStore()
+        store.add(
+            { id: 'user-1', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: 'wos-1', credential: null },
+            true
+        )
+        const token = 'original-session'
+        const makeSession = () => ({
+            id: 'original',
+            userId: 'user-1',
+            token: hashSessionToken(token),
+            authenticationMethod: 'workos' as const,
+            issuedAt: new Date(NOW - 60 * 60 * 1000),
+            idleExpires: new Date(NOW + 60 * 60 * 1000),
+            absoluteExpires: new Date(NOW + 60 * 60 * 1000)
+        })
+        let options: { state: string; maxAge: number } | undefined
+        let time: number | undefined = NOW
+        let subject = 'wos-1'
+        const provider = workos({
+            authorizationUrl: (_uri, input) => {
+                options = input
+                return 'https://authkit.example/authorize'
+            },
+            authenticate: jest.fn(async () => ({
+                user: { id: subject, email: 'owner@example.com', emailVerified: true, name: 'Owner' },
+                authenticationTime: time
+            }))
+        })
+        store.local.set(hashSessionToken(token), makeSession())
+        const context = ctx({ workosConfigured: true, store, workos: provider, cookies: { 'cuttlely-local-session': token } })
+        const started = await handleReauthenticationGet(context)
+        expect(started).toMatchObject({ type: 'redirect', status: 302 })
+        expect(options?.maxAge).toBe(0)
+        const state = options!.state
+        const callback = {
+            ...context,
+            code: 'server-exchanged-code',
+            state,
+            cookies: { ...context.cookies, 'cuttlely-reauth-state': state }
+        }
+        for (time of [undefined, NOW - 11 * 60 * 1000, NOW + 1000]) {
+            expect(await handleCallback(callback)).toMatchObject({ type: 'redirect', url: expect.stringContaining('/signin') })
+            expect(store.local.size).toBe(1)
+        }
+        time = NOW
+        subject = 'another-subject'
+        expect(await handleCallback(callback)).toMatchObject({ type: 'redirect', url: expect.stringContaining('/signin') })
+        subject = 'wos-1'
+        expect(await handleCallback({ ...callback, state: state + 'tampered' })).toMatchObject({
+            type: 'redirect',
+            url: expect.stringContaining('/signin')
+        })
+        expect(
+            await handleCallback({ ...callback, cookies: { ...callback.cookies, 'cuttlely-local-session': 'unrelated' } })
+        ).toMatchObject({ type: 'redirect', url: expect.stringContaining('/signin') })
+        const completed = await handleCallback(callback)
+        expect(completed).toMatchObject({ type: 'redirect', url: '/server-settings' })
+        expect(store.local.has(hashSessionToken(token))).toBe(false)
+        expect([...store.local.values()][0]).toMatchObject({ authenticationMethod: 'workos', recentAuthenticationAt: new Date(NOW) })
+        expect(await handleCallback(callback)).toMatchObject({ type: 'redirect', url: expect.stringContaining('/signin') })
     })
 
     it('WorkOS adapter ordinary authorization does not request an authentication-time claim', () => {

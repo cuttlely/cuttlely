@@ -15,6 +15,7 @@ import serverSettingsApi from '@/api/serverSettings'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import useNotifier from '@/utils/useNotifier'
 
+import OperatorPanel from './OperatorPanel'
 import AllSettingsPanel from './AllSettingsPanel'
 import AuthKitCard from './AuthKitCard'
 import AuthKitWizard from './AuthKitWizard'
@@ -276,6 +277,15 @@ const ServerSettings = () => {
                         {loadError === 'owner' ? 'Ask the owner of this server.' : 'Refresh the page to try again.'}
                     </Typography>
                 </Box>
+            </MainCard>
+        )
+    }
+
+    if (data?.instanceOperator === false) {
+        return (
+            <MainCard title='Server settings'>
+                <Alert severity='info'>Only the instance operator can change server-wide settings</Alert>
+                <OperatorPanel onChanged={load} />
             </MainCard>
         )
     }
@@ -544,6 +554,7 @@ const ServerSettings = () => {
                 />
             </Stack>
 
+            {data?.instanceOperator && <OperatorPanel onChanged={load} />}
             {data?.rolledBack && (
                 <Alert
                     severity='warning'

@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 // Switch database from the Server settings page. A switch always tests the new database first, says what is there
 // (empty, or Cuttlely data already), explains how you sign in afterwards, needs RESTART typed to confirm, and keeps
 // the previous database so Switch back can put it back. Data is not copied between databases.
@@ -5,7 +7,7 @@ import { DATABASE_KEYS, DatabaseSummary, PREVIOUS_DATABASE_FILE, describeDatabas
 import { DatabaseTarget, TestDrivers, TestInputError, TestResult, defaultDrivers, testConnection } from './connection'
 import { appendHistory } from './history'
 import { requestRestart, restartInPlaceAvailable } from './restart'
-import { readSettingsFile, readStoredValues, writeSettingsFile } from './store'
+import { readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
 import { setupServiceName } from '../identity/setupCode'
 import { ServiceDeps, SettingsError, installKind, restartSteps, writeValues } from './service'
 
@@ -133,15 +135,21 @@ function requireConfirm(input: unknown): void {
 }
 
 /** Keeps the database settings as they are now, so Switch back can put them back. Secrets stay encrypted. */
-function keepPrevious(deps: ServiceDeps, key: string, by: string): void {
+function keepPrevious(deps: ServiceDeps, key: string, by: string): () => void {
+    const file = path.join(deps.state.dir, PREVIOUS_DATABASE_FILE)
+    const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
     const stored = readStoredValues(deps.state.dir)
     const preserve = Object.fromEntries(Object.entries(stored).filter(([name]) => DATABASE_KEYS.includes(name)))
     writeSettingsFile(deps.state.dir, {}, { key, by, file: PREVIOUS_DATABASE_FILE, preserve })
+    return () => {
+        if (original === null) fs.rmSync(file, { force: true })
+        else writeFileAtomic(deps.state.dir, PREVIOUS_DATABASE_FILE, original)
+    }
 }
 
-async function finish(deps: ServiceDeps, by: string, note: string): Promise<{ restarting: boolean; steps: string[] }> {
+async function finish(deps: ServiceDeps, by: string, note: string, actorId?: string): Promise<{ restarting: boolean; steps: string[] }> {
     if (!restartInPlaceAvailable(deps.env)) return { restarting: false, steps: restartSteps(deps.env) }
-    appendHistory(deps.state.dir, { kind: 'restart', by, note, outcome: 'ok' })
+    appendHistory(deps.state.dir, { kind: 'restart', by, actorId, note, outcome: 'ok' })
     return { restarting: requestRestart({ env: deps.env }), steps: [] }
 }
 
@@ -150,8 +158,10 @@ export async function switchDatabase(
     deps: ServiceDeps,
     input: unknown,
     by: string,
-    drivers: TestDrivers = defaultDrivers()
+    drivers: TestDrivers = defaultDrivers(),
+    actorId?: string
 ): Promise<DatabaseCheck & { switched: boolean; restarting: boolean; steps: string[] }> {
+    await deps.authorize?.()
     requireConfirm(input)
     const check = await checkDatabase(deps, input, drivers)
     if (!check.canSwitch) {
@@ -163,13 +173,19 @@ export async function switchDatabase(
         throw new SettingsError(409, 'CANNOT_SWITCH', message)
     }
     const key = await deps.key()
-    keepPrevious(deps, key, by)
+    await deps.authorize?.()
+    const undoPrevious = keepPrevious(deps, key, by)
     const changes = databaseChanges(input)
     for (const name of ['DATABASE_PASSWORD', 'DATABASE_SSL_KEY_BASE64'])
         if (changes[name] === '' && changes.DATABASE_TYPE === 'postgres') delete changes[name]
     const what = check.test.target?.kind === 'cuttlely' ? 'Cuttlely data already there' : 'empty; Cuttlely sets it up at the next start'
-    await writeValues(deps, changes, by, 'save', `Switched the database to ${check.next.label} (${what}).`)
-    const restart = await finish(deps, by, `Restarted to switch the database to ${check.next.label}.`)
+    try {
+        await writeValues(deps, changes, by, 'save', `Switched the database to ${check.next.label} (${what}).`, actorId)
+    } catch (error) {
+        undoPrevious()
+        throw error
+    }
+    const restart = await finish(deps, by, `Restarted to switch the database to ${check.next.label}.`, actorId)
     return { ...check, switched: true, ...restart }
 }
 
@@ -178,8 +194,10 @@ export async function restorePreviousDatabase(
     deps: ServiceDeps,
     input: unknown,
     by: string,
-    drivers: TestDrivers = defaultDrivers()
+    drivers: TestDrivers = defaultDrivers(),
+    actorId?: string
 ): Promise<DatabaseCheck & { switched: boolean; restarting: boolean; steps: string[] }> {
+    await deps.authorize?.()
     requireConfirm(input)
     refuseLocked(deps)
     const key = await deps.key()
@@ -197,8 +215,14 @@ export async function restorePreviousDatabase(
             check.test.ok ? check.signIn.text : 'The previous database did not pass the test, so nothing changed.'
         )
     }
-    keepPrevious(deps, key, by)
-    await writeValues(deps, values, by, 'restore', `Switched back to the previous database, ${check.next.label}.`)
-    const restart = await finish(deps, by, `Restarted to switch back to ${check.next.label}.`)
+    await deps.authorize?.()
+    const undoPrevious = keepPrevious(deps, key, by)
+    try {
+        await writeValues(deps, values, by, 'restore', `Switched back to the previous database, ${check.next.label}.`, actorId)
+    } catch (error) {
+        undoPrevious()
+        throw error
+    }
+    const restart = await finish(deps, by, `Restarted to switch back to ${check.next.label}.`, actorId)
     return { ...check, switched: true, ...restart }
 }

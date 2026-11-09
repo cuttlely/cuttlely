@@ -48,7 +48,7 @@ async function main() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-shared-cred-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const { child, logs, stop } = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const { child, logs, stop } = await startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     try {
         console.log(`shared-credential server ${base}`)
         await waitForPing(base, child, logs)

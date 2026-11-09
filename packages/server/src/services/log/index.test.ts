@@ -390,3 +390,20 @@ describe('a file larger than the cap', () => {
         }
     })
 })
+
+describe('host-only operator proof delivery', () => {
+    it('redacts the proof for ordinary owners and log viewers at every response boundary', async () => {
+        const code = 'fixture-host-proof-not-a-production-secret'
+        writeLog(
+            process.env.LOG_PATH as string,
+            `server.log.${STAMP}`,
+            `2026-10-12 15:00:00 [INFO]: [instance operator] Panel designation proof (expires in 5 minutes; use in the requesting session): ${code}\n`
+        )
+        for (const user of [OWNER, LOG_ADMIN]) {
+            const res = await app(user).get(`/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=debug`)
+            expect(res.status).toBe(200)
+            expect(JSON.stringify(res.body)).not.toContain(code)
+            expect(res.body.lines.join('\n')).toContain('[secret hidden]')
+        }
+    })
+})

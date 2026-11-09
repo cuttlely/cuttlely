@@ -239,13 +239,16 @@ export async function waitForPing(base, child, logs) {
     throw new Error(`server did not answer /api/v1/ping within ${BOOT_MS / 1000}s (${last})\n${logs.join('').slice(-4000)}`)
 }
 
-export function startServer(dataDir, port, extra) {
+export async function startServer(dataDir, port, extra) {
+    // The HTTP port and the harness gateway must both belong to this disposable fixture.
+    // An inherited/default gateway port can be occupied even when /ping eventually opens at the boot cap.
+    const gatewayPort = await freePort()
     const logs = []
     let setupCode = ''
     let pending = ''
     const child = spawn(process.execPath, ['-r', SSO_GUARD, '-r', PRELOAD, path.join(SERVER, 'bin', 'run'), 'start'], {
         cwd: SERVER,
-        env: childEnv(dataDir, port, extra),
+        env: { ...childEnv(dataDir, port, extra), CUTTLELY_HARNESS_GATEWAY_PORT: String(gatewayPort) },
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -282,7 +285,7 @@ async function bootClosedRegister() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-smoke-closed-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const { child, logs, stop } = startServer(dataDir, port, {
+    const { child, logs, stop } = await startServer(dataDir, port, {
         WORKOS_API_KEY: 'sk_test_cuttlely_boot',
         WORKOS_CLIENT_ID: 'client_cuttlely_boot',
         WORKOS_REDIRECT_URI: `${base}/api/v1/auth/callback`,
@@ -377,7 +380,7 @@ async function main() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-smoke-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const started = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const started = await startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     const { child, logs, stop } = started
     process.on('exit', stop)
     try {
