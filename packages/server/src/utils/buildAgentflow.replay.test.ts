@@ -145,6 +145,7 @@ const iterationCanvas = () =>
 
 async function run(opts: {
     replay: boolean
+    showToolEvents?: boolean
     startInputType?: string
     humanInput?: unknown
     flowData?: string
@@ -167,6 +168,7 @@ async function run(opts: {
             id: 'b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a',
             name: 'Bakery helper',
             type: 'AGENTFLOW',
+            chatbotConfig: JSON.stringify({ showToolEvents: { status: opts.showToolEvents } }),
             flowData: opts.flowData || canvas(opts.startInputType || 'chatInput'),
             workspaceId: 'ws-1'
         } as any,
@@ -194,6 +196,24 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(calls).toEqual(expect.arrayContaining(['Execution.find', 'Execution.save', 'ChatMessage.find', 'ChatMessage.save']))
         expect(telemetry.sendTelemetry).toHaveBeenCalled()
     })
+
+    it.each([undefined, true, false])(
+        'keeps agentflow results and persistence while tool-event setting=%s controls status streaming',
+        async (showToolEvents) => {
+            const { result, calls, events } = await run({ replay: false, showToolEvents })
+            expect(result.text).toBe('Fresh bread at 7 for: When is the sourdough ready?')
+            expect(result.agentFlowExecutedData).toHaveLength(2)
+            expect(calls).toContain('ChatMessage.save')
+            const statusEvents = events.filter((event) => event.startsWith('streamAgentFlow') || event.startsWith('streamNextAgent'))
+            if (showToolEvents === false) {
+                expect(statusEvents).toEqual([])
+                expect(events).toContain('streamStartEvent')
+            } else {
+                expect(statusEvents.length).toBeGreaterThan(0)
+                expect(events).not.toContain('streamStartEvent')
+            }
+        }
+    )
 
     it('runs the steps and returns the answer and the steps, with their tokens', async () => {
         const { result } = await run({ replay: true })

@@ -44,6 +44,21 @@
     ],
     "r3Edges": [
         {
+            "from": "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "to": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "to": "packages/components/src/agents.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
@@ -311,6 +326,16 @@
             "reason": "the test drives the inherited evaluation runner's chatflow id check"
         },
         {
+            "from": "packages/components/src/handler.streaming.test.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/src/handler.streaming.test.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
             "from": "packages/components/src/httpSecurity.localhost.test.ts",
             "to": "packages/components/src/httpSecurity.ts",
             "reason": "The test drives the inherited HTTP guard with the localhost switch on and off"
@@ -358,6 +383,16 @@
         {
             "from": "packages/components/src/storage/multerLimits.test.ts",
             "to": "packages/components/src/storage/LocalStorageProvider.ts"
+        },
+        {
+            "from": "packages/components/src/streaming.test.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/src/streaming.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
         },
         {
             "from": "packages/components/src/toolArtifactNote.test.ts",
@@ -1745,6 +1780,31 @@
             "reason": "The caller test runs the real utilBuildChatflow in queue mode"
         },
         {
+            "from": "packages/server/src/utils/buildChatflow.toolEvents.test.ts",
+            "to": "packages/server/src/utils/buildChatflow.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.toolEvents.test.ts",
+            "to": "packages/server/src/utils/index.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.toolEvents.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/chatflowStream.test.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/chatflowStream.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
             "from": "packages/server/src/utils/chatUploadStorage.test.ts",
             "to": "packages/components/src/index.ts"
         },
@@ -2200,6 +2260,36 @@
         {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/ui-component/switch/Switch.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/store/actions.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/ui-component/button/StyledButton.jsx",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/ui-component/switch/Switch.jsx",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.test.js",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
         },
         {
             "from": "packages/ui/src/ui-component/flow/FromDevBanner.jsx",

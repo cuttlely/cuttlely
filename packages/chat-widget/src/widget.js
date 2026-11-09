@@ -1225,6 +1225,14 @@ export class ChatWidget {
 
     onEvent(bot, evt, touch) {
         const { event, data } = evt
+        if (
+            !this.config.showToolEvents &&
+            typeof event === 'string' &&
+            (['usedTools', 'calledTools', 'agentReasoning', 'agent_trace', 'tool'].includes(event) ||
+                event.startsWith('agentFlow') ||
+                event.startsWith('nextAgent'))
+        )
+            return
         if (event === 'token' && typeof data === 'string') {
             bot.text += data
             return touch()

@@ -20,7 +20,9 @@ import {
     removeSpecificFileFromUpload,
     EvaluationRunner,
     handleEscapeCharacters,
-    IServerSideEventStreamer
+    IServerSideEventStreamer,
+    resolveShowToolEvents,
+    streamChatflowSafe
 } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import {
@@ -398,6 +400,8 @@ export const executeFlow = async ({
     replay,
     harnessCaller
 }: IExecuteFlowParams) => {
+    const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
+    sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
     // Ensure incomingInput has all required properties with default values
     incomingInput = {
         history: [],
@@ -905,6 +909,8 @@ export const executeFlow = async ({
                 /*** Prepare run params ***/
                 const chatflowTokenUsage = new ChatflowTokenUsage()
                 const runParams = {
+                    showToolEvents,
+                    chatflowType: chatflow.type,
                     orgId,
                     workspaceId,
                     subscriptionId,

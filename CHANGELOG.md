@@ -4,7 +4,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   **Show tool events** in each flow's Configuration controls live tool and step status in chat. Chatflows default to Off; agentflows, multiagent flows and Harness canvases default to On. Saved choices override these defaults. Harness run cards remain visible.
+
 ### Fixed
+
+-   Tool callbacks resolve real tool names from serialized metadata instead of showing `unknown-tool`. Disabling tool events hides live tool and status events and chat cards while preserving saved tool details, sources, attachments and actions.
 
 -   Access-key dialogs keep preset labels clear, retain the selected duration, show Custom for a manually edited expiry, and make Advanced controls easier to expand and collapse.
 

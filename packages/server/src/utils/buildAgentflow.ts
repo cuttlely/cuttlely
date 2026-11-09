@@ -1,3 +1,4 @@
+import { resolveShowToolEvents, streamChatflowSafe } from '@cuttlely/components'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { cloneDeep, get } from 'lodash'
@@ -1307,6 +1308,8 @@ const executeNode = async ({
 
         // Prepare run parameters
         const runParams = {
+            showToolEvents: resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type),
+            chatflowType: chatflow.type,
             orgId,
             workspaceId,
             subscriptionId,
@@ -1830,6 +1833,8 @@ const runAgentFlow = async ({
     replay,
     harnessCaller
 }: IExecuteAgentFlowParams) => {
+    const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
+    sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
     logger.debug('\n🚀 Starting flow execution')
 
     const question = incomingInput.question
@@ -2295,6 +2300,8 @@ const runAgentFlow = async ({
         logger.debug(`   Queue: [${nodeExecutionQueue.map((n) => n.nodeId).join(', ')}]`)
 
         if (iterations === 0 && !isRecursive) {
+            // Chat clients need an answer placeholder when step-status events are hidden.
+            if (!showToolEvents) sseStreamer?.streamStartEvent(chatId, '')
             sseStreamer?.streamAgentFlowEvent(chatId, 'INPROGRESS')
         }
 
