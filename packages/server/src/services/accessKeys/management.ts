@@ -18,6 +18,7 @@ import { mintCredential, rotateCredential } from './credentials'
 import {
     expiry,
     missingPolicyPermissions,
+    operationAppliesTo,
     OPERATIONS,
     operationPermissions,
     parseGrants,
@@ -26,6 +27,7 @@ import {
     ResourceGrant
 } from './policy'
 import { ACCESS_KEY_DOCS } from './errors'
+import { resolveHarnessFlow } from './resources'
 import { serial } from './limiter'
 import { EntityManager } from 'typeorm'
 
@@ -85,7 +87,7 @@ async function assertTarget(req: Request, row: ApiKey, grants: ApiKeyResource[])
 async function choices(req: Request) {
     const user = interactive(req)
     const flows = await (await accessData()).getRepository(ChatFlow).findBy({ workspaceId: user.activeWorkspaceId })
-    const resources = []
+    const resources: Array<ResourceGrant & { name: string; requiredHarnesses: string[] }> = []
     for (const flow of flows) {
         if (!['CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS', undefined, null].includes(flow.type)) continue
         const permission = ['AGENTFLOW', 'MULTIAGENT'].includes(flow.type || '') ? 'agentflows:view' : 'chatflows:view'
@@ -115,7 +117,95 @@ async function choices(req: Request) {
 }
 export const accessKeyOptions: RequestHandler = action(choices)
 
-async function policyInput(req: Request) {
+/** Preview explicit additions; only a subsequent, confirmed save grants access. */
+async function requirements(req: Request) {
+    const policy = parsePolicy(req.body.accessPolicy)
+    const resources = parseGrants(req.body.resources)
+    const permissions: string[] = Array.isArray(req.body.permissions) ? [...req.body.permissions] : []
+    const available = await choices(req)
+    const missing: string[] = []
+    let canFix = true
+    for (const resource of resources) {
+        if (!available.resources.some((r) => r.resourceType === resource.resourceType && r.resourceId === resource.resourceId))
+            throw new AppError(403, `This resource is unavailable or outside your permissions. Remove its grant. Help: ${ACCESS_KEY_DOCS}`)
+    }
+    if (!resources.length && !policy.allResources) {
+        missing.push('Choose at least one flow or resource for this key.')
+        canFix = false
+    }
+    if (!policy.scopes.length) {
+        missing.push('Choose an API operation, such as predict to call the selected flow.')
+        canFix = false
+    }
+    const queue = policy.allResources
+        ? [...available.resources]
+        : resources.map(
+              (grant) => available.resources.find((r) => r.resourceType === grant.resourceType && r.resourceId === grant.resourceId)!
+          )
+    const seen = new Set<string>()
+    if (policy.scopes.includes('predict')) {
+        while (queue.length) {
+            const resource = queue.shift()!
+            if (seen.has(resource.resourceType + ':' + resource.resourceId)) continue
+            seen.add(resource.resourceType + ':' + resource.resourceId)
+            if (seen.size > 500) throw new AppError(400, 'This selection has too many dependent resources. Choose fewer flows.')
+            if (resource.resourceType === 'HARNESS' && !policy.scopes.includes('harness:run')) {
+                missing.push(`Calling ${resource.name} also needs the harness:run API operation.`)
+                policy.scopes.push('harness:run')
+            }
+            for (const name of resource.requiredHarnesses || []) {
+                const harness = await resolveHarnessFlow(name, interactive(req).activeWorkspaceId!)
+                const choice = harness && available.resources.find((r) => r.resourceType === 'HARNESS' && r.resourceId === harness.id)
+                if (!choice) {
+                    missing.push(
+                        `${resource.name} needs the ${name} Harness, which is unavailable. Ask an admin to publish it and grant you view access.`
+                    )
+                    canFix = false
+                    continue
+                }
+                if (!policy.allResources && !resources.some((r) => r.resourceType === 'HARNESS' && r.resourceId === choice.resourceId)) {
+                    missing.push(`This key can't call ${resource.name} yet: it also needs the ${choice.name} Harness. Add it?`)
+                    resources.push({ resourceType: 'HARNESS', resourceId: choice.resourceId })
+                }
+                queue.push(choice)
+            }
+        }
+    }
+    const grants: ResourceGrant[] = policy.allResources ? available.resources : resources
+    for (const operation of policy.scopes) {
+        for (const grant of grants.filter((r) => operationAppliesTo(operation, r))) {
+            const needed = operationPermissions(operation, grant)
+            if (needed.some((p) => permissions.includes(p))) continue
+            let allowed: string | undefined
+            for (const permission of needed)
+                if (await hasAnyPermission(req, permission)) {
+                    allowed = permission
+                    break
+                }
+            if (!allowed) {
+                missing.push(`Ask an admin for ${needed.join(' or ')} before granting ${operation}.`)
+                canFix = false
+            } else {
+                missing.push(`${operation} also needs ${allowed} permission. Add it?`)
+                permissions.push(allowed)
+            }
+        }
+    }
+    return { valid: missing.length === 0, missing, canFix, suggested: { accessPolicy: policy, resources, permissions } }
+}
+
+export const validateAccessKey: RequestHandler = action(async (req) => {
+    requireAccessRollout()
+    interactive(req)
+    const result = await requirements(req)
+    if (result.canFix) {
+        const proposed = { ...req, body: { ...req.body, ...result.suggested } } as Request
+        await policyInput(proposed, false)
+    }
+    return result
+})
+
+async function policyInput(req: Request, checkDependencies = true) {
     requireAccessRollout()
     const user = interactive(req)
     const policy = parsePolicy(req.body.accessPolicy)
@@ -156,6 +246,10 @@ async function policyInput(req: Request) {
     const missing = missingPolicyPermissions(policy, permissions, resources)
     if (missing.length)
         throw new AppError(400, `This key cannot call the selected API yet: ${missing.join('; ')}. Help: ${ACCESS_KEY_DOCS}`)
+    if (checkDependencies && policy.scopes.includes('predict')) {
+        const ready = await requirements(req)
+        if (!ready.valid) throw new AppError(400, `${ready.missing.join(' ')} Help: ${ACCESS_KEY_DOCS}`)
+    }
     if (typeof req.body.keyName !== 'string' || !req.body.keyName.trim() || req.body.keyName.length > 100)
         throw new AppError(400, 'A key name of 1 to 100 characters is required.')
     return { policy, resources, permissions, expiresAt: expiry(req.body.expiresAt) }

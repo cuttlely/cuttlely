@@ -1,5 +1,6 @@
 import {
     accessKeyOptions,
+    validateAccessKey,
     createAccessKey,
     updateAccessKey,
     rotateAccessKey,
@@ -12,6 +13,7 @@ import { requireAnyPermission, requirePermission } from '../../identity/rbac'
 const router = express.Router()
 
 router.get('/options', requirePermission('apikeys:view'), accessKeyOptions)
+router.post('/validate', requireAnyPermission('apikeys:create,apikeys:update'), validateAccessKey)
 router.post('/:id/rotate', requirePermission('apikeys:update'), rotateAccessKey)
 router.post('/:id/credentials/:credentialId/revoke', requirePermission('apikeys:update'), revokeAccessCredential)
 

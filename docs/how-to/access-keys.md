@@ -31,13 +31,12 @@ Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute c
 ## 2. Create the key
 
 1. In the intended workspace, open **Access Keys** and click **Create Key**. SDK/Settings and per-flow keys share this list; first check that you are in the right workspace.
-2. Enter a **Key Name** and **Service or application**, for example `Orders integration`. Set the **Environment label** to Live or Test. This label does not isolate data or create a separate workspace.
-3. Under **Permissions**, select only the workspace permissions the caller needs. Under **API operations**, select `predict` for a normal prediction request. Permissions and operation scopes must both allow the call.
-4. Under **Resources this key may access**, select the exact flow. If it invokes a Harness, also select that Harness and add `harness:run`, with its execution permissions. Add `stream` for JSON streaming. Multipart prediction needs `predict`, `upload` and `stream` up front; ordinary feedback uses `feedback:read` or `feedback:write` instead of Harness execution authority. See the [route matrix](../reference/access-keys.md#api-route-matrix) for other operations.
-5. Leave **All resources in this workspace, including future resources** off for a single-flow integration. That privileged option requires `apikeys:grant-all` and a separate confirmation. It grants resources, not every operation, and does not remove caller restrictions or quotas.
-6. Choose **Duration preset**, or enter an absolute **Expires at (UTC)** timestamp. The default is 90 days; 30 days, 90 days and No expiry are available. Prefer a finite expiry and plan rotation before it.
-7. Set **Requests per minute**, **Daily UTC quota** and **Monthly UTC quota**. The defaults are 60 per minute and unlimited day/month totals; `0` means unlimited. Start with limits appropriate for this integration.
-8. Click **Add**. Copy the secret once into your server's secret manager, then click **Done**. Cuttlely stores a verifier, not a recoverable secret. Closing the reveal loses the ability to copy it again; rotate if necessary. Do not include the reveal in screenshots.
+2. Start with **Call one chatflow/agentflow**, then pick the flows your app will call. The form includes `predict`, each flow's required view permission, and referenced Harness grants with `harness:run`. The generated name can be changed. **Read-only API** instead grants reads of the selected resources, without prediction or edits.
+3. Open the collapsed **Advanced: permissions, API operations and resources** only when you need more control. Add `stream` for JSON streaming. Multipart prediction also needs `upload` and `stream`; feedback uses `feedback:read` or `feedback:write`. See the [route matrix](../reference/access-keys.md#api-route-matrix).
+4. Leave **All resources in this workspace, including future resources** off for one integration. This option requires `apikeys:grant-all` and separate confirmation; it includes future resources but does not remove operation, permission, caller or quota checks.
+5. Advanced also contains **Service or application**, the descriptive Live/Test **Environment label**, expiry and limits. The default expiry is 90 days, the minute limit is 60, and day/month quotas are unlimited (`0`). These labels do not isolate data.
+6. Click **Add**. The server checks the complete selection. If anything is missing, read the explanation and use **Add missing access**, then save again. An unavailable or unpublished Harness needs an admin's help; the form keeps your choices while you fix it.
+7. Copy the secret into your server's secret manager. It is shown once with a copy button and cURL/JavaScript examples for the chosen flow. Set `CUTTLELY_API_KEY` on your server before running the examples; they do not embed the secret. Click **Done**. A lost secret requires rotation.
 
 ![Workspace Access Keys list with existing key rows redacted and Create Key visible.](../images/access-keys/workspace-list.png)
 
@@ -45,11 +44,11 @@ Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute c
 
 ![Add access key dialog warns that policy changes are unavailable while INBOUND_ACCESS_V2 is off. The expiry preview is 2027-02-07T02:40:16.145Z, requests per minute is 60, daily and monthly quotas are 0, Add is disabled and Cancel is available.](../images/access-keys/create-key-dialog-top.png)
 
-New keys start with no scopes and no resource grants. An empty policy can be saved, but it authorizes no runtime calls. Exact grants follow stable IDs: a deleted resource recreated with the same name does not inherit the deleted resource's grant.
+Presets grant only the resources you pick and the prerequisites shown by the server. The create button requires a resource and an API operation. Direct API creation without explicit scopes/grants still grants nothing; it is not a usable runtime key until configured. Exact grants follow stable IDs: a deleted resource recreated with the same name does not inherit the deleted resource's grant.
 
 ## 3. Make the flow private
 
-Open the flow's **API Endpoint** dialog and select **Private (selected access keys)** when the flow must require a bearer. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
+Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
 
 <!-- SCREENSHOT PENDING AK06: actual flow API Endpoint access control, Private selected, no bearer shown; docs/images/access-keys/private-flow.png. Action-only shot not captured. -->
 

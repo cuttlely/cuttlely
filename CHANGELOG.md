@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [1.7.1] - Unreleased
 
+### Added
+
+-   Flow-first access-key presets for calling selected chatflows/agentflows or using the read-only API. Prediction includes required view permission and referenced Harness access. Advanced controls are collapsed for new keys. Server validation explains missing prerequisites and offers a one-click fix; creation reveals the secret once with copyable cURL and server JavaScript examples.
+
 ### Fixed
 
 -   Prediction keys require their flow's view permission, with missing permissions and Harness prerequisites named in refusal messages. Granted Harness execution uses view permission; editing still requires edit rights. Access-key errors explain how to recover and link to the guide.

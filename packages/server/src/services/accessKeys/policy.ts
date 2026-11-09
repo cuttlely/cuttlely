@@ -163,19 +163,21 @@ export function missingPolicyPermissions(policy: AccessPolicy, permissions: stri
     const missing = new Set<string>()
     const grants = policy.allResources ? RESOURCE_TYPES.map((resourceType) => ({ resourceType, resourceId: '*' })) : resources
     for (const operation of policy.scopes) {
-        const applicable = grants.filter((grant) =>
-            operation.startsWith('harness:')
-                ? grant.resourceType === 'HARNESS'
-                : operation.startsWith('dashflow:')
-                ? grant.resourceType === 'DASHFLOW'
-                : grant.resourceType !== 'DASHFLOW'
-        )
+        const applicable = grants.filter((grant) => operationAppliesTo(operation, grant))
         for (const grant of applicable.length ? applicable : [undefined]) {
             const required = operationPermissions(operation, grant)
             if (!required.some((p) => permissions.includes(p))) missing.add(`${operation} needs ${required.join(' or ')}`)
         }
     }
     return [...missing]
+}
+
+export function operationAppliesTo(operation: Operation, grant: ResourceGrant): boolean {
+    return operation.startsWith('harness:')
+        ? grant.resourceType === 'HARNESS'
+        : operation.startsWith('dashflow:')
+        ? grant.resourceType === 'DASHFLOW'
+        : grant.resourceType !== 'DASHFLOW'
 }
 
 /** Stored policy is server-owned. Malformed or incomplete rows fail closed instead of receiving new-key defaults. */

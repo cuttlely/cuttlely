@@ -1,7 +1,8 @@
 import AccessPolicyEditor, { newAccessPolicy } from './AccessPolicyEditor'
+import { accessKeyExamples } from './endpointAccess'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import PropTypes from 'prop-types'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDispatch } from 'react-redux'
 
@@ -19,7 +20,14 @@ import {
     Popover,
     Stack,
     Typography,
-    TextField
+    TextField,
+    Alert,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Checkbox,
+    FormControlLabel,
+    MenuItem
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
@@ -69,16 +77,23 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const [confirmed, setConfirmed] = useState(false)
     const [options, setOptions] = useState({})
     const [graceSeconds, setGraceSeconds] = useState(3600)
+    const [preset, setPreset] = useState('call')
+    const [validation, setValidation] = useState(null)
+    const [busy, setBusy] = useState(false)
+    const [formError, setFormError] = useState('')
+    const validationSequence = useRef(0)
     const getAllPermissionsApi = useApi(authApi.getAllPermissions)
     const { hasPermission } = useAuth()
+    const canViewChatflows = hasPermission('chatflows:view')
     useEffect(() => {
         const required = new Set()
         if (policy.scopes.some((scope) => ['predict', 'stream', 'upload', 'api:read', 'feedback:read', 'feedback:write'].includes(scope))) {
-            if (policy.allResources || !resources.length || resources.some((r) => r.resourceType !== 'AGENTFLOW'))
+            if (policy.allResources || !resources.length || resources.some((r) => r.resourceType === 'CHATFLOW'))
                 required.add('chatflows:view')
             if (policy.allResources || resources.some((r) => r.resourceType === 'AGENTFLOW')) required.add('agentflows:view')
         }
-        if (policy.scopes.some((scope) => scope.startsWith('harness:'))) required.add('chatflows:view')
+        if (policy.scopes.some((scope) => scope.startsWith('harness:')))
+            required.add(canViewChatflows ? 'chatflows:view' : 'agentflows:view')
         if (!required.size) return
         setSelectedPermissions((current) => {
             const next = { ...current }
@@ -89,7 +104,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
             }
             return next
         })
-    }, [policy.scopes, policy.allResources, resources, permissions])
+    }, [policy.scopes, policy.allResources, resources, permissions, canViewChatflows])
     const policyBody = () => ({
         accessPolicy: {
             ...policy,
@@ -100,6 +115,60 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         expiresAt,
         confirmAllResources: confirmed
     })
+    const permissionList = () => [
+        ...new Set(Object.values(selectedPermissions).flatMap((group) => Object.keys(group).filter((key) => group[key])))
+    ]
+    const applySuggestion = (suggested) => {
+        setPolicy(suggested.accessPolicy)
+        setResources(suggested.resources)
+        const grouped = {}
+        for (const [category, entries] of Object.entries(permissions)) {
+            grouped[category] = Object.fromEntries(
+                entries.filter((entry) => suggested.permissions.includes(entry.key)).map((entry) => [entry.key, true])
+            )
+        }
+        setSelectedPermissions(grouped)
+        setValidation(null)
+    }
+    const selectPresetFlows = async (selected, nextPreset = preset) => {
+        const sequence = ++validationSequence.current
+        setResources(selected)
+        setValidation(null)
+        setFormError('')
+        const nextPolicy = { ...policy, allResources: false, scopes: [nextPreset === 'read' ? 'api:read' : 'predict'] }
+        setPolicy(nextPolicy)
+        setConfirmed(false)
+        if (!selected.length) {
+            setBusy(false)
+            return
+        }
+        const first = options.resources?.find((r) => r.resourceId === selected[0].resourceId)
+        const suggestedName = keyName || `${nextPreset === 'read' ? 'Read' : 'Call'} ${first?.name || 'my flow'}`
+        if (!keyName) setKeyName(suggestedName)
+        setBusy(true)
+        try {
+            const result = await apikeyApi.validate({
+                keyName: suggestedName,
+                permissions: [],
+                ...policyBody(),
+                accessPolicy: nextPolicy,
+                resources: selected
+            })
+            if (sequence !== validationSequence.current) return
+            if (result.data.canFix) applySuggestion(result.data.suggested)
+            else setValidation(result.data)
+        } catch (error) {
+            if (sequence === validationSequence.current)
+                setFormError(error.response?.data?.message || 'The selected flow could not be checked. Try again.')
+        } finally {
+            if (sequence === validationSequence.current) setBusy(false)
+        }
+    }
+    const validateBeforeSave = async (body) => {
+        const result = await apikeyApi.validate(body)
+        setValidation(result.data.valid ? null : result.data)
+        return result.data.valid
+    }
     const rotate = async () => {
         try {
             const result = await apikeyApi.rotate(dialogProps.key.id, graceSeconds)
@@ -131,6 +200,11 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         }
         getAllPermissionsApi.request('API_KEY')
         setConfirmed(false)
+        setPreset('call')
+        setValidation(null)
+        setFormError('')
+        setBusy(false)
+        validationSequence.current += 1
         apikeyApi
             .options()
             .then((r) => setOptions(r.data))
@@ -276,23 +350,19 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     }
 
     const addNewKey = async () => {
+        if (busy) return
+        setBusy(true)
+        setFormError('')
         try {
-            const tempPermissions = Object.keys(selectedPermissions)
-                .map((category) => {
-                    return Object.keys(selectedPermissions[category]).map((key) => {
-                        if (selectedPermissions[category][key]) {
-                            return key
-                        }
-                    })
-                })
-                .flat()
-                .filter(Boolean)
+            const tempPermissions = permissionList()
 
-            const createResp = await apikeyApi.createNewAPI({
+            const body = {
                 keyName,
-                permissions: tempPermissions,
+                permissions: [...new Set(tempPermissions)],
                 ...policyBody()
-            })
+            }
+            if (!(await validateBeforeSave(body))) return
+            const createResp = await apikeyApi.createNewAPI(body)
             if (createResp.data) {
                 const rows = Array.isArray(createResp.data) ? createResp.data : createResp.data.data || []
                 const revealed = rows.find((row) => row && row.apiKey)
@@ -315,11 +385,9 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                 onConfirm()
             }
         } catch (error) {
-            if (setError) setError(error)
+            setFormError(error.response?.data?.message || 'The key could not be created. Check the selected flow and try again.')
             enqueueSnackbar({
-                message: `Failed to add new API key: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new API key: ${error.response?.data?.message || 'Check the selected flow and try again.'}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -331,28 +399,25 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                     )
                 }
             })
-            onCancel()
+        } finally {
+            setBusy(false)
         }
     }
 
     const saveKey = async () => {
+        if (busy) return
+        setBusy(true)
+        setFormError('')
         try {
-            const tempPermissions = Object.keys(selectedPermissions)
-                .map((category) => {
-                    return Object.keys(selectedPermissions[category]).map((key) => {
-                        if (selectedPermissions[category][key]) {
-                            return key
-                        }
-                    })
-                })
-                .flat()
-                .filter(Boolean)
+            const tempPermissions = permissionList()
 
-            const saveResp = await apikeyApi.updateAPI(dialogProps.key.id, {
+            const body = {
                 keyName,
-                permissions: tempPermissions,
+                permissions: [...new Set(tempPermissions)],
                 ...policyBody()
-            })
+            }
+            if (!(await validateBeforeSave(body))) return
+            const saveResp = await apikeyApi.updateAPI(dialogProps.key.id, body)
             if (saveResp.data) {
                 enqueueSnackbar({
                     message: 'Access key saved',
@@ -369,11 +434,9 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                 onConfirm()
             }
         } catch (error) {
-            if (setError) setError(error)
+            setFormError(error.response?.data?.message || 'The key could not be saved. Review its access and try again.')
             enqueueSnackbar({
-                message: `Failed to save API key: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to save API key: ${error.response?.data?.message || 'Review its access and try again.'}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -385,11 +448,13 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                     )
                 }
             })
-            onCancel()
+        } finally {
+            setBusy(false)
         }
     }
 
     const checkDisabled = () => {
+        if (busy || (dialogProps.type === 'ADD' && (!policy.scopes.length || (!resources.length && !policy.allResources)))) return true
         if (!keyName || keyName === '') {
             return true
         }
@@ -397,6 +462,8 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         if (policy.allResources && !confirmed) return true
         return false
     }
+    const exampleFlow = resources.find((r) => ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType))
+    const examples = exampleFlow ? accessKeyExamples(window.location.origin, exampleFlow, !policy.scopes.includes('predict')) : null
 
     const component = show ? (
         <Dialog
@@ -414,6 +481,19 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                 </div>
             </DialogTitle>
             <DialogContent sx={{ backgroundColor: 'transparent' }}>
+                {formError && (
+                    <Alert severity='error'>
+                        {formError} <a href='https://cuttlely.com/docs/how-to/access-keys/'>Access-key help</a>
+                    </Alert>
+                )}
+                {validation && (
+                    <Alert severity='warning'>
+                        {validation.missing.map((message) => (
+                            <Typography key={message}>{message}</Typography>
+                        ))}
+                        {validation.canFix && <Button onClick={() => applySuggestion(validation.suggested)}>Add missing access</Button>}
+                    </Alert>
+                )}
                 {createdSecret && (
                     <Box sx={{ p: 2 }}>
                         <Typography sx={{ mb: 1 }}>Copy this key now. Cuttlely stores only a hash, so it cannot be shown again.</Typography>
@@ -462,6 +542,27 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                 </Typography>
                             </Popover>
                         </Stack>
+                        {examples && (
+                            <>
+                                <Typography>
+                                    On your server, set CUTTLELY_API_KEY to the secret above. Then call the selected flow:
+                                </Typography>
+                                {Object.entries(examples).map(([language, code]) => (
+                                    <Box key={language} sx={{ mt: 2 }}>
+                                        <Typography variant='h5'>{language === 'curl' ? 'cURL' : 'JavaScript (server)'}</Typography>
+                                        <Box
+                                            component='pre'
+                                            sx={{ overflow: 'auto', p: 1, backgroundColor: theme.palette.background.default }}
+                                        >
+                                            <code>{code}</code>
+                                        </Box>
+                                        <Button onClick={() => navigator.clipboard.writeText(code)}>
+                                            Copy {language === 'curl' ? 'cURL' : 'JavaScript'}
+                                        </Button>
+                                    </Box>
+                                ))}
+                            </>
+                        )}
                     </Box>
                 )}
                 {dialogProps.type === 'EDIT' && !createdSecret && (
@@ -520,6 +621,89 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
 
                 {!createdSecret && (
                     <div className='apikey-editor'>
+                        {dialogProps.type === 'ADD' && (
+                            <Box>
+                                <Typography variant='h5'>Start with a preset</Typography>
+                                <TextField
+                                    select
+                                    fullWidth
+                                    label='What will this key do?'
+                                    value={preset}
+                                    onChange={(event) => {
+                                        const next = event.target.value
+                                        setPreset(next)
+                                        void selectPresetFlows(
+                                            resources.filter((r) => ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType)),
+                                            next
+                                        )
+                                    }}
+                                >
+                                    <MenuItem value='call'>Call one chatflow/agentflow</MenuItem>
+                                    <MenuItem value='read'>Read-only API</MenuItem>
+                                </TextField>
+                                <Typography sx={{ mt: 1 }}>
+                                    {preset === 'call'
+                                        ? 'Pick the flows your app will call. Required view permission and referenced Harness access are included automatically.'
+                                        : 'Pick resources to read through the API. This preset cannot run or edit them.'}
+                                </Typography>
+                                {(options.resources || [])
+                                    .filter((r) =>
+                                        ['CHATFLOW', 'AGENTFLOW', ...(preset === 'read' ? ['HARNESS'] : [])].includes(r.resourceType)
+                                    )
+                                    .map((resource) => (
+                                        <FormControlLabel
+                                            key={resource.resourceType + ':' + resource.resourceId}
+                                            label={resource.name}
+                                            control={
+                                                <Checkbox
+                                                    checked={resources.some(
+                                                        (r) =>
+                                                            r.resourceType === resource.resourceType && r.resourceId === resource.resourceId
+                                                    )}
+                                                    onChange={(event) => {
+                                                        const selected = resources.filter(
+                                                            (r) =>
+                                                                (preset === 'read' || r.resourceType !== 'HARNESS') &&
+                                                                !(
+                                                                    r.resourceType === resource.resourceType &&
+                                                                    r.resourceId === resource.resourceId
+                                                                )
+                                                        )
+                                                        if (event.target.checked)
+                                                            selected.push({
+                                                                resourceType: resource.resourceType,
+                                                                resourceId: resource.resourceId
+                                                            })
+                                                        void selectPresetFlows(selected)
+                                                    }}
+                                                />
+                                            }
+                                        />
+                                    ))}
+                                {options.resources &&
+                                    !options.resources.some((r) => ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType)) && (
+                                        <Alert severity='info'>
+                                            Create a chatflow or agentflow first, or ask your admin for view access. Then return here to
+                                            create its key.
+                                        </Alert>
+                                    )}
+                                {resources.some((r) => r.resourceType === 'HARNESS') && (
+                                    <Typography>
+                                        Included Harnesses:{' '}
+                                        {resources
+                                            .filter((r) => r.resourceType === 'HARNESS')
+                                            .map(
+                                                (r) =>
+                                                    options.resources?.find(
+                                                        (choice) => choice.resourceType === 'HARNESS' && choice.resourceId === r.resourceId
+                                                    )?.name || 'Unavailable Harness'
+                                            )
+                                            .join(', ')}
+                                    </Typography>
+                                )}
+                                {busy && <Typography role='status'>Checking this key’s access…</Typography>}
+                            </Box>
+                        )}
                         <Box>
                             <Typography sx={{ mb: 1 }} variant='h5'>
                                 <span style={{ color: 'red' }}>*&nbsp;&nbsp;</span>Key Name
@@ -535,76 +719,87 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                 onChange={(e) => setKeyName(e.target.value)}
                             />
                         </Box>
-                        <div className='permissions-container'>
-                            <p>
-                                <span style={{ color: 'red' }}>*&nbsp;&nbsp;</span>Permissions
-                            </p>
-                            <div className='permissions-list-wrapper'>
-                                <div className='permission-category'>
-                                    <h3>HARNESS</h3>
-                                    <p>Run granted teams with view permission. Editing a team still needs edit permission.</p>
-                                    {Object.entries(permissions).flatMap(([category, entries]) =>
-                                        entries
-                                            .filter((entry) => entry.key === 'chatflows:view')
-                                            .map((entry) => (
-                                                <label key='harness-view'>
-                                                    <input
-                                                        type='checkbox'
-                                                        checked={selectedPermissions[category]?.[entry.key] || false}
-                                                        onChange={() => handlePermissionChange(category, entry.key)}
-                                                    />
-                                                    Run/view granted Harnesses (chatflows:view)
-                                                </label>
-                                            ))
-                                    )}
-                                </div>
-                                {permissions &&
-                                    Object.keys(permissions).map((category) => (
-                                        <div key={category} className='permission-category'>
-                                            <div className='category-header'>
-                                                <h3>
-                                                    {category
-                                                        .replace(/([A-Z])/g, ' $1')
-                                                        .trim()
-                                                        .toUpperCase()}
-                                                </h3>
-                                                <button type='button' onClick={() => handleSelectAll(category)}>
-                                                    Select All
-                                                </button>
-                                            </div>
-                                            <div className='permissions-list'>
-                                                {permissions[category].map((permission, index) => (
-                                                    <div
-                                                        key={permission.key}
-                                                        className={`permission-item ${index % 2 === 0 ? 'left-column' : 'right-column'}`}
-                                                    >
-                                                        <label>
+                        <Accordion defaultExpanded={dialogProps.type === 'EDIT'} sx={{ mt: 2 }}>
+                            <AccordionSummary>Advanced: permissions, API operations and resources</AccordionSummary>
+                            <AccordionDetails>
+                                <div className='permissions-container'>
+                                    <p>
+                                        <span style={{ color: 'red' }}>*&nbsp;&nbsp;</span>Permissions
+                                    </p>
+                                    <div className='permissions-list-wrapper'>
+                                        <div className='permission-category'>
+                                            <h3>HARNESS</h3>
+                                            <p>Run granted teams with view permission. Editing a team still needs edit permission.</p>
+                                            {Object.entries(permissions).flatMap(([category, entries]) =>
+                                                entries
+                                                    .filter((entry) => entry.key === 'chatflows:view')
+                                                    .map((entry) => (
+                                                        <label key='harness-view'>
                                                             <input
                                                                 type='checkbox'
-                                                                checked={selectedPermissions[category]?.[permission.key] || false}
-                                                                disabled={isCheckboxDisabled(selectedPermissions, category, permission.key)}
-                                                                onChange={() => handlePermissionChange(category, permission.key)}
+                                                                checked={selectedPermissions[category]?.[entry.key] || false}
+                                                                onChange={() => handlePermissionChange(category, entry.key)}
                                                             />
-                                                            {permission.value}
+                                                            Run/view granted Harnesses (chatflows:view)
                                                         </label>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                                    ))
+                                            )}
                                         </div>
-                                    ))}
-                            </div>
-                        </div>
-                        <AccessPolicyEditor
-                            policy={policy}
-                            setPolicy={setPolicy}
-                            resources={resources}
-                            setResources={setResources}
-                            options={options}
-                            expiresAt={expiresAt}
-                            setExpiresAt={setExpiresAt}
-                            confirmed={confirmed}
-                            setConfirmed={setConfirmed}
-                        />
+                                        {permissions &&
+                                            Object.keys(permissions).map((category) => (
+                                                <div key={category} className='permission-category'>
+                                                    <div className='category-header'>
+                                                        <h3>
+                                                            {category
+                                                                .replace(/([A-Z])/g, ' $1')
+                                                                .trim()
+                                                                .toUpperCase()}
+                                                        </h3>
+                                                        <button type='button' onClick={() => handleSelectAll(category)}>
+                                                            Select All
+                                                        </button>
+                                                    </div>
+                                                    <div className='permissions-list'>
+                                                        {permissions[category].map((permission, index) => (
+                                                            <div
+                                                                key={permission.key}
+                                                                className={`permission-item ${
+                                                                    index % 2 === 0 ? 'left-column' : 'right-column'
+                                                                }`}
+                                                            >
+                                                                <label>
+                                                                    <input
+                                                                        type='checkbox'
+                                                                        checked={selectedPermissions[category]?.[permission.key] || false}
+                                                                        disabled={isCheckboxDisabled(
+                                                                            selectedPermissions,
+                                                                            category,
+                                                                            permission.key
+                                                                        )}
+                                                                        onChange={() => handlePermissionChange(category, permission.key)}
+                                                                    />
+                                                                    {permission.value}
+                                                                </label>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                    </div>
+                                </div>
+                                <AccessPolicyEditor
+                                    policy={policy}
+                                    setPolicy={setPolicy}
+                                    resources={resources}
+                                    setResources={setResources}
+                                    options={options}
+                                    expiresAt={expiresAt}
+                                    setExpiresAt={setExpiresAt}
+                                    confirmed={confirmed}
+                                    setConfirmed={setConfirmed}
+                                />
+                            </AccordionDetails>
+                        </Accordion>
                         {dialogProps.type === 'EDIT' && (
                             <Box sx={{ mt: 3 }}>
                                 <Typography variant='h5'>Credentials and usage</Typography>

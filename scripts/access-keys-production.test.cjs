@@ -853,6 +853,7 @@ async function round12Fixture(data) {
 }
 
 test('round12 real delete and management routes with APIKeyDialog and AccessPolicyEditor submissions', async () => {
+    const presetStore = await esm('store.mjs')
     const data = await database()
     let listener
     try {
@@ -866,6 +867,35 @@ test('round12 real delete and management routes with APIKeyDialog and AccessPoli
         await data
             .getRepository(ApiKeyResource)
             .save({ principalId: retained.id, resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121204' })
+        const harnessId = '12121212-1212-4121-8121-121212121206'
+        await data.getRepository(ChatFlow).save({
+            id: harnessId,
+            name: 'bakeryteam',
+            workspaceId: 'team-a',
+            type: 'HARNESS',
+            apiAccessMode: 'private',
+            flowData: '{"nodes":[],"edges":[]}'
+        })
+        presetStore.saveHarness(
+            {
+                name: 'bakeryteam',
+                chatflowId: harnessId,
+                workspaceId: 'team-a',
+                chief: { model: { nodeName: 'fixture' } },
+                specialists: [{ name: 'writer', instructions: 'Local fixture' }]
+            },
+            { overwrite: true }
+        )
+        await data
+            .getRepository(ChatFlow)
+            .update(
+                { id: '12121212-1212-4121-8121-121212121202' },
+                { flowData: JSON.stringify({ nodes: [{ data: { inputs: { harnessName: 'bakeryteam' } } }] }) }
+            )
+        http.post('/api/v1/prediction/:id', serverRequire('./src/utils/authorizeFlowAccess.ts').authorizePrediction, (_req, res) =>
+            res.json({ admitted: true })
+        )
+        http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
         listener = await new Promise((resolve) => {
             const server = http.listen(0, '127.0.0.1', () => resolve(server))
         })
@@ -880,14 +910,21 @@ test('round12 real delete and management routes with APIKeyDialog and AccessPoli
                 stdio: ['ignore', 'pipe', 'pipe']
             }
         )
-        child.stdout.pipe(process.stdout)
-        child.stderr.pipe(process.stderr)
+        let output = ''
+        child.stdout.on('data', (chunk) => {
+            output += chunk
+        })
+        child.stderr.on('data', (chunk) => {
+            output += chunk
+        })
         const code = await new Promise((resolve, reject) => {
             child.on('error', reject)
             child.on('exit', resolve)
         })
+        process.stdout.write(output.replace(/ctu_(?:live|test)_[a-f0-9]{16}_[A-Za-z0-9_-]{43}/g, '[access key hidden]'))
         assert.equal(code, 0, 'actual policy dialog must save B while permitting explicit removal of unavailable A')
     } finally {
+        presetStore.deleteHarness('bakeryteam')
         if (listener) await new Promise((resolve) => listener.close(resolve))
         serverRequire('./src/identity/rbac.ts').setTeamPermissionLookup(null)
         await data.destroy()
