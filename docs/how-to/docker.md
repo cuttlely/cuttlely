@@ -28,7 +28,7 @@ An empty rollout value leaves the saved mode effective and unlocked; an empty ig
 
 With Node.js 20 or newer and Docker running:
 
-Version `1.7.0` is planned/unreleased; the version pin in the examples is for use after publication.
+The version pin in these examples selects the `1.7.0` security-exception release.
 
 ```bash
 npx cuttlely start

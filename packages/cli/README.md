@@ -14,7 +14,7 @@ npx cuttlely start
 
 That pulls `ghcr.io/cuttlely/cuttlely`, tagged with the same version as the `cuttlely` package you ran, keeps data in the Docker volume `cuttlely-data`, publishes port **43117**, waits until `http://127.0.0.1:43117/api/v1/ping` answers `pong`, prints `http://localhost:43117`, and opens it.
 
-The `1.7.0` pin below is for the planned/unreleased version; use it only after publication.
+The `1.7.0` pin below selects the 1.7.0 security-exception release. Back up the database, encryption key and settings first. Only the designated instance operator can change service settings; legacy installs without a verified host binding claim explicitly in Server settings with a code from the hosting dashboard or Docker/Compose logs. Routine operator lifecycle is in the panel; the CLI is emergency recovery. Enforcement stays Off by default. Read the [upgrade warnings](https://cuttlely.com/docs/upgrading/) and [operator recovery guide](https://cuttlely.com/docs/how-to/instance-operator/) before deployment.
 
 ```bash
 npx cuttlely start --port 8080 --tag 1.7.0 --env-file .env --no-open
