@@ -15580,6 +15580,21 @@ await expectCase('a run or a canvas sync without a caller identity is refused be
             listRuns('callerTeam').length === before,
         JSON.stringify([noCaller, unknown, keyNoList, keyUnlisted, queuedNoCaller].map((item) => item.error?.code || 'ran'))
     )
+    const scopedOptions = {
+        ...flowiseNodeOptions(),
+        harnessCaller: { via: 'api_key', apiKeyId: 'key-a', harnesses: ['callerTeam'], harnessIds: { callerTeam: 'authorized-canvas' } }
+    }
+    const missingPin = await capture(() => runHarnessRaw({ ...base, chatId: 'missing-pin', flowOptions: scopedOptions }))
+    const queuedMissingPin = await capture(() =>
+        queue.enqueueHarnessJob({ ...base, chatId: 'queued-missing-pin', flowOptions: scopedOptions })
+    )
+    check(
+        'enforced key runs and queue admission require the authorized canvas id before history or tools',
+        missingPin.error?.code === 'harness_changed' &&
+            queuedMissingPin.error?.code === 'harness_changed' &&
+            listRuns('callerTeam').length === before,
+        JSON.stringify([missingPin, queuedMissingPin].map((item) => item.error?.code || 'ran'))
+    )
     const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
     const sync = (name, caller) =>
         capture(() =>

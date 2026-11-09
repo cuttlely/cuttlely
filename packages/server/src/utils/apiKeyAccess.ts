@@ -4,6 +4,13 @@ import type { IHarnessCaller } from '../Interface'
 export function harnessNodeOptions(caller?: IHarnessCaller): { harnessCaller?: IHarnessCaller } {
     if (!caller) return {}
     return caller.via === 'api_key'
-        ? { harnessCaller: { via: 'api_key', apiKeyId: caller.apiKeyId, harnesses: [...caller.harnesses] } }
+        ? {
+              harnessCaller: {
+                  via: 'api_key',
+                  apiKeyId: caller.apiKeyId,
+                  harnesses: [...caller.harnesses],
+                  ...(caller.harnessIds !== undefined ? { harnessIds: { ...caller.harnessIds } } : {})
+              }
+          }
         : { harnessCaller: { via: caller.via } }
 }

@@ -1,6 +1,6 @@
 # Audit API
 
-One list of sign-in, lockout, invite, reset, role change, user disable, authentication and settings changes, harness runs started with the API, changes to an API credential's harness list, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
+One list of sign-in, lockout, invite, reset, role change, user disable, authentication and settings changes, harness runs started with the API, legacy Harness-list changes, access-key lifecycle/policy changes and aggregate usage/refusal events, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
 
 `POST /api/v1/audit/login-activity` stays **404** `{ "message": "Not Found" }`.
 
@@ -12,9 +12,9 @@ The organization owner of the active team, or a role with `audit:view` on that t
 
 A caller who is not the owner sees events for the active team, and sign-in rows for people in that team. Events for another team, and events for another organization, are left out. The owner sees events for every team in the organization.
 
-Settings changes are the settings history rows. They are included only for the organization owner. A role with `audit:view` does not receive `setting_change` rows. They have no user id, so a `user` filter leaves them out.
+Settings changes are the settings history rows. They are included only for the instance operator with active organization ownership. A role with `audit:view` does not receive `setting_change` rows. Their event-level `userId` is null, so a `user` filter leaves them out; this does not remove operator user IDs intentionally recorded in lifecycle change details.
 
-A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the server owner (the earliest active organization owner). An organization owner of another organization does not receive it.
+A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the instance operator with active organization ownership. No earliest-owner fallback is used; other owners do not receive unmatched rows, and operator status grants no access to another organization’s matched events.
 
 An OIDC refusal that resolves a durable subject link or one pending or inactive account is stored for that user and their organizations. Its detail may include the provider subject because the Cuttlely user is known. A refusal with no matched user follows the unmatched rule above.
 
@@ -31,7 +31,7 @@ The response sends `Cache-Control: no-store`.
 | `user`   | User id. At most 255 characters. A longer value is **400** `{ "code": "INVALID_USER" }`.                                                                       |
 | `limit`  | Page size. Default 50. Maximum 100. `0` or a non-number is **400** `{ "code": "INVALID_LIMIT" }`.                                                              |
 
-Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `harness_schedule`, `pinned_query_change`, `auth_method_change`, `auth_config_warning_ack`, `auth_config_change`, `owner_recovery`, `scim_token`, `scim_user`, `scim_group`, `scim_mapping`, `scim_auth_failure`.
+Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `api_key_change`, `api_key_use`, `harness_schedule`, `pinned_query_change`, `auth_method_change`, `auth_config_warning_ack`, `auth_config_change`, `owner_recovery`, `scim_token`, `scim_user`, `scim_group`, `scim_mapping`, `scim_auth_failure`.
 
 `user_disable` includes an enable. `detail.disabled` is true or false.
 
@@ -44,6 +44,8 @@ Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role
 `auth_config_change` is attempted when an administrator saves a generic OIDC draft, including a draft whose provider check reports an error, and when tested settings are copied to the active OIDC configuration without changing the selected method. A failed audit write does not undo a draft save. `detail.outcome` is `saved`, `saved_with_error`, or `applied_to_active`; `detail.configurationFingerprint` is the saved or applied configuration fingerprint, or null when one was not produced.
 
 A bad cursor is **400** `{ "message": "Cursor is not valid", "code": "INVALID_CURSOR" }`.
+
+`api_key_change` records key creation, policy/resource replacement, rotation and revocation. `api_key_use` aggregates accepted/refused operations in five-minute process-local windows; shadow flow mismatches include `shadowMismatch`, `legacyAllowed` and `scopedAllowed`. These are not per-request counters. Usage totals are in the Access Keys list; exports/alerts are not implemented. [Access-key details](./access-keys.md#caller-policies-and-counters).
 
 ## Response
 

@@ -1,6 +1,7 @@
 // What the Server settings page reads and writes. Owner only (routes/server-settings). Secret values never leave
-// the server: a secret is shown as set or not set. A runtime limit applies on the next use. Every other change
+// the server: a secret is shown as set or not set. Runtime settings apply on the next use. Every other change
 // applies at the next start.
+import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
 import { StartState } from './apply'
@@ -24,10 +25,14 @@ import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
 import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeFileAtomic, writeSettingsFile } from './store'
 import { checkValue } from './validate'
+import { readOrdinarySignInReadiness } from '../identity/authenticationState'
+import { signInOptionsBody } from '../identity/signInOptions'
 
 type Env = Record<string, string | undefined>
 
 export interface ServiceDeps {
+    /** Internal request boundary; omitted only by trusted host/CLI/startup callers. Never a payload field. */
+    authorize?: () => Promise<void>
     env: Env
     state: StartState
     /** The credential encryption key (created if missing). */
@@ -218,6 +223,19 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                     view.range = { min: setting.min, max: setting.max }
                 }
             }
+        } else if (setting.key === ACCESS_ROLLOUT_KEY) {
+            const picked = rolloutState(env, read.values)
+            view.source = picked.source
+            view.locked = picked.locked
+            view.value = picked.source === 'default' ? '' : picked.value
+            view.effective = picked.value
+            view.running = picked.value
+            view.changed = false
+            if (picked.invalidStored) view.help += ' The saved value is invalid; Off is in effect.'
+            if (picked.value === 'invalid') {
+                view.help += ' Invalid host mode: access-key checks return 503. Correct it on the host.'
+                view.options = [...(setting.options ?? []), { value: 'invalid', label: 'Unavailable (invalid host mode)' }]
+            }
         } else if (setting.runtime && setting.type === 'switch') {
             const picked = flags.get(setting.key)
             if (picked) {
@@ -293,31 +311,69 @@ function authKitView(dir: string, resolved: ResolvedSetting[], hostKeys: Set<str
     }
 }
 
-/** True when the values leave at least one way to sign in. */
-export function hasWayIn(env: Env, hostKeys: Set<string>, values: Record<string, string>): boolean {
-    const resolved = resolveSettings({ env, hostKeys, file: values })
-    const effective = new Map(resolved.map((row) => [row.key, effectiveValue(row)]))
-    const localAdmin = effective.get('CUTTLELY_LOCAL_ADMIN') === 'true'
-    const authKit = ['WORKOS_API_KEY', 'WORKOS_CLIENT_ID', 'WORKOS_REDIRECT_URI', 'WORKOS_COOKIE_PASSWORD'].every((key) =>
-        Boolean((effective.get(key) ?? '').trim())
-    )
-    return localAdmin || authKit
-}
+const SIGN_IN_KEYS = ['CUTTLELY_LOCAL_ADMIN', 'CUTTLELY_LOCAL_USERS', ...AUTHKIT_KEYS] as const
 
 function effectiveMap(env: Env, hostKeys: Set<string>, values: Record<string, string>): Record<string, string> {
     return Object.fromEntries(resolveSettings({ env, hostKeys, file: values }).map((row) => [row.key, effectiveValue(row)]))
 }
 
-/**
- * True when a change turns password sign-in off, or changes AuthKit while password sign-in is off.
- * Either one needs a passed test sign-in with the new AuthKit values first.
- */
-export function needsAuthKitTest(env: Env, hostKeys: Set<string>, before: Record<string, string>, after: Record<string, string>): boolean {
-    const was = effectiveMap(env, hostKeys, before)
-    const will = effectiveMap(env, hostKeys, after)
-    if (will.CUTTLELY_LOCAL_ADMIN === 'true') return false
-    const authKitChanged = AUTHKIT_KEYS.some((name) => (was[name] ?? '') !== (will[name] ?? ''))
-    return was.CUTTLELY_LOCAL_ADMIN === 'true' || authKitChanged
+/** Only effective login transitions need database readiness. Availability flags alone are not proof. */
+async function protectSignInTransition(deps: ServiceDeps, before: Record<string, string>, after: Record<string, string>, key: string) {
+    const hostKeys = new Set(deps.state.hostKeys)
+    const was = effectiveMap(deps.env, hostKeys, before)
+    const will = effectiveMap(deps.env, hostKeys, after)
+    const changed = SIGN_IN_KEYS.filter((name) => was[name] !== will[name])
+    if (!changed.length) return
+    const noWayIn = () =>
+        new SettingsError(
+            409,
+            'NO_WAY_IN',
+            'This would leave no established ordinary sign-in. Keep a usable local login or the selected, tested identity provider.'
+        )
+    let readiness: Awaited<ReturnType<typeof readOrdinarySignInReadiness>>
+    try {
+        // Lazy application seam: unrelated saves never load or query provider/account readiness.
+        const { applicationDataSource } = await import('../identity/production')
+        readiness = await readOrdinarySignInReadiness(applicationDataSource(), { ...deps.env, ...will })
+    } catch {
+        throw noWayIn()
+    }
+    // First-account setup deliberately enables password sign-in before inserting the first owner.
+    // This server-side condition cannot authorize a disable or change provider values.
+    if (
+        readiness.accountCount === 0 &&
+        (readiness.activeMethod === null || readiness.activeMethod === 'local') &&
+        changed.every((name) => (name === 'CUTTLELY_LOCAL_ADMIN' || name === 'CUTTLELY_LOCAL_USERS') && will[name] === 'true')
+    )
+        return
+    // An empty installation may add its first tested AuthKit configuration for the verified bootstrap email.
+    // This is setup-only; a bootstrap email never substitutes for an established account after setup.
+    if (
+        readiness.accountCount === 0 &&
+        readiness.activeMethod === null &&
+        will.CUTTLELY_BOOTSTRAP_EMAIL?.trim() &&
+        authKitComplete(will) &&
+        authKitTested(deps.state.dir, will, key)
+    )
+        return
+    const available = signInOptionsBody({ ...deps.env, ...will }, readiness.activeMethod)
+    if (
+        (available.localUsers && readiness.localUser) ||
+        (available.localAdmin && readiness.localOwner) ||
+        (available.oidc && readiness.oidcReady)
+    )
+        return
+    const tested = authKitTested(deps.state.dir, will, key)
+    if (available.authKit && authKitComplete(will) && readiness.workosIdentityMatches && tested) return
+    if (available.authKit && authKitComplete(will) && !tested) {
+        throw new SettingsError(
+            409,
+            'AUTHKIT_NOT_TESTED',
+            'Run a test sign-in with these exact AuthKit settings before removing the last ordinary login.',
+            [{ key: 'CUTTLELY_LOCAL_ADMIN', message: 'Use Set up AuthKit, then Test sign-in.' }]
+        )
+    }
+    throw noWayIn()
 }
 
 /** Settings that have their own guided flow and cannot be saved here directly. */
@@ -327,6 +383,7 @@ export function guidedOnly(setting: SettingDef): string | null {
 }
 
 export async function saveChanges(deps: ServiceDeps, input: unknown, by: string, actorId?: string): Promise<SettingsView> {
+    await deps.authorize?.()
     const changes = input && typeof input === 'object' ? (input as { values?: unknown }).values : undefined
     if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
         throw new SettingsError(400, 'BAD_REQUEST', 'Send the changed settings as values.')
@@ -348,9 +405,13 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
             errors.push({ key, code: 'READ_ONLY', message: 'This setting cannot be changed.' })
             continue
         }
-        if (hostKeys.has(key) && !savedValueWins(key) && !setting.panelFirst) {
-            // The publish check switch is the one host lock that answers 409. Other host locks stay 400.
-            const code = setting.runtime && setting.type === 'switch' ? 'LOCKED' : undefined
+        if (
+            (hostKeys.has(key) || (key === ACCESS_ROLLOUT_KEY && rolloutState(deps.env).locked)) &&
+            !savedValueWins(key) &&
+            !setting.panelFirst
+        ) {
+            // Runtime switches and the access rollout answer 409 for a host lock. Other host locks stay 400.
+            const code = key === ACCESS_ROLLOUT_KEY || (setting.runtime && setting.type === 'switch') ? 'LOCKED' : undefined
             errors.push({
                 key,
                 ...(code ? { code } : {}),
@@ -410,6 +471,7 @@ export async function writeValues(
     note?: string,
     actorId?: string
 ): Promise<SettingsView> {
+    await deps.authorize?.()
     try {
         return await withSettingsLock(deps.state.dir, () => writeValuesLocked(deps, normalized, by, kind, note, actorId))
     } catch (error) {
@@ -430,41 +492,29 @@ async function writeValuesLocked(
         throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.')
     }
     const { state } = deps
+    if (ACCESS_ROLLOUT_KEY in normalized && rolloutState(deps.env).locked)
+        throw new SettingsError(409, 'LOCKED', 'Access-key enforcement is set by the host, so it is locked here.')
     const key = await deps.key()
     const read = readSettingsFile(state.dir, key)
     if (read.exists && read.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         throw new SettingsError(409, 'FILE_DAMAGED', 'The settings file could not be read. Run pnpm settings restore on the server first.')
     }
-    const hostKeys = new Set(state.hostKeys)
     const next: Record<string, string> = { ...read.values }
     for (const [name, value] of Object.entries(normalized)) {
         if (value === '') delete next[name]
         else next[name] = value
     }
-    if (!hasWayIn(deps.env, hostKeys, next)) {
-        throw new SettingsError(
-            409,
-            'NO_WAY_IN',
-            'This would leave no way to sign in. Keep the password sign-in on, or finish setting up AuthKit first.'
-        )
-    }
-    if (needsAuthKitTest(deps.env, hostKeys, read.values, next) && !authKitTested(state.dir, effectiveMap(deps.env, hostKeys, next), key)) {
-        throw new SettingsError(
-            409,
-            'AUTHKIT_NOT_TESTED',
-            'Password sign-in stays on until a test sign-in with these AuthKit settings passes. Use Set up AuthKit, then Test sign-in.',
-            [{ key: 'CUTTLELY_LOCAL_ADMIN', message: 'Run a test sign-in with AuthKit first. Password sign-in stays on until one passes.' }]
-        )
-    }
+    await protectSignInTransition(deps, read.values, next, key)
     const stored = readStoredValues(state.dir)
     const preserve: Record<string, (typeof stored)[string]> = {}
     for (const name of read.unreadable) if (!(name in normalized)) preserve[name] = stored[name]
     const before = { ...read.values }
     for (const name of read.unreadable) if (name in normalized) before[name] = '(unreadable)'
-    const changes = describeChanges(before, next)
+    const changes = describeChanges(before, next, deps.env)
     if (changes.length) {
         const file = path.join(state.dir, SETTINGS_FILE)
         const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+        await deps.authorize?.()
         writeSettingsFile(state.dir, next, { key, by, preserve })
         invalidateRuntimeCache()
         try {
@@ -494,6 +544,7 @@ function restoreSettingsFile(dir: string, previousRaw: string | null): void {
 
 /** Puts the file back the way it was when the server started. */
 export async function discardChanges(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
+    await deps.authorize?.()
     try {
         return await withSettingsLock(deps.state.dir, async () => {
             const { state } = deps
@@ -501,9 +552,11 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const before = readSettingsFile(state.dir, key).values
             const file = path.join(state.dir, SETTINGS_FILE)
             const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
-            if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
-            else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
-            const changes = describeChanges(before, state.atStart)
+            const restored = preserveRollout(state.rawAtStart ?? null, readStoredValues(state.dir))
+            if (restored === null) fs.rmSync(file, { force: true })
+            else writeFileAtomic(state.dir, SETTINGS_FILE, restored)
+            const next = readSettingsFile(state.dir, key).values
+            const changes = describeChanges(before, next, deps.env)
             invalidateRuntimeCache()
             try {
                 if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
@@ -522,6 +575,7 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
 
 /** Try it again: puts back the settings safe boot set aside, to apply at the next restart. */
 export async function retryRolledBack(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
+    await deps.authorize?.()
     try {
         return await withSettingsLock(deps.state.dir, () => retryRolledBackLocked(deps, by, actorId))
     } catch (error) {
@@ -539,7 +593,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
     const file = path.join(state.dir, SETTINGS_FILE)
     const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
     const before = readSettingsFile(state.dir, key).values
-    writeFileAtomic(state.dir, SETTINGS_FILE, raw)
+    writeFileAtomic(state.dir, SETTINGS_FILE, preserveRollout(raw, readStoredValues(state.dir)) ?? raw)
     const after = readSettingsFile(state.dir, key)
     if (after.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         // Not a usable file: put the working one back, byte for byte, and leave the set-aside copy where it is.
@@ -553,7 +607,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
             kind: 'restore',
             by,
             actorId,
-            changes: describeChanges(before, after.values),
+            changes: describeChanges(before, after.values, deps.env),
             note: 'Put back the settings that did not start, to try them again at the next restart.',
             outcome: 'ok'
         })
@@ -615,6 +669,7 @@ export async function restartNow(
     by: string,
     options: { wait?: boolean; actorId?: string } = {}
 ): Promise<RestartAnswer> {
+    await deps.authorize?.()
     const view = await getView(deps)
     if (!view.restart.inPlace) return { restarting: false, steps: view.restart.steps }
     const waitingFor = options.wait ? runsInProgress() : 0

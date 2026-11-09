@@ -343,11 +343,11 @@ With no runs yet, the list says `No runs yet. Send a prompt above, or call this 
 
 An app can start a run with an API key, get a run id back at once, and fetch the answer when the team is done. This example uses a made-up harness, `bakery-team`, and a made-up key name.
 
-1. Open **API Keys** and select **Create Key** (or edit a key).
-2. Name it, for example `Bakery back office`.
-3. Under **Permissions**, tick **Create** under **CHATFLOWS**. **View** is ticked with it.
-4. Under **Harnesses this key may run**, tick `bakery-team`. Nothing is ticked on a new key, and a key with nothing ticked runs no harness.
-5. Select **Add** and copy the key.
+1. Follow [Access keys rollout and migration](../reference/access-keys.md#rollout-and-migration), then set `INBOUND_ACCESS_V2=on`. It defaults to `off`; existing keys retain legacy access without rotation.
+2. Open **Access Keys** and add a key, for example `Bakery back office`.
+3. Choose workspace permissions for starts (`chatflows:create`, `chatflows:update` or `agentflows:create`) and reads (`chatflows:view` or `agentflows:view`).
+4. Grant `bakery-team` under **Harnesses**, by stable canvas ID, and choose `harness:run` plus `harness:read` for polling. New keys start with no resources or scopes.
+5. Choose expiry, caller restrictions, RPM and UTC quotas. Save and copy the secret once; keep it on your server.
 
 Start a run from your server:
 
@@ -377,7 +377,7 @@ Then read the `resultUrl` every few seconds until `finished` is `true`:
 }
 ```
 
-The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute, counted in each server process. The key sees only the runs it started. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
+The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. Removing a grant or revoking a key blocks subsequent requests; an admitted run may finish. Rotation shares the same policy and counters. The key sees only the runs it started. Its configured limits apply alongside the Harness API's process-local caps of 60 starts and 600 reads a minute. Minute counters reset on restart; shared Redis limiting is not implemented. The full request and response are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
 
 ## Run it on a schedule
 
@@ -419,7 +419,7 @@ A chatflow runs a harness with the **Harness** node. A chatflow whose only node 
 
 ![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and an answer that quotes the sample note: the researcher reads it from an in-memory store, and Local Hash Embeddings built the vectors, with no provider key.](../images/harnesses/chatflow-harness-chat.png)
 
-When an app calls this chatflow with an API key bound to it, that key also needs `chief-of-staff` under **Harnesses this key may run**; otherwise the call answers `403`. An API key cannot save a chatflow whose **Harness** card names a harness off its own list.
+With access-key enforcement on, the presenting key needs the chatflow grant and `predict`, plus the stable `chief-of-staff` Harness grant and `harness:run`; streaming also needs `stream`. Set the flow private in **API Endpoint**. A scoped key cannot save execution configuration; canvas edits need a signed-in session. Legacy bindings and Harness-name lists remain the compatibility path while enforcement is off.
 
 **Return Direct** is on by default and sends the harness reply to the chat as it is. To use the team as one tool of a chatflow agent, connect the **Harness** node to the agent's tools instead. The agent calls it when its system message routes a task to `tool:harness`. Turn **Return Direct** off only when the agent has to rework the reply. Each pass is another model call.
 
@@ -469,9 +469,9 @@ At startup Cuttlely looks for profiles whose harness no longer exists, for examp
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
-A HARNESS canvas id also works on `POST /api/v1/prediction/:id`. It runs the Live (published) canvas, not the saved draft. The answer includes a `sessionToken` (in the JSON body, or in the streamed `harness.recorded` event); send it with the same `chatId` to continue that chat. The API key bound to the canvas must list the harness under **Harnesses this key may run**. File uploads on a HARNESS canvas id are refused with 400.
+A HARNESS canvas id also works on `POST /api/v1/prediction/:id`. It runs the Live (published) canvas, not the saved draft. The answer includes a `sessionToken` (in the JSON body, or in the streamed `harness.recorded` event); send it with the same `chatId` to continue that chat. With enforcement on, the key needs the stable Harness canvas grant, `predict` and `harness:run` (`stream` too for streaming). File uploads on a HARNESS canvas id are refused with 400.
 
-The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key goes through a chatflow bound to that key, or calls `POST /api/v1/harnesses/:name/runs` and `POST /api/v1/harnesses/:name/runs/async` when the harness is on that key's list. Both stay on Live.
+The harness page uses a signed-in session. **Try it** runs the draft when one exists. With enforcement on, an access key calls a granted chatflow with `predict` and its referenced Harness grants/`harness:run`, or starts a granted Harness directly through `POST /api/v1/harnesses/:name/runs` or `POST /api/v1/harnesses/:name/runs/async` with `harness:run`. Both stay on Live.
 
 Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. Send uploads to a chatflow that holds a Harness card, such as `samples/chatflows/upload.chatflow.json`, which runs the `upload` harness (roster in `samples/harnesses/upload.canvas.json`). A HARNESS canvas id refuses uploads with 400.
 

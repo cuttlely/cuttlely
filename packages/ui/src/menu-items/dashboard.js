@@ -169,7 +169,7 @@ const dashboard = {
                 },
                 {
                     id: 'apikey',
-                    title: 'API Keys',
+                    title: 'Access Keys',
                     type: 'item',
                     url: '/apikey',
                     icon: icons.IconKey,

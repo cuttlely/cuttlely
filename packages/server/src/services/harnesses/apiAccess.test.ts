@@ -32,7 +32,7 @@ jest.mock('../../DataSource', () => {
             : {
                   findBy: async ({ workspaceId }: { workspaceId: string }) => storedKeys.filter((key) => key.workspaceId === workspaceId),
                   findOneBy: async ({ id }: { id: string }) => storedKeys.find((key) => key.id === id) ?? null,
-                  save: async (key: { id: string }) => {
+                  update: async (key: { id: string }) => {
                       savedKeys.push(key.id)
                       return key
                   }

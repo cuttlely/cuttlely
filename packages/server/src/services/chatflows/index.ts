@@ -1,3 +1,9 @@
+import {
+    reconcileLegacyBoundTypeChange,
+    saveFlowPreservingAccess,
+    saveLegacyBoundFlow,
+    withAccessKeyWrite
+} from '../accessKeys/legacyBinding'
 import { randomBytes } from 'crypto'
 import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
@@ -6,7 +12,9 @@ import { validate as isValidUUID } from 'uuid'
 import { ChatflowType, IHarnessCaller, IReactFlowObject, ScheduleInputMode, StartInputType } from '../../Interface'
 import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface.Metrics'
 import { UsageCacheManager } from '../../UsageCacheManager'
-import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
+import { ChatFlow, EnumChatflowType, EXPLICIT_LEGACY_PUBLIC } from '../../database/entities/ChatFlow'
+import { ApiKey } from '../../database/entities/ApiKey'
+import { ApiKeyResource } from '../../database/entities/ApiKeyResource'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { Lead } from '../../database/entities/Lead'
 import { ChatMessage } from '../../database/entities/ChatMessage'
@@ -166,6 +174,23 @@ const deleteChatflow = async (
                 await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
                 await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
                 const deleted = await manager.getRepository(ChatFlow).delete({ id: chatflowId })
+                // Retire exact flow grants with the resource, including grants left under an earlier
+                // flow type. Recreating an ID must require an explicit new grant. Other workspaces
+                // and non-flow resource families cannot lose grants through an ID collision.
+                const principals = manager
+                    .getRepository(ApiKey)
+                    .createQueryBuilder('principal')
+                    .select('principal.id')
+                    .where('principal.workspaceId = :workspaceId', { workspaceId })
+                await manager
+                    .createQueryBuilder()
+                    .delete()
+                    .from(ApiKeyResource)
+                    .where('resourceId = :chatflowId', { chatflowId })
+                    .andWhere('resourceType IN (:...flowTypes)', { flowTypes: ['CHATFLOW', 'AGENTFLOW', 'HARNESS'] })
+                    .andWhere(`principalId IN (${principals.getQuery()})`)
+                    .setParameters(principals.getParameters())
+                    .execute()
                 if (chatflow.type === EnumChatflowType.HARNESS) {
                     harnessCascade = await harnessesService.removeHarnessesForCanvas(chatflowId, workspaceId, manager)
                 }
@@ -436,6 +461,9 @@ const saveChatflow = async (
     // `caller` is who saves: a HARNESS canvas, or a canvas that names a harness, is refused without one.
     record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller' | 'draftFlowData'>
 ): Promise<any> => {
+    if (newChatFlow.apiAccessMode !== undefined && !['public', 'private'].includes(newChatFlow.apiAccessMode || ''))
+        throw new AppError(400, 'Invalid API access mode.')
+    newChatFlow.apiAccessMode ??= newChatFlow.apikeyid ? 'private' : EXPLICIT_LEGACY_PUBLIC
     const initialDraft = newChatFlow.type === EnumChatflowType.HARNESS ? record?.draftFlowData : undefined
     if (typeof initialDraft === 'string' && !flowDraftsService.isDraftsEnabled()) {
         throw new AppError(
@@ -460,17 +488,21 @@ const saveChatflow = async (
         const incomingFlowData = newChatFlow.flowData
         newChatFlow.flowData = JSON.stringify({})
         const chatflow = appServer.AppDataSource.getRepository(ChatFlow).create(newChatFlow)
-        const step1Results = await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        const step1Results = newChatFlow.apikeyid
+            ? await saveLegacyBoundFlow(appServer.AppDataSource, chatflow)
+            : await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
 
         // step 2 - convert base64 to file paths and update the chatflow
         step1Results.flowData = stampNodePack(
             await updateFlowDataWithFilePaths(step1Results.id, incomingFlowData, orgId, workspaceId, subscriptionId, usageCacheManager)
         )
         await _checkAndUpdateDocumentStoreUsage(step1Results, newChatFlow.workspaceId)
-        dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(step1Results)
+        dbResponse = await saveFlowPreservingAccess(appServer.AppDataSource, step1Results, step1Results)
     } else {
         const chatflow = appServer.AppDataSource.getRepository(ChatFlow).create(newChatFlow)
-        dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
+        dbResponse = newChatFlow.apikeyid
+            ? await saveLegacyBoundFlow(appServer.AppDataSource, chatflow)
+            : await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
     }
     // A taken harness name is refused before this insert. If the sync still fails, the new row is removed
     // before history or telemetry, so the caller does not keep a canvas for another team's harness.
@@ -614,7 +646,6 @@ const ROW_KEYS = [
     'flowData',
     'deployed',
     'isPublic',
-    'apikeyid',
     'chatbotConfig',
     'apiConfig',
     'analytic',
@@ -623,9 +654,6 @@ const ROW_KEYS = [
     'followUpPrompts',
     'category',
     'type',
-    'mcpServerConfig',
-    'webhookSecret',
-    'webhookSecretConfigured',
     'workspaceId'
 ] as const
 
@@ -702,6 +730,7 @@ async function saveIfRowUnchanged(
     const write = async (manager: EntityManager) => {
         if (liveWriteHooks.beforeConditionalWrite) await liveWriteHooks.beforeConditionalWrite()
         const ds = getRunningExpressApp().AppDataSource
+        const previous = requireNoDraft ? await manager.getRepository(ChatFlow).findOneBy({ id: flow.id, workspaceId }) : null
         const updatedDate = new Date()
         const qb = manager.createQueryBuilder().update(ChatFlow).set(rowPatch(flow, updatedDate, workspaceId))
         qb.where(`${quote(ds, 'id')} = :id`, { id: flow.id })
@@ -718,10 +747,19 @@ async function saveIfRowUnchanged(
             }
             throw new AppError(StatusCodes.CONFLICT, conflictMessage)
         }
-        return Object.assign(new ChatFlow(), flow, { updatedDate, workspaceId })
+        const saved = await manager.getRepository(ChatFlow).findOneByOrFail({ id: flow.id, workspaceId })
+        if (requireNoDraft) await reconcileLegacyBoundTypeChange(manager, saved, expectedType as ChatFlow['type'], previous?.name)
+        return Object.assign(new ChatFlow(), flow, saved, { updatedDate, workspaceId })
     }
     // The draft row and this type change share the chatflow row lock, so one commits before the other checks.
-    if (requireNoDraft) return withChatflowLock(flow.id, write)
+    if (requireNoDraft)
+        return withAccessKeyWrite(() =>
+            withChatflowLock(flow.id, (manager) => {
+                const ds = getRunningExpressApp().AppDataSource
+                // SQLite's per-flow lock serializes draft writers but does not open a transaction.
+                return ['sqlite', 'better-sqlite3'].includes(ds.options?.type) ? ds.transaction(write) : write(manager)
+            })
+        )
     return inTransaction(write)
 }
 
@@ -743,6 +781,16 @@ const updateChatflow = async (
     options: UpdateChatflowOptions = {}
 ): Promise<any> => {
     const appServer = getRunningExpressApp()
+    if (updateChatFlow.apiAccessMode !== undefined && !['public', 'private'].includes(updateChatFlow.apiAccessMode || ''))
+        throw new AppError(400, 'Invalid API access mode.')
+    if (updateChatFlow.apikeyid && updateChatFlow.apikeyid !== chatflow.apikeyid && updateChatFlow.apiAccessMode === undefined)
+        updateChatFlow.apiAccessMode = 'private'
+    const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (chatflow.apikeyid ?? null)
+    const requestedType = typeof updateChatFlow.type === 'string' ? updateChatFlow.type : chatflow.type
+    const typeChanging = (requestedType || 'CHATFLOW') !== (chatflow.type || 'CHATFLOW')
+    const conditional = options.expectedFlowData !== undefined || typeChanging
+    if ((rebinding || updateChatFlow.apiAccessMode !== undefined) && conditional)
+        throw new AppError(400, 'Change API access separately from canvas restoration or type changes.')
     if (typeof updateChatFlow.flowData === 'string') updateChatFlow.flowData = stampNodePack(updateChatFlow.flowData)
     if (updateChatFlow.flowData && containsBase64File(updateChatFlow)) {
         updateChatFlow.flowData = stampNodePack(
@@ -793,15 +841,12 @@ const updateChatflow = async (
     const skipHarnessSync = await validateHarnessCanvas(newDbChatflow, options.caller)
     // The caller's list applies when the canvas changes or the flow is rebound to another key (or to none), because the
     // stored cards then run under a different key. Another field alone, such as the category, does not need it.
-    const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (previousRow.apikeyid ?? null)
     await validateReferencedHarnesses(newDbChatflow, options.caller, updateChatFlow.flowData !== undefined || rebinding)
     await validateEtlCanvas(newDbChatflow)
     let dbResponse: ChatFlow
-    const typeChanging = (updateChatFlow.type || 'CHATFLOW') !== (storedType || 'CHATFLOW')
     // Publish writes the canvas only. Putting a version Live also writes the name and type, still conditional
     // on the canvas that was checked. A type change is conditional on there being no draft.
     const canvasOnly = options.expectedFlowData !== undefined && !typeChanging && updateChatFlow.name == null
-    const conditional = options.expectedFlowData !== undefined || typeChanging
     // Document store usage is updated before the save on both paths, so a later save's update always lands last,
     // as between two ordinary saves.
     await _checkAndUpdateDocumentStoreUsage(newDbChatflow, workspaceId)
@@ -818,7 +863,9 @@ const updateChatflow = async (
                 options.versionRecord?.kind === 'publish' ? PUBLISH_CONFLICT : SAVE_CONFLICT
             )
         } else {
-            dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(newDbChatflow)
+            dbResponse = rebinding
+                ? await saveLegacyBoundFlow(appServer.AppDataSource, newDbChatflow, previousRow)
+                : await saveFlowPreservingAccess(appServer.AppDataSource, newDbChatflow, previousRow, updateChatFlow.apiAccessMode)
         }
     } catch (error) {
         if (conditional) await restoreDocumentStoreUsage(chatflow.id, workspaceId)
@@ -829,9 +876,14 @@ const updateChatflow = async (
         dbResponse,
         options.caller,
         async () => {
-            await inTransaction(async (manager) => {
-                await manager.getRepository(ChatFlow).save(previousRow)
-            })
+            if (rebinding) await saveLegacyBoundFlow(appServer.AppDataSource, previousRow, dbResponse)
+            else
+                await saveFlowPreservingAccess(
+                    appServer.AppDataSource,
+                    previousRow,
+                    dbResponse,
+                    updateChatFlow.apiAccessMode !== undefined ? previousRow.apiAccessMode || 'private' : undefined
+                )
             await restoreDocumentStoreUsage(chatflow.id, workspaceId)
         },
         skipHarnessSync
@@ -1211,7 +1263,10 @@ const setWebhookSecret = async (chatflowId: string, workspaceId: string): Promis
         const plaintext = randomBytes(32).toString('hex')
         chatflow.webhookSecret = await encryptCredentialData({ secret: plaintext })
         chatflow.webhookSecretConfigured = true
-        await repo.save(chatflow)
+        await repo.update(
+            { id: chatflowId, workspaceId },
+            { webhookSecret: chatflow.webhookSecret, webhookSecretConfigured: chatflow.webhookSecretConfigured }
+        )
         return { webhookSecret: plaintext }
     } catch (error) {
         if (error instanceof AppError) throw error
@@ -1227,7 +1282,10 @@ const clearWebhookSecret = async (chatflowId: string, workspaceId: string): Prom
         if (!chatflow) throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         chatflow.webhookSecret = null
         chatflow.webhookSecretConfigured = false
-        await repo.save(chatflow)
+        await repo.update(
+            { id: chatflowId, workspaceId },
+            { webhookSecret: chatflow.webhookSecret, webhookSecretConfigured: chatflow.webhookSecretConfigured }
+        )
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: chatflowsService.clearWebhookSecret - ${getErrorMessage(error)}`)

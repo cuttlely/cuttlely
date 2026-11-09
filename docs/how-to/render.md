@@ -46,7 +46,7 @@ The repository never calls the Render API. You apply the Blueprint in the Dashbo
 
     Render asks only now, when the Blueprint is created. Later Blueprint syncs ignore `sync: false` variables. To change one, edit it on the service's **Environment** page.
 
-    Don't have the WorkOS values yet? Leave them empty. The first start prints a one-time setup link in the service's **Logs**; open it to create the owner with a password or to set up AuthKit from the browser. See [When nobody can sign in yet](./sign-in.md#when-nobody-can-sign-in-yet).
+    Configure sign-in on the host before browser setup. For WorkOS, supply its credentials, redirect URI and bootstrap email on **Environment**, then restart/redeploy. If you use local sign-in first, explicitly enable `CUTTLELY_LOCAL_ADMIN=true` on the host and restart; the log's setup link creates only the first account. A setup code cannot configure AuthKit or designate an operator. See [When nobody can sign in yet](./sign-in.md#when-nobody-can-sign-in-yet).
 
 5. Review the list of resources, then select **Deploy Blueprint**.
 
@@ -69,6 +69,8 @@ In WorkOS, set these URIs to the service's real address:
 1. Open `https://your-service.onrender.com/signin`. The page shows **Sign in with WorkOS**.
 2. Sign in with the email in `CUTTLELY_BOOTSTRAP_EMAIL`. You become the owner.
 3. Add other people under **Admin** > **Users**, then send each person the one-time invite link **Add User** shows. They join only through that link. See [Invite people](./sign-in.md#invite-people).
+
+Tenant ownership does not confer server-wide administration; use [operator onboarding](./instance-operator.md) for the explicit panel designation with host-log proof.
 
 WorkOS is the durable selected method, so `/signin` has no ordinary password form. `CUTTLELY_LOCAL_ADMIN` is not in `render.yaml` and is not needed for [owner recovery](#recover-access).
 
@@ -129,24 +131,24 @@ What auto mode creates, which URL wins, and the canvas steps are in [Analyst mod
 
 When WorkOS sign-in isn't working, use the always-available owner recovery page. It does not require `CUTTLELY_LOCAL_ADMIN`:
 
-1. On the service's **Shell** page, in the app folder `/usr/src/cuttlely`, run `pnpm user --email you@example.com` and type a password for the existing owner.
+1. On the service's **Shell** page, in the app folder `/usr/src/cuttlely`, run recovery as the application OS user: `setpriv --reuid=node --regid=node --init-groups -- pnpm user --email you@example.com`, then type a password for the existing owner. A root invocation is refused when the data directory belongs to `node`; do not change its ownership to bypass the check.
 2. Open `/owner-recovery` and sign in with that owner email and password. `/signin` continues to show **Sign in with WorkOS** and **Owner recovery** because WorkOS remains the durable selected method.
-3. Fix the WorkOS configuration and restart. Environment settings configure the WorkOS candidate; they do not change the durable selection. Change the ordinary method, when needed, under **Admin** > **Auth / SSO**.
+3. Fix the WorkOS configuration and restart. Environment settings configure the WorkOS candidate; they do not change the durable selection. The instance operator with active ownership can change the ordinary method, when needed, under **Admin** > **Auth / SSO**.
 
 More about the local account: [Sign in](./sign-in.md).
 
 ## Troubleshooting
 
-| You see                                                    | What to do                                                                                                                                              |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The health check stays red                                 | Check the service logs. Usually the instance ran out of memory, or Postgres isn't reachable. A browser specialist starts Chromium on the same instance. |
-| `Sign-in is not configured.`                               | No account opens `/setup`. The code is the log line `Setup code`. With accounts, set both WorkOS values on **Environment**.                             |
-| WorkOS shows a redirect URI error                          | The redirect URI in WorkOS and `WORKOS_REDIRECT_URI` must match exactly, including `https://` and `/api/v1/auth/callback`.                              |
-| `First-user setup is not available.`                       | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Fix it on the **Environment** page.            |
-| A WorkOS variable is empty after you changed the Blueprint | Render asks for `sync: false` values only when the Blueprint is created. Set them on the **Environment** page.                                          |
-| A Dashboard change to a variable came back after a sync    | The variable has a value in `render.yaml`, and the sync set it back. Change it in the file.                                                             |
-| Analyst mode stops with a role error                       | `cuttlely-db` can't create roles. Set `CUTTLELY_POSTGRES_URL` to a separate database. See [Analyst database](#analyst-database).                        |
-| `Failed to fetch dynamically imported module`              | A file was asked for during a deploy or a restart. The page reloads once the server answers; if it stays, reload the tab once the service is live.      |
-| Stored credentials stop working                            | `FLOWISE_SECRETKEY_OVERWRITE` changed. Put the original value back.                                                                                     |
+| You see                                                    | What to do                                                                                                                                                                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The health check stays red                                 | Check the service logs. Usually the instance ran out of memory, or Postgres isn't reachable. A browser specialist starts Chromium on the same instance.                                                                           |
+| `Sign-in is not configured.`                               | Configure WorkOS on **Environment**, restart/redeploy and sign in through WorkOS. For local first-account setup, host-enable `CUTTLELY_LOCAL_ADMIN=true` before opening the account-only setup link; it cannot configure AuthKit. |
+| WorkOS shows a redirect URI error                          | The redirect URI in WorkOS and `WORKOS_REDIRECT_URI` must match exactly, including `https://` and `/api/v1/auth/callback`.                                                                                                        |
+| `First-user setup is not available.`                       | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Fix it on the **Environment** page.                                                                                      |
+| A WorkOS variable is empty after you changed the Blueprint | Render asks for `sync: false` values only when the Blueprint is created. Set them on the **Environment** page.                                                                                                                    |
+| A Dashboard change to a variable came back after a sync    | The variable has a value in `render.yaml`, and the sync set it back. Change it in the file.                                                                                                                                       |
+| Analyst mode stops with a role error                       | `cuttlely-db` can't create roles. Set `CUTTLELY_POSTGRES_URL` to a separate database. See [Analyst database](#analyst-database).                                                                                                  |
+| `Failed to fetch dynamically imported module`              | A file was asked for during a deploy or a restart. The page reloads once the server answers; if it stays, reload the tab once the service is live.                                                                                |
+| Stored credentials stop working                            | `FLOWISE_SECRETKEY_OVERWRITE` changed. Put the original value back.                                                                                                                                                               |
 
 WorkOS setup field by field: [WorkOS AuthKit setup](../identity/workos-authkit-setup.md).

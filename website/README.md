@@ -48,3 +48,7 @@ npm test          # unit tests for the build scripts
 ## Hosting
 
 The site is a free Render static site named `cuttlely-site`, created from `website/render.yaml` (Blueprint Path `website/render.yaml`; the root `render.yaml` is the Cuttlely Blueprint for users). Render builds with `cd website && npm ci && npm run build` from the repository root, publishes `website/dist`, and redeploys when `website/`, `docs/` or the root docs files change. When a build fails, the last good site stays live.
+
+## Release documentation
+
+The 1.7.0 docs describe the security-exception release features: operator-only service settings, host-log proof from the hosting dashboard or Docker/Compose logs, required backups and operator recovery, and enforcement default Off. Publish the source docs and current README content with the gated release; tag, image and npm availability require separate release checks. Check the deployed homepage announcement, upgrade warnings, operator onboarding and access-key how-to with actual sanitized screenshots. A successful application deploy does not prove the static site is current. Seven approved sanitized figures are in `docs/images/access-keys/`, with product 1.6.1 / feature head `5c08b125` capture provenance. AK02/06/08/09 action-only screenshots remain pending; HTML comments do not supply release assets. The website tooling version is independent of the product version.

@@ -4,6 +4,7 @@ import { workosProvider } from './provider'
 import { DUMMY_PASSWORD_HASH } from './password'
 import { WorkosPort } from './types'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { createRequire } from 'module'
 import type { DataSource } from 'typeorm'
@@ -29,6 +30,16 @@ import { activateSessionConvergence, resetSessionConvergenceForTests, sessionCon
 import { currentAuthOptionsBody } from './http'
 import { signInOptionsBody } from './signInOptions'
 import { runUserCommand } from './cli'
+
+const operatorTestDirs: string[] = []
+function operatorTestEnv() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-user-cli-'))
+    operatorTestDirs.push(dir)
+    return { CUTTLELY_DATA_DIR: dir }
+}
+afterEach(() => {
+    for (const dir of operatorTestDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
+})
 
 const GOOD_PASSWORD = 'Sup3r-Secret!'
 
@@ -831,11 +842,15 @@ describe('authentication provider foundation', () => {
             async () => {
                 const db = await database('sqlite', '', true)
                 expect(await readAuthenticationState(db)).toBeNull()
-                const result = await runUserCommand(db, {
-                    email: 'owner@example.com',
-                    password: GOOD_PASSWORD,
-                    localAdmin: true
-                })
+                const result = await runUserCommand(
+                    db,
+                    {
+                        email: 'owner@example.com',
+                        password: GOOD_PASSWORD,
+                        localAdmin: true
+                    },
+                    operatorTestEnv()
+                )
                 expect(result.ok).toBe(true)
                 const afterCommand = await readAuthenticationState(db)
                 expect(afterCommand).toMatchObject({ activeMethod: 'local', authenticationEpoch: 1, sessionsEnded: 0 })
@@ -858,11 +873,15 @@ describe('authentication provider foundation', () => {
             const db = await database('sqlite', '', true)
             await initializeAuthenticationState(db)
             const before = await readAuthenticationState(db)
-            const result = await runUserCommand(db, {
-                email: 'owner@example.com',
-                password: GOOD_PASSWORD,
-                localAdmin: true
-            })
+            const result = await runUserCommand(
+                db,
+                {
+                    email: 'owner@example.com',
+                    password: GOOD_PASSWORD,
+                    localAdmin: true
+                },
+                operatorTestEnv()
+            )
             expect(result.ok).toBe(true)
             expect(await readAuthenticationState(db)).toEqual(before)
             expect(await db.query('SELECT "id" FROM "audit_event"')).toEqual([])

@@ -159,8 +159,8 @@ export interface InviteSignIn {
 export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { ok: false; reason: LinkFailure }
 
 export interface WorkosPort {
-    authorizationUrl(redirectUri: string): string
-    authenticate(code: string): Promise<{ user: WorkosIdentity; sessionId?: string }>
+    authorizationUrl(redirectUri: string, options?: { state: string; maxAge: number }): string
+    authenticate(code: string): Promise<{ user: WorkosIdentity; sessionId?: string; authenticationTime?: number }>
     authenticateSession(
         sealed: string
     ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>

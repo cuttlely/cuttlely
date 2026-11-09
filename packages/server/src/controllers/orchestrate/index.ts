@@ -1,3 +1,4 @@
+import { accessContext } from '../../services/accessKeys/authorization'
 import { randomUUID } from 'crypto'
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
@@ -48,7 +49,7 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
 
         stripClientSession(req)
         const threadId = parseThreadId(req.headers['x-ibm-thread-id'])
-        const mapped = mapOrchestrateRequest(req.orchestrate, chatflow, threadId)
+        const mapped = mapOrchestrateRequest(req.orchestrate, chatflow, threadId, accessContext(req)?.key.id)
         const derivedToken = mapped.body.sessionToken
         req.body = mapped.body
         if (derivedToken) req.headers['x-cuttlely-session-token'] = derivedToken

@@ -25,7 +25,7 @@ Larkfield Home is a made-up home goods store. Known demo orders: LH-30112 walnut
 2. **Chatflows** → **Import** → **Import Flowise JSON** and choose `samples/orchestrate/demo.chatflow.json`. Save the flow as **Larkfield Home orders**.
 3. Add an xAI credential off-screen: **Credentials** → add **xAI API**, name it something like `xAI demo`, paste the key, save. Then open the canvas, select the **xAI Grok** card, and pick that credential. The imported JSON has an empty credential field. Do not photograph the paste dialog or any secret value.
 4. Create an API key (name it `orchestrate-demo`) and bind it to the flow in **API Endpoint**. Copy the key once; the UI will not show it again. Do not photograph the key.
-5. Publish the flow if you work with drafts. The Orchestrate route answers the published chatflow that has the bound key.
+5. Publish the flow if you work with drafts. The Orchestrate route answers the private published chatflow. With enforcement on, grant prediction/streaming and any referenced Harness in **Access Keys**; with enforcement off, retain the legacy key binding. [Rollout](../reference/access-keys.md).
 6. Start Cuttlely. In another terminal start the live proxy, then put a public HTTPS tunnel in front of the proxy only (not the Cuttlely port):
 
     ```bash
@@ -34,7 +34,7 @@ Larkfield Home is a made-up home goods store. Known demo orders: LH-30112 walnut
 
     The proxy prints `http://127.0.0.1:<port>`. Point the tunnel at that port. `$CUTTLELY_URL` in the YAML is that public origin.
 
-7. Copy `samples/orchestrate/external-chat.agent.yaml` to a working file. Replace `YOUR_HOST` with the tunnel host, `YOUR_FLOW_ID` with the flow id, and `<API_KEY>` with the bound key. In Orchestrate, open **AI Gateway** → **Agent directory** → **Add agent** and import **that copy**, not the repository file. The external agent name is `cuttlely_orders`. `auth_scheme` is `API_KEY` (`X-API-Key`). Leave streaming on and `enable_cot` off.
+7. Copy `samples/orchestrate/external-chat.agent.yaml` to a working file. Replace `YOUR_HOST` with the tunnel host, `YOUR_FLOW_ID` with the flow id, and `<API_KEY>` with the server-side access key. In Orchestrate, open **AI Gateway** → **Agent directory** → **Add agent** and import **that copy**, not the repository file. The external agent name is `cuttlely_orders`. `auth_scheme` is `API_KEY` (`X-API-Key`). Leave streaming on and `enable_cot` off.
 
 8. Create a native Orchestrate agent named `larkfield_router` and add `cuttlely_orders` as a collaborator. People chat with `larkfield_router`. Orchestrate routes each turn through `chat_with_collaborator`.
 
@@ -99,7 +99,7 @@ Do this last, after the shots are saved:
 1. Stop the tunnel.
 2. Stop the live proxy.
 3. In Orchestrate, disable or delete the demo agents (`cuttlely_orders`, `larkfield_router`) and the connection that held the demo key.
-4. In Cuttlely you can leave the Larkfield Home orders flow, or delete the bound key so the route refuses (`403` `keyless_flow`).
+4. In Cuttlely you can leave the Larkfield Home orders flow, or revoke its access key to stop new authenticated calls. Do not make the flow public as a cleanup step.
 
 ## Next steps
 

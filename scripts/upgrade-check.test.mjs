@@ -186,3 +186,38 @@ test('a seeded pipeline stays Live until Publish, and a run keeps reading it', (
     assert.match(edited.join('\n'), /did not keep reading the Live pipeline/)
     assert.match(edited.join('\n'), /did not read the published draft/)
 })
+
+test('a disposable boot binds its own gateway even when the inherited gateway port is occupied', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const net = await import('node:net')
+    const { startServer } = await import('./upgrade-check.mjs')
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fixture-gateway-'))
+    const occupied = net.createServer()
+    await new Promise((resolve, reject) => {
+        occupied.once('error', reject)
+        occupied.listen(0, '127.0.0.1', resolve)
+    })
+    let server
+    try {
+        const bin = path.join(root, 'packages', 'server', 'bin')
+        fs.mkdirSync(bin, { recursive: true })
+        // The child really binds the selected port. Without fixture isolation it exits EADDRINUSE.
+        fs.writeFileSync(
+            path.join(bin, 'run'),
+            `const net=require('node:net');const s=net.createServer();s.listen(Number(process.env.CUTTLELY_HARNESS_GATEWAY_PORT),'127.0.0.1',()=>console.log('fixture gateway ready'));`
+        )
+        server = await startServer(root, { PATH: process.env.PATH, CUTTLELY_HARNESS_GATEWAY_PORT: String(occupied.address().port) })
+        const deadline = Date.now() + 5000
+        while (!server.logs.join('').includes('fixture gateway ready') && server.child.exitCode === null && Date.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.equal(server.child.exitCode, null, server.logs.join(''))
+        assert.match(server.logs.join(''), /fixture gateway ready/)
+        assert.equal(occupied.listening, true)
+    } finally {
+        if (server) await server.stop()
+        await new Promise((resolve) => occupied.close(resolve))
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})

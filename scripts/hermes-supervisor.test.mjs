@@ -119,7 +119,7 @@ start_hermes_once() {
         const n = Number(fs.readFileSync(process.env.COUNT_FILE, "utf8") || "0") + 1
         fs.writeFileSync(process.env.COUNT_FILE, String(n))
         if (n > 1) process.exit(75)
-        const started = Date.now()
+        const started = Number(process.hrtime.bigint() / 1000000n)
         const timer = setInterval(() => {
             let body = {}
             try { body = JSON.parse(fs.readFileSync(process.env.STATUS_FILE, "utf8")) } catch {}
@@ -127,7 +127,7 @@ start_hermes_once() {
                 clearInterval(timer)
                 setTimeout(() => process.exit(75), 200)
             }
-            if (Date.now() - started > 8000) process.exit(9)
+            if (Number(process.hrtime.bigint() / 1000000n) - started > 8000) process.exit(9)
         }, 40)
     ' &
     HERMES_PID=$!
@@ -248,7 +248,7 @@ supervise_hermes
         const port = server.address().port
         const opener = setTimeout(() => {
             open = true
-            fs.writeFileSync(ready, String(Date.now()))
+            fs.writeFileSync(ready, String(Number(process.hrtime.bigint() / 1000000n)))
         }, 700)
         const script = `
 set -euo pipefail
@@ -258,7 +258,7 @@ NODE_BIN=${JSON.stringify(process.execPath)}
 ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
-"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Date.now()))' ${JSON.stringify(mark)}
+"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Number(process.hrtime.bigint() / 1000000n)))' ${JSON.stringify(mark)}
 `
         try {
             const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -303,7 +303,7 @@ wait_for_gateway
             // Past CUTTLELY_GATEWAY_WAIT_SECONDS=2: only the longer wait for a compiling gateway reaches it.
             const opener = setTimeout(() => {
                 open = true
-                fs.writeFileSync(ready, String(Date.now()))
+                fs.writeFileSync(ready, String(Number(process.hrtime.bigint() / 1000000n)))
             }, 3500)
             const script = `
 set -euo pipefail
@@ -314,7 +314,7 @@ NODE_BIN=${JSON.stringify(process.execPath)}
 ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
-"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Date.now()))' ${JSON.stringify(mark)}
+"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Number(process.hrtime.bigint() / 1000000n)))' ${JSON.stringify(mark)}
 `
             try {
                 const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -358,6 +358,8 @@ wait_for_gateway
         const script = `
 set -euo pipefail
 export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
+# Freeze the wall-clock command: the real wait must still honor its monotonic cap.
+date() { printf '0\\n'; }
 export CUTTLELY_GATEWAY_WAIT_SECONDS=1
 export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=2
 NODE_BIN=${JSON.stringify(process.execPath)}
@@ -365,7 +367,7 @@ ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
 `
-        const started = Date.now()
+        const started = Number(process.hrtime.bigint() / 1000000n)
         try {
             const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
             let output = ''
@@ -383,7 +385,7 @@ wait_for_gateway
             })
             assert.notEqual(code, 0, output)
             assert.match(output, /still compiling agent profiles after \d+s \(cap 2s\)/)
-            assert.ok(Date.now() - started < 8000, output)
+            assert.ok(Number(process.hrtime.bigint() / 1000000n) - started < 8000, output)
         } finally {
             server.closeAllConnections?.()
             await new Promise((resolve) => server.close(resolve))
@@ -411,7 +413,7 @@ ${gatewayAnswers}
 ${waitForGateway}
 wait_for_gateway
 `
-        const started = Date.now()
+        const started = Number(process.hrtime.bigint() / 1000000n)
         try {
             const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
             let output = ''
@@ -427,7 +429,7 @@ wait_for_gateway
                     resolve(status)
                 })
             })
-            const elapsed = Date.now() - started
+            const elapsed = Number(process.hrtime.bigint() / 1000000n) - started
             assert.notEqual(code, 0, output)
             assert.match(output, /still compiling agent profiles after \d+s \(cap 2s\)/)
             assert.ok(elapsed < 8000, `${elapsed}\n${output}`)
@@ -497,7 +499,7 @@ wait_for_gateway
 
     it('an exit during the warm-up grace restarts right away', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-exit-grace-'))
-        const started = Date.now()
+        const started = Number(process.hrtime.bigint() / 1000000n)
         const child = spawnSupervisor(dir, {
             CUTTLELY_HERMES_MAX_RESTARTS: '1',
             CUTTLELY_HERMES_HEALTH_GRACE: '60',
@@ -506,7 +508,7 @@ wait_for_gateway
         })
         try {
             const code = await child.exited
-            const elapsed = Date.now() - started
+            const elapsed = Number(process.hrtime.bigint() / 1000000n) - started
             assert.equal(code, 0, child.output)
             assert.match(child.output, /Restart 1 of 1/)
             assert.match(child.output, /exited with status 75/)
@@ -655,8 +657,8 @@ async function stopSupervisor(state, dir) {
 }
 
 async function waitForStatus(dir, ready, state, timeoutMs) {
-    const started = Date.now()
-    while (Date.now() - started < timeoutMs) {
+    const started = Number(process.hrtime.bigint() / 1000000n)
+    while (Number(process.hrtime.bigint() / 1000000n) - started < timeoutMs) {
         const status = readHermesStatus(dir)
         if (ready(status)) return status
         await delay(100)

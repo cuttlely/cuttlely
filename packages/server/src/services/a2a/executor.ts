@@ -1,3 +1,4 @@
+import { accessContext } from '../accessKeys/authorization'
 import { randomUUID } from 'crypto'
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
@@ -211,11 +212,11 @@ export async function executeMessage(opts: {
     if (utf8Bytes(parsed.question) > textLimit) {
         throw new A2aRpcError(A2A_RPC_CODES.invalidParams, `Question exceeds the ${textLimit}-byte store limit`)
     }
-    const caller = a2aCallerKey(opts.chatflow)
+    const caller = a2aCallerKey(opts.chatflow, accessContext(opts.req)?.key.id)
     const { contextId, ctxSrc } = resolveContext({ flow: opts.chatflow, caller, parsed })
     opts.log.ctxSrc = ctxSrc
     opts.log.context = threadLogHash(contextId)
-    const boundIds = threadChatId(opts.chatflow, contextId)
+    const boundIds = threadChatId(opts.chatflow, contextId, accessContext(opts.req)?.key.id)
     const history = historyFor(opts.chatflow, caller, contextId)
     const row = a2aTaskStore.create({
         flowId: opts.chatflow.id,

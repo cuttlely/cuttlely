@@ -1,3 +1,4 @@
+import { accessKeyPreflight } from './services/accessKeys/preflight'
 import { startDashflowScheduler } from './services/dashflows'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
@@ -211,6 +212,9 @@ export class App {
     async config() {
         // Limit is needed to allow sending/receiving base64 encoded string
         const flowise_file_size_limit = fileSizeLimit(process.env)
+
+        this.app.set('trust proxy', resolveTrustProxy(process.env.TRUST_PROXY))
+        this.app.use(accessKeyPreflight)
 
         // Preserve raw bytes before JSON parsing for webhook HMAC signature verification
         const captureRawBody = (req: Request, _res: Response, buf: Buffer) => {

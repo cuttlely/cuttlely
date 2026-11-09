@@ -1,15 +1,16 @@
 import { NextFunction, Request, Response } from 'express'
+import { accessContext, checkAccessKeyRoutePermissions, completeAccessKeyAdmission } from '../../services/accessKeys/authorization'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
-import chatflowsService from '../../services/chatflows'
+import chatflowsService, { validateReferencedHarnesses } from '../../services/chatflows'
 import { actorFromUser } from '../../services/flow-versions/author'
 import flowVersionsService from '../../services/flow-versions'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import { assertHarnessDraftLimits } from '../../services/flow-drafts/harnessLimits'
 import { GithubError } from '../../services/flow-versions/github'
 import { hasAnyPermission } from '../../identity/rbac'
-import { harnessCallerFor } from '../../services/harnesses/apiAccess'
+import { harnessCallerFor, assertCallerMayUseHarnesses, canvasHarnessNames } from '../../services/harnesses/apiAccess'
 import { missingCredentialsMessage } from './message'
 
 export { missingCredentialsMessage }
@@ -119,6 +120,8 @@ async function versionFor(req: Request, flow: ChatFlow, sha: string) {
     if (!allowed) {
         throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to change this type of flow.')
     }
+    await checkAccessKeyRoutePermissions(req, [updatePermissionFor(flow.type)])
+    if (version.type) await checkAccessKeyRoutePermissions(req, [updatePermissionFor(version.type)])
     return version
 }
 
@@ -168,6 +171,12 @@ export async function putVersionLive(req: Request, flow: ChatFlow, sha: string, 
 
     const unchanged = await matchesLive(flow, sha, version)
     await assertRestorable(flow, version, record.kind, async () => unchanged)
+    if (accessContext(req)?.routeAdmission) {
+        const caller = await harnessCallerFor(req)
+        assertCallerMayUseHarnesses(caller, canvasHarnessNames({ ...version }, flow))
+        await validateReferencedHarnesses({ ...flow, flowData: version.flowData }, caller)
+    }
+    await completeAccessKeyAdmission(req)
     if (unchanged) {
         return {
             chatflow: null,
@@ -252,6 +261,12 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
             )
         }
         await assertRestorable(flow, version, 'restoreDraft', () => matchesLive(flow, sha, version))
+        if (accessContext(req)?.routeAdmission) {
+            const caller = await harnessCallerFor(req)
+            assertCallerMayUseHarnesses(caller, canvasHarnessNames({ ...version }, flow))
+            await validateReferencedHarnesses({ ...flow, flowData: version.flowData }, caller)
+        }
+        await completeAccessKeyAdmission(req)
         const status = redactDraftStatus(
             await flowDraftsService.saveDraft(flow, version.flowData, {
                 userId: req.user?.id || null,

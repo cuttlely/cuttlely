@@ -26,7 +26,7 @@ class DashFlowError extends Error {
 }
 jest.mock('../harnesses', () => ({
     __esModule: true,
-    default: { getHarness: jest.fn(async () => ({ name: 'synthetic-contract', workspaceId: 'team-a' })) },
+    default: { getHarness: jest.fn(async () => ({ name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'harness-canvas-1' })) },
     contextFor: jest.fn(async () => ({ flowOptions: { workspaceId: 'team-a' } })),
     loadHarness: async (name: string) =>
         name === 'dashflows.mjs'
@@ -64,7 +64,7 @@ it('routes a refresh through the exact harness specialist binding and preserves 
         queryName('test'),
         { month: '2026-10-01' },
         {
-            harness: { name: 'synthetic-contract', workspaceId: 'team-a' },
+            harness: { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'harness-canvas-1' },
             bindingIndex: 2,
             flowOptions: { workspaceId: 'team-a' },
             assertCall: expect.any(Function)
@@ -171,4 +171,50 @@ it('passes the interrupted generation boundary to validated cache recovery', asy
         mod: { materializeCached: materialize, DashFlowError }
     })
     expect((materialize.mock.calls[0] as unknown[])[6]).toBe(resumed.resumeSince)
+})
+
+it('never executes a newer dashboard definition than the one admitted by an access key', async () => {
+    // The guard checked revision 1; an editor saved a new Harness before the service claimed revision 2.
+    store.claim.mockReturnValueOnce({ ...claim, revision: 2, definition: { harness: 'ungranted' } })
+    await expect(startDashboardRefresh('dashboard', 'team-a', false, 1)).rejects.toMatchObject({ statusCode: 409 })
+    expect(execute).not.toHaveBeenCalled()
+    expect(materialize).not.toHaveBeenCalled()
+    expect(track).not.toHaveBeenCalled()
+    expect(store.cancel).toHaveBeenCalledWith('dashboard', 'team-a', 'lease')
+})
+
+it('never executes a same-name Harness canvas that differs from the one admitted by an access key', async () => {
+    const harnesses = jest.requireMock('../harnesses').default
+    harnesses.getHarness.mockResolvedValueOnce({
+        name: 'synthetic-contract',
+        workspaceId: 'team-a',
+        chatflowId: 'replacement-canvas'
+    })
+    await expect(startDashboardRefresh('dashboard', 'team-a', false, 1, 'harness-canvas-1')).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringContaining('Harness changed')
+    })
+    expect(execute).not.toHaveBeenCalled()
+    expect(materialize).not.toHaveBeenCalled()
+    expect(track).not.toHaveBeenCalled()
+    expect(store.cancel).toHaveBeenCalledWith('dashboard', 'team-a', 'lease')
+})
+
+it('materializes the pinned Harness canvas even if the name remaps before refresh runs', async () => {
+    const harnesses = jest.requireMock('../harnesses').default
+    const pinned = { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'harness-canvas-1' }
+    const replacement = { name: 'synthetic-contract', workspaceId: 'team-a', chatflowId: 'replacement-canvas' }
+    // First call: startDashboardRefresh pin check. Later calls would see the replacement if consulted.
+    harnesses.getHarness.mockResolvedValueOnce(pinned).mockResolvedValue(replacement)
+    await expect(startDashboardRefresh('dashboard', 'team-a', false, 1, 'harness-canvas-1')).resolves.toEqual({
+        id: 'dashboard',
+        refreshing: true
+    })
+    expect(track).toHaveBeenCalledTimes(1)
+    await track.mock.results[0].value
+    expect(materialize).toHaveBeenCalled()
+    expect(materialize.mock.calls[0][1]).toEqual(pinned)
+    expect(execute).toHaveBeenCalled()
+    // Pin check consulted getHarness once; refresh must not re-resolve the remapped name.
+    expect(harnesses.getHarness).toHaveBeenCalledTimes(1)
 })

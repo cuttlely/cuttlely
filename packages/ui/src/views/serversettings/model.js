@@ -174,6 +174,10 @@ export function limitedByLabel(setting) {
 export function reviewApplyNote(rows) {
     const list = rows ?? []
     const runtime = list.filter((row) => row.runtime).length
+    if (list.some((row) => row.key === 'INBOUND_ACCESS_V2'))
+        return runtime === list.length
+            ? 'These settings apply on the next request. No restart is needed.'
+            : 'Access-key enforcement applies on the next request. Other startup settings apply at restart.'
     if (list.length && runtime === list.length) return 'These limits apply on the next use.'
     if (runtime) return 'Limits apply now. The rest apply at restart.'
     return 'Saving keeps them for the next start. The server keeps running with its current settings until it restarts.'

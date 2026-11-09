@@ -125,7 +125,11 @@ identityOrgUserRouter.put(
 identityOrgUserRouter.delete(
     '/',
     requireAnyPermission('users:manage,workspace:unlink-user'),
-    send((req) => deleteOrganizationUser(sql(), actorFrom(req), one(req.query.organizationId), one(req.query.userId)))
+    send((req) =>
+        deleteOrganizationUser(sql(), actorFrom(req), one(req.query.organizationId), one(req.query.userId), {
+            invitationOnly: one(req.query.invitationOnly) === 'true'
+        })
+    )
 )
 identityOrgUserRouter.use(notFound)
 

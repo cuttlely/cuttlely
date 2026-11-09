@@ -48,7 +48,8 @@ const textContent = (content: unknown): string | undefined => {
 export function mapOrchestrateRequest(
     raw: unknown,
     flow: { id: string; apikeyid?: string | null; flowData?: string | null },
-    threadId?: string
+    threadId?: string,
+    principalId?: string
 ): MappedOrchestrateRequest {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new ExternalAgentError(StatusCodes.BAD_REQUEST, 'messages_invalid', 'invalid_request_error', 'messages is required')
@@ -109,7 +110,7 @@ export function mapOrchestrateRequest(
     const runBody: OrchestrateRunBody = { question, streaming: stream }
     if (history.length) runBody.history = history
     if (threadId) {
-        const bound = threadChatId(flow, threadId)
+        const bound = threadChatId(flow, threadId, principalId)
         runBody.chatId = bound.chatId
         runBody.sessionToken = bound.sessionToken
     }

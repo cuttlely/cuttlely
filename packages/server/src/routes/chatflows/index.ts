@@ -1,3 +1,5 @@
+import { admitAccessKey } from '../../services/accessKeys/authorization'
+import { scopedFlowMetadataUpdate } from '../../services/accessKeys/managementBoundary'
 import express from 'express'
 import apikeyController from '../../controllers/apikey'
 import chatflowsController from '../../controllers/chatflows'
@@ -28,6 +30,7 @@ router.get(
     ['/', '/:id'],
     requireAnyPermission('chatflows:view,chatflows:update,chatflows:delete,agentflows:view,agentflows:update,agentflows:delete'),
     requireHarnessCanvasAccess({ body: false }),
+    admitAccessKey,
     chatflowsController.getChatflowById
 )
 
@@ -35,7 +38,9 @@ router.get(
 router.put(
     ['/', '/:id'],
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
+    scopedFlowMetadataUpdate,
     requireHarnessCanvasAccess(),
+    admitAccessKey,
     chatflowsController.updateChatflow
 )
 
@@ -44,6 +49,7 @@ router.delete(
     ['/', '/:id'],
     requireAnyPermission('chatflows:delete,agentflows:delete,assistants:delete'),
     requireHarnessCanvasAccess({ body: false }),
+    admitAccessKey,
     chatflowsController.deleteChatflow
 )
 
@@ -67,6 +73,7 @@ router.get(
     '/has-changed/:id/:lastUpdatedDateTime',
     requireAnyPermission('chatflows:update,agentflows:update'),
     requireHarnessCanvasAccess({ body: false }),
+    admitAccessKey,
     chatflowsController.checkIfChatflowHasChanged
 )
 

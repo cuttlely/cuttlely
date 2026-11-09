@@ -85,6 +85,7 @@ export function fileValuesToApply(
     for (const [key, value] of Object.entries(file)) {
         const setting = settingFor(key)
         // Invite and mail settings are read on each use. Copying them onto the process would hide the host value.
+        if (key === 'INBOUND_ACCESS_V2') continue // Runtime rollout must never look host-set after a restart.
         if (!setting || setting.panelFirst || setting.envOnly || hostKeys.has(key) || isBlank(value)) continue
         // A host-set partner of this alias wins, the same way a host-set key wins.
         if (partnerIsSet(env, key, defaults)) continue

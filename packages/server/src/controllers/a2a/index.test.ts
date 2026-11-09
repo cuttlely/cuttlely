@@ -1,3 +1,5 @@
+import { accessKeyPreflight } from '../../services/accessKeys/preflight'
+import { parsePolicy } from '../../services/accessKeys/policy'
 /**
  * HTTP contract for GET /api/v1/a2a/:id/.well-known/agent-card.json and POST /api/v1/a2a/:id.
  * buildChatflow is mocked at the service boundary.
@@ -24,7 +26,10 @@ jest.mock('../../utils/logger', () => ({ __esModule: true, default: mockLogger }
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('../../utils/accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>() }
@@ -128,6 +133,7 @@ const expectSchema = (fn: ValidateFunction | undefined, data: unknown) => {
 
 function makeApp() {
     const app = express()
+    app.use(accessKeyPreflight)
     app.set('trust proxy', 1)
     app.use('/api/v1/a2a', a2aContentTypeGuard)
     app.use('/api/v1/a2a', a2aJsonParser)
@@ -533,6 +539,22 @@ describe('A2A context isolation and continuity', () => {
         expect(mockBuildChatflow.mock.calls[1][0].body.chatId).not.toBe(bound.chatId)
     })
 
+    it('isolates two principals on the same flow, thread, task reads and task cancellation', async () => {
+        const second = mockApiKeys.get('apikey-k2') as any
+        second.permissions = ['chatflows:view']
+        second.accessPolicy = parsePolicy({ scopes: ['predict', 'stream'], rpm: 0 })
+        mockDb.chatflows.get(K).fixtureGrantIds = ['apikey-k2']
+        const first = await post(K, sendBody('Hi', { contextId: 'shared-thread' }), withKey())
+        const other = await post(K, sendBody('Hi', { contextId: 'shared-thread' }), { Authorization: `Bearer ${KEY_K2}` })
+        expect(first.status).toBe(200)
+        expect(other.status).toBe(200)
+        expect(mockBuildChatflow.mock.calls[0][0].body.chatId).not.toBe(mockBuildChatflow.mock.calls[1][0].body.chatId)
+        for (const method of ['tasks/get', 'tasks/cancel']) {
+            const response = await post(K, rpc(method, { id: first.body.result.id }), { Authorization: `Bearer ${KEY_K2}` })
+            expectRpcError(response, A2A_RPC_CODES.taskNotFound)
+        }
+    })
+
     it('reuses context from taskId and referenceTaskIds, and refuses empty or overlong contextId', async () => {
         const created = await post(K, sendBody('Hi', { contextId: 'kept-context' }), withKey())
         const taskId = created.body.result.id
@@ -897,8 +919,8 @@ describe('A2A auth matrix', () => {
 
     it('keyless flow is 403 except header syntax, even with a key', async () => {
         expectIbmError(await post(F, sendBody('Hi')), 403, 'keyless_flow')
-        expectIbmError(await post(F, sendBody('Hi'), withKey()), 403, 'keyless_flow')
-        expectIbmError(await getCard(F, withKey()), 403, 'keyless_flow')
+        expectIbmError(await post(F, sendBody('Hi'), withKey()), 403, 'access_denied')
+        expectIbmError(await getCard(F, withKey()), 403, 'access_denied')
         expectIbmError(await post(F, sendBody('Hi'), { Authorization: KEY_K }), 401, 'unauthorized')
         expectIbmError(
             await post(F, sendBody('Hi'), { Authorization: `Bearer ${KEY_K}`, 'X-API-Key': 'other' }),
@@ -925,10 +947,10 @@ describe('A2A auth matrix', () => {
             403,
             'origin_not_allowed'
         )
-        ;(apikeyService.getApiKeyById as jest.Mock).mockImplementationOnce(async () => {
+        ;(apikeyService.getApiKey as jest.Mock).mockImplementationOnce(async () => {
             throw new Error('lookup failed')
         })
-        expectIbmError(await post(K, sendBody('Hi'), withKey()), 401, 'unauthorized')
+        expectIbmError(await post(K, sendBody('Hi'), withKey()), 503, 'unavailable')
         const ok = await post(K, sendBody('Hi'), withKey())
         expect(ok.headers['set-cookie']).toBeUndefined()
         const card = await getCard(K, withKey())
@@ -1062,4 +1084,49 @@ describe('A2A SDK client and leak scan', () => {
         expect(dumped).not.toContain(QUESTION)
         expect(dumped).not.toContain(RAW_ERROR)
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../../services/accessKeys/data', () => ({
+    accessData: async () => require('../../utils/accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../../services/accessKeys/limiter', () => ({
+    ...jest.requireActual('../../services/accessKeys/limiter'),
+    consume: jest.fn(async () => undefined)
+}))
+jest.mock('../../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
+})
+
+it.each(['inactive', 'caller policy'])('a2a preflight preserves the adapter error envelope for %s credentials', async (failure) => {
+    const token = 'ctu_live_0123456789abcdef_' + 'a'.repeat(43)
+    if (failure === 'caller policy')
+        mockApiKeys.set('preflight-key', {
+            id: 'preflight-key',
+            workspaceId: WS,
+            apiSecret: generateSecretHash(token),
+            permissions: ['chatflows:view'],
+            accessPolicy: parsePolicy({ scopes: ['predict'], origins: ['https://allowed.example'], allowNoOrigin: false })
+        } as any)
+    try {
+        const response = await request(app)
+            .post('/api/v1/a2a/' + K)
+            .set('Authorization', 'Bearer ' + token)
+            .set('Content-Type', 'application/json')
+            .send('{invalid')
+        expect(response.status).toBe(failure === 'inactive' ? 401 : 403)
+        expect(response.body).toEqual({
+            error: {
+                message: failure === 'inactive' ? 'Unauthorized' : 'Caller policy refused this request.',
+                type: failure === 'inactive' ? 'authentication_error' : 'permission_error',
+                code: failure === 'inactive' ? 'unauthorized' : 'access_denied'
+            }
+        })
+        expect(response.headers['content-type']).not.toContain('text/event-stream')
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
+    } finally {
+        mockApiKeys.delete('preflight-key')
+    }
 })

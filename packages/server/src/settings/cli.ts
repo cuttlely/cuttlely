@@ -2,6 +2,7 @@
 // The way back in when a saved setting keeps the server from starting or locks you out.
 // A runtime limit applies on the next use. Every other change applies at the next start.
 // Secret values are never printed.
+import { ACCESS_ROLLOUT_KEY, preserveRollout, rolloutState } from './accessRollout'
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
@@ -11,7 +12,7 @@ import { SETTINGS, settingFor } from './registry'
 import { hostSetKeys, isBlank, resolveSettings } from './resolve'
 import { flagSnapshot, runtimeSnapshot } from './runtime'
 import { ROLLED_BACK_FILE } from './safeboot'
-import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, settingsDir, writeFileAtomic } from './store'
+import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, readStoredValues, settingsDir, writeFileAtomic } from './store'
 
 type Env = Record<string, string | undefined>
 
@@ -24,6 +25,7 @@ const BY = 'command line'
 const NEXT_START = 'It applies the next time Cuttlely starts.'
 
 function appliesLater(name: string): string {
+    if (name === ACCESS_ROLLOUT_KEY) return 'It applies on the next request.'
     if (settingFor(name)?.runtime) return 'It applies the next time that limit is used.'
     return NEXT_START
 }
@@ -53,7 +55,11 @@ function listSettings(env: Env, all: boolean): CliResult {
         const savedFirst = account.get(row.key)
         let value = row.value
         let source: string
-        if (setting?.envOnly) {
+        if (row.key === ACCESS_ROLLOUT_KEY) {
+            const rollout = rolloutState(env, read.values)
+            value = rollout.value
+            source = rollout.source
+        } else if (setting?.envOnly) {
             const set = !isBlank(env[row.key])
             value = set ? '(set, hidden)' : '(not set)'
             source = set ? 'host' : 'default'
@@ -86,9 +92,11 @@ function unsetSetting(env: Env, name: string | undefined): CliResult {
     try {
         return withSettingsLockSync(dir, () => {
             const file = path.join(dir, SETTINGS_FILE)
+            let original: string
             let parsed: { values?: Record<string, unknown> }
             try {
-                parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+                original = fs.readFileSync(file, 'utf8')
+                parsed = JSON.parse(original)
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === 'ENOENT')
                     return { code: 0, lines: [`There is no settings file, so ${name} is not saved there.`] }
@@ -113,8 +121,13 @@ function unsetSetting(env: Env, name: string | undefined): CliResult {
             )
             const after = { ...before }
             delete after[name]
-            const changes = settingFor(name) ? describeChanges(before, after) : []
-            appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
+            const changes = settingFor(name) ? describeChanges(before, after, env) : []
+            try {
+                appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
+            } catch (error) {
+                writeFileAtomic(dir, SETTINGS_FILE, original)
+                throw error
+            }
             return { code: 0, lines: [`Removed ${name} from the settings file. ${appliesLater(name)}`] }
         })
     } catch (error) {
@@ -137,14 +150,21 @@ function restoreLastGood(env: Env): CliResult {
         const lastGood = fs.readFileSync(lastGoodPath, 'utf8')
         if (lastGood === current)
             return { code: 0, lines: ['The settings file already matches the last settings that started. Nothing changed.'] }
-        writeFileAtomic(dir, SETTINGS_FILE, lastGood)
+        writeFileAtomic(dir, SETTINGS_FILE, preserveRollout(lastGood, readStoredValues(dir)) ?? lastGood)
         line = `Restored the last settings that started. ${NEXT_START}`
     } else {
-        fs.rmSync(file, { force: true })
+        const restored = preserveRollout(null, readStoredValues(dir))
+        if (restored === null) fs.rmSync(file, { force: true })
+        else writeFileAtomic(dir, SETTINGS_FILE, restored)
         line = `No settings have started successfully yet, so the settings file was set aside. ${NEXT_START}`
     }
     const after = fs.existsSync(file) ? readSettingsFile(dir, key).values : {}
-    appendHistory(dir, { kind: 'restore', by: BY, changes: describeChanges(before, after), outcome: 'ok' })
+    try {
+        appendHistory(dir, { kind: 'restore', by: BY, changes: describeChanges(before, after, env), outcome: 'ok' })
+    } catch (error) {
+        writeFileAtomic(dir, SETTINGS_FILE, current)
+        throw error
+    }
     return { code: 0, lines: [line, `The previous file is kept as ${path.join(dir, ROLLED_BACK_FILE)}.`] }
 }
 

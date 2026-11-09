@@ -13,11 +13,13 @@ const ReviewDialog = ({ open, rows, sections, saving, onClose, onSave }) => {
     const theme = useTheme()
     const sectionLabel = (id) => sections.find((section) => section.id === id)?.label ?? id
     const typed = needsTypedConfirm(rows)
+    const rollout = rows.some((row) => row.key === 'INBOUND_ACCESS_V2')
+    const confirmWord = rollout && rows.every((row) => row.runtime) ? 'APPLY' : CONFIRM_WORD
     const [word, setWord] = useState('')
     useEffect(() => {
         if (open) setWord('')
     }, [open])
-    const confirmed = !typed || word.trim() === CONFIRM_WORD
+    const confirmed = !typed || word.trim() === confirmWord
     return (
         <Dialog
             open={open}
@@ -90,15 +92,26 @@ const ReviewDialog = ({ open, rows, sections, saving, onClose, onSave }) => {
                         </Box>
                     ))}
                 </Stack>
+                {rollout && (
+                    <Alert severity='warning' sx={{ mt: 2, borderRadius: 2.5 }} data-testid='rollout-confirmation'>
+                        This changes access-key enforcement for every workspace on this service on the next request. Existing keys migrate
+                        with compatibility and keep their bearer values. Under On, private custom ASSISTANT key integrations return 401;
+                        unmatched Harness names lose access; RPM, quotas, origin and IP restrictions apply. Only one API instance is
+                        supported (CUTTLELY_API_KEY_INSTANCES=1). Check migration diagnostics and Shadow decisions first. You can disable
+                        enforcement by returning to Off; scoped keys are then refused. The host environment is unchanged.
+                    </Alert>
+                )}
                 {typed && (
                     <Stack gap={1.5} sx={{ mt: 2.5 }}>
-                        <Alert severity='warning' sx={{ borderRadius: 2.5 }}>
-                            A high-risk change can stop Cuttlely from starting or keep people from signing in. If the next start fails
-                            twice, safe boot puts back the last settings that worked.
-                        </Alert>
+                        {(!rollout || rows.some((row) => !row.runtime)) && (
+                            <Alert severity='warning' sx={{ borderRadius: 2.5 }}>
+                                A high-risk change can stop Cuttlely from starting or keep people from signing in. If the next start fails
+                                twice, safe boot puts back the last settings that worked.
+                            </Alert>
+                        )}
                         <TextField
                             size='small'
-                            label={`Type ${CONFIRM_WORD} to save`}
+                            label={`Type ${confirmWord} to save`}
                             value={word}
                             onChange={(event) => setWord(event.target.value)}
                             inputProps={{ 'data-testid': 'review-confirm', spellCheck: false, autoComplete: 'off' }}

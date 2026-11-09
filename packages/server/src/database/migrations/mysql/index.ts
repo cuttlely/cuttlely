@@ -1,3 +1,4 @@
+import { AccessKeys1801300000000 } from './1801300000000-AccessKeys'
 import { Init1693840429259 } from './1693840429259-Init'
 import { ModifyChatFlow1693997791471 } from './1693997791471-ModifyChatFlow'
 import { ModifyChatMessage1693999022236 } from './1693999022236-ModifyChatMessage'
@@ -178,5 +179,6 @@ export const mysqlMigrations = [
     AddSessionConvergence1801100000000,
     AddWorkosSessionId1801150000000,
     AddScimProvisioning1801200000000,
-    AddScimGroups1801200000001
+    AddScimGroups1801200000001,
+    AccessKeys1801300000000
 ]

@@ -578,6 +578,22 @@ async function openSqlite() {
     }
 }
 
+async function waitForEvaluationSave(dataSource, id) {
+    // SQLite shares one connection: completed is visible before save() commits its transaction.
+    // Closing at that point races the background writer's COMMIT and causes a late rejection.
+    const runner = dataSource.createQueryRunner()
+    const started = Date.now()
+    while (Date.now() - started < 5000) {
+        const evaluation = await dataSource.getRepository(Evaluation).findOneByOrFail({ id })
+        if (evaluation.status !== 'pending' && !runner.isTransactionActive) {
+            assert.equal(evaluation.status, 'completed', JSON.stringify(evaluation))
+            return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    assert.fail('Evaluation save did not complete and commit before fixture teardown')
+}
+
 async function roundTrip(dataSource) {
     appHandle.AppDataSource = dataSource
     asOwner()
@@ -924,12 +940,8 @@ describe('evaluation routes', () => {
             assert.equal(hits.length, 1)
             assert.equal(hits[0].url, '/api/v1/prediction/flow-local')
             assert.equal(hits[0].body.question, 'Where is order 1001?')
-            const settled = Date.now()
-            while (Date.now() - settled < 5000) {
-                const pending = await dataSource.getRepository(Evaluation).count({ where: { status: 'pending' } })
-                if (pending === 0) break
-                await new Promise((resolve) => setTimeout(resolve, 20))
-            }
+            const saved = await dataSource.getRepository(Evaluation).findOneByOrFail({ name: 'Local run' })
+            await waitForEvaluationSave(dataSource, saved.id)
         } finally {
             componentsStub.EvaluationRunner = Previous
             if (previousApp === undefined) delete process.env.APP_URL
@@ -1095,13 +1107,7 @@ describe('evaluation routes', () => {
             const saved = await dataSource.getRepository(Evaluation).findOneBy({ name: 'Raw list' })
             assert.equal(typeof saved.chatflowId, 'string')
             assert.equal(saved.chatflowId, JSON.stringify([chat.id]))
-            const started = Date.now()
-            let status = saved.status
-            while (status === 'pending' && Date.now() - started < 5000) {
-                await new Promise((resolve) => setTimeout(resolve, 20))
-                status = (await dataSource.getRepository(Evaluation).findOneBy({ id: saved.id })).status
-            }
-            assert.equal(status, 'completed', JSON.stringify(await dataSource.getRepository(Evaluation).findOneBy({ id: saved.id })))
+            await waitForEvaluationSave(dataSource, saved.id)
             assert.deepEqual(JSON.parse(saved.chatflowId), [chat.id])
         } finally {
             componentsStub.EvaluationRunner = Previous

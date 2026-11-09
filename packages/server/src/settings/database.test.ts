@@ -1,3 +1,5 @@
+jest.mock('../DataSource', () => ({ getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/fixture-operator.sqlite' } }) }))
+import { operatorDatabaseFingerprint } from '../identity/instanceOperator'
 import express, { Request } from 'express'
 import fs from 'fs'
 import os from 'os'
@@ -66,6 +68,7 @@ function app() {
     server.use(express.json())
     server.use((req, _res, next) => {
         ;(req as Request).user = OWNER as unknown as Express.User
+        ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         next()
     })
     server.use('/api/v1/server-settings', router)
@@ -93,6 +96,10 @@ beforeEach(() => {
     connectError = null
     restarts = 0
     pgPasswords = []
+    env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+        userId: 'owner-1',
+        database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/fixture-operator.sqlite' })
+    })
     setServerSettingsDeps(() => ({ env, state, key: async () => KEY }))
     setConnectionDrivers(drivers)
     setRestartHandler(async () => {
@@ -172,6 +179,16 @@ describe('switching', () => {
             running: { type: 'sqlite' },
             previous: { type: 'sqlite', label: 'SQLite, on this server' }
         })
+    })
+
+    it('restores settings and the previous-database snapshot if auditing fails', async () => {
+        const history = path.join(dir, 'history.jsonl')
+        fs.mkdirSync(history, { recursive: true })
+        const response = await post('switch', { values: POSTGRES, confirm: 'RESTART' })
+        expect(response.status).toBe(500)
+        expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+        expect(fs.existsSync(path.join(dir, PREVIOUS_DATABASE_FILE))).toBe(false)
+        expect(restarts).toBe(0)
     })
 
     it('changes nothing when the test fails', async () => {

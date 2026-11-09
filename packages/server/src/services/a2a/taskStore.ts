@@ -79,8 +79,12 @@ const flowBytes = new Map<string, number>()
 
 const keyOf = (flowId: string, caller: string, taskId: string) => `${flowId}|${caller}|${taskId}`
 
-export function a2aCallerKey(flow: { id: string; apikeyid?: string | null }): string {
-    return typeof flow.apikeyid === 'string' && flow.apikeyid ? `key:${flow.apikeyid}` : `public:${flow.id}`
+export function a2aCallerKey(flow: { id: string; apikeyid?: string | null }, principalId?: string): string {
+    return principalId
+        ? `key:${principalId}`
+        : typeof flow.apikeyid === 'string' && flow.apikeyid
+        ? `key:${flow.apikeyid}`
+        : `public:${flow.id}`
 }
 
 export function isoNow(at = Date.now()): string {

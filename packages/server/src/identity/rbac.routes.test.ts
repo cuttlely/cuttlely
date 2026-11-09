@@ -11,11 +11,30 @@
  */
 import express, { Request, Router } from 'express'
 import request from 'supertest'
+import { operatorDatabaseFingerprint } from './instanceOperator'
 import { builtInPermissionKeys } from './builtInRoles'
 import { setTeamPermissionLookup } from './rbac'
 import { TeamAccess } from './sqlStore'
 
+jest.mock('../DataSource', () => ({
+    getDataSource: () => ({ options: { type: 'sqlite', database: '/tmp/operator-route-fixture.sqlite' } })
+}))
+
 const hits = { n: 0 }
+
+jest.mock(
+    '../services/accessKeys/management',
+    () =>
+        new Proxy(
+            {},
+            {
+                get: () => (_req: Request, res: express.Response) => {
+                    hits.n += 1
+                    res.status(200).json({ ok: true })
+                }
+            }
+        )
+)
 
 jest.mock('../controllers/harnesses', () => ({
     __esModule: true,
@@ -322,6 +341,7 @@ function call(router: Router, user: object | null, probe: Probe) {
     app.use(express.json())
     app.use((req, _res, next) => {
         if (user) (req as Request).user = user as Express.User
+        ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = Boolean(user)
         next()
     })
     app.use(router)
@@ -329,6 +349,7 @@ function call(router: Router, user: object | null, probe: Probe) {
 }
 
 describe('switched route groups', () => {
+    const previousOperator = process.env.CUTTLELY_INSTANCE_OPERATOR
     // These flows are not harness canvases, so the per-key harness list does not decide anything here.
     beforeAll(() => {
         setHarnessFlowLookup(async () => null)
@@ -340,6 +361,7 @@ describe('switched route groups', () => {
     })
 
     beforeEach(() => {
+        delete process.env.CUTTLELY_INSTANCE_OPERATOR
         hits.n = 0
         lookups = 0
         memberships.clear()
@@ -351,7 +373,11 @@ describe('switched route groups', () => {
         })
     })
 
-    afterEach(() => setTeamPermissionLookup(null))
+    afterEach(() => {
+        setTeamPermissionLookup(null)
+        if (previousOperator === undefined) delete process.env.CUTTLELY_INSTANCE_OPERATOR
+        else process.env.CUTTLELY_INSTANCE_OPERATOR = previousOperator
+    })
 
     it.each(groups)('$name allows the active team role, refuses a missing one, and skips the handler', async (group) => {
         memberships.set(`user-1|team-a`, grant([group.allow.permission]))
@@ -475,21 +501,42 @@ describe('switched route groups', () => {
         ['post', '/incoming/flow-1/check'],
         ['get', '/incoming/flow-1/check/check-1'],
         ['delete', '/incoming/flow-1/check/check-1']
-    ] as [Method, string][])('flow-versions %s %s is for the owner only', async (method, path) => {
-        const everything = ['chatflows:view', 'chatflows:update', 'agentflows:update', 'users:manage', 'roles:manage', 'workspace:update']
-        memberships.set('user-1|team-a', grant(everything))
-        const admin = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: everything, isOrganizationAdmin: true }
-        expect((await call(flowVersionsRouter, admin, { method, path, permission: '' })).status).toBe(403)
-        const key = { permissions: everything, isOrganizationAdmin: true, activeWorkspaceId: 'team-a' }
-        expect((await call(flowVersionsRouter, key, { method, path, permission: '' })).status).toBe(403)
-        expect((await call(flowVersionsRouter, null, { method, path, permission: '' })).status).toBe(401)
-        expect(hits.n).toBe(0)
+    ] as [Method, string][])(
+        'flow-versions %s %s requires ownership and host configuration also requires the operator',
+        async (method, path) => {
+            const everything = [
+                'chatflows:view',
+                'chatflows:update',
+                'agentflows:update',
+                'users:manage',
+                'roles:manage',
+                'workspace:update'
+            ]
+            memberships.set('user-1|team-a', grant(everything))
+            const admin = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: everything, isOrganizationAdmin: true }
+            expect((await call(flowVersionsRouter, admin, { method, path, permission: '' })).status).toBe(403)
+            const key = { permissions: everything, isOrganizationAdmin: true, activeWorkspaceId: 'team-a' }
+            expect((await call(flowVersionsRouter, key, { method, path, permission: '' })).status).toBe(403)
+            expect((await call(flowVersionsRouter, null, { method, path, permission: '' })).status).toBe(401)
+            expect(hits.n).toBe(0)
 
-        memberships.set('owner|team-b', grant(null, true))
-        const owner = { id: 'owner', activeWorkspaceId: 'team-b', permissions: [], isOrganizationAdmin: false }
-        expect((await call(flowVersionsRouter, owner, { method, path, permission: '' })).status).toBe(200)
-        expect(hits.n).toBe(1)
-    })
+            memberships.set('owner|team-b', grant(null, true))
+            const owner = { id: 'owner', activeWorkspaceId: 'team-b', permissions: [], isOrganizationAdmin: false }
+            const hostConfiguration = path.startsWith('/github') || path === '/environment'
+            if (hostConfiguration) {
+                expect((await call(flowVersionsRouter, owner, { method, path, permission: '' })).status).toBe(403)
+                expect(hits.n).toBe(0)
+                process.env.CUTTLELY_INSTANCE_OPERATOR = JSON.stringify({
+                    userId: 'owner',
+                    database: operatorDatabaseFingerprint({ type: 'sqlite', database: '/tmp/operator-route-fixture.sqlite' })
+                })
+                memberships.set('other-owner|team-b', grant(null, true))
+                expect((await call(flowVersionsRouter, { ...owner, id: 'other-owner' }, { method, path, permission: '' })).status).toBe(403)
+            }
+            expect((await call(flowVersionsRouter, owner, { method, path, permission: '' })).status).toBe(200)
+            expect(hits.n).toBe(1)
+        }
+    )
 
     it.each(groups)('$name accepts the any-of permission string on its own', async (group) => {
         memberships.set('user-1|team-a', grant([group.anyOf.permission]))

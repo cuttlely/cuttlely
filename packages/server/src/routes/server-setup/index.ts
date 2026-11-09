@@ -2,6 +2,7 @@
 // the code from the link opens a short setup session, and the session only reaches Sign-in & identity. Everything
 // answers 410 once the link has been used, a sign-in method is on, or the first account exists.
 import express, { NextFunction, Request, Response } from 'express'
+import { requireInstanceOperator } from '../../identity/instanceOperator'
 import { localAdminEnabled } from '../../identity/constants'
 import { applySetupHeaders, cookieMutationAllowed } from '../../identity/sessionGuard'
 import {
@@ -34,6 +35,12 @@ import { endSetupSessions, openSetupSession } from '../../settings/setup-session
 import { currentAuthKitDeps, currentSettingsDeps } from '../server-settings'
 
 const router = express.Router()
+// A one-time setup code is not continuing instance authority. Configure sign-in on the host first.
+router.use((req, res, next) => {
+    // Account-only setup still works when sign-in was explicitly enabled by the host.
+    if ((req.path === '/hint' || req.path === '/begin') && localAdminEnabled(currentSettingsDeps().env)) return next()
+    return requireInstanceOperator()(req, res, next)
+})
 
 let usersFactory: () => SetupUsers = () => require('../../identity/production').identityStore()
 
@@ -128,7 +135,7 @@ router.post('/begin', async (req, res, next) => {
             }
             return rejectSetupCode(res, verdict)
         }
-        if (noSignInMethod(env)) {
+        if (!localAdminEnabled(env) && noSignInMethod(env)) {
             const hmac = setupCodeHmac(code)
             if (!hmac) return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
             openSetupSession(req, res, hmac)

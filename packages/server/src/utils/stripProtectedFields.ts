@@ -9,6 +9,7 @@ export const PROTECTED_FIELDS = [
     'runDate',
     'workspaceId',
     'organizationId',
+    'mcpServerConfig',
     'webhookSecret',
     'webhookSecretConfigured'
 ] as const

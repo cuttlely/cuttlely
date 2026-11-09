@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.6.1)
+# Cuttlely FAQ (1.7.0)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -20,7 +20,7 @@ Like "cuddly".
 
 A visual agent builder you run yourself, built around three things:
 
--   **Governance.** Every edit waits in a draft while Live keeps serving. Before you publish, replay recent real questions on Live and the draft, side by side. Gate Publish on a test set and roll Live back in one step. Roles, an audit log, and API keys that only run the teams you tick.
+-   **Governance.** Every edit waits in a draft while Live keeps serving. Before you publish, replay recent real questions on Live and the draft, side by side. Gate Publish on a test set and roll Live back in one step. Roles, an audit log, and access keys with explicit resource grants when [enforcement is enabled](docs/reference/access-keys.md).
 -   **Lean context.** Each specialist gets a self-contained task, not the whole chat, and the analyst sees only the tables you tick. Fewer tokens in our internal benchmarks, and every run shows what it used.
 -   **Build agent teams.** Describe a team and Build with AI puts a first version on the canvas, with every part and connection checked. Call it from your app with a scoped API key, or put it on a schedule.
 
@@ -38,10 +38,14 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.6.1?
+### What's new in 1.7.0?
+
+Scoped access keys and host-backed service administration. This security-exception release requires upgrade action: back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment. Only verified host CLI bindings grandfather; legacy installs without one claim in Server settings with a code from the hosting dashboard or Docker/Compose logs. Only the designated operator can change service-wide settings. Routine lifecycle is in the panel; the CLI is emergency recovery. Enforcement stays Off by default. Read the [upgrade warnings](./docs/upgrading.md) and [changelog](./CHANGELOG.md). To select 1.7.0, pin image `ghcr.io/cuttlely/cuttlely:1.7.0` or install `cuttlely@1.7.0`.
+
+### What changed in 1.6.1?
 
 -   **Dashflows BETA** evidence inspection now leads with account names, executive hover summaries, and searchable risk-filtered source lists (up to 100 records). Pipeline period and region changes automatically save and refresh, with a six-hour workspace-scoped durable cache for date-range presets. Optional public snapshot links expose frozen published data and account-scoped health reports; team-only remains the default. Still Experimental and off by default. See [Dashflows BETA](./docs/how-to/dashflows.md).
--   No breaking changes; read the [1.6.1 changelog](./CHANGELOG.md#161---2026-11-06). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.6.1`, or run `npm i cuttlely@1.6.1`.
+-   No breaking changes; read the [1.6.1 changelog](./CHANGELOG.md#161---2026-11-06). That release used image `ghcr.io/cuttlely/cuttlely:1.6.1` and package `cuttlely@1.6.1`.
 
 Full notes: [v1.6.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.6.1).
 
@@ -182,7 +186,7 @@ Full notes: [v1.4.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 ### What's new in 1.3.1?
 
 -   Every flow an MCP server: turn on **MCP Server** for a flow and other agents call its Live version over MCP. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
--   Published chatflows answer watsonx Orchestrate native agents. The flow needs a bound API key.
+-   Published chatflows answer watsonx Orchestrate native agents. In 1.3.1 this required a bound API key; the current setup is described under Access keys and owner invitations below.
 -   A new install opens one `/setup` page. The server log prints the link and a setup code that lasts 60 minutes and works once.
 -   `npx cuttlely start` on Node 20 waits until the health check answers.
 -   Two security fixes for versions up to and including 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) (setup code) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7) (public config endpoints).
@@ -243,9 +247,9 @@ On a made-up bakery database, ticking 6 of 20 relations took the analyst's promp
 
 ### After upgrading, my API key gets `403 This API key may not run harness "…"`. Why?
 
-Each API key now has **Harnesses this key may run**, and the list starts empty on every key, including keys made before 1.3.0. To fix it, open **API Keys**, edit the key, tick the harnesses it should run, and save.
+That message describes the legacy Harness-name list. With `INBOUND_ACCESS_V2=off` (the default), existing keys retain legacy authorization. Migration preserves existing bindings and resolves Harness names to stable canvas IDs; it does not force rotation or grant every Harness.
 
-This also applies to a chatflow or agentflow bound to that key whose Harness card or Agent harness tool names a harness. At startup the server logs each bound key that's missing a harness. Over the API, send `harnesses` (an array of names) on `POST /api/v1/apikey` or `PUT /api/v1/apikey/<id>`.
+With enforcement `on`, open **Access Keys** and grant the Harness resource plus `harness:run` (and `harness:read` for polling), with the corresponding workspace permissions. A flow that calls a Harness needs both resources. New keys start with no scopes or resources. The `harnesses` name array is migration input, not the new management body. [Access keys](docs/reference/access-keys.md) covers rollout and API fields.
 
 ### I'm behind nginx, Caddy, Traefik or a load balancer. What do I need to do?
 
@@ -271,15 +275,33 @@ A pending invite joins only through its own one-time link: single use, 72 hours 
 
 Links issued before the upgrade keep working until they expire. With AuthKit on, they go through **Accept invite with WorkOS**, not a password. Someone added with **Add User** before 1.3.0 was stored as active and can still join by email match. To require the link, remove them and invite them again.
 
+## Access keys and owner invitations
+
+### Are SDK keys different from flow keys?
+
+No. **Access Keys** is one list of inbound keys per workspace. You can create many keys, each with expiry, a per-key RPM limit, daily and monthly UTC quotas, exact-origin and IP/CIDR allowlists, and explicit Chatflow, Agentflow, Harness and Dashflows grants plus API operation scopes. New keys grant nothing. New secrets have `ctu_live_` or `ctu_test_` prefixes, are shown once, and can be rotated with a grace period of 0 to 24 hours (one hour by default). Revoke a whole key or one credential. The list shows usage counters; lifecycle and aggregate usage events appear in the audit log. Provider credentials and public share/embed links stay separate.
+
+### Is enforcement enabled automatically when I upgrade?
+
+No. `INBOUND_ACCESS_V2=off` is the default. On a restored backup, validate the migration with `node scripts/access-keys-migration-report.cjs` using the built server and normal database configuration. Then use `shadow` to compare legacy and scoped flow decisions before setting `on`. Shadow does not charge quotas or simulate all route and limit decisions. Existing bearer values keep working without rotation. [Rollout and migration](docs/reference/access-keys.md#rollout-and-migration).
+
+### Which access-key features are still missing?
+
+Redis/multi-instance limiting, browser delegation, usage exports/alerts, asynchronous telemetry batching, legacy-adapter removal, and termination of already-admitted runs are not implemented. Minute counters are per process and reset on restart; accepted streams and background runs may finish. Daily/monthly counters persist in SQL. Admission requires one API instance.
+
+### Can I cancel a pending owner invitation?
+
+In **Admin > Users** (`/users`), an active organization owner can use the trash action on another pending owner invitation. Confirmation names the email; cancellation revokes invite links across the organization's teams. An accepted invitation, self-removal, or removal of the last active owner is refused. Active owners remain **Super User, read-only** in this UI. [Users guide](docs/how-to/users-without-authkit.md).
+
 ## Running harnesses from your app
 
 ### What are the run limits on the API?
 
-Each API key or signed-in person gets 60 run starts a minute (sync and async together) and 600 reads, counted in each server process. A key only sees the runs it started.
+The Harness API has process-local caps of 60 starts and 600 reads a minute per caller. With access-key enforcement on, the key’s configured RPM and daily/monthly UTC quotas also apply, including polling. Rotation shares the same counters. A key only sees the runs it started. [Current limits](docs/reference/access-keys.md#caller-policies-and-counters).
 
 ### Can an API key change a schedule?
 
-No. A key can read the schedule for a harness on its list, with the owner's name only and the question redacted. Saving, pausing, resuming and deleting need a signed-in person. The schedule runs Live with the permissions of whoever last saved or resumed it, checked again at every due time.
+No. New scoped keys use only the Harness runs API and cannot read schedules either. Legacy keys retain schedule reads for a Harness on their list, with the owner's name only and the question redacted. Saving, pausing, resuming and deleting need a signed-in person. The schedule runs Live with the permissions of whoever last saved or resumed it, checked again at every due time.
 
 Time zones are IANA place names such as `Europe/Paris`, or `UTC`. Offsets and abbreviations are refused.
 
@@ -287,8 +309,8 @@ Time zones are IANA place names such as `Europe/Paris`, or `UTC`. Offsets and ab
 
 There are two known limits:
 
--   A chatflow or agentflow with no API key runs every harness its Harness cards and Agent harness tools name, in its team, for anyone who has its id. Bind a key to any flow that names a harness you don't want public.
--   Execute Flow, Chatflow Tool and Agent as Tool send the API key stored in their credential, so the flow they call runs under that key's list, whoever uses the credential. Keep keys that list harnesses out of shared credentials.
+-   An explicitly public flow can run its referenced Harnesses in its team without a caller key. For private API access with enforcement on, set **API Endpoint** to **Private (selected access keys)** and grant both the flow and its referenced Harnesses. A resource grant alone does not make a flow private.
+-   Execute Flow, Chatflow Tool and Agent as Tool send the API key stored in their credential. Treat that as delegated server access: keep privileged keys out of shared credentials. Public share/embed access remains a separate transport.
 
 ---
 

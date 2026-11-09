@@ -687,6 +687,7 @@ const CustomAssistantConfigurePreview = () => {
             title: 'Embed in website or use as API',
             chatflowid: customAssistantFlowId,
             chatflowApiKeyId: canvas.chatflow.apikeyid,
+            apiAccessMode: canvas.chatflow.apiAccessMode,
             isSessionMemory: true
         })
         setAPIDialogOpen(true)

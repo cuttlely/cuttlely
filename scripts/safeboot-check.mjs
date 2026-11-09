@@ -61,7 +61,7 @@ export async function main() {
     try {
         console.log('safe boot check (isolated HOME and data folder)')
         store.writeSettingsFile(dir, { LOG_LEVEL: 'info' }, { key: KEY, by: 'safeboot check' })
-        let server = startServer(ROOT, env)
+        let server = await startServer(ROOT, env)
         await waitForPing(base, server)
         await server.stop()
         const good = lastGood()
@@ -71,7 +71,7 @@ export async function main() {
 
         store.writeSettingsFile(dir, { LOG_LEVEL: 'info', ...BAD }, { key: KEY, by: 'safeboot check' })
         for (const n of [2, 3]) {
-            server = startServer(ROOT, env)
+            server = await startServer(ROOT, env)
             const code = await waitForExit(server, FAIL_MS)
             if (code === 'timeout') {
                 await server.stop()
@@ -98,7 +98,7 @@ export async function main() {
         if (!/starts did not finish/.test(helper.stderr)) throw new Error('start 4 did not say it rolled back')
         const scriptEnv = { ...env }
         for (const record of records) scriptEnv[record.slice(0, record.indexOf('='))] = record.slice(record.indexOf('=') + 1)
-        server = startServer(ROOT, scriptEnv)
+        server = await startServer(ROOT, scriptEnv)
         await waitForPing(base, server)
         await server.stop()
         if (read(path.join(dir, store.SETTINGS_FILE)) !== good) throw new Error('start 4 did not put back the last settings that worked')
@@ -110,7 +110,7 @@ export async function main() {
         // is ready, ping must answer 503 with a plain reason (Docker and Render see it unhealthy), and the log must name
         // host and port, never the password.
         const PW = 'safeboot-check-made-up-db-password'
-        server = startServer(ROOT, { ...env, ...BAD, DATABASE_PASSWORD: PW, CUTTLELY_IGNORE_ADMIN_SETTINGS: '1' })
+        server = await startServer(ROOT, { ...env, ...BAD, DATABASE_PASSWORD: PW, CUTTLELY_IGNORE_ADMIN_SETTINGS: '1' })
         let ping = null
         for (const until = Date.now() + FAIL_MS; Date.now() < until; ) {
             if (server.child.exitCode !== null)

@@ -25,6 +25,15 @@ describe('externalThread', () => {
         }
     })
 
+    it('uses the presenting principal independently of the old binding and retains its identity across rotation', () => {
+        const flow = { id: FLOW_A, apikeyid: 'legacy-binding' }
+        const first = threadChatId(flow, 'shared', 'principal-one')
+        const other = threadChatId(flow, 'shared', 'principal-two')
+        expect(first.chatId).not.toBe(other.chatId)
+        expect(first.sessionToken).not.toBe(other.sessionToken)
+        expect(threadChatId(flow, 'shared', 'principal-one')).toEqual(first)
+    })
+
     it('hashes a thread id to 8 hex characters and uses none when it is missing', () => {
         expect(threadLogHash()).toBe('none')
         expect(threadLogHash('Ada-01')).toMatch(/^[0-9a-f]{8}$/)

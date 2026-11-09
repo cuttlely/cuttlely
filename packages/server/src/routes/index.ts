@@ -1,3 +1,4 @@
+import { accessKeyRouteGuard } from '../services/accessKeys/routes'
 import dashflowsRouter, { publicDashflowsRouter } from './dashflows'
 import express from 'express'
 import agentflowv2GeneratorRouter from './agentflowv2-generator'
@@ -109,6 +110,7 @@ const loadedCredentialCount = () => Object.keys(getRunningExpressApp().nodesPool
 router.use(refuseRunsWhileBootPass)
 // Runs in progress are counted so Restart can let them finish (settings/runs.ts).
 router.use(trackRuns)
+router.use(accessKeyRouteGuard)
 
 router.use('/ping', pingRouter)
 router.use('/apikey', apikeyRouter)

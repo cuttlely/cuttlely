@@ -47,6 +47,7 @@ const ALLOWED_PREFIXES = new Set([
 const API_KEY_EXCLUDED_PREFIXES = new Set(['workspace', 'users', 'roles', 'admin', 'logs', 'audit', 'authentication'])
 
 const ADMIN_KEYS = [
+    'apikeys:grant-all',
     'users:manage',
     'roles:manage',
     'workspace:view',
@@ -143,7 +144,7 @@ export function rolePermissionCatalog(): Record<string, PermissionChoice[]> {
 
 /** Prediction keys. Workspace, user, and role grants are not offered. */
 export function apiKeyPermissionCatalog(): Record<string, PermissionChoice[]> {
-    return group(catalogKeys().filter((key) => !API_KEY_EXCLUDED_PREFIXES.has(key.split(':')[0] || '')))
+    return group(catalogKeys().filter((key) => key !== 'apikeys:grant-all' && !API_KEY_EXCLUDED_PREFIXES.has(key.split(':')[0] || '')))
 }
 
 export function isCatalogPermission(key: string): boolean {
