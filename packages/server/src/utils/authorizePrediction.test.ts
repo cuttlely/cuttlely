@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError } from '../services/accessKeys/errors'
 /**
  * POST /api/v1/prediction/:id checks the flow's API key before multer runs (key only, no session).
  * Test numbers follow cuttlely-api4b-prediction-upload-auth-spec.md v1.0 section 3.
@@ -492,7 +493,7 @@ describe('Prediction access: /prediction checks the flow key before multer', () 
         for (const headers of attempts) {
             const res = await multipart(O, headers)
             expect(res.status).toBe(401)
-            expect(res.body.message).toBe('Unauthorized')
+            expect(res.body.message).toBe(headers.Authorization ? new AccessKeyAuthenticationError().message : 'Unauthorized')
         }
         expectNoWritesAndNoMulter()
         expect(mockState.controllerCalls).toBe(0)

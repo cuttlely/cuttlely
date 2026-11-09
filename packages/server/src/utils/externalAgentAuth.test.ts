@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import { ExternalAgentError, externalAgentAuth, refuseKeylessFlow } from './externalAgentAuth'
+import { ExternalAgentError, externalAgentAuth, refuseKeylessFlow, sendExternalAgentError } from './externalAgentAuth'
 
 const mockRes = () => {
     const res: Partial<Response> & { locals: Record<string, unknown> } = { locals: {} }
@@ -84,4 +84,21 @@ describe('refuseKeylessFlow', () => {
         refuseKeylessFlow({} as Request, { locals: { chatflow: { id: 'f' } } } as unknown as Response, nxt)
         expect(nxt.mock.calls[0][0].code).toBe('keyless_flow')
     })
+})
+
+it('external quota errors retain their envelope and Retry-After with actionable help', () => {
+    const app = require('express')()
+    app.get('/', (_req: Request, res: Response) => {
+        res.setHeader('Retry-After', '60')
+        sendExternalAgentError(res, new ExternalAgentError(429, 'rate_limit', 'rate_limit_error', 'Access key request limit reached.'))
+    })
+    return require('supertest')(app)
+        .get('/')
+        .expect(429)
+        .expect('Retry-After', '60')
+        .then((res: { body: { error: { code: string; type: string; message: string } } }) => {
+            expect(res.body.error).toMatchObject({ code: 'rate_limit', type: 'rate_limit_error' })
+            expect(res.body.error.message).toContain('Wait for the Retry-After time')
+            expect(res.body.error.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
+        })
 })

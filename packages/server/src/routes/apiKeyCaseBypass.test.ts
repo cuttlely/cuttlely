@@ -120,7 +120,11 @@ describe('the API gate lists ignore letter case', () => {
                 expect({ spelled, status: res.status, body: res.body }).toEqual({
                     spelled,
                     status: 401,
-                    body: { error: 'Unauthorized Access' }
+                    body: {
+                        error: 'Unauthorized Access',
+                        message:
+                            'Sign in to your workspace. For an endpoint that accepts keys, send a current key with access to this operation. Help: https://cuttlely.com/docs/how-to/access-keys/'
+                    }
                 })
             }
         }

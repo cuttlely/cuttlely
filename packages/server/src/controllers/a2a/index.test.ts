@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError, accessKeyHelp, ACCESS_KEY_DOCS } from '../../services/accessKeys/errors'
 import { accessKeyPreflight } from '../../services/accessKeys/preflight'
 import { parsePolicy } from '../../services/accessKeys/policy'
 /**
@@ -188,6 +189,8 @@ const expectIbmError = (res: request.Response, status: number, code: string) => 
     expect(res.status).toBe(status)
     expect(String(res.headers['content-type'] || '')).not.toMatch(/event-stream/)
     expect(res.body.error).toEqual(expect.objectContaining({ code, message: expect.any(String), type: expect.any(String) }))
+    if ([401, 429].includes(status) || (status === 403 && code !== 'origin_not_allowed'))
+        expect(res.body.error.message).toContain(ACCESS_KEY_DOCS)
 }
 
 const expectRpcError = (res: request.Response, code: number, id: string | number | null = 1) => {
@@ -1119,7 +1122,10 @@ it.each(['inactive', 'caller policy'])('a2a preflight preserves the adapter erro
         expect(response.status).toBe(failure === 'inactive' ? 401 : 403)
         expect(response.body).toEqual({
             error: {
-                message: failure === 'inactive' ? 'Unauthorized' : 'Caller policy refused this request.',
+                message:
+                    failure === 'inactive'
+                        ? new AccessKeyAuthenticationError().message
+                        : accessKeyHelp(403, 'Caller policy refused this request.'),
                 type: failure === 'inactive' ? 'authentication_error' : 'permission_error',
                 code: failure === 'inactive' ? 'unauthorized' : 'access_denied'
             }

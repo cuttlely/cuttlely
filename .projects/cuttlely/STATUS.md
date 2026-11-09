@@ -1,5 +1,7 @@
 ## Access-key scopes and beginner setup: 1.7.1 preparation
 
+The first committed-head full gate passed its preceding stages and stopped at stale unit assertions for the new access-key help text. The follow-up updates those contracts without changing status, isolation, no-write or no-stream checks, and preserves actionable 401/429 guidance through the external-agent error envelope. One final full-gate rerun on the corrected committed HEAD remains required; its generated report is the verification authority.
+
 The local `fix/access-key-scopes` branch starts at `e13cef55`, the 1.7.0 release cut. The four product manifests are prepared at 1.7.1 and `CHANGELOG.md` has `## [1.7.1] - Unreleased`. Publication, deployment and enforcement activation are separate and have not been performed. Default enforcement remains Off; the 1.7.0 backup, operator onboarding and host recovery requirements remain applicable.
 
 Prediction checks and save validation require the owning flow's view permission. Granted Harness execution uses view permission and explicit operation/resource grants; session/legacy starts retain their prior gates, and edits still need edit permission. Refusals name missing prerequisites and link to recovery guidance. Duplication carries its source ID to the create route, starts the copy Private, explicitly omits copied key grants and leaves anonymous prediction refused. API Endpoint refreshes saved state and uses a controlled selector, confirms saves, warns about workspace-wide prediction keys and opens a preselected key form.
