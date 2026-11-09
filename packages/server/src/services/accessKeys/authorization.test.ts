@@ -300,6 +300,11 @@ it('rejects unclassified APIs, workspace lists and scoped-key management; regist
                     .set('Authorization', 'Bearer fixture-token')
             ).status
         ).toBe(403)
+    const listDenied = await request(app).get('/api/v1/chatflows').set('Authorization', 'Bearer fixture-token')
+    expect(listDenied.status).toBe(403)
+    expect(listDenied.body.message).toContain('Sign in for workspace-wide APIs')
+    expect(listDenied.body.message).toContain('supported resource endpoint using its ID')
+    expect(listDenied.body.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
     mockKeys.set('fixture-token', key({ scopes: ['api:read'] }))
     expect(
         (
@@ -315,6 +320,16 @@ it('rejects unclassified APIs, workspace lists and scoped-key management; regist
                 .set('Authorization', 'Bearer fixture-token')
         ).status
     ).toBe(403)
+})
+it('scoped list refusals retain 403 and explain the signed-in or resource-specific recovery path', async () => {
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    const incoming = Object.assign(req(), { method: 'GET', path: '/chatflows', originalUrl: '/api/v1/chatflows' })
+    const error = await new Promise<any>((resolve) => accessKeyRouteGuard(incoming, {} as express.Response, resolve))
+    expect(error.statusCode).toBe(403)
+    expect(error.message).toContain('Sign in for workspace-wide APIs')
+    expect(error.message).toContain('supported resource endpoint using its ID')
+    expect(error.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
+    expect(mockConsume).not.toHaveBeenCalled()
 })
 it('preflight refuses before JSON parsing and file storage; inactive and malformed credentials cannot create context', async () => {
     const app = express()

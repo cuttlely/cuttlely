@@ -155,7 +155,8 @@ it('beginner Call one flow preset validates, fixes missing Harness access, revea
     await waitFor(() => expect(screen.getByText(/Included Harnesses:/).textContent).toContain('bakeryteam'))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add', exact: true }).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: /Advanced:/ }))
-    const harness = await screen.findByRole('checkbox', { name: 'bakeryteam' })
+    await waitFor(() => expect(screen.getAllByRole('checkbox', { name: 'bakeryteam' })).toHaveLength(2))
+    const harness = screen.getAllByRole('checkbox', { name: 'bakeryteam' }).at(-1)
     expect(harness.checked).toBe(true)
     fireEvent.click(harness)
     fireEvent.click(screen.getByRole('button', { name: 'Add', exact: true }))
@@ -242,4 +243,48 @@ it('Create key for this flow preselects and validates the saved flow', async () 
     expect(mockSubmissions.at(-1).resources).toEqual(
         expect.arrayContaining([{ resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121202' }])
     )
+})
+
+it('Create key for this flow preselects a Harness in a Harness-only workspace and creates an executable key', async () => {
+    const harnessId = '12121212-1212-4121-8121-121212121206'
+    // Leave this disposable workspace with its saved Harness only, through the real delete routes.
+    const before = await mockHttp('GET', '/api/v1/apikey/options')
+    for (const resource of before.data.resources.filter((row) => row.resourceType !== 'HARNESS')) {
+        expect((await mockHttp('DELETE', '/api/v1/chatflows/' + resource.resourceId)).status).toBe(200)
+    }
+    const options = await mockHttp('GET', '/api/v1/apikey/options')
+    expect(options.data.resources.map(({ resourceType, resourceId }) => ({ resourceType, resourceId }))).toEqual([
+        { resourceType: 'HARNESS', resourceId: harnessId }
+    ])
+    render(
+        <ThemeProvider theme={createTheme()}>
+            <APIKeyDialog
+                show
+                dialogProps={{ type: 'ADD', title: 'Create key for this flow', confirmButtonName: 'Create key', flowId: harnessId }}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />
+        </ThemeProvider>
+    )
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'bakeryteam' }).checked).toBe(true))
+    expect(screen.getByRole('button', { name: /Advanced:/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText(/Create a chatflow, agentflow or Harness first/)).toBeNull()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create key', exact: true }).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Create key', exact: true }))
+    await screen.findByText(/Copy this key now/)
+    const submitted = mockSubmissions.at(-1)
+    expect(submitted.resources).toEqual([{ resourceType: 'HARNESS', resourceId: harnessId }])
+    expect(submitted.accessPolicy.scopes).toEqual(expect.arrayContaining(['predict', 'harness:run']))
+    expect(submitted.permissions).toEqual(['chatflows:view'])
+    expect(mockCreated).toBeTruthy()
+    expect(
+        (
+            await mockHttp(
+                'POST',
+                '/api/v1/prediction/' + harnessId,
+                { question: 'Local fixture' },
+                { Authorization: 'Bearer ' + mockCreated.apiKey }
+            )
+        ).status
+    ).toBe(200)
 })

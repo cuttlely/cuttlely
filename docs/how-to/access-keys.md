@@ -4,9 +4,9 @@ Use an access key when your server calls a private Cuttlely flow. This guide cre
 
 ## Before you start
 
-You need a signed-in workspace account allowed to manage keys and grant the selected operations and resources. A key cannot create another key. You also need a published Chatflow or Agentflow and its ID. If it calls a Harness, note that Harness too.
+You need a signed-in workspace account allowed to manage keys and grant the selected operations and resources. A key cannot create another key. You also need a published Chatflow, Agentflow or Harness and its ID. If it calls a Harness, include that Harness too.
 
-Scoped keys require enforcement **On**. Enforcement is **Off** by default; installing or upgrading does not turn it on. Do not activate it on a live installation merely to follow this guide. Have the instance operator complete the rollout below in a restored test installation first, then schedule production activation separately.
+Scoped keys require enforcement **On**. Enforcement is **Off** by default; installing or upgrading does not turn it on. Do not activate it on a live installation to follow this guide. Have the instance operator complete the rollout below in a restored test installation first, then schedule production activation separately.
 
 Legacy installations without an actual host binding use **Admin > Server settings > Instance operator** for an explicit one-time claim with a code printed only to the host log. Only verified host CLI bindings grandfather automatically; no legacy account, login method or owner role is inferred. The panel supports transfer, revocation with a durable Disabled tombstone, and separately confirmed host-proof recovery/rebind. The CLI is emergency recovery only. Any defined `CUTTLELY_INSTANCE_OPERATOR` value disables panel lifecycle changes; JSON/`none` precedence and invalid/empty fail-closed behavior remain. Read host-log proof in the hosting dashboard or Docker/Compose logs. Only the designated operator can change service settings. See [operator onboarding and recovery](./instance-operator.md).
 
@@ -20,7 +20,7 @@ The figures below were captured on product 1.6.1 at feature head `5c08b125`, bef
 2. Check private custom-assistant integrations before proceeding. Exact custom ASSISTANT grants are unsupported; existing private integrations can work in Off or Shadow but return `401` in On. Keep those installations Off or Shadow until an alternative is ready.
 3. Verify a fresh sign-in (within ten minutes) using Instance operator in Server settings, then as the designated operator open **Admin > Server settings > Security & network > Access keys > Access-key enforcement**. Confirm the effective mode and its source. A nonempty host `INBOUND_ACCESS_V2` overrides and locks the selector, including host-set `off`.
 4. Review a change to **Shadow** and type **APPLY**. Shadow serves legacy decisions and records scoped flow comparisons without charging quotas. It is not a simulation of every route or quota. Check the audit comparisons and separately exercise the routes your app uses in the restored installation.
-5. When ready for that installation, review a change to **On** and type **APPLY**. This affects every workspace on the service, not just yours. A saved mode applies on the next request and persists across restarts. New scoped keys cannot be issued in Off or Shadow.
+5. When ready for that installation, review a change to **On** and type **APPLY**. This affects every workspace on the service. A saved mode applies on the next request and persists across restarts. New scoped keys cannot be issued in Off or Shadow.
 
 ![Access-key enforcement in Server settings shows Default (Off), In effect: off (default), and Default: Off.](../images/access-keys/enforcement-off.png)
 
@@ -31,7 +31,7 @@ Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute c
 ## 2. Create the key
 
 1. In the intended workspace, open **Access Keys** and click **Create Key**. SDK/Settings and per-flow keys share this list; first check that you are in the right workspace.
-2. Start with **Call one chatflow/agentflow**, then pick the flows your app will call. The form includes `predict`, each flow's required view permission, and referenced Harness grants with `harness:run`. The generated name can be changed. **Read-only API** instead grants reads of the selected resources, without prediction or edits.
+2. Start with **Call one chatflow/agentflow**, then pick the chatflows, agentflows or Harnesses your app will call. The form includes `predict`, each flow's required view permission, and referenced Harness grants with `harness:run`. The generated name can be changed. **Read-only API** instead grants reads of the selected resources, without prediction or edits.
 3. Open the collapsed **Advanced: permissions, API operations and resources** only when you need more control. Add `stream` for JSON streaming. Multipart prediction also needs `upload` and `stream`; feedback uses `feedback:read` or `feedback:write`. See the [route matrix](../reference/access-keys.md#api-route-matrix).
 4. Leave **All resources in this workspace, including future resources** off for one integration. This option requires `apikeys:grant-all` and separate confirmation; it includes future resources but does not remove operation, permission, caller or quota checks.
 5. Advanced also contains **Service or application**, the descriptive Live/Test **Environment label**, expiry and limits. The default expiry is 90 days, the minute limit is 60, and day/month quotas are unlimited (`0`). These labels do not isolate data.
@@ -50,7 +50,7 @@ Presets grant only the resources you pick and the prerequisites shown by the ser
 
 ## 3. Make the flow private
 
-Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. The access selector shows the state loaded from the server, and a successful save shows **API access saved**. **Create key for this flow** opens the call preset with this flow selected. Workspace-wide prediction keys can also call private flows; the dialog warns when they are present. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
+Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. The access selector shows the state loaded from the server, and a successful save shows **API access saved**. **Create key for this flow** opens the call preset with the saved Chatflow, Agentflow or Harness selected, including when the workspace contains only Harnesses. For a Harness, validation includes `predict`, `harness:run` and the applicable view permission; creation stays disabled until the selection passes validation. Workspace-wide prediction keys can also call private flows; the dialog warns when they are present. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
 
 ![After reloading API Endpoint, Saved API access says Private and the selector shows Private: only keys you pick. Create key for this flow is available.](../images/access-keys/private-saved-171.png)
 
@@ -99,7 +99,7 @@ Extending the principal's expiry does not extend an already issued credential. R
 
 ## 7. Revoke access
 
-Use the list's **Revoke** action to revoke the principal and block new requests from every credential belonging to it. Use credential revocation to retire just one secret. Already admitted streams or background runs may finish. Inspect usage and **Admin > Audit log** for lifecycle and policy changes; usage events are aggregated/deduplicated, not a complete per-request ledger.
+Use the list's **Revoke** action to revoke the principal and block new requests from every credential belonging to it. Use credential revocation to retire one secret. Already admitted streams or background runs may finish. Inspect usage and **Admin > Audit log** for lifecycle and policy changes; usage events are aggregated/deduplicated, not a complete per-request ledger.
 
 <!-- SCREENSHOT PENDING AK09: actual principal-revocation confirmation, then revoked list state, using a disposable key; docs/images/access-keys/revoke-confirmation.png and revoked-key.png. Action-only shot not captured. -->
 

@@ -8,11 +8,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Flow-first access-key presets for calling selected chatflows/agentflows or using the read-only API. Prediction includes required view permission and referenced Harness access. Advanced controls are collapsed for new keys. Server validation explains missing prerequisites and offers a one-click fix; creation reveals the secret once with copyable cURL and server JavaScript examples.
 
--   API Endpoint offers **Create key for this flow**, preselects the flow and validates its prerequisites, and warns when workspace-wide prediction keys also have access. The controlled access selector follows saved state after reload.
+-   API Endpoint offers **Create key for this flow**, preselects the saved chatflow, agentflow or Harness and validates its prerequisites, and warns when workspace-wide prediction keys also have access. The controlled access selector follows saved state after reload.
 
 ### Fixed
 
--   Prediction keys require their flow's view permission, with missing permissions and Harness prerequisites named in refusal messages. Granted Harness execution uses view permission; editing still requires edit rights. Access-key errors explain how to recover and link to the guide.
+-   Prediction keys require their flow's view permission, with missing permissions and Harness prerequisites named in refusal messages. Scoped workspace-list refusals explain the signed-in and resource-specific alternatives and link to the guide. Granted Harness execution uses view permission; editing still requires edit rights. Access-key errors explain how to recover and link to the guide.
 
 -   Duplicated flows start Private and explicitly warn that access-key grants are not copied. API Endpoint refreshes saved access from the server, shows Private correctly after reload and confirms successful saves.
 

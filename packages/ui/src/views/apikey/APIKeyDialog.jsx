@@ -223,7 +223,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     useEffect(() => {
         if (!show || dialogProps.type !== 'ADD' || !dialogProps.flowId || presetFlowApplied.current === dialogProps.flowId) return
         const flow = options.resources?.find(
-            (r) => r.resourceId === dialogProps.flowId && ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType)
+            (r) => r.resourceId === dialogProps.flowId && ['CHATFLOW', 'AGENTFLOW', 'HARNESS'].includes(r.resourceType)
         )
         if (!flow) return
         presetFlowApplied.current = dialogProps.flowId
@@ -476,7 +476,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         if (policy.allResources && !confirmed) return true
         return false
     }
-    const exampleFlow = resources.find((r) => ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType))
+    const exampleFlow = resources.find((r) => ['CHATFLOW', 'AGENTFLOW', 'HARNESS'].includes(r.resourceType))
     const examples = exampleFlow ? accessKeyExamples(window.location.origin, exampleFlow, !policy.scopes.includes('predict')) : null
 
     const component = show ? (
@@ -647,7 +647,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                         const next = event.target.value
                                         setPreset(next)
                                         void selectPresetFlows(
-                                            resources.filter((r) => ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType)),
+                                            resources.filter((r) => ['CHATFLOW', 'AGENTFLOW', 'HARNESS'].includes(r.resourceType)),
                                             next
                                         )
                                     }}
@@ -657,13 +657,11 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                 </TextField>
                                 <Typography sx={{ mt: 1 }}>
                                     {preset === 'call'
-                                        ? 'Pick the flows your app will call. Required view permission and referenced Harness access are included automatically.'
+                                        ? 'Pick chatflows, agentflows or Harnesses your app will call. Required view permission and Harness run access are included automatically.'
                                         : 'Pick resources to read through the API. This preset cannot run or edit them.'}
                                 </Typography>
                                 {(options.resources || [])
-                                    .filter((r) =>
-                                        ['CHATFLOW', 'AGENTFLOW', ...(preset === 'read' ? ['HARNESS'] : [])].includes(r.resourceType)
-                                    )
+                                    .filter((r) => ['CHATFLOW', 'AGENTFLOW', 'HARNESS'].includes(r.resourceType))
                                     .map((resource) => (
                                         <FormControlLabel
                                             key={resource.resourceType + ':' + resource.resourceId}
@@ -677,7 +675,6 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                                     onChange={(event) => {
                                                         const selected = resources.filter(
                                                             (r) =>
-                                                                (preset === 'read' || r.resourceType !== 'HARNESS') &&
                                                                 !(
                                                                     r.resourceType === resource.resourceType &&
                                                                     r.resourceId === resource.resourceId
@@ -695,10 +692,10 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                         />
                                     ))}
                                 {options.resources &&
-                                    !options.resources.some((r) => ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType)) && (
+                                    !options.resources.some((r) => ['CHATFLOW', 'AGENTFLOW', 'HARNESS'].includes(r.resourceType)) && (
                                         <Alert severity='info'>
-                                            Create a chatflow or agentflow first, or ask your admin for view access. Then return here to
-                                            create its key.
+                                            Create a chatflow, agentflow or Harness first, or ask your admin for view access. Then return
+                                            here to create its key.
                                         </Alert>
                                     )}
                                 {resources.some((r) => r.resourceType === 'HARNESS') && (

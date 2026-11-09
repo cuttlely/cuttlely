@@ -2371,6 +2371,13 @@ for (const limit of ['rpm', 'daily'])
                     403
                 )
             }
+            const listDenied = await request(management)
+                .get('/api/v1/chatflows')
+                .set('Authorization', 'Bearer ' + key.apiKey)
+            assert.equal(listDenied.status, 403)
+            assert.match(listDenied.body.message, /Sign in for workspace-wide APIs/)
+            assert.match(listDenied.body.message, /supported resource endpoint using its ID/)
+            assert.match(listDenied.body.message, /https:\/\/cuttlely.com\/docs\/how-to\/access-keys\//)
             assert.equal(await data.getRepository(ApiKeyUsage).countBy({ principalId: key.id }), 0, 'denials consume no quota')
             assert.equal((await predict(allowedId)).status, 200)
             const limited = await predict(allowedId)

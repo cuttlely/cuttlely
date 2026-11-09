@@ -1,4 +1,4 @@
-import { AccessKeyAuthenticationError, explainAccessKeyError } from './errors'
+import { AccessKeyAuthenticationError, AccessKeyPolicyError, explainAccessKeyError } from './errors'
 import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { assertSafeManagementWrite, redactTransportSecrets } from './managementBoundary'
 import { accessRollout } from './rollout'
@@ -58,7 +58,9 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (!key.accessPolicy?.legacy && ['chatflows', 'flow-drafts', 'flow-versions'].includes(root))
             assertSafeManagementWrite(root, req.method, parts, req.body)
         if ((!key.accessPolicy?.legacy || root === 'dashflows') && !registered)
-            throw new AppError(403, 'This endpoint is not available to scoped access keys.')
+            throw new AccessKeyPolicyError(
+                'This endpoint is not available to scoped access keys. Sign in for workspace-wide APIs, or call a supported resource endpoint using its ID.'
+            )
 
         if (root === 'harnesses' && parts[4] === 'diagnostics') throw new AppError(403, 'Harness diagnostics require a signed-in author.')
         let operation: Operation = read ? 'api:read' : 'api:write'
