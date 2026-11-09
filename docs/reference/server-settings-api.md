@@ -31,7 +31,7 @@ These settings are instance-wide. One install has one settings file. A workspace
 
 A nonoperator organization owner receives only `{ "instanceOperator": false, "message": "Only the instance operator can change server-wide settings" }` from the root GET. Operator views include `instanceOperator: true`. Service configuration and sensitive routes, including history, read-only status, connection tests, guided setup, database switch/restore, restart, discard and retry, return 403 `INSTANCE_OPERATOR_REQUIRED` to a nonoperator. These refusals include no setting values, paths or history. `CUTTLELY_INSTANCE_OPERATOR` remains outside generic browser settings; mixed writes containing it are rejected atomically.
 
-### Limited operator status and host-proof routes (planned 1.7.0)
+### Limited operator status and host-proof routes (1.7.0)
 
 Active owners with a live, server-validated interactive session may call these narrow endpoints without already being the instance operator:
 

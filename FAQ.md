@@ -1,4 +1,4 @@
-# Cuttlely FAQ (planned 1.7.0, unreleased)
+# Cuttlely FAQ (1.7.0)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,9 +38,9 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's planned in 1.7.0?
+### What's new in 1.7.0?
 
-Scoped access keys and host-backed service administration. This security-exception release requires upgrade action: back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment. Only verified host CLI bindings grandfather; legacy installs without one claim in Server settings with a code from the hosting dashboard or Docker/Compose logs. Only the designated operator can change service-wide settings. Routine lifecycle is in the panel; the CLI is emergency recovery. Enforcement stays Off by default. Read the [upgrade warnings](./docs/upgrading.md) and [planned changelog](./CHANGELOG.md#170---unreleased). After publication, pin image `ghcr.io/cuttlely/cuttlely:1.7.0` or install `cuttlely@1.7.0`.
+Scoped access keys and host-backed service administration. This security-exception release requires upgrade action: back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment. Only verified host CLI bindings grandfather; legacy installs without one claim in Server settings with a code from the hosting dashboard or Docker/Compose logs. Only the designated operator can change service-wide settings. Routine lifecycle is in the panel; the CLI is emergency recovery. Enforcement stays Off by default. Read the [upgrade warnings](./docs/upgrading.md) and [changelog](./CHANGELOG.md). To select 1.7.0, pin image `ghcr.io/cuttlely/cuttlely:1.7.0` or install `cuttlely@1.7.0`.
 
 ### What changed in 1.6.1?
 

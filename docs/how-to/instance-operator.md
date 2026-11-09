@@ -2,7 +2,7 @@
 
 Use **Admin > Server settings > Instance operator** for first claim and routine operator management. The first claim requires an active, signed-in organization owner plus independent hosting-log proof. Ownership, password sign-in, a bootstrap email, account age and upgrading never designate an operator automatically.
 
-**Automatically eligible:** an active owner with an actual valid host CLI binding written by a build that supports operator binding (planned 1.7.0 onward). Existing private version-1 host bindings remain accepted. **Legacy or unknown accounts:** even a former CLI-password owner needs the one-time panel claim if no binding exists. There is no historical credential-provenance heuristic. The resulting private binding persists across upgrades.
+**Automatically eligible:** an active owner with an actual valid host CLI binding written by a build that supports operator binding (1.7.0 onward). Existing private version-1 host bindings remain accepted. **Legacy or unknown accounts:** even a former CLI-password owner needs the one-time panel claim if no binding exists. There is no historical credential-provenance heuristic. The resulting private binding persists across upgrades.
 
 ## Onboard an operator
 
