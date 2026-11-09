@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key dialogs keep preset labels clear, retain the selected duration, show Custom for a manually edited expiry, and make Advanced controls easier to expand and collapse.
+
 -   Publish dialog API access selector: the floating label no longer overlaps the selected value, and the saved-access line and key-action links use clearer spacing.
 
 ## [1.7.1] - 2026-11-09
