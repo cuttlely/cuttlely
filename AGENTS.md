@@ -6,7 +6,8 @@ Cuttlely 1.6.1 gives applications agent teams (harnesses) that apps call through
 
 1. Read [README.md](./README.md), [CONTRIBUTING.md](./CONTRIBUTING.md), and [SECURITY.md](./SECURITY.md).
 2. Read [`.projects/cuttlely/README.md`](./.projects/cuttlely/README.md) and [`.projects/cuttlely/STATUS.md`](./.projects/cuttlely/STATUS.md). Those are the project notes: where the work stands, the plan, open questions, settled decisions, and the runbook. A new person runs the `take-over` skill to continue from them. If a checkout is missing the directory, follow this file, the README, and CONTRIBUTING.md, and do not invent a replacement.
-3. Run `pnpm install` once. For harness changes, run `pnpm harness:check` before and after.
+3. Check that `dev` has everything on `main`: `git fetch origin`, then `git rev-list --count origin/dev..origin/main`. If the count is not `0`, sync `main` into `dev` first with a pull request from `main` into `dev`, merged with a merge commit and never squashed or rebased, and start work after it lands. The `take-over` skill has the commands.
+4. Run `pnpm install` once. For harness changes, run `pnpm harness:check` before and after.
 
 ## While working
 

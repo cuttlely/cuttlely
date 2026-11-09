@@ -20,10 +20,11 @@ Cuttlely is the open-source agent platform for applications. It gives applicatio
 
 1. Read [STATUS.md](./STATUS.md), then [OPEN.md](./OPEN.md), then the open issues: `gh issue list -R cuttlely/cuttlely`. Also check open pull requests (`gh pr list -R cuttlely/cuttlely`) so you do not redo work that is already in review.
 2. Read [DECISIONS.md](./DECISIONS.md) before changing architecture. Those decisions are settled. To change one, add a new entry with the reason; do not quietly redo it.
-3. Pick the next task from [PLAN.md](./PLAN.md) or an open issue that is not blocked on a maintainer decision.
-4. Work on a branch, one change per pull request, as [RUNBOOK.md](./RUNBOOK.md) describes. Before a pull request, run `pnpm verify` on Node 24 on the exact head (`pnpm verify --fast` for a docs-only change).
-5. Follow [MEMORY.md](./MEMORY.md) for conventions and lessons.
-6. When project state changes, update these files in the same pull request. The `refresh-project-handoff` skill checks them against git once before a push or a pull request.
+3. Check that `dev` has everything on `main`: `git fetch origin`, then `git rev-list --count origin/dev..origin/main`. If the count is not `0`, sync `main` into `dev` first with a pull request from `main` into `dev`, merged with a merge commit (never a squash or a rebase), and start after it lands. The `take-over` skill has the commands.
+4. Pick the next task from [PLAN.md](./PLAN.md) or an open issue that is not blocked on a maintainer decision.
+5. Work on a branch, one change per pull request, as [RUNBOOK.md](./RUNBOOK.md) describes. Before a pull request, run `pnpm verify` on Node 24 on the exact head (`pnpm verify --fast` for a docs-only change).
+6. Follow [MEMORY.md](./MEMORY.md) for conventions and lessons.
+7. When project state changes, update these files in the same pull request. The `refresh-project-handoff` skill checks them against git once before a push or a pull request.
 
 ## Rules for these notes
 
