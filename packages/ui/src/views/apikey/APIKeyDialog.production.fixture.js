@@ -217,3 +217,29 @@ it('Read-only API preset creates a key that reads its flow and cannot predict', 
         (await mockHttp('POST', '/api/v1/prediction/12121212-1212-4121-8121-121212121202', { question: 'Local fixture' }, headers)).status
     ).toBe(403)
 })
+
+it('Create key for this flow preselects and validates the saved flow', async () => {
+    render(
+        <ThemeProvider theme={createTheme()}>
+            <APIKeyDialog
+                show
+                dialogProps={{
+                    type: 'ADD',
+                    title: 'Create key for this flow',
+                    confirmButtonName: 'Create key',
+                    flowId: '12121212-1212-4121-8121-121212121202'
+                }}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />
+        </ThemeProvider>
+    )
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Chatflow B' }).checked).toBe(true))
+    await waitFor(() => expect(screen.getByText(/Included Harnesses:/).textContent).toContain('bakeryteam'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create key', exact: true }).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Create key', exact: true }))
+    await screen.findByText(/Copy this key now/)
+    expect(mockSubmissions.at(-1).resources).toEqual(
+        expect.arrayContaining([{ resourceType: 'CHATFLOW', resourceId: '12121212-1212-4121-8121-121212121202' }])
+    )
+})

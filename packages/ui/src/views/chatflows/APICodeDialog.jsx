@@ -1,4 +1,5 @@
 import { endpointAccessSelection, endpointAccessUpdate } from '../apikey/endpointAccess'
+import APIKeyDialog from '../apikey/APIKeyDialog'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect, useMemo } from 'react'
@@ -20,14 +21,14 @@ import {
     Stack,
     Card,
     Alert,
-    Snackbar
+    Snackbar,
+    TextField
 } from '@mui/material'
 import { CopyBlock, atomOneDark } from 'react-code-blocks'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useTheme } from '@mui/material/styles'
 
 // Project import
-import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 import ShareChatbot from './ShareChatbot'
 import EmbedChat from './EmbedChat'
 import { Available } from '@/ui-component/rbac/available'
@@ -129,8 +130,19 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     const [savedAccess, setSavedAccess] = useState(null)
     const [accessMessage, setAccessMessage] = useState('')
     const [accessError, setAccessError] = useState('')
+    const [createKeyOpen, setCreateKeyOpen] = useState(false)
     const savedMode = savedAccess?.apiAccessMode
     const savedLegacyId = savedAccess?.apikeyid
+    const accessKnown = savedAccess && (['public', 'private'].includes(savedMode) || savedLegacyId !== undefined)
+    const createKeyProps = useMemo(
+        () => ({
+            type: 'ADD',
+            title: 'Create key for this flow',
+            confirmButtonName: 'Create key',
+            flowId: dialogProps.chatflowid
+        }),
+        [dialogProps.chatflowid]
+    )
     const exampleApiKey = selectedApiKey?.apiKey || '<your-api-key>'
     const [checkboxVal, setCheckbox] = useState(false)
     const [nodeConfig, setNodeConfig] = useState({})
@@ -870,7 +882,7 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                     marginBottom: 16
                                 }}
                             >
-                                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     <IconBulb size={28} color='#2d6a4f' />
                                     <span style={{ color: '#2d6a4f', marginLeft: 10, fontWeight: 500 }}>
                                         This flow is configured as a <b>Webhook Trigger</b>. Send <b>{webhookMethod}</b> requests to{' '}
@@ -893,8 +905,8 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                             </div>
                         )}
                         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-                            <div style={{ flex: 80 }}>
-                                <Tabs value={value} onChange={handleChange} aria-label='tabs'>
+                            <div style={{ width: '100%', minWidth: 0 }}>
+                                <Tabs value={value} onChange={handleChange} aria-label='tabs' variant='scrollable' scrollButtons='auto'>
                                     {codes.map((codeLang, index) => (
                                         <Tab
                                             icon={
@@ -912,21 +924,31 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                     ))}
                                 </Tabs>
                             </div>
-                            <div style={{ flex: 20 }}>
+                            <div style={{ width: '100%', maxWidth: 360, order: -1, alignSelf: 'flex-end' }}>
                                 <Available permission={'chatflows:update,agentflows:update'}>
-                                    <Dropdown
-                                        name='SelectKey'
+                                    <TextField
+                                        select
+                                        fullWidth
+                                        size='small'
+                                        label='API access'
+                                        SelectProps={{ native: true }}
+                                        inputProps={{ name: 'SelectKey' }}
                                         disabled={
                                             !['off', 'shadow', 'on'].includes(rollout) ||
-                                            !savedAccess ||
+                                            !accessKnown ||
                                             !!accessError ||
                                             updateChatflowApi.loading
                                         }
-                                        disableClearable={true}
-                                        options={keyOptions}
-                                        onSelect={(newValue) => onApiKeySelected(newValue)}
-                                        value={chatflowApiKeyId}
-                                    />
+                                        onChange={(event) => onApiKeySelected(event.target.value)}
+                                        value={accessKnown ? chatflowApiKeyId : 'loading'}
+                                    >
+                                        {!accessKnown && <option value='loading'>Loading saved API access…</option>}
+                                        {keyOptions.map((option) => (
+                                            <option key={option.name} value={option.name}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </TextField>
                                 </Available>
                             </div>
                         </div>
@@ -946,6 +968,24 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                             </p>
                         )}
                         <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>
+                        {rollout === 'on' && !isCustomAssistant && (
+                            <Available permission='apikeys:create'>
+                                <Button onClick={() => setCreateKeyOpen(true)}>Create key for this flow</Button>
+                            </Available>
+                        )}
+                        {chatflowApiKeyId &&
+                            apiKeys.some(
+                                (key) =>
+                                    key.accessPolicy?.allResources &&
+                                    key.accessPolicy?.scopes?.includes('predict') &&
+                                    !key.disabledAt &&
+                                    (!key.expiresAt || new Date(key.expiresAt) > new Date())
+                            ) && (
+                                <Alert severity='warning'>
+                                    Workspace-wide keys can also call this flow. Private access includes those keys; review them in Access
+                                    Keys.
+                                </Alert>
+                            )}
                         {chatflowApiKeyId && (
                             <p>
                                 Principals with a grant to this flow:{' '}
@@ -974,7 +1014,7 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                     <>
                                         <p>You cannot use API key while embedding/sharing chatbot.</p>
                                         <p>
-                                            Please select <b>&quot;Public (no key required)&quot;</b> from the dropdown at the top right
+                                            Please select <b>&quot;Public: anyone with the link&quot;</b> from the dropdown at the top right
                                             corner.
                                         </p>
                                     </>
@@ -1192,6 +1232,17 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                     </>
                 )}
             </DialogContent>
+            {createKeyOpen && (
+                <APIKeyDialog
+                    show
+                    dialogProps={createKeyProps}
+                    onCancel={() => setCreateKeyOpen(false)}
+                    onConfirm={() => {
+                        setCreateKeyOpen(false)
+                        getAllAPIKeysApi.request()
+                    }}
+                />
+            )}
             <Snackbar open={!!accessMessage} autoHideDuration={5000} onClose={() => setAccessMessage('')} message={accessMessage} />
         </Dialog>
     ) : null

@@ -136,3 +136,27 @@ it('reload reads saved Private from the server even when dialog props omit acces
         delete chatflowsApi.getSpecificChatflow
     }
 })
+
+it('warns that a workspace-wide prediction key can also access a private flow', async () => {
+    mockMode = 'on'
+    mockType = 'CHATFLOW'
+    mockKeys.push({ id: 'workspace-wide', keyName: 'All flows', accessPolicy: { allResources: true, scopes: ['predict'] }, resources: [] })
+    try {
+        await act(async () =>
+            root.render(
+                <ThemeProvider theme={theme}>
+                    <APICodeDialog
+                        show
+                        dialogProps={{ title: 'API Endpoint', chatflowid: 'fixture-flow', apiAccessMode: 'private' }}
+                        onCancel={() => {}}
+                    />
+                </ThemeProvider>
+            )
+        )
+        expect(document.querySelector('select[name="SelectKey"]').value).toBe('accesskeys')
+        expect(document.body.textContent).toContain('Workspace-wide keys can also call this flow')
+        expect(document.body.textContent).toContain('Create key for this flow')
+    } finally {
+        mockKeys.pop()
+    }
+})

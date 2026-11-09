@@ -48,7 +48,7 @@ Presets grant only the resources you pick and the prerequisites shown by the ser
 
 ## 3. Make the flow private
 
-Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
+Open the flow's **API Endpoint** dialog and select **Private: only keys you pick** when the flow must require a bearer. The access selector shows the state loaded from the server, and a successful save shows **API access saved**. **Create key for this flow** opens the call preset with this flow selected. Workspace-wide prediction keys can also call private flows; the dialog warns when they are present. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
 
 <!-- SCREENSHOT PENDING AK06: actual flow API Endpoint access control, Private selected, no bearer shown; docs/images/access-keys/private-flow.png. Action-only shot not captured. -->
 

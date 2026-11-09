@@ -82,6 +82,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const [busy, setBusy] = useState(false)
     const [formError, setFormError] = useState('')
     const validationSequence = useRef(0)
+    const presetFlowApplied = useRef('')
     const getAllPermissionsApi = useApi(authApi.getAllPermissions)
     const { hasPermission } = useAuth()
     const canViewChatflows = hasPermission('chatflows:view')
@@ -205,6 +206,7 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         setFormError('')
         setBusy(false)
         validationSequence.current += 1
+        presetFlowApplied.current = ''
         apikeyApi
             .options()
             .then((r) => setOptions(r.data))
@@ -217,6 +219,18 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dialogProps])
+
+    useEffect(() => {
+        if (!show || dialogProps.type !== 'ADD' || !dialogProps.flowId || presetFlowApplied.current === dialogProps.flowId) return
+        const flow = options.resources?.find(
+            (r) => r.resourceId === dialogProps.flowId && ['CHATFLOW', 'AGENTFLOW'].includes(r.resourceType)
+        )
+        if (!flow) return
+        presetFlowApplied.current = dialogProps.flowId
+        void selectPresetFlows([{ resourceType: flow.resourceType, resourceId: flow.resourceId }])
+        // Apply a flow passed by API Endpoint once, after the server supplies its choices.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [show, dialogProps.flowId, dialogProps.type, options.resources])
 
     useEffect(() => {
         if (getAllPermissionsApi.error) {
