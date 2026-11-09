@@ -627,7 +627,8 @@ export async function readOrdinarySignInReadiness(dataSource: DataSource, env: N
                     linked &&
                     fingerprint &&
                     state.configurationFingerprint === fingerprint &&
-                    !state.warningKind &&
+                    // Unknown stored warning text also decodes to a null kind; only true absence is safe.
+                    ((state.warningKind === null && state.warning === null) || state.warningKind === 'configuration-ambiguous') &&
                     state.providerKey === stableWorkosProviderKey(state.installationId, fingerprint)
             ),
             oidcReady

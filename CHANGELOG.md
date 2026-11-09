@@ -18,6 +18,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Mixed WorkOS/local-users upgrades can disable obsolete local-login flags when selected WorkOS has matching active identity and exact tested AuthKit configuration. The informational upgrade warning stays recorded; unsafe or unknown warnings and missing identity/proof still refuse the transition.
+
 -   Server settings saves on local-users-only and generic-OIDC installations no longer fail an unrelated login-method check. Anti-lockout validation applies only to effective sign-in transitions and requires persisted account/provider readiness; removing the last ordinary login still returns `409 NO_WAY_IN` without saving any part of the change. First-owner setup, host precedence and operator authorization remain intact.
 
 -   Service-wide settings, restart, tests, restore/retry/discard, guided configuration, global authentication/OIDC and version-history host configuration require the designated instance operator. Other organization owners cannot switch databases to acquire authority. Settings history is operator-only through both Server settings and Audit log. Operator designation grants no cross-organization data access. Recovery writes retain previous settings on audit failure.

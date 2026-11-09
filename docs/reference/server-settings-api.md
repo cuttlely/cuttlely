@@ -168,6 +168,8 @@ The shared settings writer checks login readiness only when effective values cha
 
 A relevant transition must retain an established ordinary login: a usable password on an eligible active account for the selected local method (an active owner for the owner-only form), selected active OIDC with matching persisted test/identity evidence and locally available configuration, or selected WorkOS with matching installation identity and a passed test for the exact AuthKit values. Availability flags, a cached selected method, an inactive provider draft, owner recovery, operator authority and the CLI do not establish an ordinary login. These checks read local database/configuration evidence; they make no live provider health request.
 
+The mixed-upgrade WorkOS warning `configuration-ambiguous` is informational: it does not block a transition when the account link, installation fingerprint/provider identity, complete configuration and exact AuthKit test proof match. The save retains that warning. Client-mismatch, method-missing and unknown stored warnings do not qualify WorkOS readiness.
+
 A transition with no established ordinary login, or unknown database readiness, returns 409 `NO_WAY_IN`. Selected WorkOS with complete but untested AuthKit values returns 409 `AUTHKIT_NOT_TESTED`. The entire mixed save is refused before settings/history writes. Zero-account enable-before-create setup remains available; the bootstrap email can qualify only first-account setup with matching AuthKit test proof. It is not continuing login evidence for existing accounts. OIDC method changes remain the versioned [Auth API stage/apply flow](./auth-api.md), not generic Server settings keys.
 
 ## Security limits
