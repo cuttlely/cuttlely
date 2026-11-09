@@ -1,3 +1,4 @@
+import { duplicateFlowData } from '@/utils/canvasSave'
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import PropTypes from 'prop-types'
@@ -310,7 +311,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
     const handleDuplicate = () => {
         setAnchorEl(null)
         try {
-            localStorage.setItem('duplicatedFlowData', chatflow.flowData)
+            localStorage.setItem('duplicatedFlowData', duplicateFlowData(chatflow))
             if (isAgentCanvas) {
                 window.open(`${uiBaseURL}/v2/agentcanvas`, '_blank')
             } else {

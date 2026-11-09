@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError, explainAccessKeyError } from './errors'
 import { AccessKeyPolicyError, AccessKeyUnavailableError } from './errors'
 import { assertCapacity } from './limiter'
 import { accessRollout, requireAccessRollout } from './rollout'
@@ -36,12 +37,12 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
         if (keyOnlyPrediction && !req.headers.authorization) {
             const flow = await (await accessData()).getRepository(ChatFlow).findOneBy({ id: flowMatch![2] })
             if (!flow) throw new AppError(404, 'Resource not found.')
-            if (!(await authorizeFlowKey(req, flow, false))) throw new AppError(401, 'Unauthorized')
+            if (!(await authorizeFlowKey(req, flow, false))) throw new AccessKeyAuthenticationError()
             return
         }
         if (adapter) externalAgentHeaders(req)
         const key = await authenticateRequest(req)
-        if (!key) throw new AppError(401, 'Unauthorized')
+        if (!key) throw new AccessKeyAuthenticationError()
         if (!key.accessPolicy || !callerPolicyAllows(key.accessPolicy, req.headers.origin, req.ip || ''))
             throw new AccessKeyPolicyError('Caller policy refused this request.')
         const match = flowMatch
@@ -65,7 +66,7 @@ export const accessKeyPreflight: RequestHandler = (req, _res, next) => {
                 const normalized =
                     accessRollout() === 'on' && !(error instanceof AppError && error.statusCode < 500)
                         ? new AccessKeyUnavailableError()
-                        : error
+                        : explainAccessKeyError(error)
                 // Refusals never enter the prediction router's IP/flow attempt limiter. Count them
                 // in that same bucket before responding; successful preflight still counts in the
                 // router exactly once. This is separate from accepted-operation key quotas.

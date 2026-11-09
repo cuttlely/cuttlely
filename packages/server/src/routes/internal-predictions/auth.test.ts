@@ -68,7 +68,10 @@ describe('POST /api/v1/internal-prediction through the API gate', () => {
             .set('Authorization', 'Bearer empty-key')
             .send({ question: 'How many loaves?' })
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         const stream = await app()
             .post(`/api/v1/internal-prediction/stream/${FLOW_ID}`)
             .set('Authorization', 'Bearer empty-key')

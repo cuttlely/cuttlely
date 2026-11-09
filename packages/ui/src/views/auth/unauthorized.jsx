@@ -2,13 +2,14 @@ import MainCard from '@/ui-component/cards/MainCard'
 import { Box, Stack, Typography } from '@mui/material'
 import unauthorizedSVG from '@/assets/images/unauthorized.svg'
 import { StyledButton } from '@/ui-component/button/StyledButton'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 
 // ==============================|| UnauthorizedPage ||============================== //
 
 const UnauthorizedPage = () => {
     const currentUser = useSelector((state) => state.auth.user)
+    const location = useLocation()
 
     return (
         <>
@@ -36,11 +37,13 @@ const UnauthorizedPage = () => {
                             />
                         </Box>
                         <Typography sx={{ mb: 2 }} variant='h4' component='div' fontWeight='bold'>
-                            403 Forbidden
+                            You do not have access to this operation (403)
                         </Typography>
                         <Typography variant='body1' component='div' sx={{ mb: 2 }}>
-                            You do not have permission to access this page.
+                            {location.state?.message ||
+                                'Ask your workspace admin to grant the permissions and resources needed for this operation.'}
                         </Typography>
+                        <a href='https://cuttlely.com/docs/how-to/access-keys/'>How to fix access-key errors</a>
                         {currentUser ? (
                             <Link to='/'>
                                 <StyledButton sx={{ px: 2, py: 1 }}>Back to Home</StyledButton>

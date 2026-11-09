@@ -1,3 +1,12 @@
+## Access-key maintenance, 1.7.1
+
+-   `packages/ui/src/views/apikey/APIKeyDialog.test.js`: saved-Harness preselection, server-proposed run/view prerequisites, enabled creation with Advanced collapsed and one-time reveal. The production fixture also covers an actual Harness-only workspace and prediction admission; that case ran inside the full gate's round12 production-route suite.
+
+-   `scripts/access-keys-postgres.test.cjs`: real shipped Postgres migrations, original varchar/UUID failure, actual HTTP delete, transactional rollback and workspace isolation. It uses only explicit test-connection inputs and creates/drops a unique disposable database.
+-   `scripts/access-keys-production.test.cjs` and `packages/ui/src/views/apikey/APIKeyDialog.production.fixture.js`: actual key form against SQLite management/prediction routes, call/read-only presets, missing-Harness repair, secret reveal/copy, examples and preselected flow creation. Additional HTTP cases preserve 401/403/429 and Retry-After for RPM/daily quotas.
+-   `services/accessKeys/management.ts` owns `/apikey/validate`; API Endpoint uses the existing key dialog entry point. The controlled selector regression is in `APICodeDialog.test.js`.
+-   `docs/images/access-keys/create-key-preset.png`, `access-validation.png` and `private-saved-171.png`: actual UI/local throwaway route fixture, made-up names, no model calls, IDs/secrets redacted. Earlier operator figures retain their original capture provenance. External review captures and final reports are retained separately, not published by this work.
+
 -   `packages/harness/warmup.mjs` and `warmup.test.mjs`: health/probe decisions, recent activity, per-profile invalidation, bounded concurrency and overlapping save/timer coverage.
 
 # Artifacts

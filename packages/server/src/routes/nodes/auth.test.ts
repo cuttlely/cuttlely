@@ -79,8 +79,14 @@ describe('node list and pack index sign-in', () => {
         const index = await client.get('/api/v1/nodes/pack-index')
         expect(nodes.status).toBe(401)
         expect(index.status).toBe(401)
-        expect(nodes.body).toEqual({ error: 'Unauthorized Access' })
-        expect(index.body).toEqual({ error: 'Unauthorized Access' })
+        expect(nodes.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
+        expect(index.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('returns 200 for both routes with a valid session', async () => {

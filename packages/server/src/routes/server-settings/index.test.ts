@@ -169,9 +169,15 @@ describe('who can use server settings', () => {
             .set('Authorization', 'Bearer good-key')
             .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '3' } })
         expect(missing.status).toBe(401)
-        expect(missing.body).toEqual({ error: 'Unauthorized Access' })
+        expect(missing.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         expect(keyed.status).toBe(401)
-        expect(keyed.body).toEqual({ error: 'Unauthorized Access' })
+        expect(keyed.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         expect(keyedWrite.status).toBe(401)
         expect(validateAPIKey).not.toHaveBeenCalled()
         const member = await gated({ attachIdentitySession: async () => MEMBER }).get('/api/v1/server-settings')
@@ -562,9 +568,15 @@ describe('runtime limits and history', () => {
             .set('Authorization', 'Bearer not-a-real-token')
             .send({ values: { CUTTLELY_PUBLISH_CHECK: 'false' } })
         expect(expired.status).toBe(401)
-        expect(expired.body).toEqual({ error: 'Unauthorized Access' })
+        expect(expired.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         expect(invalidToken.status).toBe(401)
-        expect(invalidToken.body).toEqual({ error: 'Unauthorized Access' })
+        expect(invalidToken.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         const nameless = { email: 'owner@example.com', activeWorkspaceId: 'team-a', permissions: [] }
         expect((await app(nameless).get('/api/v1/server-settings')).status).toBe(403)
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)

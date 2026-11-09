@@ -1,3 +1,4 @@
+import { duplicateFlowData } from '@/utils/canvasSave'
 import PropTypes from 'prop-types'
 import { useNavigate } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
@@ -286,9 +287,7 @@ const CanvasHeader = ({
             setChatflowConfigurationDialogOpen(true)
         } else if (setting === 'duplicateChatflow') {
             try {
-                let flowData = chatflow.flowData
-                const parsedFlowData = JSON.parse(flowData)
-                flowData = JSON.stringify(parsedFlowData)
+                const flowData = duplicateFlowData(chatflow)
                 localStorage.setItem('duplicatedFlowData', flowData)
                 window.open(`${uiBaseURL}${duplicateCanvasPath({ isHarnessCanvas, isEtlCanvas, isAgentflowV2, isAgentCanvas })}`, '_blank')
             } catch (e) {

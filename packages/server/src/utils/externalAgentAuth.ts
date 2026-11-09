@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'crypto'
 import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../errors/appError'
+import { AccessKeyAuthenticationError, accessKeyHelp } from '../services/accessKeys/errors'
 
 export class ExternalAgentError extends AppError {
     code: string
@@ -20,7 +21,12 @@ export const sendExternalAgentError = (res: Response, err: ExternalAgentError): 
     }
     res.status(err.statusCode).json({
         error: {
-            message: err.message,
+            message:
+                err.statusCode === 401
+                    ? new AccessKeyAuthenticationError().message
+                    : err.statusCode === 429 || (err.statusCode === 403 && err.code !== 'origin_not_allowed')
+                    ? accessKeyHelp(err.statusCode, err.message)
+                    : err.message,
             type: err.type,
             code: err.code
         }

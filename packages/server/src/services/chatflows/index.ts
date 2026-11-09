@@ -180,7 +180,9 @@ const deleteChatflow = async (
                 const principals = manager
                     .getRepository(ApiKey)
                     .createQueryBuilder('principal')
-                    .select('principal.id')
+                    // Existing Postgres apikey IDs are uuid; grant principal IDs are varchar.
+                    // Cast the subquery value, leaving grant IDs and all other dialects unchanged.
+                    .select(appServer.AppDataSource.options.type === 'postgres' ? 'CAST(principal.id AS text)' : 'principal.id')
                     .where('principal.workspaceId = :workspaceId', { workspaceId })
                 await manager
                     .createQueryBuilder()

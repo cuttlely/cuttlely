@@ -82,6 +82,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'api-key-hash.test.cjs'),
             path.join(ROOT, 'scripts', 'access-keys.test.cjs'),
             path.join(ROOT, 'scripts', 'access-keys-production.test.cjs'),
+            path.join(ROOT, 'scripts', 'access-keys-postgres.test.cjs'),
             path.join(ROOT, 'scripts', 'access-rollout-admin.test.cjs'),
             path.join(ROOT, 'scripts', 'breakglass-operator.test.cjs'),
             path.join(ROOT, 'scripts', 'settings-no-way-in.test.cjs'),

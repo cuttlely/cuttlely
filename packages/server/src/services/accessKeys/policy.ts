@@ -8,7 +8,7 @@ export const OPERATIONS = {
     upload: ['chatflows:view', 'agentflows:view'],
     'feedback:read': ['chatflows:view', 'agentflows:view'],
     'feedback:write': ['chatflows:view', 'agentflows:view'],
-    'harness:run': ['chatflows:create', 'chatflows:update', 'agentflows:create'],
+    'harness:run': ['chatflows:view', 'agentflows:view'],
     'harness:read': ['chatflows:view', 'agentflows:view'],
     'dashflow:read': ['chatflows:view'],
     'dashflow:report': ['chatflows:update'],
@@ -156,6 +156,28 @@ export function operationPermissions(operation: Operation, resource?: ResourceGr
         return [`${prefix}:${operation === 'api:write' ? 'update' : 'view'}`]
     }
     return OPERATIONS[operation]
+}
+
+/** The same prerequisites apply at save time and at runtime. Scopes never grant edit rights implicitly. */
+export function missingPolicyPermissions(policy: AccessPolicy, permissions: string[], resources: ResourceGrant[]): string[] {
+    const missing = new Set<string>()
+    const grants = policy.allResources ? RESOURCE_TYPES.map((resourceType) => ({ resourceType, resourceId: '*' })) : resources
+    for (const operation of policy.scopes) {
+        const applicable = grants.filter((grant) => operationAppliesTo(operation, grant))
+        for (const grant of applicable.length ? applicable : [undefined]) {
+            const required = operationPermissions(operation, grant)
+            if (!required.some((p) => permissions.includes(p))) missing.add(`${operation} needs ${required.join(' or ')}`)
+        }
+    }
+    return [...missing]
+}
+
+export function operationAppliesTo(operation: Operation, grant: ResourceGrant): boolean {
+    return operation.startsWith('harness:')
+        ? grant.resourceType === 'HARNESS'
+        : operation.startsWith('dashflow:')
+        ? grant.resourceType === 'DASHFLOW'
+        : grant.resourceType !== 'DASHFLOW'
 }
 
 /** Stored policy is server-owned. Malformed or incomplete rows fail closed instead of receiving new-key defaults. */

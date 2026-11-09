@@ -1,6 +1,6 @@
 import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { accessRollout, compareLegacy } from './rollout'
-import { AccessKeyPolicyError, FlowOriginPolicyError } from './errors'
+import { AccessKeyAuthenticationError, AccessKeyPolicyError, explainAccessKeyError, FlowOriginPolicyError } from './errors'
 import { recordKeyUse } from './audit'
 import { Request, RequestHandler } from 'express'
 import { DataSource } from 'typeorm'
@@ -109,8 +109,8 @@ async function checkKey(
     const pending = charge && !contexts.get(req)?.admitted.has('charged') ? contexts.get(req) : undefined
     if (pending) contexts.delete(req)
     const key = await authenticateRequest(req)
-    if (!key) throw new AppError(401, 'Unauthorized')
-    if (key.workspaceId !== workspaceId) throw new AppError(401, 'Unauthorized')
+    if (!key) throw new AccessKeyAuthenticationError()
+    if (key.workspaceId !== workspaceId) throw new AccessKeyAuthenticationError()
     const policy = key.accessPolicy ? readPolicy(key.accessPolicy) : undefined
     if (!policy) throw new AccessKeyPolicyError('Access policy unavailable. Run database migrations.')
     const requestedResource = resource
@@ -122,8 +122,8 @@ async function checkKey(
         !(policy.legacy && !resource && ['api:read', 'api:write'].includes(operation)) &&
         !operationPermissions(operation, resource).some((p) => ownerPermissions.includes(p))
     )
-        throw new AccessKeyPolicyError('The access key owner no longer has permission for this operation.')
-    if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError('Operation is not allowed by this access key.')
+        throw new AccessKeyPolicyError(`The key owner needs ${operationPermissions(operation, resource).join(' or ')} for ${operation}.`)
+    if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError(`This key is missing the ${operation} API operation.`)
     // Revalidate prerequisites (for example stream or nested Harness authority) against the
     // refreshed principal too, before any quota is consumed.
     if (pending) {
@@ -137,11 +137,14 @@ async function checkKey(
         for (const check of pending.checks.values()) await checkKey(req, check[0], check[1], check[2], false, check[3], check[4])
     }
     const data = await accessData()
-    if (resource && !(await hasGrant(data, key, resource))) throw new AccessKeyPolicyError('Resource is not allowed by this access key.')
+    if (resource && !(await hasGrant(data, key, resource)))
+        throw new AccessKeyPolicyError(`This key is missing a ${resource.resourceType} resource grant for this operation.`)
     if (!policy.legacy && !operationPermissions(operation, resource).some((permission) => key.permissions.includes(permission)))
-        throw new AccessKeyPolicyError('Access key permissions do not allow this operation.')
+        throw new AccessKeyPolicyError(
+            `This key needs ${operationPermissions(operation, resource).join(' or ')} permission for ${operation}.`
+        )
     if (requiredPermissions && !requiredPermissions.some((permission) => key.permissions.includes(permission)))
-        throw new AppError(403, 'This operation requires additional workspace permissions.')
+        throw new AccessKeyPolicyError(`This operation also needs ${requiredPermissions.join(' or ')} permission.`)
     if (!callerPolicyAllows(policy, req.headers.origin, req.ip || '')) throw new AccessKeyPolicyError('Caller policy refused this request.')
     const admission = `${operation}:${resource?.resourceType || ''}:${resource?.resourceId || ''}`
     const ctx = contexts.get(req)!
@@ -201,7 +204,7 @@ export async function authorizeKey(
             !(error instanceof FlowOriginPolicyError)
         )
             throw new AppError(503, 'Access key verification is unavailable.')
-        throw error
+        throw explainAccessKeyError(error)
     }
 }
 export function flowOperation(req: Request): Operation {
@@ -235,13 +238,13 @@ async function authorizeFlowV2(req: Request, flow: ChatFlow, charge = true): Pro
 async function authorizeFlowV2Body(req: Request, flow: ChatFlow, charge = true): Promise<boolean> {
     if (!req.headers.authorization) return flow.apiAccessMode === 'public' && !flow.apikeyid
     const presenting = await authenticateRequest(req)
-    if (!presenting) throw new AppError(401, 'Unauthorized')
+    if (!presenting) throw new AccessKeyAuthenticationError()
     if (
         presenting.accessPolicy?.legacy &&
         (presenting.workspaceId !== flow.workspaceId ||
             (flow.apikeyid && (flow.apikeyid !== presenting.id || !(await hasGrant(await accessData(), presenting, flowResource(flow))))))
     )
-        throw new AppError(401, 'Unauthorized')
+        throw new AccessKeyAuthenticationError()
     const operation = flowOperation(req)
     await authorizeKey(req, operation, flow.workspaceId, flowResource(flow), false)
     if (req.headers['content-type']?.toLowerCase().startsWith('multipart/form-data')) {
@@ -278,7 +281,12 @@ async function authorizeFlowV2Body(req: Request, flow: ChatFlow, charge = true):
         for (const name of names) {
             const harness = await resolveHarnessFlow(name, flow.workspaceId)
             if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
-            await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
+            try {
+                await authorizeKey(req, 'harness:run', flow.workspaceId, flowResource(harness), false)
+            } catch (error) {
+                if (error instanceof AccessKeyPolicyError) error.message = `This flow also needs the ${name} Harness. ${error.message}`
+                throw error
+            }
             harnessIds[name] = harness.id
         }
         const { checkChatflowOrigin } = await import('../../utils/domainValidation')
