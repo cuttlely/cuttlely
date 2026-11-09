@@ -11,6 +11,10 @@ Use **Admin > Server settings > Instance operator** for first claim and routine 
 3. Read the code in the deployment's host log (for example the hosting dashboard or `docker compose logs cuttlely`). If you cannot read it, ask the hosting operator for deliberate assistance. The code never appears in the panel, API responses, browser Logs, history or audit. It is printed once and lasts five minutes. Keep it private and do not paste it into reports.
 4. Enter the code in the same requesting browser session and confirm the claim. This explicitly designates that account; nothing is inferred from being an owner. Only the bound account inherits service authority. Other owners retain their tenant permissions and cannot see sensitive service configuration/history or operator management controls.
 
+![Instance operator updated. Current operator is Redacted and Source is admin panel.](../images/access-keys/instance-operator-enrolled.png)
+
+Captured on product 1.6.1 at feature head `5c08b125`, before the 1.7.0 version bump. The operator identity is redacted; access-key enforcement remained Off.
+
 Only one proof is active per installation. Requests have a five-minute cooldown, a limit of four per hour globally and two per hour per user. Wrong attempts are limited globally and per user. Wrong guesses never rotate or consume another requester's valid proof; its correct redemption remains possible after the wrong-attempt cap. A new session must wait for the active proof to expire before requesting another. Codes are bound to purpose, installation, authority generation, authentication epoch, user, session and running database connection. They work once.
 
 ## Transfer, disable and rebind in the panel
@@ -72,3 +76,7 @@ Host settings recovery remains available through `pnpm settings list`, `pnpm set
 The operator boundary covers service database/storage settings, tests, restart, sensitive history, retry/discard/restore, guided AuthKit setup, global sign-in/OIDC and version-history host configuration. API keys and bearer-only requests cannot qualify. Every request checks the current session, active ownership, designation and effective connection. Operator authority grants no cross-organization data access. Tenant roles and organization-scoped SCIM remain separate.
 
 Changing access-key enforcement also requires recent authentication. Access-key enforcement remains default **off**; claiming an operator does not activate it. Host `INBOUND_ACCESS_V2=off` overrides a saved mode. Rehearse the separate [access-key rollout](../reference/access-keys.md#rollout-and-migration) before explicit activation.
+
+![Access-key enforcement detail in Security & network shows Default (Off), In effect: off (default), and Default: Off.](../images/access-keys/enforcement-off-detail.png)
+
+This figure is from the same pre-bump capture; operator enrollment did not enable enforcement.

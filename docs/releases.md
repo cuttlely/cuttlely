@@ -39,10 +39,12 @@ A setting or route that will be removed is marked **Deprecated** in the changelo
 
 ## Which versions get fixes
 
-| Version                       | Gets fixes         |
-| ----------------------------- | ------------------ |
-| Latest minor (today: `1.6.x`) | Yes                |
-| Older minors and majors       | No. Upgrade first. |
+| Version                               | Gets fixes             |
+| ------------------------------------- | ---------------------- |
+| Latest minor (`1.7.x` on publication) | Yes, after publication |
+| Older minors and majors               | No. Upgrade first.     |
+
+Release preparation targets **1.7.0 (unreleased)** under the security exception: back up before upgrading, arrange operator-only service settings access with host-log proof from the hosting dashboard or Docker/Compose logs, and retain host/CLI recovery. Enforcement stays **Off** by default. Until publication, `1.6.x` remains the published minor. Read the [upgrade warnings](./upgrading.md).
 
 Fixes, including security fixes, ship as a patch release of the latest minor. An older minor does not get a backport. Upgrading within a major is meant to be safe: read the changelog's upgrade notes and back up first, as [Upgrading Cuttlely](./upgrading.md) describes. Every full `pnpm verify` checks that data from an older release opens on the current code.
 
@@ -155,4 +157,4 @@ It then builds the widget, runs `npm pack --dry-run` for both packages, and publ
 
 The server itself is not an npm package. The image carries the Python agent runtime. `NPM_TOKEN` is an npm access token for the cuttlely org. It is not stored in this repository. Both packages set `publishConfig.access` to `public`. There is no publish workflow.
 
-Version **1.7.0 is planned/unreleased** under the security exception above. It closes previously allowed browser service administration and changes fresh setup. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default. This documentation does not publish a release or move the supported-version row ahead of publication.
+Version **1.7.0 is planned/unreleased** under the security exception above. It closes previously allowed browser service administration and changes fresh setup. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default. The four product manifests are prepared at 1.7.0; the changelog stays `1.7.0 - Unreleased`. This preparation does not publish a release; the supported-version row identifies 1.7.x as the target on publication.

@@ -9,14 +9,20 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 The planned 1.7.0 release changes previously allowed browser service administration under the approved [security exception](./releases.md#what-counts-as-a-breaking-change). Back up before upgrading and retain a host/CLI recovery route. The release and image are not published by these changes.
 
 1. Back up the application database, installation encryption key and saved settings, including the host-only operator binding when one exists.
-2. Only an actual valid host CLI operator binding is inherited automatically. Legacy accounts without one—including older CLI-password owners—must complete the one-time **Admin > Server settings > Instance operator > CLAIM** flow with a code printed only in the hosting log. No account is inferred. The CLI is emergency recovery when nobody can sign in or host files are unsafe; run it as the application OS user.
+2. Only an actual valid host CLI operator binding is inherited automatically. Legacy accounts without one—including older CLI-password owners—must complete the one-time **Admin > Server settings > Instance operator > CLAIM** flow with a code printed only in the host log, available in the hosting dashboard or Docker/Compose logs. No account is inferred. The CLI is emergency recovery when nobody can sign in or host files are unsafe; run it as the application OS user.
 3. On a fresh install, configure sign-in on the host, create/sign in to the intended active owner, then explicitly claim from the panel with host-log proof. Browser setup codes create accounts only. A supported host CLI first-owner create/reset already records a verified binding and needs no claim.
-4. With `CUTTLELY_INSTANCE_OPERATOR` entirely unset, a valid managed binding applies. JSON overrides it; `none`, empty or invalid overrides close claims and browser authority. Every defined override disables panel transfer/revoke/rebind/recovery. Removing an override can reveal a prior managed binding.
+4. Only the designated instance operator can change service-wide settings; other owners retain tenant permissions. With `CUTTLELY_INSTANCE_OPERATOR` entirely unset, a valid managed binding applies. JSON overrides it; `none`, empty or invalid overrides close claims and browser authority. Every defined override disables panel transfer/revoke/rebind/recovery. Removing an override can reveal a prior managed binding.
 5. Use the panel for routine transfer or revoke. Revocation leaves a Disabled tombstone. Disabled/corrupt state needs separately confirmed host-log recovery proof; a changed database requires a fresh host-log REBIND by the previously bound active owner. No ordinary bootstrap reopens after revocation or a DB change. Keep authority/tombstones outside generic database/settings restores.
 6. Recreate containers with the same Compose file/options for host override changes. All shipped root/directory/queue/worker services omit an unset operator override and preserve explicit empty/none/JSON values; a plain restart retains the old container environment.
 7. Access-key enforcement remains **Off** by default. Back up the encryption key and database, rehearse migrations on a restored test installation, resolve review findings and custom-assistant incompatibilities, then plan the separate confirmed Off → Shadow → On activation. MySQL/MariaDB migrations can commit partially; see [access-key rollout](./reference/access-keys.md#rollout-and-migration).
 
 Read [operator onboarding and recovery](./how-to/instance-operator.md) before deployment. No release/image publication or live activation is performed by these changes.
+
+![Instance operator updated, with Current operator redacted and Source: admin panel.](./images/access-keys/instance-operator-enrolled.png)
+
+![Access-key enforcement shows Default (Off) and In effect: off (default).](./images/access-keys/enforcement-off.png)
+
+These sanitized figures were captured on product 1.6.1 at feature head `5c08b125`, before the 1.7.0 version bump. Enrollment did not enable enforcement.
 
 ## What to back up
 

@@ -902,6 +902,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...HEAD
+[1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...HEAD
 [1.6.1]: https://github.com/cuttlely/cuttlely/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/cuttlely/cuttlely/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/cuttlely/cuttlely/compare/v1.5.1...v1.5.2

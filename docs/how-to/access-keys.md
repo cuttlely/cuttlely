@@ -8,7 +8,11 @@ You need a signed-in workspace account allowed to manage keys and grant the sele
 
 Scoped keys require enforcement **On**. Enforcement is **Off** by default; installing or upgrading does not turn it on. Do not activate it on a live installation merely to follow this guide. Have the instance operator complete the rollout below in a restored test installation first, then schedule production activation separately.
 
-Legacy installations without an actual host binding use **Admin > Server settings > Instance operator** for an explicit one-time claim with a code printed only to the host log. Only verified host CLI bindings grandfather automatically; no legacy account, login method or owner role is inferred. The panel supports transfer, revocation with a durable Disabled tombstone, and separately confirmed host-proof recovery/rebind. The CLI is emergency recovery only. Any defined `CUTTLELY_INSTANCE_OPERATOR` value disables panel lifecycle changes; JSON/`none` precedence and invalid/empty fail-closed behavior remain. See [operator onboarding and recovery](./instance-operator.md).
+Legacy installations without an actual host binding use **Admin > Server settings > Instance operator** for an explicit one-time claim with a code printed only to the host log. Only verified host CLI bindings grandfather automatically; no legacy account, login method or owner role is inferred. The panel supports transfer, revocation with a durable Disabled tombstone, and separately confirmed host-proof recovery/rebind. The CLI is emergency recovery only. Any defined `CUTTLELY_INSTANCE_OPERATOR` value disables panel lifecycle changes; JSON/`none` precedence and invalid/empty fail-closed behavior remain. Read host-log proof in the hosting dashboard or Docker/Compose logs. Only the designated operator can change service settings. See [operator onboarding and recovery](./instance-operator.md).
+
+The figures below were captured on product 1.6.1 at feature head `5c08b125`, before the 1.7.0 version bump. Enforcement remained Off, no key was created, and the create dialog was cancelled. Existing identities and resource names are redacted. The figures show the available screens and an unsubmitted policy preview.
+
+![Instance operator updated. Current operator is Redacted and Source is admin panel.](../images/access-keys/instance-operator-enrolled.png)
 
 ## 1. Prepare enforcement with the instance operator
 
@@ -18,8 +22,9 @@ Legacy installations without an actual host binding use **Admin > Server setting
 4. Review a change to **Shadow** and type **APPLY**. Shadow serves legacy decisions and records scoped flow comparisons without charging quotas. It is not a simulation of every route or quota. Check the audit comparisons and separately exercise the routes your app uses in the restored installation.
 5. When ready for that installation, review a change to **On** and type **APPLY**. This affects every workspace on the service, not just yours. A saved mode applies on the next request and persists across restarts. New scoped keys cannot be issued in Off or Shadow.
 
-<!-- SCREENSHOT PENDING AK01: actual operator selector showing Off and source, with no host identity/secrets; docs/images/access-keys/enforcement-off.png. -->
-<!-- SCREENSHOT PENDING AK02: actual mode-change review and APPLY, before committing the change; docs/images/access-keys/enforcement-review.png. -->
+![Access-key enforcement in Server settings shows Default (Off), In effect: off (default), and Default: Off.](../images/access-keys/enforcement-off.png)
+
+<!-- SCREENSHOT PENDING AK02: actual mode-change review and APPLY, before committing the change; docs/images/access-keys/enforcement-review.png. Action-only shot not captured. -->
 
 Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute counters are process-local and reset on restart; do not promise exact cross-replica limits. MySQL/MariaDB schema changes may commit partially on failure; the release has not validated those migrations against a live server. Read the reference before planning that upgrade.
 
@@ -34,9 +39,11 @@ Enforcement supports one API instance (`CUTTLELY_API_KEY_INSTANCES=1`). Minute c
 7. Set **Requests per minute**, **Daily UTC quota** and **Monthly UTC quota**. The defaults are 60 per minute and unlimited day/month totals; `0` means unlimited. Start with limits appropriate for this integration.
 8. Click **Add**. Copy the secret once into your server's secret manager, then click **Done**. Cuttlely stores a verifier, not a recoverable secret. Closing the reveal loses the ability to copy it again; rotate if necessary. Do not include the reveal in screenshots.
 
-<!-- SCREENSHOT PENDING AK03: actual workspace Access Keys list with test-only names/prefixes; docs/images/access-keys/workspace-list.png. -->
-<!-- SCREENSHOT PENDING AK04: actual create dialog permissions, scopes and exact resources, before Add; docs/images/access-keys/create-key-policy.png. -->
-<!-- SCREENSHOT PENDING AK05: actual expiry and limits, before Add; docs/images/access-keys/expiry-and-limits.png. -->
+![Workspace Access Keys list with existing key rows redacted and Create Key visible.](../images/access-keys/workspace-list.png)
+
+![Unsubmitted policy preview with every visible API operation and resource checkbox unchecked; existing resource names and grant labels are redacted.](../images/access-keys/create-key-policy.png)
+
+![Add access key dialog warns that policy changes are unavailable while INBOUND_ACCESS_V2 is off. The expiry preview is 2027-02-07T02:40:16.145Z, requests per minute is 60, daily and monthly quotas are 0, Add is disabled and Cancel is available.](../images/access-keys/create-key-dialog-top.png)
 
 New keys start with no scopes and no resource grants. An empty policy can be saved, but it authorizes no runtime calls. Exact grants follow stable IDs: a deleted resource recreated with the same name does not inherit the deleted resource's grant.
 
@@ -44,7 +51,7 @@ New keys start with no scopes and no resource grants. An empty policy can be sav
 
 Open the flow's **API Endpoint** dialog and select **Private (selected access keys)** when the flow must require a bearer. A resource grant alone does not make a public flow private. Keep public embeds separate; do not paste this key into embed configuration. See [Share and embed](./share-and-embed.md).
 
-<!-- SCREENSHOT PENDING AK06: actual flow API Endpoint access control, Private selected, no bearer shown; docs/images/access-keys/private-flow.png. -->
+<!-- SCREENSHOT PENDING AK06: actual flow API Endpoint access control, Private selected, no bearer shown; docs/images/access-keys/private-flow.png. Action-only shot not captured. -->
 
 ## 4. Restrict callers, if needed
 
@@ -54,7 +61,7 @@ Edit the key to add **Allowed origins (one per line)**. Each entry must be an ex
 
 Click **Save** after editing. When editing a migrated legacy policy, saving replaces migration compatibility with the explicit policy shown. Check scopes and resources before saving; the old secret value does not change.
 
-<!-- SCREENSHOT PENDING AK07: actual origin/IP policy with documentation-only example addresses and server-caller option; docs/images/access-keys/caller-restrictions.png. -->
+![Unsubmitted caller restrictions with empty origin and IP lists, Allow server callers without an Origin header checked, and resource names redacted. Policy preview shows 0 operations and 0 selected resources; Add is disabled.](../images/access-keys/caller-restrictions.png)
 
 ## 5. Call the flow from your server
 
@@ -83,7 +90,7 @@ One accepted HTTP operation counts once, not once per token, streamed chunk or n
 4. Roll out that secret to every caller within the grace period. Confirm your approved test calls work with the successor before retiring the previous credential.
 5. Revoke the previous credential with **Revoke credential**, or **Revoke legacy credential** for a retained legacy bearer. Repeated rotations do not extend an earlier cutoff.
 
-<!-- SCREENSHOT PENDING AK08: actual Credentials and usage with grace and credential metadata, reveal closed; docs/images/access-keys/rotation-and-usage.png. -->
+<!-- SCREENSHOT PENDING AK08: actual Credentials and usage with grace and credential metadata, reveal closed; docs/images/access-keys/rotation-and-usage.png. Action-only shot not captured. -->
 
 Extending the principal's expiry does not extend an already issued credential. Rotate to issue a credential with the new expiry. An expired or revoked credential does not revive through a policy edit.
 
@@ -91,7 +98,7 @@ Extending the principal's expiry does not extend an already issued credential. R
 
 Use the list's **Revoke** action to revoke the principal and block new requests from every credential belonging to it. Use credential revocation to retire just one secret. Already admitted streams or background runs may finish. Inspect usage and **Admin > Audit log** for lifecycle and policy changes; usage events are aggregated/deduplicated, not a complete per-request ledger.
 
-<!-- SCREENSHOT PENDING AK09: actual principal-revocation confirmation, then revoked list state, using a disposable key; docs/images/access-keys/revoke-confirmation.png and revoked-key.png. -->
+<!-- SCREENSHOT PENDING AK09: actual principal-revocation confirmation, then revoked list state, using a disposable key; docs/images/access-keys/revoke-confirmation.png and revoked-key.png. Action-only shot not captured. -->
 
 ## Troubleshoot and recover
 

@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.6.1)
+# Cuttlely FAQ (planned 1.7.0, unreleased)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,10 +38,14 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.6.1?
+### What's planned in 1.7.0?
+
+Scoped access keys and host-backed service administration. This security-exception release requires upgrade action: back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment. Only verified host CLI bindings grandfather; legacy installs without one claim in Server settings with a code from the hosting dashboard or Docker/Compose logs. Only the designated operator can change service-wide settings. Routine lifecycle is in the panel; the CLI is emergency recovery. Enforcement stays Off by default. Read the [upgrade warnings](./docs/upgrading.md) and [planned changelog](./CHANGELOG.md#170---unreleased). After publication, pin image `ghcr.io/cuttlely/cuttlely:1.7.0` or install `cuttlely@1.7.0`.
+
+### What changed in 1.6.1?
 
 -   **Dashflows BETA** evidence inspection now leads with account names, executive hover summaries, and searchable risk-filtered source lists (up to 100 records). Pipeline period and region changes automatically save and refresh, with a six-hour workspace-scoped durable cache for date-range presets. Optional public snapshot links expose frozen published data and account-scoped health reports; team-only remains the default. Still Experimental and off by default. See [Dashflows BETA](./docs/how-to/dashflows.md).
--   No breaking changes; read the [1.6.1 changelog](./CHANGELOG.md#161---2026-11-06). To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.6.1`, or run `npm i cuttlely@1.6.1`.
+-   No breaking changes; read the [1.6.1 changelog](./CHANGELOG.md#161---2026-11-06). That release used image `ghcr.io/cuttlely/cuttlely:1.6.1` and package `cuttlely@1.6.1`.
 
 Full notes: [v1.6.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.6.1).
 
