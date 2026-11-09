@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types'
+import { useEffect, useState } from 'react'
 import { Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material'
 
 export const newAccessPolicy = () => ({
@@ -26,6 +27,15 @@ export default function AccessPolicyEditor({
     confirmed,
     setConfirmed
 }) {
+    const [durationChoice, setDurationChoice] = useState({ value: 'none', expiresAt: null })
+    useEffect(() => {
+        setDurationChoice((current) => {
+            if (current.expiresAt === expiresAt) return current
+            // Recognize the initial expiry set by the dialog without letting later renders change a chosen preset.
+            const days = [30, 90].find((days) => Math.abs(Date.parse(expiresAt) - Date.now() - days * 86400000) < 1000)
+            return { value: !expiresAt ? 'none' : days ? String(days) : 'custom', expiresAt }
+        })
+    }, [expiresAt])
     const update = (name, value) => setPolicy((current) => ({ ...current, [name]: value }))
     const toggleScope = (scope) =>
         update('scopes', policy.scopes.includes(scope) ? policy.scopes.filter((s) => s !== scope) : [...policy.scopes, scope])
@@ -59,6 +69,7 @@ export default function AccessPolicyEditor({
             <TextField
                 select
                 label='Environment label'
+                InputLabelProps={{ shrink: true }}
                 value={policy.environment}
                 onChange={(e) => update('environment', e.target.value)}
                 helperText='Live/test is a label, not a separate workspace.'
@@ -69,15 +80,21 @@ export default function AccessPolicyEditor({
             <TextField
                 select
                 label='Duration preset'
-                value=''
-                onChange={(e) =>
-                    setExpiresAt(e.target.value === 'none' ? null : new Date(Date.now() + Number(e.target.value) * 86400000).toISOString())
-                }
+                InputLabelProps={{ shrink: true }}
+                value={durationChoice.value}
+                onChange={(e) => {
+                    const value = e.target.value
+                    const expiry = value === 'none' ? null : new Date(Date.now() + Number(value) * 86400000).toISOString()
+                    setDurationChoice({ value, expiresAt: expiry })
+                    setExpiresAt(expiry)
+                }}
             >
-                <MenuItem value=''>Choose a duration</MenuItem>
                 <MenuItem value='30'>30 days</MenuItem>
                 <MenuItem value='90'>90 days</MenuItem>
                 <MenuItem value='none'>No expiry</MenuItem>
+                <MenuItem value='custom' disabled>
+                    Custom
+                </MenuItem>
             </TextField>
             <TextField
                 label='Expires at (UTC)'
