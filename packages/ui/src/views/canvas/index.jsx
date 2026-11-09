@@ -234,6 +234,7 @@ const Canvas = () => {
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
+    const [duplicateSourceId, setDuplicateSourceId] = useState('')
     const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
     const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
@@ -461,6 +462,7 @@ const Canvas = () => {
 
             if (!chatflow.id) {
                 const newChatflowBody = {
+                    ...(duplicateSourceId ? { duplicateSourceId } : {}),
                     name: chatflowName,
                     deployed: false,
                     isPublic: false,
@@ -1017,7 +1019,7 @@ const Canvas = () => {
             if (draft) {
                 saveFirstDraft(chatflow, draft, harnessNote)
             } else {
-                saveChatflowSuccess(harnessNote || undefined)
+                saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined)
             }
             if (!draft) {
                 flowDraftsApi
@@ -1114,6 +1116,14 @@ const Canvas = () => {
             if (storedFlow) {
                 try {
                     const stored = JSON.parse(storedFlow)
+                    if (stored.cuttlelyDuplicateSourceId) {
+                        setDuplicateSourceId(stored.cuttlelyDuplicateSourceId)
+                        enqueueSnackbar({
+                            message:
+                                'This copy will start Private. Access-key grants are not copied. Pick or create a key for the copy in API Endpoint.',
+                            options: { key: 'duplicate-access', variant: 'warning', persist: true }
+                        })
+                    }
                     if (stored && stored.cuttlelyMigration && typeof stored.name === 'string' && stored.name.trim()) {
                         importedName = stored.name.trim()
                     }

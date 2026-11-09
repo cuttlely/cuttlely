@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError, AccessKeyPolicyError, explainAccessKeyError } from './errors'
 import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { assertSafeManagementWrite, redactTransportSecrets } from './managementBoundary'
 import { accessRollout } from './rollout'
@@ -25,7 +26,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (['prediction', 'attachments', 'feedback', 'get-upload-file', 'orchestrate', 'a2a', 'verify'].includes(root)) return
         if (root === 'vector' && req.method === 'POST' && parts[1] === 'upsert' && parts.length <= 3) return
         const key = accessContext(req)?.key || (await authenticateRequest(req))
-        if (!key) throw new AppError(401, 'Unauthorized')
+        if (!key) throw new AccessKeyAuthenticationError()
         if (accessRollout() !== 'on') {
             if (!key.accessPolicy?.legacy) throw new AppError(503, 'Scoped access keys require INBOUND_ACCESS_V2=on.')
             if (root === 'dashflows') throw new AppError(403, 'Sign in to your team to use Dashflows.')
@@ -57,7 +58,9 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (!key.accessPolicy?.legacy && ['chatflows', 'flow-drafts', 'flow-versions'].includes(root))
             assertSafeManagementWrite(root, req.method, parts, req.body)
         if ((!key.accessPolicy?.legacy || root === 'dashflows') && !registered)
-            throw new AppError(403, 'This endpoint is not available to scoped access keys.')
+            throw new AccessKeyPolicyError(
+                'This endpoint is not available to scoped access keys. Sign in for workspace-wide APIs, or call a supported resource endpoint using its ID.'
+            )
 
         if (root === 'harnesses' && parts[4] === 'diagnostics') throw new AppError(403, 'Harness diagnostics require a signed-in author.')
         let operation: Operation = read ? 'api:read' : 'api:write'
@@ -217,5 +220,5 @@ export const authorizeLeadCreate: RequestHandler = (req, res, next) => {
                 sessionNeedsHeader: true
             })(req, res, next)
         )
-        .catch(next)
+        .catch((error) => next(explainAccessKeyError(error)))
 }

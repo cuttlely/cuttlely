@@ -4,6 +4,16 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.1
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.1 server and widget versions. No new schema migration is needed for the PostgreSQL delete fix. Existing bearer values, grants, quotas and enforcement mode are preserved.
+
+For an existing prediction key that was saved without view permission, edit it in **Access Keys** and add the permission named by the refusal (`chatflows:view` or `agentflows:view`). A referenced Harness needs its own grant and `harness:run`; execution uses view permission while edits still need edit rights. New flow-first presets include these prerequisites.
+
+Duplicated flows start **Private** and explicitly omit copied key grants. Pick or create access for the copy's new ID before calling it. API Endpoint reloads saved access and confirms saves. Review workspace-wide keys, which can also call private flows.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions. Enforcement remains **Off** by default; upgrade preparation does not activate it.
+
 ## 1.7.0 security-exception upgrade
 
 The 1.7.0 security-exception release changes previously allowed browser service administration under the approved [security exception](./releases.md#what-counts-as-a-breaking-change). Back up before upgrading and retain a host/CLI recovery route.

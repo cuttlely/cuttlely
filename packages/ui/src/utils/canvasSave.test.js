@@ -1,4 +1,4 @@
-import { canvasSaveDocument } from './canvasSave'
+import { canvasSaveDocument, duplicateFlowData } from './canvasSave'
 import { planCanvasSave } from './flowDrafts'
 import { missingNodeInfo } from './missingNode'
 import { normalizeCanvasFlow } from './normalizeCanvasFlow'
@@ -174,4 +174,12 @@ describe('saving a canvas that has a node which is not installed', () => {
         expect(lines.map((edge) => edge.targetHandle)).toContain(data.inputAnchors[0].id)
         expect(lines.map((edge) => edge.sourceHandle)).toContain(data.outputAnchors[0].options[0].id)
     })
+})
+
+it('duplicate transfer preserves its source identity without copying access-key grants', () => {
+    const source = { id: 'source', flowData: JSON.stringify(original), apiAccessMode: 'private', apikeyid: 'old' }
+    const copied = JSON.parse(duplicateFlowData(source))
+    expect(copied.cuttlelyDuplicateSourceId).toBe(source.id)
+    expect(copied.nodes).toEqual(original.nodes)
+    expect(copied.apikeyid).toBeUndefined()
 })

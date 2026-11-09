@@ -132,6 +132,34 @@ paths:
                     description: Key or credential not found in the active workspace.
                 '503':
                     description: Rollout is not on (for creation, policy updates or rotation), or service unavailable.
+    /apikey/validate:
+        post:
+            tags:
+                - access-keys
+            operationId: validateAccessKey
+            summary: Check an access-key policy before saving
+            description: >-
+                Requires an interactive session with apikeys:create or apikeys:update and enforcement on.
+                Returns missing prerequisites and an authorized suggested policy without issuing a secret or changing grants.
+                Creation and updates recheck the policy and current authority.
+            security:
+                - sessionAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            description: The complete proposed keyName, permissions, accessPolicy, resources and expiry.
+            responses:
+                '200':
+                    description: Readiness result with valid, missing, canFix and suggested fields.
+                '400':
+                    description: Invalid policy or missing permissions.
+                '403':
+                    description: Resource or operation exceeds the current role.
+                '503':
+                    description: Enforcement is unavailable or off.
     /apikey/options:
         get:
             tags:
@@ -139,7 +167,7 @@ paths:
             operationId: accessKeyOptions
             summary: List grantable access-key options
             description: >-
-                Requires an interactive session with apikeys:view. Resource choices and scopes reflect current permissions; Dashflows choices
+                Requires an interactive session with apikeys:view, apikeys:create or apikeys:update. Resource choices and scopes reflect current permissions; Dashflows choices
                 appear only when its Experimental setting is on.
             security:
                 - sessionAuth: []

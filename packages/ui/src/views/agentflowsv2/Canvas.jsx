@@ -180,6 +180,7 @@ const AgentflowCanvas = () => {
     // ==============================|| Chatflow API ||============================== //
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
+    const [duplicateSourceId, setDuplicateSourceId] = useState('')
     const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
     const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
@@ -323,6 +324,7 @@ const AgentflowCanvas = () => {
 
             if (!chatflow.id) {
                 const newChatflowBody = {
+                    ...(duplicateSourceId ? { duplicateSourceId } : {}),
                     name: chatflowName,
                     deployed: false,
                     isPublic: false,
@@ -799,7 +801,7 @@ const AgentflowCanvas = () => {
             const chatflow = createNewChatflowApi.data
             builderStartersRef.current = []
             dispatch({ type: SET_CHATFLOW, chatflow })
-            saveChatflowSuccess()
+            saveChatflowSuccess(chatflow.accessNotice)
             flowDraftsApi
                 .getStatus(chatflow.id)
                 .then((res) => {
@@ -849,6 +851,14 @@ const AgentflowCanvas = () => {
             if (storedFlow) {
                 try {
                     const stored = JSON.parse(storedFlow)
+                    if (stored.cuttlelyDuplicateSourceId) {
+                        setDuplicateSourceId(stored.cuttlelyDuplicateSourceId)
+                        enqueueSnackbar({
+                            message:
+                                'This copy will start Private. Access-key grants are not copied. Pick or create a key for the copy in API Endpoint.',
+                            options: { key: 'duplicate-access', variant: 'warning', persist: true }
+                        })
+                    }
                     if (stored && stored.cuttlelyMigration && typeof stored.name === 'string' && stored.name.trim()) {
                         importedName = stored.name.trim()
                     }

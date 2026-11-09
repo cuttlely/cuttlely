@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError } from '../services/accessKeys/errors'
 /**
  * Flow access: the feedback routes (GET/POST/PUT), get-upload-file and the assistants file download accept the flow's
  * API key or a session in the flow's workspace, checked on the flow that owns the feedback, message or file.
@@ -128,6 +129,10 @@ const session = (workspaceId: string) => ({ 'x-test-session-workspace': workspac
 // The in-app UI sends this header on every request; a cross-site form cannot.
 const appSession = (workspaceId: string) => ({ ...session(workspaceId), 'x-request-from': 'internal' })
 const UNAUTHORIZED = { statusCode: 401, success: false, message: 'Unauthorized', stack: {} }
+const unauthorizedFor = (headers: Record<string, string>) => ({
+    ...UNAUTHORIZED,
+    message: headers.Authorization ? new AccessKeyAuthenticationError().message : UNAUTHORIZED.message
+})
 
 // Stands in for the session-cookie middleware, as in the attachments access test (A0 confirmed the logged-in UI's cookie fills
 // req.user on whitelisted routes). The JSON parser is app-level in the server too.
@@ -192,7 +197,7 @@ describe('Flow access: GET /api/v1/feedback/:chatflowId', () => {
         for (const headers of [{}, bearer(KEY_K2), { Authorization: KEY_K.slice(0, 10) }]) {
             const res = await getFeedback(K, headers)
             expect(res.status).toBe(401)
-            expect(res.body).toEqual(UNAUTHORIZED)
+            expect(res.body).toEqual(unauthorizedFor(headers))
         }
     })
 
@@ -242,7 +247,7 @@ describe('Flow access: POST /api/v1/feedback(/:id)', () => {
         for (const headers of [{}, bearer(KEY_K2)]) {
             const res = await postFeedback(`/${K}`, body, headers)
             expect(res.status).toBe(401)
-            expect(res.body).toEqual(UNAUTHORIZED)
+            expect(res.body).toEqual(unauthorizedFor(headers))
         }
         expect(feedbackRows()).toEqual(before)
     })
@@ -314,7 +319,7 @@ describe('Flow access: PUT /api/v1/feedback/:feedbackId', () => {
         for (const headers of [{}, bearer(KEY_K2), session(OTHER_WS)]) {
             const res = await putFeedback(FB_K, { rating: 'THUMBS_DOWN', content: 'changed' }, headers)
             expect(res.status).toBe(401)
-            expect(res.body).toEqual(UNAUTHORIZED)
+            expect(res.body).toEqual(unauthorizedFor(headers))
         }
         expect(feedbackRows()).toEqual(before)
     })
@@ -415,7 +420,7 @@ describe("Flow access: get-upload-file and the assistants file download check ac
         for (const headers of [{}, bearer(KEY_K2), session(OTHER_WS)]) {
             const res = await getUploadFile(fileQuery(K, CHAT_K), headers)
             expect(res.status).toBe(401)
-            expect(res.body).toEqual(UNAUTHORIZED)
+            expect(res.body).toEqual(unauthorizedFor(headers))
         }
         expect(mockState.storageReads).toEqual([])
     })
@@ -475,7 +480,7 @@ describe("Flow access: get-upload-file and the assistants file download check ac
         for (const headers of [{}, bearer(KEY_K2), session(OTHER_WS)]) {
             const res = await downloadAssistantFile(fileQuery(K, CHAT_K), headers)
             expect(res.status).toBe(401)
-            expect(res.body).toEqual(UNAUTHORIZED)
+            expect(res.body).toEqual(unauthorizedFor(headers))
         }
         expect(mockState.storageReads).toEqual([])
     })

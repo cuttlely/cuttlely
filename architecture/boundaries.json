@@ -1392,6 +1392,7 @@
             ],
             "entryPoints": [
                 "packages/ui/src/views/apikey/endpointAccess.js",
+                "packages/ui/src/views/apikey/APIKeyDialog.jsx",
                 "packages/server/src/services/accessKeys/authorization.ts",
                 "packages/server/src/services/accessKeys/errors.ts",
                 "packages/server/src/services/accessKeys/management.ts",

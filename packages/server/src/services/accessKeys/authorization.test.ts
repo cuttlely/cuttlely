@@ -233,11 +233,10 @@ it.each(['principal permission', 'owner permission', 'legacy owner permission', 
         mockFlows.set(HARNESS, harness)
         grant(HARNESS, 'HARNESS')
         const principal = key({ scopes: missing === 'run scope' ? ['predict', 'stream'] : ['predict', 'stream', 'harness:run'] })
-        principal.permissions = ['chatflows:view']
-        if (missing !== 'principal permission') principal.permissions.push('chatflows:create')
+        principal.permissions = missing === 'principal permission' ? [] : ['chatflows:view']
         if (missing.includes('owner')) {
             principal.ownerUserId = 'creator'
-            mockOwnerPermissions = ['chatflows:view']
+            mockOwnerPermissions = []
         }
         if (missing.startsWith('legacy')) principal.accessPolicy!.legacy = true
         mockKeys.set('fixture-token', principal)
@@ -301,6 +300,11 @@ it('rejects unclassified APIs, workspace lists and scoped-key management; regist
                     .set('Authorization', 'Bearer fixture-token')
             ).status
         ).toBe(403)
+    const listDenied = await request(app).get('/api/v1/chatflows').set('Authorization', 'Bearer fixture-token')
+    expect(listDenied.status).toBe(403)
+    expect(listDenied.body.message).toContain('Sign in for workspace-wide APIs')
+    expect(listDenied.body.message).toContain('supported resource endpoint using its ID')
+    expect(listDenied.body.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
     mockKeys.set('fixture-token', key({ scopes: ['api:read'] }))
     expect(
         (
@@ -316,6 +320,16 @@ it('rejects unclassified APIs, workspace lists and scoped-key management; regist
                 .set('Authorization', 'Bearer fixture-token')
         ).status
     ).toBe(403)
+})
+it('scoped list refusals retain 403 and explain the signed-in or resource-specific recovery path', async () => {
+    mockKeys.set('fixture-token', key({ scopes: ['predict'] }))
+    const incoming = Object.assign(req(), { method: 'GET', path: '/chatflows', originalUrl: '/api/v1/chatflows' })
+    const error = await new Promise<any>((resolve) => accessKeyRouteGuard(incoming, {} as express.Response, resolve))
+    expect(error.statusCode).toBe(403)
+    expect(error.message).toContain('Sign in for workspace-wide APIs')
+    expect(error.message).toContain('supported resource endpoint using its ID')
+    expect(error.message).toContain('https://cuttlely.com/docs/how-to/access-keys/')
+    expect(mockConsume).not.toHaveBeenCalled()
 })
 it('preflight refuses before JSON parsing and file storage; inactive and malformed credentials cannot create context', async () => {
     const app = express()
@@ -668,7 +682,7 @@ it.each(['run scope', 'owner run permission'])(
         const r = req()
         expect(await authorizeFlowKey(r, harness, false)).toBe(true)
         if (removed === 'run scope') mockKeys.set('fixture-token', { ...principal, accessPolicy: parsePolicy({ scopes: ['predict'] }) })
-        else mockOwnerPermissions = ['chatflows:view']
+        else mockOwnerPermissions = []
         await expect(authorizeFlowKey(r, harness)).rejects.toMatchObject({ statusCode: 403 })
         expect(mockConsume).not.toHaveBeenCalled()
     }
@@ -988,4 +1002,35 @@ it('limits prediction authorization attempts before checking a key or starting a
     expect((await call('another-invalid')).status).toBe(429)
     expect(execute).toHaveBeenCalledTimes(1)
     expect(mockConsume).toHaveBeenCalledTimes(1)
+})
+
+it('a prediction-only key runs a granted referenced Harness with view permission and no edit permission', async () => {
+    const principal = key({ scopes: ['predict', 'harness:run'] })
+    principal.permissions = ['chatflows:view']
+    mockKeys.set('fixture-token', principal)
+    mockFlows.set(HARNESS, { id: HARNESS, name: 'baker', type: 'HARNESS', workspaceId: 'one' })
+    grant()
+    grant(HARNESS, 'HARNESS')
+    const chat = { ...flow, flowData: JSON.stringify({ nodes: [{ data: { inputs: { harnessName: 'baker' } } }] }) }
+    await expect(authorizeFlowKey(req(), chat)).resolves.toBe(true)
+    expect(mockConsume).toHaveBeenCalledTimes(1)
+    mockConsume.mockClear()
+    mockGrants.delete(`key:HARNESS:${HARNESS}`)
+    await expect(authorizeFlowKey(req(), chat)).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining('baker Harness')
+    })
+    expect(mockConsume).not.toHaveBeenCalled()
+})
+
+it('predict without its view permission names the exact missing permission and links to help', async () => {
+    const principal = key({ scopes: ['predict'] })
+    principal.permissions = []
+    mockKeys.set('fixture-token', principal)
+    grant()
+    await expect(authorizeFlowKey(req(), flow)).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringMatching(/chatflows:view.*https:\/\/cuttlely.com\/docs\/how-to\/access-keys\//)
+    })
+    expect(mockConsume).not.toHaveBeenCalled()
 })

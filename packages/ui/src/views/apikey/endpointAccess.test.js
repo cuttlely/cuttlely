@@ -18,3 +18,15 @@ it('changes explicit access mode on without silently removing a retained private
     expect(endpointAccessUpdate('on', '')).toEqual({ apiAccessMode: 'public', apikeyid: '' })
     expect(endpointAccessSelection('on', 'private', 'legacy')).toBe('accesskeys')
 })
+
+it('generates server-side examples for the selected flow without embedding a secret', () => {
+    const { accessKeyExamples } = require('./endpointAccess')
+    const examples = accessKeyExamples('http://localhost', { resourceId: 'chosen-flow' })
+    expect(examples.curl).toContain('/api/v1/prediction/chosen-flow')
+    expect(examples.curl).toContain('$CUTTLELY_API_KEY')
+    expect(examples.javascript).toContain('process.env.CUTTLELY_API_KEY')
+    const read = accessKeyExamples('http://localhost', { resourceId: 'chosen-flow' }, true)
+    expect(read.curl).toContain('/api/v1/chatflows/chosen-flow')
+    expect(read.javascript).toContain("method: 'GET'")
+    expect(read.javascript).not.toContain('question')
+})

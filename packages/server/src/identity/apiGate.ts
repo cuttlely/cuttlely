@@ -74,6 +74,12 @@ export function withoutDenylisted(whitelistURLs: string[], denylist: string | un
     return whitelistURLs.filter((url) => !denied.has(normalizeApiPath(url)))
 }
 
+const unauthorizedResponse = {
+    error: 'Unauthorized Access',
+    message:
+        'Sign in to your workspace. For an endpoint that accepts keys, send a current key with access to this operation. Help: https://cuttlely.com/docs/how-to/access-keys/'
+}
+
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.
 export function apiV1Auth(deps: ApiV1AuthDeps) {
@@ -88,7 +94,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             return
         }
         if (!CASE_SENSITIVE.test(collapsed)) {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         const identityUser = await deps.attachIdentitySession(req, res)
@@ -117,26 +123,26 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             return
         }
         if (req.headers['x-request-from'] === 'internal') {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         if (apiKeyBlacklistURLs.some((url) => path.startsWith(url))) {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         if (deps.licenseRequired()) {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         const { isValid, apiKey } = await deps.validateAPIKey(req)
         if (!isValid || !apiKey) {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         if (apiKey.ownerUserId) {
             const owner = await deps.dataSource.getRepository(User).findOne({ where: { id: apiKey.ownerUserId } })
             if (!owner || owner.status.toLowerCase() !== 'active') {
-                res.status(401).json({ error: 'Unauthorized Access' })
+                res.status(401).json(unauthorizedResponse)
                 return
             }
         }
@@ -144,7 +150,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             where: { id: apiKey.workspaceId }
         })
         if (!workspace) {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         const activeOrganizationId = workspace.organizationId as string
@@ -152,7 +158,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             where: { id: activeOrganizationId }
         })
         if (!org) {
-            res.status(401).json({ error: 'Unauthorized Access' })
+            res.status(401).json(unauthorizedResponse)
             return
         }
         const apiUser: LoggedInUser = {
