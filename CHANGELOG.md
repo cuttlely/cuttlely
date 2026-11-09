@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Publish dialog API access selector: the floating label no longer overlaps the selected value, and the saved-access line and key-action links use clearer spacing.
+
 ## [1.7.1] - 2026-11-09
 
 ### Added

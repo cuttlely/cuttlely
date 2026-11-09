@@ -850,7 +850,11 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
             </DialogTitle>
             <DialogContent>
                 {accessError && <Alert severity='error'>{accessError}</Alert>}
-                {savedMode && <Typography>Saved API access: {savedMode === 'private' ? 'Private' : 'Public'}</Typography>}
+                {savedMode && (
+                    <Typography variant='body2' color='text.secondary' sx={{ mb: 1.5 }}>
+                        Saved API access: {savedMode === 'private' ? 'Private' : 'Public'}
+                    </Typography>
+                )}
                 {isScheduleFlow ? (
                     <div
                         style={{
@@ -931,8 +935,9 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                         fullWidth
                                         size='small'
                                         label='API access'
+                                        InputLabelProps={{ shrink: true }}
                                         SelectProps={{ native: true }}
-                                        inputProps={{ name: 'SelectKey' }}
+                                        inputProps={{ name: 'SelectKey', 'aria-label': 'API access' }}
                                         disabled={
                                             !['off', 'shadow', 'on'].includes(rollout) ||
                                             !accessKnown ||
@@ -967,12 +972,14 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                 or shadow mode. Select Public to remove a binding.
                             </p>
                         )}
-                        <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>
-                        {rollout === 'on' && !isCustomAssistant && (
-                            <Available permission='apikeys:create'>
-                                <Button onClick={() => setCreateKeyOpen(true)}>Create key for this flow</Button>
-                            </Available>
-                        )}
+                        <Stack direction='row' spacing={1} sx={{ mt: 1.5, mb: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <Button onClick={() => navigate('/apikey')}>Manage access keys</Button>
+                            {rollout === 'on' && !isCustomAssistant && (
+                                <Available permission='apikeys:create'>
+                                    <Button onClick={() => setCreateKeyOpen(true)}>Create key for this flow</Button>
+                                </Available>
+                            )}
+                        </Stack>
                         {chatflowApiKeyId &&
                             apiKeys.some(
                                 (key) =>
