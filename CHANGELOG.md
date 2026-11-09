@@ -2,7 +2,13 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [1.7.1] - Unreleased
+## [Unreleased]
+
+### Fixed
+
+-   Publish dialog API access selector: the floating label no longer overlaps the selected value, and the saved-access line and key-action links use clearer spacing.
+
+## [1.7.1] - 2026-11-09
 
 ### Added
 
@@ -921,8 +927,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...HEAD
-[1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/cuttlely/cuttlely/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/cuttlely/cuttlely/compare/v1.5.2...v1.6.0
