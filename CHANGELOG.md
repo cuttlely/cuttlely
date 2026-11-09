@@ -2,7 +2,19 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.1] - Unreleased
+
+### Fixed
+
+-   Prediction keys require their flow's view permission, with missing permissions and Harness prerequisites named in refusal messages. Granted Harness execution uses view permission; editing still requires edit rights. Access-key errors explain how to recover and link to the guide.
+
+-   Duplicated flows start Private and explicitly warn that access-key grants are not copied. API Endpoint refreshes saved access from the server, shows Private correctly after reload and confirms successful saves.
+
+-   Deleting a private chatflow with access-key grants on PostgreSQL compares grant principal IDs with the existing UUID key IDs correctly. Grant cleanup and private bindings are removed with the flow in one transaction; failed cleanup rolls back deletion. No schema migration is needed.
+
+### Upgrade notes / breaking changes
+
+-   Existing keys keep their secrets and grants. If a prediction key lacks view permission, edit it in Access Keys and add the permission named by the refusal. Copies start Private with no copied key grants: explicitly select or create access for the new flow. Back up before upgrading; the 1.7.0 operator onboarding and recovery requirements still apply. Enforcement remains default Off.
 
 ## [1.7.0] - 2026-11-09
 

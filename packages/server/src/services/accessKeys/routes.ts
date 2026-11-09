@@ -1,3 +1,4 @@
+import { AccessKeyAuthenticationError, explainAccessKeyError } from './errors'
 import { keyHarnessIds, resolveHarnessFlow } from './resources'
 import { assertSafeManagementWrite, redactTransportSecrets } from './managementBoundary'
 import { accessRollout } from './rollout'
@@ -25,7 +26,7 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (['prediction', 'attachments', 'feedback', 'get-upload-file', 'orchestrate', 'a2a', 'verify'].includes(root)) return
         if (root === 'vector' && req.method === 'POST' && parts[1] === 'upsert' && parts.length <= 3) return
         const key = accessContext(req)?.key || (await authenticateRequest(req))
-        if (!key) throw new AppError(401, 'Unauthorized')
+        if (!key) throw new AccessKeyAuthenticationError()
         if (accessRollout() !== 'on') {
             if (!key.accessPolicy?.legacy) throw new AppError(503, 'Scoped access keys require INBOUND_ACCESS_V2=on.')
             if (root === 'dashflows') throw new AppError(403, 'Sign in to your team to use Dashflows.')
@@ -217,5 +218,5 @@ export const authorizeLeadCreate: RequestHandler = (req, res, next) => {
                 sessionNeedsHeader: true
             })(req, res, next)
         )
-        .catch(next)
+        .catch((error) => next(explainAccessKeyError(error)))
 }

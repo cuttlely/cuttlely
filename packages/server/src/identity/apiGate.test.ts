@@ -74,7 +74,10 @@ describe('apiV1Auth', () => {
     it('returns 401 for a mixed-case /API/V1/ path', async () => {
         const res = await app().get('/API/V1/nodes')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('lets a whitelisted path through with no credentials', async () => {
@@ -108,7 +111,10 @@ describe('apiV1Auth', () => {
     it('returns 401 for x-request-from internal when there is no session', async () => {
         const res = await app().get('/api/v1/chatflows').set('x-request-from', 'internal')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('returns 401 for an API-key-blacklisted path even with a valid key', async () => {
@@ -116,7 +122,10 @@ describe('apiV1Auth', () => {
             .get('/api/v1/account/delete')
             .set('Authorization', 'Bearer good-key')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('returns 401 for an API-key-blacklisted path in another letter case or with repeated slashes', async () => {
@@ -186,7 +195,10 @@ describe('apiV1Auth', () => {
             .get('/api/v1/chatflows')
             .set('Authorization', 'Bearer good-key')
         expect(res.status).toBe(401)
-        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        expect(res.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('attaches each API key id for two keys in one workspace and does not attach the secret', async () => {
@@ -224,9 +236,15 @@ describe('apiV1Auth', () => {
             .get('/api/v1/chatflows')
             .set('Authorization', 'Bearer good-key')
         expect(noWorkspace.status).toBe(401)
-        expect(noWorkspace.body).toEqual({ error: 'Unauthorized Access' })
+        expect(noWorkspace.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
         expect(noOrganization.status).toBe(401)
-        expect(noOrganization.body).toEqual({ error: 'Unauthorized Access' })
+        expect(noOrganization.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('returns 401 on the next API-key request after its owner is disabled', async () => {
@@ -238,7 +256,10 @@ describe('apiV1Auth', () => {
             .get('/api/v1/chatflows')
             .set('Authorization', 'Bearer good-key')
         expect(response.status).toBe(401)
-        expect(response.body).toEqual({ error: 'Unauthorized Access' })
+        expect(response.body).toEqual({
+            error: 'Unauthorized Access',
+            message: expect.stringContaining('Help: https://cuttlely.com/docs/how-to/access-keys/')
+        })
     })
 
     it('carries an active API key owner separately from an interactive user id', async () => {

@@ -15,7 +15,17 @@ import { accessData } from './data'
 import apikeyService, { validatePermissions } from '../apikey'
 import { referencedHarnessNames } from '../harnesses/apiAccess'
 import { mintCredential, rotateCredential } from './credentials'
-import { expiry, OPERATIONS, operationPermissions, parseGrants, parsePolicy, RESOURCE_TYPES, ResourceGrant } from './policy'
+import {
+    expiry,
+    missingPolicyPermissions,
+    OPERATIONS,
+    operationPermissions,
+    parseGrants,
+    parsePolicy,
+    RESOURCE_TYPES,
+    ResourceGrant
+} from './policy'
+import { ACCESS_KEY_DOCS } from './errors'
 import { serial } from './limiter'
 import { EntityManager } from 'typeorm'
 
@@ -129,6 +139,7 @@ async function policyInput(req: Request) {
     // The principal's RBAC and operation scopes are independent restrictions. Both must be granted by its creator.
     for (const permission of permissions)
         if (!(await hasAnyPermission(req, permission))) throw new AppError(403, 'Permission exceeds your current role.')
+
     // Match target(): each scope must be authorized for every resource family it can exercise.
     const grants: ResourceGrant[] = policy.allResources
         ? RESOURCE_TYPES.map((resourceType) => ({ resourceType, resourceId: '*' }))
@@ -142,6 +153,9 @@ async function policyInput(req: Request) {
                 throw new AppError(403, 'You cannot grant these operations for that resource.')
         }
     }
+    const missing = missingPolicyPermissions(policy, permissions, resources)
+    if (missing.length)
+        throw new AppError(400, `This key cannot call the selected API yet: ${missing.join('; ')}. Help: ${ACCESS_KEY_DOCS}`)
     if (typeof req.body.keyName !== 'string' || !req.body.keyName.trim() || req.body.keyName.length > 100)
         throw new AppError(400, 'A key name of 1 to 100 characters is required.')
     return { policy, resources, permissions, expiresAt: expiry(req.body.expiresAt) }

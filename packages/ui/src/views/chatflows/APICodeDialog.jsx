@@ -18,7 +18,9 @@ import {
     AccordionDetails,
     Typography,
     Stack,
-    Card
+    Card,
+    Alert,
+    Snackbar
 } from '@mui/material'
 import { CopyBlock, atomOneDark } from 'react-code-blocks'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -124,6 +126,11 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     const [rollout, setRollout] = useState(null)
     const [chatflowApiKeyId, setChatflowApiKeyId] = useState('')
     const [selectedApiKey, setSelectedApiKey] = useState({})
+    const [savedAccess, setSavedAccess] = useState(null)
+    const [accessMessage, setAccessMessage] = useState('')
+    const [accessError, setAccessError] = useState('')
+    const savedMode = savedAccess?.apiAccessMode
+    const savedLegacyId = savedAccess?.apikeyid
     const exampleApiKey = selectedApiKey?.apiKey || '<your-api-key>'
     const [checkboxVal, setCheckbox] = useState(false)
     const [nodeConfig, setNodeConfig] = useState({})
@@ -142,19 +149,19 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
         () =>
             rollout === 'on'
                 ? [
-                      { label: 'Public (no key required)', name: '' },
+                      { label: 'Public: anyone with the link', name: '' },
                       {
-                          label: isCustomAssistant ? 'Private (custom assistant grants unsupported)' : 'Private (selected access keys)',
+                          label: isCustomAssistant ? 'Private (custom assistant grants unsupported)' : 'Private: only keys you pick',
                           name: 'accesskeys'
                       }
                   ]
                 : [
-                      { label: 'Public (no key required)', name: '' },
-                      ...(dialogProps.apiAccessMode === 'private' && !dialogProps.chatflowApiKeyId
+                      { label: 'Public: anyone with the link', name: '' },
+                      ...(savedMode === 'private' && !savedLegacyId
                           ? [{ label: 'Private (scoped access keys unavailable)', name: 'accesskeys' }]
                           : []),
-                      ...(isCustomAssistant && dialogProps.chatflowApiKeyId
-                          ? [{ label: 'Private (existing legacy binding; changes unavailable)', name: dialogProps.chatflowApiKeyId }]
+                      ...(isCustomAssistant && savedLegacyId
+                          ? [{ label: 'Private (existing legacy binding; changes unavailable)', name: savedLegacyId }]
                           : []),
                       ...apiKeys
                           .filter(
@@ -166,7 +173,7 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
                           )
                           .map((key) => ({ label: key.keyName, name: key.id }))
                   ],
-        [rollout, apiKeys, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId, isCustomAssistant]
+        [rollout, apiKeys, savedMode, savedLegacyId, isCustomAssistant]
     )
 
     const onCheckBoxChanged = (newVal) => {
@@ -185,6 +192,8 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
         }
         const updateBody = endpointAccessUpdate(rollout, keyValue)
         if (!updateBody) return
+        setAccessMessage('')
+        setAccessError('')
         setChatflowApiKeyId(keyValue)
         const selectedKey = apiKeys.find((key) => key.id === keyValue)
         setSelectedApiKey(selectedKey || {})
@@ -290,8 +299,17 @@ const APICodeDialog = ({ show, dialogProps, onCancel }) => {
     useEffect(() => {
         if (updateChatflowApi.data) {
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
+            setSavedAccess(updateChatflowApi.data)
+            setAccessMessage('API access saved.')
         }
     }, [updateChatflowApi.data, dispatch])
+
+    useEffect(() => {
+        if (updateChatflowApi.error) {
+            setAccessError(updateChatflowApi.error.response?.data?.message || 'API access could not be saved. Reload and try again.')
+            setChatflowApiKeyId(endpointAccessSelection(rollout, savedMode, savedLegacyId))
+        }
+    }, [updateChatflowApi.error, rollout, savedMode, savedLegacyId])
 
     useEffect(() => {
         if (getConfigApi.data) {
@@ -759,21 +777,38 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
     }
 
     useEffect(() => {
-        if (getAllAPIKeysApi.data) {
-            setAPIKeys(getAllAPIKeysApi.data)
-
-            if (dialogProps.apiAccessMode === 'private' || (dialogProps.apiAccessMode !== 'public' && dialogProps.chatflowApiKeyId)) {
-                setChatflowApiKeyId(endpointAccessSelection(rollout, dialogProps.apiAccessMode, dialogProps.chatflowApiKeyId))
-                setSelectedApiKey(getAllAPIKeysApi.data.find((key) => key.id === dialogProps.chatflowApiKeyId))
+        if (savedAccess) {
+            const keys = getAllAPIKeysApi.data || []
+            setAPIKeys(keys)
+            if (savedMode === 'private' || (savedMode !== 'public' && savedLegacyId)) {
+                setChatflowApiKeyId(endpointAccessSelection(rollout, savedMode, savedLegacyId))
+                setSelectedApiKey(keys.find((key) => key.id === savedLegacyId))
             } else {
                 setChatflowApiKeyId('')
                 setSelectedApiKey({})
             }
         }
-    }, [dialogProps, getAllAPIKeysApi.data, rollout])
+    }, [savedAccess, savedMode, savedLegacyId, getAllAPIKeysApi.data, rollout])
 
     useEffect(() => {
+        let active = true
         if (show) {
+            setAccessMessage('')
+            setAccessError('')
+            const payload = chatflow?.id === dialogProps.chatflowid ? chatflow : {}
+            setSavedAccess({
+                apiAccessMode: payload.apiAccessMode ?? dialogProps.apiAccessMode,
+                apikeyid: payload.apikeyid ?? dialogProps.chatflowApiKeyId
+            })
+            if (chatflowsApi.getSpecificChatflow)
+                chatflowsApi.getSpecificChatflow(dialogProps.chatflowid).then(
+                    (result) => {
+                        if (active) setSavedAccess(result.data)
+                    },
+                    () => {
+                        if (active) setAccessError('Saved API access could not be refreshed. Close this dialog and try again.')
+                    }
+                )
             setRollout(null)
             getAllAPIKeysApi.request()
             apiKeyApi
@@ -782,9 +817,12 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                 .catch(() => setRollout(null))
             getIsChatflowStreamingApi.request(dialogProps.chatflowid)
         }
+        return () => {
+            active = false
+        }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [show])
+    }, [show, dialogProps.chatflowid])
 
     const component = show ? (
         <Dialog
@@ -799,6 +837,8 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                 {dialogProps.title}
             </DialogTitle>
             <DialogContent>
+                {accessError && <Alert severity='error'>{accessError}</Alert>}
+                {savedMode && <Typography>Saved API access: {savedMode === 'private' ? 'Private' : 'Public'}</Typography>}
                 {isScheduleFlow ? (
                     <div
                         style={{
@@ -876,7 +916,12 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                                 <Available permission={'chatflows:update,agentflows:update'}>
                                     <Dropdown
                                         name='SelectKey'
-                                        disabled={!['off', 'shadow', 'on'].includes(rollout)}
+                                        disabled={
+                                            !['off', 'shadow', 'on'].includes(rollout) ||
+                                            !savedAccess ||
+                                            !!accessError ||
+                                            updateChatflowApi.loading
+                                        }
                                         disableClearable={true}
                                         options={keyOptions}
                                         onSelect={(newValue) => onApiKeySelected(newValue)}
@@ -1147,6 +1192,7 @@ formData.append("temperature[openAIEmbeddings_0]", "0.7")`
                     </>
                 )}
             </DialogContent>
+            <Snackbar open={!!accessMessage} autoHideDuration={5000} onClose={() => setAccessMessage('')} message={accessMessage} />
         </Dialog>
     ) : null
 

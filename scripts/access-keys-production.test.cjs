@@ -1097,12 +1097,12 @@ for (const scopes of [['api:read'], ['api:read', 'harness:read', 'harness:run']]
             await data.getRepository(ApiKeyResource).delete(grant)
             for (const route of paths) assert.equal((await read(route)).status, 403)
             assert.deepEqual(await data.getRepository(ApiKeyUsage).findBy({ principalId: key.id }), usage)
-            // Read authority must not imply execution, draft writes or publication.
+            // Read authority never implies draft writes/publication. Explicit harness:run adds execution.
             await data.getRepository(ApiKeyResource).save(grant)
             for (const [method, route] of [
                 ['put', 'flow-drafts/' + id],
                 ['post', 'flow-drafts/' + id + '/publish'],
-                ['post', 'harnesses/' + name + '/runs']
+                ...(!scopes.includes('harness:run') ? [['post', 'harnesses/' + name + '/runs']] : [])
             ]) {
                 const response = await request(http)
                     [method]('/api/v1/' + route)
@@ -2231,3 +2231,117 @@ test('round14 actual app pre-parser streaming origin refusals are JSON for JSON,
         await data.destroy()
     }
 })
+
+test('private flow duplication starts private, explicitly omits grants, and refuses anonymous prediction', async () => {
+    const data = await database()
+    const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+    try {
+        await workspaceFixture(data)
+        setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: [] }) })
+        const source = await legacyFlow(data)
+        const express = serverRequire('express'),
+            request = serverRequire('supertest'),
+            http = express()
+        http.use(express.json())
+        http.use((req, _res, next) => {
+            req.user = { id: 'fixture', activeWorkspaceId: 'team-a', activeOrganizationId: 'org-a', permissions: [], features: {} }
+            next()
+        })
+        http.use('/api/v1/chatflows', serverRequire('./src/routes/chatflows/index.ts').default)
+        http.post('/api/v1/prediction/:id', serverRequire('./src/utils/authorizeFlowAccess.ts').authorizePrediction, (_req, res) =>
+            res.json({ admitted: true })
+        )
+        http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+        const copied = await request(http).post('/api/v1/chatflows').send({
+            duplicateSourceId: source.id,
+            name: 'Private copy',
+            type: 'CHATFLOW',
+            flowData: source.flowData,
+            apiAccessMode: 'public',
+            apikeyid: 'legacy-key'
+        })
+        assert.equal(copied.status, 200, copied.body.message)
+        assert.equal(copied.body.apiAccessMode, 'private')
+        assert.equal(copied.body.apikeyid || '', '')
+        assert.match(copied.body.accessNotice, /grants were not copied/)
+        assert.equal(await data.getRepository(ApiKeyResource).countBy({ resourceId: copied.body.id }), 0)
+        assert.equal(await data.getRepository(ApiKeyResource).countBy({ resourceId: source.id }), 1)
+        assert.equal(
+            (
+                await request(http)
+                    .post('/api/v1/prediction/' + copied.body.id)
+                    .send({ question: 'local fixture' })
+            ).status,
+            401
+        )
+        await data.getRepository(ChatFlow).update({ id: source.id }, { workspaceId: 'team-b' })
+        assert.equal(
+            (await request(http).post('/api/v1/chatflows').send({ duplicateSourceId: source.id, name: 'Forbidden', flowData: '{}' }))
+                .status,
+            404
+        )
+    } finally {
+        setTeamPermissionLookup(null)
+        await data.destroy()
+    }
+})
+
+for (const limit of ['rpm', 'daily'])
+    test('HTTP prediction isolation and ' + limit + ' quota retain 401/403/429 and Retry-After', async () => {
+        const data = await database()
+        const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+        try {
+            const { http: management, request, key } = await round12Fixture(data)
+            const { clearMinuteBuckets } = serverRequire('./src/services/accessKeys/limiter.ts')
+            clearMinuteBuckets()
+            await data
+                .getRepository(ApiKey)
+                .update(
+                    { id: key.id },
+                    { accessPolicy: parsePolicy({ scopes: ['predict'], rpm: limit === 'rpm' ? 1 : 0, daily: limit === 'daily' ? 1 : 0 }) }
+                )
+            const allowedId = '12121212-1212-4121-8121-121212121201',
+                deniedId = '12121212-1212-4121-8121-121212121203'
+            await data.getRepository(ChatFlow).update({ id: deniedId }, { workspaceId: 'team-a' })
+            const express = serverRequire('express'),
+                http = express()
+            http.use(serverRequire('./src/services/accessKeys/preflight.ts').accessKeyPreflight)
+            http.use(express.json())
+            http.post('/api/v1/prediction/:id', serverRequire('./src/utils/authorizeFlowAccess.ts').authorizePrediction, (_req, res) =>
+                res.json({ admitted: true })
+            )
+            http.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }))
+            const predict = (id, bearer = key.apiKey) =>
+                request(http)
+                    .post('/api/v1/prediction/' + id)
+                    .set('Authorization', 'Bearer ' + bearer)
+                    .send({ question: 'local fixture' })
+            assert.equal((await predict(allowedId, 'invalid-local-fixture')).status, 401)
+            assert.equal((await predict(deniedId)).status, 403)
+            for (const [method, target] of [
+                ['get', ''],
+                ['get', '/' + allowedId],
+                ['put', '/' + allowedId],
+                ['delete', '/' + allowedId]
+            ]) {
+                assert.equal(
+                    (
+                        await request(management)
+                            [method]('/api/v1/chatflows' + target)
+                            .set('Authorization', 'Bearer ' + key.apiKey)
+                            .send({ name: 'Denied' })
+                    ).status,
+                    403
+                )
+            }
+            assert.equal(await data.getRepository(ApiKeyUsage).countBy({ principalId: key.id }), 0, 'denials consume no quota')
+            assert.equal((await predict(allowedId)).status, 200)
+            const limited = await predict(allowedId)
+            assert.equal(limited.status, 429)
+            assert.ok(Number(limited.headers['retry-after']) > 0)
+            assert.match(limited.body.message, /https:\/\/cuttlely.com\/docs\/how-to\/access-keys\//)
+        } finally {
+            setTeamPermissionLookup(null)
+            await data.destroy()
+        }
+    })

@@ -118,3 +118,11 @@ To roll back enforcement, the designated operator reviews **Off** in the selecto
 Use the panel for routine operator transfer/revoke and fresh host-log proof for a changed-connection rebind. Disabled or invalid authority uses the separate RECOVER flow, never ordinary CLAIM. If nobody can sign in or files are unsafe, use the host CLI as the application OS user. Host JSON overrides the managed state; `none`, empty and invalid overrides close panel claims and mutations. See [operator recovery](./instance-operator.md#provisioning-failures-and-recovery).
 
 For complete route details and current limits, use the [access-key reference](../reference/access-keys.md). For server sign-in and settings recovery, use [Server settings](./server-settings.md) and [Startup options](../reference/startup-options.md).
+
+## Prediction permissions and private copies
+
+A prediction key needs `predict`, the exact flow grant, and `chatflows:view` for a chatflow or `agentflows:view` for an agentflow. Selecting prediction in the editor includes its required view permission, and the server checks the combination when you save. A referenced Harness also needs its own grant, `harness:run` and view permission; running a granted team does not require permission to edit it. The Harness permission group explains this prerequisite. Named Harness run routes retain their legacy/session role checks; scoped runs use view permission with their explicit grants.
+
+Duplicating a flow starts the copy **Private**. Access-key grants are not copied, and the canvas says so explicitly. Open **API Endpoint** for the copy and select or create access for its new ID before calling it. The source flow keeps its access. The dialog reloads current saved access from the server, displays **Saved API access: Private** and confirms successful saves. A failed save keeps the previous saved state.
+
+On PostgreSQL and SQLite, deleting a flow removes its private binding and its workspace's exact grants in the same transaction. It leaves the keys themselves and their other grants available. A cleanup failure leaves the original flow and grants in place.

@@ -32,11 +32,16 @@ const RateLimitedPage = () => {
                         <img style={{ objectFit: 'cover', height: '20vh', width: 'auto' }} src={unauthorizedSVG} alt='rateLimitedSVG' />
                     </Box>
                     <Typography sx={{ mb: 2 }} variant='h4' component='div' fontWeight='bold'>
-                        429 Too Many Requests
+                        Request limit reached (429)
                     </Typography>
                     <Typography variant='body1' component='div' sx={{ mb: 2, textAlign: 'center' }}>
                         {`You have made too many requests in a short period of time. Please wait ${retryAfter}s before trying again.`}
                     </Typography>
+                    {location.state?.message && <Typography sx={{ mb: 2 }}>{location.state.message}</Typography>}
+                    <Typography sx={{ mb: 2 }}>
+                        Daily and monthly access-key quotas reset at their UTC boundary. The key owner can also raise the limit.
+                    </Typography>
+                    <a href='https://cuttlely.com/docs/how-to/access-keys/'>How to fix access-key errors</a>
                     <Link to='/'>
                         <Button variant='contained' color='primary'>
                             Back to Home

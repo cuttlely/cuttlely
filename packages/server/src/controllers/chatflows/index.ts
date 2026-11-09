@@ -6,6 +6,7 @@ import { QueryRunner } from 'typeorm'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { WorkspaceUserErrorMessage, WorkspaceUserService } from '../../identity/workspaceScope'
 import { AppError } from '../../errors/appError'
+import { hasAnyPermission } from '../../identity/rbac'
 import { ChatflowType } from '../../Interface'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import apiKeyService from '../../services/apikey'
@@ -186,6 +187,18 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
         }
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''
         const body = { ...req.body }
+        const duplicateSourceId = body.duplicateSourceId
+        delete body.duplicateSourceId
+        if (duplicateSourceId !== undefined) {
+            if (typeof duplicateSourceId !== 'string' || !/^[0-9a-f-]{36}$/i.test(duplicateSourceId))
+                throw new AppError(400, 'Choose a saved flow to duplicate.')
+            const source = await chatflowsService.getChatflowById(duplicateSourceId, workspaceId)
+            const permission = ['AGENTFLOW', 'MULTIAGENT'].includes(source.type || '') ? 'agentflows:view' : 'chatflows:view'
+            if (!(await hasAnyPermission(req, permission))) throw new AppError(403, `Duplicating this flow needs ${permission}.`)
+            // Grants are deliberate, stable-ID authority. A copy gets a new ID and starts closed.
+            body.apiAccessMode = 'private'
+            body.apikeyid = ''
+        }
         const draftFlowData = body.draftFlowData
         delete body.draftFlowData
         delete body.retainIncompleteHarness
@@ -212,7 +225,15 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
             }
         )
 
-        return res.json(apiResponse)
+        return res.json(
+            duplicateSourceId
+                ? {
+                      ...apiResponse,
+                      accessNotice:
+                          'Copy saved as Private. Access-key grants were not copied. Pick or create a key for this copy in API Endpoint.'
+                  }
+                : apiResponse
+        )
     } catch (error) {
         next(error)
     }

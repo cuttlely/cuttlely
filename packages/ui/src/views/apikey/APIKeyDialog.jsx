@@ -71,6 +71,25 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const [graceSeconds, setGraceSeconds] = useState(3600)
     const getAllPermissionsApi = useApi(authApi.getAllPermissions)
     const { hasPermission } = useAuth()
+    useEffect(() => {
+        const required = new Set()
+        if (policy.scopes.some((scope) => ['predict', 'stream', 'upload', 'api:read', 'feedback:read', 'feedback:write'].includes(scope))) {
+            if (policy.allResources || !resources.length || resources.some((r) => r.resourceType !== 'AGENTFLOW'))
+                required.add('chatflows:view')
+            if (policy.allResources || resources.some((r) => r.resourceType === 'AGENTFLOW')) required.add('agentflows:view')
+        }
+        if (policy.scopes.some((scope) => scope.startsWith('harness:'))) required.add('chatflows:view')
+        if (!required.size) return
+        setSelectedPermissions((current) => {
+            const next = { ...current }
+            for (const [category, entries] of Object.entries(permissions)) {
+                for (const entry of entries) {
+                    if (required.has(entry.key)) next[category] = { ...next[category], [entry.key]: true }
+                }
+            }
+            return next
+        })
+    }, [policy.scopes, policy.allResources, resources, permissions])
     const policyBody = () => ({
         accessPolicy: {
             ...policy,
@@ -521,6 +540,24 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                 <span style={{ color: 'red' }}>*&nbsp;&nbsp;</span>Permissions
                             </p>
                             <div className='permissions-list-wrapper'>
+                                <div className='permission-category'>
+                                    <h3>HARNESS</h3>
+                                    <p>Run granted teams with view permission. Editing a team still needs edit permission.</p>
+                                    {Object.entries(permissions).flatMap(([category, entries]) =>
+                                        entries
+                                            .filter((entry) => entry.key === 'chatflows:view')
+                                            .map((entry) => (
+                                                <label key='harness-view'>
+                                                    <input
+                                                        type='checkbox'
+                                                        checked={selectedPermissions[category]?.[entry.key] || false}
+                                                        onChange={() => handlePermissionChange(category, entry.key)}
+                                                    />
+                                                    Run/view granted Harnesses (chatflows:view)
+                                                </label>
+                                            ))
+                                    )}
+                                </div>
                                 {permissions &&
                                     Object.keys(permissions).map((category) => (
                                         <div key={category} className='permission-category'>
