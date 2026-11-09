@@ -126,6 +126,12 @@ For complete route details and current limits, use the [access-key reference](..
 
 A prediction key needs `predict`, the exact flow grant, and `chatflows:view` for a chatflow or `agentflows:view` for an agentflow. Selecting prediction in the editor includes its required view permission, and the server checks the combination when you save. A referenced Harness also needs its own grant, `harness:run` and view permission; running a granted team does not require permission to edit it. The Harness permission group explains this prerequisite. Named Harness run routes retain their legacy/session role checks; scoped runs use view permission with their explicit grants.
 
+### Calls from one flow to another
+
+On the same server, Execute Flow, Chatflow Tool, and Agent as Tool run the target as the parent run's caller. A signed-in caller can reach a Private target in the same workspace. An access key can reach the target only when that key has `predict`, the target's exact resource grant, and the required view permission. If the target uses a Harness, the same key also needs that Harness grant and `harness:run`. A key granted only to the parent cannot use the parent to reach another Private flow.
+
+The target must be in the parent's workspace. Anonymous callers still reach only Public flows with no bound key, and an anonymous request to a Private prediction endpoint still returns `401`. These rules do not turn a Private target into a public one. When a card sets a different Base URL, it keeps the remote HTTP path and uses only the credential configured on that card; the parent bearer is not forwarded.
+
 Duplicating a flow starts the copy **Private**. Access-key grants are not copied, and the canvas says so explicitly. Open **API Endpoint** for the copy and select or create access for its new ID before calling it. The source flow keeps its access. The dialog reloads current saved access from the server, displays **Saved API access: Private** and confirms successful saves. A failed save keeps the previous saved state.
 
 On PostgreSQL and SQLite, deleting a flow removes its private binding and its workspace's exact grants in the same transaction. It leaves the keys themselves and their other grants available. A cleanup failure leaves the original flow and grants in place.

@@ -34,6 +34,7 @@ import {
     IChatMessage,
     IExecuteFlowParams,
     IHarnessCaller,
+    INestedFlowCaller,
     IFlowConfig,
     IComponentNodes,
     IVariable,
@@ -97,6 +98,7 @@ import { isStreamingValue } from './streaming'
 import { Workspace } from '../database/entities/identity'
 import { Organization } from '../database/entities/identity'
 import flowDraftsService from '../services/flow-drafts'
+import { nestedFlowCallerFromHarness, nestedFlowNodeOptions, NestedFlowNodeOptions } from './nestedFlowCall'
 
 /**
  * The parent trace for an approval this server stored for this chat and flow.
@@ -396,7 +398,9 @@ export const executeFlow = async ({
     productId,
     sessionToken,
     replay,
-    harnessCaller
+    harnessCaller,
+    nestedFlowCaller,
+    nestedFlowDepth
 }: IExecuteFlowParams) => {
     // Ensure incomingInput has all required properties with default values
     incomingInput = {
@@ -415,6 +419,27 @@ export const executeFlow = async ({
     const streaming = incomingInput.streaming ?? false
     const userMessageDateTime = new Date()
     const chatflowid = chatflow.id
+    const serializedNestedCaller: INestedFlowCaller | undefined = nestedFlowCaller ?? nestedFlowCallerFromHarness(harnessCaller)
+    const depth = Number.isInteger(nestedFlowDepth) && (nestedFlowDepth as number) >= 0 ? (nestedFlowDepth as number) : 0
+    const nestedOptions: NestedFlowNodeOptions | undefined = serializedNestedCaller
+        ? nestedFlowNodeOptions({
+              parentFlowId: chatflow.id,
+              parentWorkspaceId: workspaceId,
+              caller: serializedNestedCaller,
+              depth,
+              baseURL,
+              orgId,
+              subscriptionId,
+              productId,
+              signal,
+              componentNodes,
+              appDataSource,
+              telemetry,
+              cachePool,
+              usageCacheManager,
+              sseStreamer
+          })
+        : undefined
 
     // Uploads the flow does not accept (uploads off, or a type it does not take) are refused before anything is stored.
     await assertPredictionUploadsAllowed(chatflow, uploads, files)
@@ -609,7 +634,8 @@ export const executeFlow = async ({
             subscriptionId,
             productId,
             replay,
-            harnessCaller
+            harnessCaller,
+            nestedFlowOptions: nestedOptions
         })
     }
 
@@ -719,6 +745,7 @@ export const executeFlow = async ({
                 checkStorage,
                 cuttlelyReplay: replay === true,
                 harnessCaller,
+                nestedFlowOptions: nestedOptions,
                 harnessToolPayloads
             })
 
@@ -928,6 +955,7 @@ export const executeFlow = async ({
                     // Read by additionalCallbacks: a replay is not sent to tracing providers set in the environment.
                     ...(replay && { cuttlelyReplay: true }),
                     ...harnessNodeOptions(harnessCaller),
+                    ...(nestedOptions || {}),
                     tokenUsageCallback: chatflowTokenUsage
                 }
 
@@ -1313,6 +1341,9 @@ export const utilBuildChatflow = async (
 
         const executeData: IExecuteFlowParams = {
             harnessCaller,
+            nestedFlowCaller:
+                harnessCaller.via === 'api_key' ? { via: 'api_key', apiKeyId: harnessCaller.apiKeyId } : { via: harnessCaller.via },
+            nestedFlowDepth: 0,
             incomingInput, // Use the defensively created incomingInput variable
             chatflow,
             chatId,

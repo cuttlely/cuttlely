@@ -13,6 +13,7 @@ import {
 } from '../../../src/Interface'
 import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { v4 as uuidv4 } from 'uuid'
+import { isSameServerBaseURL, RunNestedFlow } from '../../../src/nestedFlow'
 
 class ExecuteFlow_SeqAgents implements INode {
     label: string
@@ -180,13 +181,16 @@ class ExecuteFlow_SeqAgents implements INode {
             throw new Error('Invalid base URL: must be a valid URL')
         }
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
-        const chatflowApiKey = getCredentialParam('chatflowApiKey', credentialData, nodeData)
-
         if (selectedFlowId === options.chatflowid) throw new Error('Cannot call the same agentflow!')
 
+        const nestedRunner = options.runNestedFlow as RunNestedFlow | undefined
+        const useNestedRunner = !!nestedRunner && isSameServerBaseURL(baseURL, options.baseURL as string)
         let headers = {}
-        if (chatflowApiKey) headers = { Authorization: `Bearer ${chatflowApiKey}` }
+        if (!useNestedRunner) {
+            const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+            const chatflowApiKey = getCredentialParam('chatflowApiKey', credentialData, nodeData)
+            if (chatflowApiKey) headers = { Authorization: `Bearer ${chatflowApiKey}` }
+        }
 
         const chatflowId = options.chatflowid
         const sessionId = options.sessionId
@@ -264,9 +268,20 @@ class ExecuteFlow_SeqAgents implements INode {
 `
 
             try {
-                let response = await executeJavaScriptCode(code, sandbox, {
-                    useSandbox: false
-                })
+                let response: any
+                if (useNestedRunner) {
+                    const nested = await nestedRunner!({
+                        targetFlowId: selectedFlowId,
+                        question: flowInput,
+                        chatId: body.chatId,
+                        overrideConfig: body.overrideConfig
+                    })
+                    response = nested.text ?? ''
+                } else {
+                    response = await executeJavaScriptCode(code, sandbox, {
+                        useSandbox: false
+                    })
+                }
 
                 if (typeof response === 'object') {
                     response = JSON.stringify(response)
