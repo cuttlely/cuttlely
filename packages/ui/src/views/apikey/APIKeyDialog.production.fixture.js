@@ -38,7 +38,7 @@ jest.mock('@/api/apikey', () => ({
     }
 }))
 
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import APIKeyDialog from './APIKeyDialog'
 
@@ -154,15 +154,19 @@ it('beginner Call one flow preset validates, fixes missing Harness access, revea
     fireEvent.click(flow)
     await waitFor(() => expect(screen.getByText(/Included Harnesses:/).textContent).toContain('bakeryteam'))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add', exact: true }).disabled).toBe(false))
-    fireEvent.click(screen.getByRole('button', { name: /Advanced:/ }))
-    await waitFor(() => expect(screen.getAllByRole('checkbox', { name: 'bakeryteam' })).toHaveLength(2))
-    const harness = screen.getAllByRole('checkbox', { name: 'bakeryteam' }).at(-1)
+    const advancedToggle = screen.getByRole('button', { name: /Advanced:/ })
+    fireEvent.click(advancedToggle)
+    // Advanced removes the grant without rerunning the preset's prerequisite additions.
+    const advanced = within(advancedToggle.closest('.MuiAccordion-root'))
+    const harness = await advanced.findByRole('checkbox', { name: 'bakeryteam' })
     expect(harness.checked).toBe(true)
     fireEvent.click(harness)
+    expect(harness.checked).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Add', exact: true }))
     const fix = await screen.findByRole('button', { name: 'Add missing access' })
     expect(screen.getByText(/This key can't call Chatflow B yet/)).toBeTruthy()
     expect(mockCreated).toBeUndefined()
+    expect(mockSubmissions).toHaveLength(0)
     fireEvent.click(fix)
     fireEvent.click(screen.getByRole('button', { name: 'Add', exact: true }))
     await screen.findByText(/Copy this key now/)
@@ -175,9 +179,10 @@ it('beginner Call one flow preset validates, fixes missing Harness access, revea
     )
     fireEvent.click(screen.getByTitle('Copy API Key'))
     expect(mockCopy).toHaveBeenCalledWith(mockCreated.apiKey)
+    expect(screen.getByText('Copied!')).toBeTruthy()
     await waitFor(() => expect(screen.queryByText('Copied!')).toBeNull(), { timeout: 3000 })
-    expect(screen.getByRole('button', { name: 'Copy cURL' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Copy JavaScript' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Copy cURL/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Copy JavaScript/i })).toBeTruthy()
     const executed = await mockHttp(
         'POST',
         '/api/v1/prediction/12121212-1212-4121-8121-121212121202',
