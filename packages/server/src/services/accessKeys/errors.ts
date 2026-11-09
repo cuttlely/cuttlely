@@ -2,7 +2,8 @@ import { AppError } from '../../errors/appError'
 
 export const ACCESS_KEY_DOCS = 'https://cuttlely.com/docs/how-to/access-keys/'
 export function accessKeyHelp(status: number, message: string): string {
-    if (message.includes(ACCESS_KEY_DOCS)) return message
+    // Append recovery text once. Detect our own trailing Help marker without URL-substring host checks.
+    if (/(?:^|\s)Help:\s*\S+\s*$/.test(message)) return message
     const fix =
         status === 401
             ? 'Send a current access key in Authorization: Bearer <key>. Ask the key owner to check expiry and revocation.'
