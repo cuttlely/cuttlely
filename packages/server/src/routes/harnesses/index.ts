@@ -7,7 +7,8 @@ import { accessContext } from '../../services/accessKeys/authorization'
 const router = express.Router()
 // Scoped execution has explicit operation and resource grants. Legacy/session edit gates stay intact.
 function requireRunPermission(req: express.Request, res: express.Response, next: express.NextFunction) {
-    const scoped = accessContext(req)?.routeAdmission?.operation === 'harness:run'
+    const context = accessContext(req)
+    const scoped = context?.routeAdmission?.operation === 'harness:run' && !context.key.accessPolicy?.legacy
     return requireAnyPermission(scoped ? 'chatflows:view,agentflows:view' : 'chatflows:create,chatflows:update,agentflows:create')(
         req,
         res,
