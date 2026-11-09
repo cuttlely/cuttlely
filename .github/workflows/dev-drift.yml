@@ -1,0 +1,28 @@
+name: Dev drift
+# Tracks commits dev is missing from main in one issue. It never opens a pull request.
+# Scheduled and push triggers run only from this file on the default branch (main).
+on:
+    push:
+        branches: [main]
+    schedule:
+        - cron: '17 13 * * *'
+    workflow_dispatch:
+permissions:
+    contents: read
+    issues: write
+concurrency:
+    group: dev-drift
+    cancel-in-progress: false
+jobs:
+    drift:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Update the drift issue
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: bash scripts/dev-drift-issue.sh

@@ -12,12 +12,14 @@ New to the code? [Build from source and run the dev server](../../docs/how-to/fr
 
 ```bash
 git fetch origin
+git rev-list --count origin/dev..origin/main   # must be 0; otherwise sync main into dev first (below)
 git switch -c <short-topic> origin/dev      # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
 pnpm install --frozen-lockfile
 pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
 pnpm --filter './packages/node-pack-*' build   # verify-test also loads the built node packs (components package alias test)
 ```
 
+-   **`dev` has `main` first.** Before you start, `git rev-list --count origin/dev..origin/main` must print `0`. If it does not, `dev` is missing commits from `main`. Sync `main` into `dev` first: reuse an open pull request from `main` into `dev` (`gh pr list --base dev --head main`) or open one (`gh pr create --base dev --head main --title "Sync main into dev"`). It merges with a merge commit, never a squash or a rebase. Branch from `dev` after it lands. The `Dev drift` workflow (`.github/workflows/dev-drift.yml`, logic in `scripts/dev-drift-issue.sh`) keeps one open `dev is N commits behind main` issue while this count is not `0` and closes it after the sync; it does not open the pull request.
 -   One concern per pull request, against `dev`. Commit messages are one plain sentence describing the user-visible change, then a short body.
 -   **Gate (D27).** A docs-only change runs `pnpm --filter @cuttlely/components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
 -   **Keep up with `dev`.** If `dev` moved while your pull request was open, merge `origin/dev` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
