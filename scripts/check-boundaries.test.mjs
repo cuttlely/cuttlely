@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkBoundaries, extractSpecifiers, updateBaseline } from './check-boundaries.mjs'
@@ -267,9 +268,9 @@ describe('baseline ratchet', () => {
 
 describe('this repo', () => {
     it('passes in under 10 seconds', () => {
-        const started = Date.now()
+        const started = performance.now()
         const result = checkBoundaries(ROOT)
-        const elapsed = Date.now() - started
+        const elapsed = performance.now() - started
         assert.equal(
             result.ok,
             true,

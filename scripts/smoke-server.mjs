@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -80,12 +81,12 @@ export function setupCodeFromLogs(logs) {
 
 /** Poll captured logs until the setup code line shows up, or the timeout passes. */
 export async function waitForSetupCode(source, timeoutMs = 15000) {
-    const started = Date.now()
+    const started = performance.now()
     for (;;) {
         const ready = source && typeof source.setupCode === 'string' ? source.setupCode : ''
         const code = ready || setupCodeFromLogs(source && source.logs != null ? source.logs : source)
         if (code) return code
-        if (Date.now() - started >= timeoutMs) return ''
+        if (performance.now() - started >= timeoutMs) return ''
         await new Promise((resolve) => setTimeout(resolve, 50))
     }
 }
@@ -220,9 +221,9 @@ export function smokeFlow(credentialId) {
 }
 
 export async function waitForPing(base, child, logs) {
-    const deadline = Date.now() + BOOT_MS
+    const deadline = performance.now() + BOOT_MS
     let last = ''
-    while (Date.now() < deadline) {
+    while (performance.now() < deadline) {
         if (child.exitCode !== null) {
             throw new Error(`server exited ${child.exitCode} before ping\n${logs.join('')}`)
         }
@@ -238,13 +239,16 @@ export async function waitForPing(base, child, logs) {
     throw new Error(`server did not answer /api/v1/ping within ${BOOT_MS / 1000}s (${last})\n${logs.join('').slice(-4000)}`)
 }
 
-export function startServer(dataDir, port, extra) {
+export async function startServer(dataDir, port, extra) {
+    // The HTTP port and the harness gateway must both belong to this disposable fixture.
+    // An inherited/default gateway port can be occupied even when /ping eventually opens at the boot cap.
+    const gatewayPort = await freePort()
     const logs = []
     let setupCode = ''
     let pending = ''
     const child = spawn(process.execPath, ['-r', SSO_GUARD, '-r', PRELOAD, path.join(SERVER, 'bin', 'run'), 'start'], {
         cwd: SERVER,
-        env: childEnv(dataDir, port, extra),
+        env: { ...childEnv(dataDir, port, extra), CUTTLELY_HARNESS_GATEWAY_PORT: String(gatewayPort) },
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -281,7 +285,7 @@ async function bootClosedRegister() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-smoke-closed-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const { child, logs, stop } = startServer(dataDir, port, {
+    const { child, logs, stop } = await startServer(dataDir, port, {
         WORKOS_API_KEY: 'sk_test_cuttlely_boot',
         WORKOS_CLIENT_ID: 'client_cuttlely_boot',
         WORKOS_REDIRECT_URI: `${base}/api/v1/auth/callback`,
@@ -339,7 +343,7 @@ async function checkShutdownDrain(base, cookie, chatflowId, child) {
         })
     )
     await new Promise((resolve) => setTimeout(resolve, 1500))
-    const signalled = Date.now()
+    const signalled = performance.now()
     child.kill('SIGTERM')
     const answers = await Promise.all(running)
     const bad = answers.filter((answer) => answer.status !== 200 || !answer.text.includes('smoke-ok'))
@@ -349,19 +353,19 @@ async function checkShutdownDrain(base, cookie, chatflowId, child) {
         new Promise((resolve) => setTimeout(() => resolve({ code: 'timeout', signal: null }), 40000))
     ])
     if (code !== 0) throw new Error(`server exit after SIGTERM: code ${code} signal ${signal}`)
-    console.log(`server drained and exited ${((Date.now() - signalled) / 1000).toFixed(1)}s after SIGTERM`)
+    console.log(`server drained and exited ${((performance.now() - signalled) / 1000).toFixed(1)}s after SIGTERM`)
 }
 
 // A model provider that keeps answering 429: a bounded number of tries, then 429 with the provider's Retry-After.
 async function checkProviderRateLimit(base, cookie, chatflowId) {
-    const started = Date.now()
+    const started = performance.now()
     const limited = await request(`${base}/api/v1/prediction/${chatflowId}`, {
         method: 'POST',
         cookie,
         timeoutMs: PREDICT_MS,
         body: { question: 'smoke-429', streaming: false }
     })
-    const seconds = (Date.now() - started) / 1000
+    const seconds = (performance.now() - started) / 1000
     if (limited.status !== 429) throw new Error(`provider 429 came back as ${limited.status}: ${limited.text.slice(0, 300)}`)
     if (limited.retryAfter !== '12') throw new Error(`provider 429 Retry-After was ${limited.retryAfter}, expected 12`)
     if (seconds > 25) throw new Error(`provider 429 took ${seconds.toFixed(1)}s, expected the retry budget (about 20s at most)`)
@@ -376,7 +380,7 @@ async function main() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-smoke-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const started = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const started = await startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     const { child, logs, stop } = started
     process.on('exit', stop)
     try {

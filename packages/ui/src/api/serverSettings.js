@@ -22,7 +22,12 @@ const checkDatabase = (values) => client.post('/server-settings/database/check',
 const switchDatabase = (values, confirm) => client.post('/server-settings/database/switch', { values, confirm })
 const restoreDatabase = (confirm) => client.post('/server-settings/database/restore', { confirm })
 
+const getOperator = () => client.get('/server-settings/operator')
+const operatorAction = (action, body) => client.post(`/server-settings/operator/${action}`, body)
+
 export default {
+    getOperator,
+    operatorAction,
     getSettings,
     saveSettings,
     discardChanges,

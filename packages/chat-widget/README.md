@@ -1,5 +1,7 @@
 # @cuttlely/chat
 
+The 1.7.0 package matches a 1.7.0 server. This security-exception release requires backing up the database, encryption key and settings before server upgrades. Read the [upgrade warnings](https://cuttlely.com/docs/upgrading/). Only the designated instance operator can change service settings, and enforcement stays Off by default. Read host-log proof in the hosting dashboard or Docker/Compose logs. Server upgrades require [operator onboarding and recovery](https://cuttlely.com/docs/how-to/instance-operator/); only verified host bindings grandfather; legacy installs claim in Server settings with a host-log code. Routine operator lifecycle is in the panel; the CLI is emergency recovery. Public embeds remain separate from private server-side API keys. Never put a privileged bearer in browser embed configuration.
+
 The chat widget for a Cuttlely chatflow or agentflow. It renders inside a shadow root, streams the answer, and talks only to your Cuttlely server.
 
 Your server also serves this build at `/embed/chat.js`, which keeps the widget on the same version as that server. Install this package when an application imports the widget itself.

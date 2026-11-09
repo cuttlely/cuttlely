@@ -53,7 +53,7 @@ Model output is always shown as text: HTML in an answer is never run, even when 
 
 ### Private chatflows
 
-A chatflow that is not public, or that needs an API key, does not open for visitors. The link shows `This chat is private or needs a key.` instead.
+A private chatflow does not open for visitors. With access-key enforcement on, **API Endpoint** must explicitly allow public access for anonymous chat; simply granting a key access does not make a public flow private. The link shows `This chat is private or needs a key.` instead.
 
 ## Change the look
 
@@ -99,7 +99,7 @@ The React tabs give a component that loads the same script. **Show Embed Chat Co
 npm install @cuttlely/chat
 ```
 
-The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.6.1` for a 1.6.1 server.
+The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.7.0` for a 1.7.0 server.
 
 ```js
 import { mount } from '@cuttlely/chat'
@@ -127,13 +127,19 @@ With no **Allowed Domains** set, chart files on another site follow your server'
 
 ![The Crumb & Co. Bakery page on another site, with the chat open in the bottom right corner. The answer describes total weekly sales of croissant loaves across all weeks in the dataset, above a bar chart titled Weekly Sales of Croissant Loaves with one bar per week.](../images/share-and-embed/embed-chart.png)
 
+## Access keys and public chat
+
+Inbound API/SDK access keys and public share/embed access are separate. Keep access keys on your server; do not put them in embed configuration. For private API calls, enable enforcement after the migration checks, set **API Endpoint** to **Private (selected access keys)**, and grant resources and operation scopes in **Access Keys**. Several keys can grant the same flow. Provider credentials remain separate too. Browser delegation is not implemented. [Access keys](../reference/access-keys.md).
+
+Enforcement defaults to `off`, and migration preserves public embeds and existing key values without forced rotation. Public chat keeps its existing flow/IP abuse limits rather than requiring both a public transport and an access key.
+
 ## Troubleshooting
 
-| What you see                                    | Why                                                                                  |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `This chat is private or needs a key.`          | The chatflow is not public, or it has an API key. Embeds and links can't send a key. |
-| `This chat is not available on this site.`      | The site is not in the chatflow's **Allowed Domains**.                               |
-| `This chat could not be found.`                 | The chatflow id is wrong, or the chatflow was deleted.                               |
-| `This chart could not be shown here.`           | The embed is on another site that is not in the chatflow's **Allowed Domains**.      |
-| No chat button on your page                     | The script URL is not your Cuttlely server, or `data-flow-id` is missing.            |
-| `The chat widget is not built. Run pnpm build.` | A from-source server was started without building. Run `pnpm build`.                 |
+| What you see                                    | Why                                                                                                                                           |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `This chat is private or needs a key.`          | The chatflow is private. With enforcement off, a legacy key binding also blocks public chat. Embeds and links cannot supply a privileged key. |
+| `This chat is not available on this site.`      | The site is not in the chatflow's **Allowed Domains**.                                                                                        |
+| `This chat could not be found.`                 | The chatflow id is wrong, or the chatflow was deleted.                                                                                        |
+| `This chart could not be shown here.`           | The embed is on another site that is not in the chatflow's **Allowed Domains**.                                                               |
+| No chat button on your page                     | The script URL is not your Cuttlely server, or `data-flow-id` is missing.                                                                     |
+| `The chat widget is not built. Run pnpm build.` | A from-source server was started without building. Run `pnpm build`.                                                                          |

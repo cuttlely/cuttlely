@@ -34,7 +34,7 @@ import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import TablePagination, { DEFAULT_ITEMS_PER_PAGE } from '@/ui-component/pagination/TablePagination'
 import { Available } from '@/ui-component/rbac/available'
 import APIKeyDialog from './APIKeyDialog'
-import { apiKeyOwnerNotice } from './ownerNotice'
+import { apiKeyOwnerNotice, apiKeyRevokeConfirmation } from './ownerNotice'
 
 // API
 import apiKeyApi from '@/api/apikey'
@@ -78,13 +78,31 @@ function APIKeyRow(props) {
     const theme = useTheme()
 
     const permissions = props.apiKey.permissions || []
+    const credential = [...(props.apiKey.credentials || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
+    const dayUsage = props.apiKey.usage?.find((row) => row.operation === '*' && row.period === moment.utc().format('YYYY-MM-DD'))
+    const lastUsed = props.apiKey.usage
+        ?.filter((row) => row.lastUsedAt)
+        .map((row) => new Date(row.lastUsedAt).getTime())
+        .sort((a, b) => b - a)[0]
 
     return (
         <>
             <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                 <StyledTableCell scope='row' style={{ width: '15%' }}>
                     <Stack>
-                        <Typography>{props.apiKey.keyName}</Typography>
+                        <Typography>
+                            {props.apiKey.keyName}
+                            {props.apiKey.disabledAt ? ' · Revoked' : ''}
+                        </Typography>
+                        <Typography variant='caption'>
+                            {props.apiKey.accessPolicy?.allResources
+                                ? 'All workspace resources'
+                                : `${props.apiKey.resources?.length || 0} resource grants`}{' '}
+                            ·{' '}
+                            {props.apiKey.expiresAt
+                                ? `Expires ${moment(props.apiKey.expiresAt).utc().format('YYYY-MM-DD HH:mm')} UTC`
+                                : 'No expiry'}
+                        </Typography>
                         {apiKeyOwnerNotice(props.apiKey.ownerUserId) && (
                             <Typography variant='caption' color='warning.main'>
                                 {apiKeyOwnerNotice(props.apiKey.ownerUserId)}
@@ -107,8 +125,10 @@ function APIKeyRow(props) {
                                 {props.showApiKeys.includes(props.apiKey.apiKey) ? <IconEyeOff /> : <IconEye />}
                             </IconButton>
                         </>
+                    ) : credential ? (
+                        `${credential.displayPrefix}…${credential.lastFour}`
                     ) : (
-                        'Hidden'
+                        'Legacy credential'
                     )}
                     <Popover
                         open={props.open}
@@ -152,14 +172,17 @@ function APIKeyRow(props) {
                     </Stack>
                 </StyledTableCell>
                 <StyledTableCell>
-                    {props.apiKey.chatFlows.length}{' '}
+                    <Typography>{dayUsage?.accepted || 0} today (UTC)</Typography>
+                    <Typography variant='caption'>
+                        {lastUsed ? `Last used ${moment(lastUsed).utc().format('YYYY-MM-DD HH:mm')} UTC` : 'Never used'}
+                    </Typography>{' '}
                     {props.apiKey.chatFlows.length > 0 && (
                         <IconButton aria-label='expand row' size='small' color='inherit' onClick={() => setOpen(!open)}>
                             {props.apiKey.chatFlows.length > 0 && open ? <IconChevronsUp /> : <IconChevronsDown />}
                         </IconButton>
                     )}
                 </StyledTableCell>
-                <StyledTableCell>{moment(props.apiKey.createdAt).format('MMMM Do, YYYY')}</StyledTableCell>
+                <StyledTableCell>{moment(props.apiKey.updatedDate).format('MMMM Do, YYYY')}</StyledTableCell>
                 <Available permission={'apikeys:update,apikeys:create'}>
                     <StyledTableCell>
                         <IconButton title='Edit' color='primary' onClick={props.onEditClick}>
@@ -169,7 +192,7 @@ function APIKeyRow(props) {
                 </Available>
                 <Available permission={'apikeys:delete'}>
                     <StyledTableCell>
-                        <IconButton title='Delete' color='error' onClick={props.onDeleteClick}>
+                        <IconButton title='Revoke' color='error' onClick={props.onDeleteClick}>
                             <IconTrash />
                         </IconButton>
                     </StyledTableCell>
@@ -297,7 +320,7 @@ const APIKey = () => {
 
     const addNew = () => {
         const dialogProp = {
-            title: 'Add New API Key',
+            title: 'Add access key',
             type: 'ADD',
             cancelButtonName: 'Cancel',
             confirmButtonName: 'Add',
@@ -309,7 +332,7 @@ const APIKey = () => {
 
     const edit = (key) => {
         const dialogProp = {
-            title: 'Edit API Key',
+            title: 'Edit access key',
             type: 'EDIT',
             cancelButtonName: 'Cancel',
             confirmButtonName: 'Save',
@@ -321,16 +344,7 @@ const APIKey = () => {
     }
 
     const deleteKey = async (key) => {
-        const confirmPayload = {
-            title: `Delete`,
-            description:
-                key.chatFlows.length === 0
-                    ? `Delete key [${key.keyName}] ? `
-                    : `Delete key [${key.keyName}] ?\n There are ${key.chatFlows.length} chatflows using this key.`,
-            confirmButtonName: 'Delete',
-            cancelButtonName: 'Cancel',
-            customBtnId: 'btn_initiateDeleteApiKey'
-        }
+        const confirmPayload = apiKeyRevokeConfirmation(key)
         const isConfirmed = await confirm(confirmPayload)
 
         if (isConfirmed) {
@@ -338,7 +352,7 @@ const APIKey = () => {
                 const deleteResp = await apiKeyApi.deleteAPI(key.id)
                 if (deleteResp.data) {
                     enqueueSnackbar({
-                        message: 'API key deleted',
+                        message: 'Access key revoked',
                         options: {
                             key: new Date().getTime() + Math.random(),
                             variant: 'success',
@@ -403,9 +417,9 @@ const APIKey = () => {
                         <ViewHeader
                             onSearchChange={onSearchChange}
                             search={true}
-                            searchPlaceholder='Search API Keys'
-                            title='API Keys'
-                            description='Cuttlely API and SDK authentication keys'
+                            searchPlaceholder='Search access keys'
+                            title='Access Keys'
+                            description='Inbound API and app access. Provider credentials and public share links are managed separately.'
                         >
                             <StyledPermissionButton
                                 permissionId={'apikeys:create'}
@@ -448,7 +462,7 @@ const APIKey = () => {
                                         >
                                             <TableRow>
                                                 <StyledTableCell>Key Name</StyledTableCell>
-                                                <StyledTableCell>API Key</StyledTableCell>
+                                                <StyledTableCell>Credential preview</StyledTableCell>
                                                 <StyledTableCell>Permissions</StyledTableCell>
                                                 <StyledTableCell>Usage</StyledTableCell>
                                                 <StyledTableCell>Updated</StyledTableCell>

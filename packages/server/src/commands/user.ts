@@ -13,6 +13,7 @@
 import '../settings/bootstrap'
 import { Args, Flags } from '@oclif/core'
 import * as DataSource from '../DataSource'
+import { operatorRecoveryUserError } from '../identity/operatorBinding'
 import { runUserCommand } from '../identity/cli'
 import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { localAdminEnabled } from '../identity/constants'
@@ -28,6 +29,11 @@ export default class user extends BaseCommand {
 
     static flags = {
         ...BaseCommand.flags,
+        'bind-operator': Flags.boolean({
+            description:
+                'Bind an explicitly selected existing active CLI owner as the default instance operator, without changing its password.',
+            default: false
+        }),
         email: Flags.string({
             description: 'Email address. The password is read from a prompt or stdin. Break-glass hashes are scrypt only.'
         })
@@ -36,7 +42,12 @@ export default class user extends BaseCommand {
     async run(): Promise<void> {
         const parsed = await this.parse(user)
         const email = parsed.flags.email || parsed.args.email
-        const password = email ? await readPassword() : undefined
+        const ownershipError = operatorRecoveryUserError(process.env)
+        if (ownershipError) {
+            logger.error(ownershipError)
+            return this.failExit()
+        }
+        const password = email && !parsed.flags['bind-operator'] ? await readPassword() : undefined
         try {
             const dataSource = DataSource.getDataSource()
             await dataSource.initialize()
@@ -44,7 +55,8 @@ export default class user extends BaseCommand {
             const result = await runUserCommand(dataSource, {
                 email,
                 password,
-                localAdmin: localAdminEnabled()
+                localAdmin: localAdminEnabled(),
+                bindOperator: parsed.flags['bind-operator']
             })
             for (const line of result.lines) {
                 if (result.ok) logger.info(line)

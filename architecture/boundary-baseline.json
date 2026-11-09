@@ -388,6 +388,11 @@
             "to": "packages/server/src/commands/base.ts"
         },
         {
+            "from": "packages/server/src/commands/settings.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "Service administration binds a host-designated account to the actual application database connection; the host fingerprint CLI and request gate read DataSource options instead of trusting draft settings or duplicating connection resolution."
+        },
+        {
             "from": "packages/server/src/controllers/a2a/index.test.ts",
             "to": "packages/server/src/Interface.ts",
             "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
@@ -404,11 +409,6 @@
         },
         {
             "from": "packages/server/src/controllers/a2a/index.test.ts",
-            "to": "packages/server/src/services/apikey/index.ts",
-            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
-        },
-        {
-            "from": "packages/server/src/controllers/a2a/index.test.ts",
             "to": "packages/server/src/utils/apiKey.ts",
             "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
@@ -418,14 +418,24 @@
             "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
+            "from": "packages/server/src/controllers/apikey/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/controllers/apikey/index.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/controllers/apikey/index.ts",
+            "to": "packages/server/src/utils/pagination.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
             "from": "packages/server/src/controllers/chat-messages/removeAll.test.ts",
             "to": "packages/server/src/controllers/chat-messages/index.ts",
             "reason": "the test drives the inherited clear-messages handler it covers"
-        },
-        {
-            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
-            "to": "packages/server/src/controllers/apikey/index.ts",
-            "reason": "the API-key test drives the inherited controller and router it covers"
         },
         {
             "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
@@ -538,11 +548,6 @@
         {
             "from": "packages/server/src/controllers/orchestrate/index.test.ts",
             "to": "packages/server/src/routes/predictions/index.ts",
-            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
-        },
-        {
-            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
-            "to": "packages/server/src/services/apikey/index.ts",
             "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
@@ -674,9 +679,19 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/identity/instanceOperator.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "Service administration binds a host-designated account to the actual application database connection; the host fingerprint CLI and request gate read DataSource options instead of trusting draft settings or duplicating connection resolution."
+        },
+        {
             "from": "packages/server/src/identity/oidcProvider.ts",
             "to": "packages/components/src/index.ts",
             "reason": "OIDC discovery, token, and signing-key retrieval must use the existing guarded request implementation."
+        },
+        {
+            "from": "packages/server/src/identity/operatorBinding.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "The host-only operator binding logs sanitized provisioning and revocation notices through the existing server logger; no authority or tenant data is delegated to the inherited logger."
         },
         {
             "from": "packages/server/src/identity/ossPlatform.ts",
@@ -685,10 +700,6 @@
         {
             "from": "packages/server/src/identity/production.ts",
             "to": "packages/server/src/DataSource.ts"
-        },
-        {
-            "from": "packages/server/src/identity/rbac.routes.test.ts",
-            "to": "packages/server/src/routes/apikey/index.ts"
         },
         {
             "from": "packages/server/src/identity/rbac.routes.test.ts",
@@ -976,6 +987,181 @@
             "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
+            "from": "packages/server/src/services/accessKeys/authorization.test.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/authorization.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/authorization.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/authorization.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/authorization.ts",
+            "to": "packages/server/src/utils/domainValidation.ts",
+            "reason": "Access key authorization adapters enforce canonical Harness identities, safe metadata-only management, and flow-origin admission before charging."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/credentials.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/credentials.ts",
+            "to": "packages/server/src/utils/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/dashflowReports.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/data.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/errors.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/leads.test.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access-key lead regression executes the real lead route and its AppError refusals; test-only imports preserve production boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/leads.test.ts",
+            "to": "packages/server/src/routes/leads/index.ts",
+            "reason": "Access-key lead regression executes the real lead route and its AppError refusals; test-only imports preserve production boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/legacyBinding.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Legacy binding persistence synchronizes derived grants transactionally at the existing flow-save boundary; origin validation remains lazy to avoid application bootstrap cycles."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/legacyBinding.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Legacy binding persistence synchronizes derived grants transactionally at the existing flow-save boundary; origin validation remains lazy to avoid application bootstrap cycles."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/limiter.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/management.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/management.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/managementBoundary.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access key authorization adapters enforce canonical Harness identities, safe metadata-only management, and flow-origin admission before charging."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/managementBoundary.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access key authorization adapters enforce canonical Harness identities, safe metadata-only management, and flow-origin admission before charging."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/policy.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/preflight.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/preflight.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/preflight.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/preflight.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "Access-key preflight refusals must use the existing configured RateLimiterManager flow/IP attempt bucket without charging accepted-operation key quotas."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/resources.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/rollout.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/routes.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/routes.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/utils/addChatflowsCount.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/server/src/services/apikey/index.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
             "from": "packages/server/src/services/builder/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
@@ -1256,11 +1442,6 @@
         },
         {
             "from": "packages/server/src/services/harnesses/apiAccess.ts",
-            "to": "packages/server/src/database/entities/ApiKey.ts",
-            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
-        },
-        {
-            "from": "packages/server/src/services/harnesses/apiAccess.ts",
             "to": "packages/server/src/database/entities/ChatFlow.ts",
             "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
         },
@@ -1370,6 +1551,16 @@
             "reason": "The HTTP localhost switch is read from Server settings and handed to the components HTTP guard through its reader setter"
         },
         {
+            "from": "packages/server/src/settings/operator-claim.ts",
+            "to": "packages/server/src/database/entities/index.ts",
+            "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
+        },
+        {
+            "from": "packages/server/src/settings/operator-claim.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
+        },
+        {
             "from": "packages/server/src/settings/runs.test.ts",
             "to": "packages/server/src/utils/XSS.ts",
             "reason": "The test runs the real URL decoding that sits in front of the API router in production"
@@ -1377,6 +1568,11 @@
         {
             "from": "packages/server/src/startup/databaseHealth.test.ts",
             "to": "packages/server/src/controllers/ping/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/accessKeyTestFixtures.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
         {
             "from": "packages/server/src/utils/apiKeyAccess.ts",
@@ -1626,11 +1822,6 @@
             "reason": "The flow caller helper only takes the IHarnessCaller type from the shared server interface"
         },
         {
-            "from": "packages/server/src/utils/flowHarnessCaller.ts",
-            "to": "packages/server/src/services/apikey/index.ts",
-            "reason": "The flow caller helper reads the bound key's harness list through the API key service"
-        },
-        {
             "from": "packages/server/src/utils/getGlobalVariable.test.ts",
             "to": "packages/server/src/utils/index.ts"
         },
@@ -1825,6 +2016,11 @@
         {
             "from": "packages/server/src/utils/uploadPermissions.ts",
             "to": "packages/server/src/utils/getUploadsConfig.ts"
+        },
+        {
+            "from": "packages/ui/src/api/apikey.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
         {
             "from": "packages/ui/src/api/authenticationSettings.js",
@@ -2083,6 +2279,111 @@
             "to": "packages/ui/src/utils/usePrompt.js"
         },
         {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/api/auth.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/store/actions.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/store/context/ConfigContext.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/ui-component/button/StyledButton.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/ui-component/dialog/ConfirmDialog.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/APIKeyDialog.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/assets/images/api_empty.svg",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/ErrorBoundary.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/hooks/useConfirm.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/store/actions.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/store/context/ErrorContext.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/ui-component/button/RBACButtons.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/ui-component/dialog/ConfirmDialog.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/ui-component/pagination/TablePagination.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/ui-component/rbac/available.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/views/apikey/index.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
             "from": "packages/ui/src/views/auth/ownerRecovery.jsx",
             "to": "packages/ui/src/api/auth.js",
             "reason": "Owner recovery reuses the established identity logger and shared sign-in UI, API, state, and input components."
@@ -2230,6 +2531,16 @@
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/views/chatflows/APICodeDialog.test.js",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Access-key UI regression mounts the inherited API dialog and spies on its existing chatflow API writer"
+        },
+        {
+            "from": "packages/ui/src/views/chatflows/APICodeDialog.test.js",
+            "to": "packages/ui/src/views/chatflows/APICodeDialog.jsx",
+            "reason": "Access-key UI regression mounts the inherited API dialog and spies on its existing chatflow API writer"
         },
         {
             "from": "packages/ui/src/views/dashflows/AccountReport.jsx",
@@ -2431,6 +2742,26 @@
             "from": "packages/ui/src/views/usage/UsagePage.jsx",
             "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
             "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
+            "from": "packages/ui/src/views/users/index.test.js",
+            "to": "packages/ui/src/api/user.js",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/index.test.js",
+            "to": "packages/ui/src/views/users/index.jsx",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/userActions.test.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
+        },
+        {
+            "from": "packages/ui/src/views/users/userActions.test.js",
+            "to": "packages/ui/src/api/user.js",
+            "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
         },
         {
             "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
@@ -2641,6 +2972,11 @@
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
         },
         {
+            "from": "packages/server/src/commands/user.ts",
+            "to": "packages/server/src/identity/operatorBinding.ts",
+            "reason": "Panel operator lifecycle uses the running DataSource and existing identity entities for current same-organization owner checks; the host user command calls the private binding UID preflight before password or database work. No authority is delegated to inherited modules."
+        },
+        {
             "from": "packages/server/src/controllers/chat-messages/index.ts",
             "to": "packages/server/src/utils/feedbackTypeFilters.ts",
             "reason": "the inherited chat message routes parse feedbackType with the shared filter"
@@ -2676,6 +3012,21 @@
             "reason": "Dashflows BETA reads the public DASH_FLOWS config flag; public settings reuses dashFlowsEnabled."
         },
         {
+            "from": "packages/ui/src/routes/DefaultRedirect.jsx",
+            "to": "packages/ui/src/views/apikey/index.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/routes/MainRoutes.jsx",
+            "to": "packages/ui/src/views/apikey/index.jsx",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
+            "from": "packages/ui/src/ui-component/subscription/PricingDialog.jsx",
+            "to": "packages/ui/src/api/apikey.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
+        },
+        {
             "from": "packages/ui/src/utils/migrationScan.test.js",
             "to": "packages/ui/src/utils/flowiseCatalog.js",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
@@ -2684,6 +3035,11 @@
             "from": "packages/ui/src/utils/migrationScan.test.js",
             "to": "packages/ui/src/utils/flowiseMigration.mjs",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "from": "packages/ui/src/views/chatflows/APICodeDialog.jsx",
+            "to": "packages/ui/src/api/apikey.js",
+            "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
         {
             "from": "packages/ui/src/views/credentials/AddEditCredentialDialog.jsx",

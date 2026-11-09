@@ -947,6 +947,12 @@ async function runNamedHarness(
         throw harnessFailure('Harness cannot run: chatId is required.')
     }
     const flowOptions = pickFlowOptions(options)
+    // A nested card needs its own admitted canvas, never its parent's pin or a fresh name lookup.
+    const caller = options.harnessCaller
+    if (caller?.via === 'api_key' && caller.harnessIds !== undefined)
+        flowOptions.expectedHarnessChatflowId = Object.prototype.hasOwnProperty.call(caller.harnessIds, harnessName)
+            ? caller.harnessIds[harnessName]
+            : undefined
     // Before a span or a run row. A harness in another team exports nothing.
     if (typeof engine.assertHarnessWorkspace === 'function') {
         try {

@@ -330,7 +330,7 @@ async function main() {
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
     const preload = [path.join(ROOT, 'scripts', 'refuse-sso-load.cjs')]
-    const server = startServer(serverRoot, dataEnv(dataRoot, port), { preload })
+    const server = await startServer(serverRoot, dataEnv(dataRoot, port), { preload })
     let expected
     try {
         await waitForPing(base, server)

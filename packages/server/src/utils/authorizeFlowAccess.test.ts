@@ -63,7 +63,10 @@ jest.mock('./quotaUsage', () => ({ checkStorage: jest.fn(async () => undefined),
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('./accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>(), fileLoaderPath: '' }
@@ -322,4 +325,15 @@ describe('Attachment access: defensive check in createFileAttachment and the reu
         expect((await request(other).get(`/feedback/${K}`).set('Authorization', `Bearer ${KEY_K}`)).body).toEqual({ id: K })
         expect((await request(other).get(`/feedback/${F}`)).body).toEqual({ id: F })
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../services/accessKeys/data', () => ({
+    accessData: async () => require('./accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

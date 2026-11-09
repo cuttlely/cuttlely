@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.6.1 is out.** Dashflows BETA (Experimental, default off) polishes evidence inspection, caches pipeline date ranges for six hours, and adds optional public snapshot links with account-scoped health reports. No breaking changes. Pull image `1.6.1` or run `npm i cuttlely@1.6.1`. Upgrading from 1.4.10 or earlier? Read the [1.5.0 upgrade notes](./CHANGELOG.md#150---2026-11-01) first. [Changelog](./CHANGELOG.md#161---2026-11-06)
+**1.7.0 adds scoped API keys and host-backed service administration.** This security-exception release requires upgrade action. Back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment to avoid browser administration lockout. Only actual verified host CLI bindings grandfather automatically. Legacy installs without one claim explicitly from Server settings with a one-time host-log code. Routine transfer/revoke and fresh-proof rebind are in the panel; the CLI is emergency recovery only. Only the designated instance operator can change service-wide settings; other owners gain nothing. Read host-log proof in the hosting dashboard or Docker/Compose logs. Host JSON `CUTTLELY_INSTANCE_OPERATOR` overrides the file and `none` revokes browser administration. Fresh setup requires host-configured sign-in; a setup code cannot configure the service. Access-key enforcement stays off by default. [Upgrade warnings](./docs/upgrading.md) · [Changelog](./CHANGELOG.md). To select 1.7.0, pin image `1.7.0` or install `cuttlely@1.7.0`.
 
 ## Contents
 
@@ -105,9 +105,9 @@ Roles, separate teams, sign-in and an audit log, on a server you run.
 
 -   [Roles and permissions](./docs/how-to/roles-and-permissions.md). Teams, the built-in roles, and the permission key for each page and route.
 -   [Sign in](./docs/how-to/sign-in.md). Create the first account. A team can sign in with local users (`CUTTLELY_LOCAL_USERS`) and no AuthKit. AuthKit can be turned on later, and a verified email links to an existing local user.
--   [Users without AuthKit](./docs/how-to/users-without-authkit.md). Local users, invite and reset links, the built-in Owner, Admin, Builder, and Viewer roles, and sessions. An invited person joins only through their own one-time invite link, with or without AuthKit: [Invite people](./docs/how-to/sign-in.md#invite-people).
+-   [Users without AuthKit](./docs/how-to/users-without-authkit.md). Local users, invite and reset links, the built-in Owner, Admin, Builder, and Viewer roles, and sessions. An active owner can cancel another pending owner invitation and revoke its links; active owners stay read-only. An invited person joins only through their own one-time invite link, with or without AuthKit: [Invite people](./docs/how-to/sign-in.md#invite-people).
 -   [Audit log](./docs/how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, and settings changes.
--   [Server settings](./docs/how-to/server-settings.md). Change sign-in, the database, storage and more from **Admin**. **Agent runtime** > **Limits** > **Agent run time** sets the specialist wait: four minutes by default, 300 seconds for five minutes, or 0 for unlimited; save and restart to apply. A shorter **Turn time limit** still applies. Runtime settings apply without a restart: Testing and Limits, security limits, invite and reset expiry, the SMTP host, port, secure flag, and user, `SENDER_EMAIL`, invite delivery, the settings-history cap, and `CUTTLELY_AUDIT_RETENTION_DAYS`. Env-only values, including secrets, `PORT`, the data folder, and the SMTP password, show only Set or Not set. The list is [Startup options](./docs/reference/startup-options.md).
+-   [Server settings](./docs/how-to/server-settings.md). Host-designate an [instance operator](./docs/how-to/instance-operator.md) to change sign-in, the database, storage and other service-wide settings from **Admin**. Without a valid designation browser service administration is closed; host/CLI recovery remains available. **Agent runtime** > **Limits** > **Agent run time** sets the specialist wait: four minutes by default, 300 seconds for five minutes, or 0 for unlimited; save and restart to apply. A shorter **Turn time limit** still applies. Runtime settings apply without a restart: Testing and Limits, security limits, invite and reset expiry, the SMTP host, port, secure flag, and user, `SENDER_EMAIL`, invite delivery, the settings-history cap, and `CUTTLELY_AUDIT_RETENTION_DAYS`. Env-only values, including secrets, `PORT`, the data folder, and the SMTP password, show only Set or Not set. The list is [Startup options](./docs/reference/startup-options.md).
 
 ## Agent teams that power your apps
 
@@ -119,7 +119,7 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 
 ## Use a team from your app
 
-Put the team behind a chatflow with one **Harness** card, publish it, and give it a key from **API Keys**. On that key, tick the harness under **Harnesses this key may run**: a new key runs no harness, and the call answers `403` until it is ticked. Your app sends a question and gets the team's answer back. Here is a real call to a small bakery team with two specialists, `baker` and `orders`:
+Put the team behind a chatflow with one **Harness** card and publish it. With [access-key enforcement enabled](./docs/reference/access-keys.md), create a principal in **Access Keys** and grant that chatflow plus its referenced Harness, with `predict` and `harness:run` scopes. Set the flow private in **API Endpoint**. New keys start with no resource grants. Your app sends a question and gets the team's answer back. Here is a real call to a small bakery team with two specialists, `baker` and `orders`:
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
@@ -147,6 +147,8 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. For a long turn, the same key can start the run in the background with `POST /api/v1/harnesses/<name>/runs/async` and fetch the answer later, and a harness can also run on a cron schedule: [Run it from your app with an API key](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [Run it on a schedule](./docs/how-to/harnesses.md#run-it-on-a-schedule). Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
+**Access Keys** is one workspace list for SDK/Settings keys and per-flow API keys. With `INBOUND_ACCESS_V2=on`, each key has its own expiry, requests-per-minute limit, daily/monthly UTC quotas, exact-origin and IP/CIDR allowlists, and resource/operation grants. Rotate with up to 24 hours of grace, revoke, and inspect prefixes, counters and audit events. Provider credentials and public share/embed links stay separate. Enforcement defaults to `off`: validate migration on a restored backup and check shadow decisions before enabling it. Existing keys keep their values without forced rotation. [Create and manage a key](./docs/how-to/access-keys.md). [Controls, rollout and current limits](./docs/reference/access-keys.md)
+
 ## Every flow an MCP server.
 
 Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish, and side-by-side replay shows what changed first.
@@ -159,7 +161,7 @@ Other agents can call your Live flow over MCP. Your edits wait in a draft until 
 
 ## Call a flow from IBM watsonx Orchestrate
 
-Register a published chatflow as an external agent, and an Orchestrate native agent hands it questions as a collaborator. The flow needs a bound API key; a flow without one is refused. A documented path also imports a flow as a remote MCP toolkit. [Call a chatflow from Orchestrate](./docs/how-to/orchestrate.md) · [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md)
+Register a published chatflow as an external agent, and an Orchestrate native agent hands it questions as a collaborator. The flow must be private and accept a key with prediction access; enforcement off uses its legacy binding. A documented path also imports a flow as a remote MCP toolkit. [Call a chatflow from Orchestrate](./docs/how-to/orchestrate.md) · [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md)
 
 ## Small context, big answers
 

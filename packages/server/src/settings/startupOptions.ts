@@ -101,6 +101,10 @@ export function renderStartupOptionsDoc(): string {
         '',
         '**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP` and the invite and mail settings, where a saved value wins over the host. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
         '',
+        'Access-key enforcement is `INBOUND_ACCESS_V2` (`off`, `shadow`, `on`; default `off`). The instance-operator Server settings control applies on the next request and persists across restarts. A host value wins and locks it, including forced `off` for recovery. Invalid saved values resolve to `off`; invalid nonempty host values retain 503. [Rollout and compatibility warnings](./access-keys.md#rollout-and-migration).',
+        '',
+        'The valid private operator binding is the default when `CUTTLELY_INSTANCE_OPERATOR` is entirely unset. Only actual host CLI bindings grandfather automatically. Legacy installs explicitly claim in Server settings using host-log proof; routine transfer/revoke and fresh-proof rebind are in the panel. The CLI is emergency recovery only. Host JSON/`none`/empty/invalid precedence remains immutable from the panel. Operator authority and proof state are outside generic settings. See [operator onboarding and recovery](../how-to/instance-operator.md).',
+        '',
         'The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Accepted values are exactly `true` and `false`. How a host value wins, and the error codes, are in the [Server settings API](./server-settings-api.md#publish-check-switch).',
         '',
         'The localhost switch for HTTP building blocks is `HTTP_ALLOW_LOCALHOST`. The default is `false`. Accepted values are exactly `true` and `false`. When it is `true`, any flow author can reach any service listening on the server\u2019s own localhost (`127.0.0.0/8` and `::1`, and the names `localhost` and `ip6-localhost`) from HTTP building blocks. Nothing else is opened: `0.0.0.0`, `::`, link-local and cloud metadata addresses, private ranges, and every `HTTP_DENY_LIST` entry stay blocked. It applies on the next request, without a restart. When `HTTP_SECURITY_CHECK` is `false`, the built-in block list is off, so loopback is already reachable and this switch changes nothing; only `HTTP_DENY_LIST` entries are blocked.',
@@ -112,6 +116,12 @@ export function renderStartupOptionsDoc(): string {
         'The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters each `content.input` and `content.output` span attribute keeps. The default is `4000`. Accepted values are a positive whole number, or `0` for no limit. No limit sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. [Run traces](../how-to/observability.md#full-question-and-answer-text).',
         '',
         table,
+        '',
+        '## Inbound access-key rollout (host only)',
+        '',
+        '`INBOUND_ACCESS_V2` defaults to `off`. Only `off`, `shadow` and `on` are accepted; another nonempty value returns `503` when checked. Set it on the host and restart. `off` retains legacy authorization; new issuance, policy editing and rotation require `on`, while revocation remains available. `shadow` serves legacy decisions and compares scoped flow authorization without charging quotas. It does not simulate every route or limit. Validate a restored-backup migration with `node scripts/access-keys-migration-report.cjs` and review shadow mismatches before enabling `on`. Existing keys keep working without rotation. [Access keys](./access-keys.md#rollout-and-migration).',
+        '',
+        '`CUTTLELY_API_KEY_INSTANCES` defaults to `1`. Any value whose numeric conversion is not `1` refuses access-key admission with `503`; it does not configure a shared limiter. Minute counters are per process and reset on restart. Daily/monthly UTC counters persist in SQL; Redis/multi-instance limiting is not implemented. These flags are host-only and their values are not exposed through Server settings.',
         ''
     ].join('\n')
 }

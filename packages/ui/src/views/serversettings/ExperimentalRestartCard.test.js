@@ -9,6 +9,7 @@ jest.mock('@/utils/useNotifier', () => () => {})
 jest.mock('@/api/serverSettings', () => ({
     __esModule: true,
     default: {
+        getOperator: jest.fn().mockResolvedValue({ data: {} }),
         getSettings: jest.fn(),
         restart: jest.fn()
     }

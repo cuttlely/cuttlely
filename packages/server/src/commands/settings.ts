@@ -10,12 +10,18 @@ export default class Settings extends BaseCommand {
     static strict = false
 
     static args = {
-        action: Args.string({ description: 'list, unset or restore' }),
+        action: Args.string({ description: 'list, unset, restore or operator-fingerprint' }),
         name: Args.string({ description: 'The setting to remove (for unset), or --all (for list)' })
     }
 
     async run(): Promise<void> {
         const { argv } = await this.parse(Settings)
+        if (argv[0] === 'operator-fingerprint') {
+            const { getDataSource } = await import('../DataSource')
+            const { operatorDatabaseFingerprint } = await import('../identity/instanceOperator')
+            process.stdout.write(`${operatorDatabaseFingerprint(getDataSource().options)}\n`)
+            return
+        }
         const result = runSettingsCli(argv as string[])
         for (const line of result.lines) process.stdout.write(`${line}\n`)
         process.exit(result.code)

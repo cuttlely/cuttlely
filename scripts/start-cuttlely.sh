@@ -242,12 +242,14 @@ wait_for_gateway() {
     local i=0
     local port="${CUTTLELY_HARNESS_GATEWAY_PORT:-43118}"
     local answer
-    local started_epoch
-    started_epoch=$(date +%s)
+    # hrtime has a shared monotonic origin across Node processes; wall-clock corrections cannot extend this cap.
+    local clock_script='console.log(Number(process.hrtime.bigint() / 1000000000n))'
+    local started_monotonic
+    started_monotonic=$("$NODE_BIN" -e "$clock_script")
     GATEWAY_STILL_COMPILING=0
     echo "Waiting for the harness gateway on 127.0.0.1:${port}."
     # starting_limit is elapsed seconds since the wait began, not loop turns. The OR form let CUTTLELY_GATEWAY_WAIT_SECONDS run past it.
-    while [[ "$(( $(date +%s) - started_epoch ))" -lt "$starting_limit" && ( "$starting" -eq 1 || "$i" -lt "$limit" ) ]]; do
+    while [[ "$(( $("$NODE_BIN" -e "$clock_script") - started_monotonic ))" -lt "$starting_limit" && ( "$starting" -eq 1 || "$i" -lt "$limit" ) ]]; do
         if [[ -n "${CUTTLELY_PID:-}" ]] && ! kill -0 "$CUTTLELY_PID" 2>/dev/null; then
             echo "Cuttlely exited before the harness gateway answered." >&2
             return 1
@@ -265,7 +267,7 @@ wait_for_gateway() {
         i=$((i + 1))
         sleep 1
     done
-    local elapsed=$(( $(date +%s) - started_epoch ))
+    local elapsed=$(( $("$NODE_BIN" -e "$clock_script") - started_monotonic ))
     if [[ "$starting" -eq 1 ]]; then
         GATEWAY_STILL_COMPILING=1
         echo "Harness gateway on 127.0.0.1:${port} was still compiling agent profiles after ${elapsed}s (cap ${starting_limit}s). The wait stops here so the deploy can finish. Hermes starts when that compile finishes." >&2

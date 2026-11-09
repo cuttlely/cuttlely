@@ -91,8 +91,15 @@ function gate(mode: 'all' | 'any', permissions: string[]): RequestHandler {
     return (req, res, next) => {
         void decide(req, required, mode)
             .then((status) => {
-                if (status === 200) next()
-                else send(res, status)
+                if (status === 200) {
+                    // Admission can refresh a key after this gate. Retain its exact OR/AND
+                    // prerequisites so the final admission rechecks the route's actual RBAC.
+                    if (req.user?.apiKeyId) {
+                        const groups = mode === 'all' ? required.map((permission) => [permission]) : [required]
+                        res.locals.accessKeyPermissionChecks = [...(res.locals.accessKeyPermissionChecks || []), ...groups]
+                    }
+                    next()
+                } else send(res, status)
             })
             .catch(() => {
                 if (!res.headersSent) send(res, 500)

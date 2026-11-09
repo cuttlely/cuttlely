@@ -1,9 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { Link } from 'react-router-dom'
 import * as PropTypes from 'prop-types'
 import { formatListDateTime } from '@/utils/formatDate'
 import { canChangeRole, roleLabel } from '@/utils/roleLabel'
+import {
+    canRemoveOrganizationUser,
+    isPendingOwnerInvite,
+    organizationOwnerLabel,
+    removalConfirmation,
+    removeOrganizationUser
+} from './userActions'
 
 // material-ui
 import {
@@ -186,16 +193,16 @@ function ShowUserRow(props) {
 
     const rowActions = (
         <>
-            {!props.row.isOrgOwner &&
-                props.row.userId !== currentUser.id &&
+            {canRemoveOrganizationUser(props.row, currentUser.id) &&
                 (props.deletingUserId === props.row.user.id ? (
                     <CircularProgress size={24} color='error' />
                 ) : (
                     <PermissionIconButton
                         permissionId={'workspace:unlink-user,users:manage'}
-                        title='Delete'
+                        title={isPendingOwnerInvite(props.row) ? 'Cancel invitation' : 'Delete'}
                         color='error'
-                        onClick={() => props.onDeleteClick(props.row.user)}
+                        disabled={Boolean(props.deletingUserId)}
+                        onClick={() => props.onDeleteClick(props.row)}
                     >
                         <IconTrash />
                     </PermissionIconButton>
@@ -242,7 +249,7 @@ function ShowUserRow(props) {
                                 </Typography>
                             )}
                             {props.row.isOrgOwner && (
-                                <Chip size='small' sx={{ mt: 0.5 }} label={isOpenSource ? 'Super User, read-only' : 'ORGANIZATION OWNER'} />
+                                <Chip size='small' sx={{ mt: 0.5 }} label={organizationOwnerLabel(props.row, isOpenSource)} />
                             )}
                             <Stack direction='row' alignItems='center' flexWrap='wrap' sx={{ gap: 1, mt: 1 }}>
                                 <Typography variant='body2'>Assigned roles: {props.row.roleCount}</Typography>
@@ -323,7 +330,7 @@ function ShowUserRow(props) {
                         <>
                             {' '}
                             <br />
-                            <Chip size='small' label={isOpenSource ? 'Super User, read-only' : 'ORGANIZATION OWNER'} />{' '}
+                            <Chip size='small' label={organizationOwnerLabel(props.row, isOpenSource)} />{' '}
                         </>
                     )}
                 </StyledTableCell>
@@ -377,6 +384,7 @@ const Users = () => {
     const [users, setUsers] = useState([])
     const [search, setSearch] = useState('')
     const [deletingUserId, setDeletingUserId] = useState(null)
+    const deletionPending = useRef(false)
     const [sessionUser, setSessionUser] = useState(null)
 
     const { confirm } = useConfirm()
@@ -405,22 +413,21 @@ const Users = () => {
         setShowInviteDialog(true)
     }
 
-    const deleteUser = async (user) => {
-        const confirmPayload = {
-            title: `Delete`,
-            description: `Remove ${user.name ?? user.email} from organization?`,
-            confirmButtonName: 'Delete',
-            cancelButtonName: 'Cancel'
-        }
-        const isConfirmed = await confirm(confirmPayload)
-
-        if (isConfirmed) {
-            try {
-                setDeletingUserId(user.id)
-                const deleteResp = await userApi.deleteOrganizationUser(currentUser.activeOrganizationId, user.id)
+    const deleteUser = async (row) => {
+        if (deletionPending.current || !canRemoveOrganizationUser(row, currentUser.id)) return
+        deletionPending.current = true
+        const pendingOwner = isPendingOwnerInvite(row)
+        const confirmPayload = removalConfirmation(row)
+        try {
+            const isConfirmed = await confirm(confirmPayload)
+            if (isConfirmed) {
+                setDeletingUserId(row.userId)
+                const deleteResp = await removeOrganizationUser(row, onConfirm, userApi.deleteOrganizationUser)
                 if (deleteResp.data) {
                     enqueueSnackbar({
-                        message: 'User removed from organization successfully',
+                        message: pendingOwner
+                            ? 'Pending owner invitation canceled and invite links revoked'
+                            : 'User removed from organization successfully',
                         options: {
                             key: new Date().getTime() + Math.random(),
                             variant: 'success',
@@ -431,32 +438,32 @@ const Users = () => {
                             )
                         }
                     })
-                    onConfirm()
                 }
-            } catch (error) {
-                const serverMessage = error?.response?.data?.message
-                enqueueSnackbar({
-                    message: serverMessage || 'The user could not be removed from the organization.',
-                    options: {
-                        key: new Date().getTime() + Math.random(),
-                        variant: 'error',
-                        persist: true,
-                        action: (key) => (
-                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                                <IconX />
-                            </Button>
-                        )
-                    }
-                })
-            } finally {
-                setDeletingUserId(null)
             }
+        } catch (error) {
+            const serverMessage = error?.response?.data?.message
+            enqueueSnackbar({
+                message: serverMessage || 'The user could not be removed from the organization.',
+                options: {
+                    key: new Date().getTime() + Math.random(),
+                    variant: 'error',
+                    persist: true,
+                    action: (key) => (
+                        <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                            <IconX />
+                        </Button>
+                    )
+                }
+            })
+        } finally {
+            setDeletingUserId(null)
+            deletionPending.current = false
         }
     }
 
     const onConfirm = () => {
         setShowInviteDialog(false)
-        getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
+        return getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
     }
 
     useEffect(() => {

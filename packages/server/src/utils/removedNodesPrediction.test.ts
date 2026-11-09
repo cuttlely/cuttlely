@@ -88,7 +88,14 @@ beforeAll(() => {
         [WITH_REMOVED, 'langFuse'],
         [WITH_UNKNOWN, 'someTracer']
     ]) {
-        mockDb.chatflows.set(id, { id, workspaceId: 'ws-1', apikeyid: '', type: 'CHATFLOW', flowData: harnessWith(loose) })
+        mockDb.chatflows.set(id, {
+            id,
+            workspaceId: 'ws-1',
+            apikeyid: '',
+            apiAccessMode: 'public',
+            type: 'CHATFLOW',
+            flowData: harnessWith(loose)
+        })
     }
 })
 

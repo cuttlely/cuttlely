@@ -36,7 +36,10 @@ jest.mock('./index', () => {
 const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
 jest.mock('../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('./accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const mockDb = { chatflows: new Map<string, any>() }
@@ -343,4 +346,15 @@ describe('Streaming errors: the prediction controller refuses a bad flow key bef
         expect(mockState.sseClients).toHaveLength(1)
         expect(mockState.buildCalls).toBe(1)
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../services/accessKeys/data', () => ({
+    accessData: async () => require('./accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

@@ -9,7 +9,7 @@
 
 Cuttlely orchestrates teams of AI agents and controls what context each one sees, using the tables, tools and rules you choose. It gives your applications their own intelligent capabilities and coordinated agent teams. A team is a lead agent, Harness Prime, that splits each question among specialists, and in Cuttlely it is called a harness. Your app calls a team through the API, and people can chat with it on a share link or a website embed. Knowledge pipelines (ETL), visual workflows (chatflows and agentflows) and Build with AI give the teams what they need, and every change is a draft until you publish it. It all runs on infrastructure you control.
 
-New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes), or watch a customer care team resolve a late-order complaint in about a minute with [Try the demo](./how-to/try-the-demo.md). Building an app? Start with the [API guide](./api.md), then [Use a team from your app](../README.md#use-a-team-from-your-app). The harness [Prediction API](./how-to/harnesses.md#prediction-api) section is the reference for harness responses and stream events. Every task guide, with what is new in 1.6.1, is listed in [How-to guides](./how-to/README.md).
+New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes), or watch a customer care team resolve a late-order complaint in about a minute with [Try the demo](./how-to/try-the-demo.md). Building an app? Start with the [API guide](./api.md), then [Use a team from your app](../README.md#use-a-team-from-your-app). The harness [Prediction API](./how-to/harnesses.md#prediction-api) section is the reference for harness responses and stream events. Every task guide, including the 1.7.0 security-exception release features, is listed in [How-to guides](./how-to/README.md).
 
 ## Build
 
@@ -28,6 +28,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Fail a build when answers change](./how-to/ci-gate.md). `cuttlely check` runs the Publish check and can fail the build when an answer comes back Changed, or when the server's verdict is failed. The example workflows are in `examples/ci/`.
 -   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, how the share settings change the look, and the [`@cuttlely/chat`](./how-to/share-and-embed.md#embed-with-cuttlelychat) package.
 -   [Sort answer tables](./how-to/answer-tables.md). Click a column header in a chat answer's table to sort by numbers, amounts, dates or text, in the app chat and the embedded widget. The answer itself does not change.
+-   [Create and manage access keys](./how-to/access-keys.md). Operator prerequisites, scopes and resources, expiry, quotas, private calls, rotation, revocation and recovery.
 -   [Use the API in your own web app](./api.md). API keys, calling chatflows, agentflows and harnesses, streaming, conversation memory, uploads, errors and allowed origins, with a runnable [example app](../examples/web-app). [Call a chatflow from Orchestrate](./api.md#call-a-chatflow-from-orchestrate), [Call a chatflow over A2A](./api.md#call-a-chatflow-over-a2a), and the [MCP endpoint](./api.md#mcp-endpoint).
 -   [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md). Register a published chatflow as the `external_chat` collaborator `cuttlely_orders` for native agent `larkfield_router`. Copy the sample YAML, fill it in, and import that copy. A2A 0.3.0 samples are included but not yet tested. [Record the Orchestrate demo](./how-to/orchestrate-demo.md) is the Larkfield Home orders runbook.
 -   [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md). Register `/api/v1/mcp/:id` as a remote MCP toolkit in IBM watsonx Orchestrate.
@@ -38,11 +39,13 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Build from source and run the dev server](./how-to/from-source.md). Build Cuttlely yourself, run it, change the code with live reload, and run the tests and `pnpm verify`.
 -   [Render](./how-to/render.md). A hosted install with Postgres.
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server Settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History. Testing and security runtime limits apply on the next use; Agent run time and startup settings need the restart described in the guide. The routes are the [Server settings API](./reference/server-settings-api.md).
--   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password, including one-time invite and reset links. An invited person joins only through their own invite link: [Invite people](./how-to/sign-in.md#invite-people). [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
+-   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password, including one-time invite and reset links and cancellation of another pending owner invitation by an active owner. An invited person joins only through their own invite link: [Invite people](./how-to/sign-in.md#invite-people). [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
 -   [Roles and permissions](./how-to/roles-and-permissions.md). Teams, the built-in roles, how to add a role and assign it, and every permission key with the pages and API routes that check it.
--   [Audit log](./how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, settings changes, and pinned query changes. Passwords, tokens, secret values, and question text are not stored.
+-   [Audit log](./how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, settings changes, access-key lifecycle and aggregate usage/refusal events, and pinned query changes. Passwords, tokens, secret values, and question text are not stored.
 
 ## Reference
+
+-   [Access keys](./reference/access-keys.md). One inbound API/SDK key list per workspace, resource and operation grants, expiry, rotation/revocation, caller allowlists, quotas, counters and audit events. Enforcement is default-off; restored-backup diagnostics and shadow comparison precede opt-in.
 
 -   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) ([question history](./reference/drafts-api.md#question-history) and a check started with `questionIds`) and [Version files](./reference/version-files.md).
 -   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads, the publish check switch, the limits that apply without a restart, paged change history, invite and reset link expiry, and read-only status for values that stay on the host. [Startup options](./reference/startup-options.md) is the full list.
@@ -71,3 +74,5 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Bring your existing flows
 
 -   [Bring your existing flows](./bring-your-flows.md). What opens today, and what is not supported yet. The rule-by-rule details are in [Flowise migration wizard](./flowise-migration-wizard.md).
+
+[Designate the instance operator](./how-to/instance-operator.md): host-controlled service administration, upgrade setup and recovery.

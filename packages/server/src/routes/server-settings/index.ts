@@ -1,8 +1,11 @@
-// Server settings API: /api/v1/server-settings. Owner only. The API key deny list answers 401 before this
-// router, and so does a request with no session. A signed-in caller who is not the owner is 403.
+// Server settings API: /api/v1/server-settings. Host-designated instance operator and active owner only.
+// Other owners receive only a capability notice; keys and missing sessions are refused by the API gate.
 // Secret values are accepted but never returned or logged.
 import express, { NextFunction, Request, Response } from 'express'
+import { INSTANCE_OPERATOR_NOTICE, isInstanceOperator, requireInstanceOperator } from '../../identity/instanceOperator'
+import { recentlyAuthenticated } from '../../identity/authenticationRoutes'
 import { requireOwner } from '../../identity/rbac'
+import { operatorPanelAction, operatorPanelStatus } from '../../settings/operator-claim'
 import { startState } from '../../settings/bootstrap'
 import {
     AuthKitDeps,
@@ -72,7 +75,22 @@ export function isAuthKitTestCallback(req: Request): boolean {
 export async function authKitTestCallback(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         res.setHeader('Cache-Control', 'no-store')
-        await handleAuthKitTestCallback(depsFactory(), authKitFactory(), req, res)
+        // This callback is mounted before the API gate. Validate the database session here too.
+        const { attachIdentitySession } = await import('../../identity/middleware')
+        const user = await attachIdentitySession(req, res)
+        if (!user) {
+            res.status(403).json({ code: 'INSTANCE_OPERATOR_REQUIRED', message: INSTANCE_OPERATOR_NOTICE })
+            return
+        }
+        if (user) {
+            req.user = user as unknown as Express.User
+            ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
+        }
+        if (!(await isInstanceOperator(req, depsFactory().env))) {
+            res.status(403).json({ code: 'INSTANCE_OPERATOR_REQUIRED', message: INSTANCE_OPERATOR_NOTICE })
+            return
+        }
+        await handleAuthKitTestCallback(requestDeps(req), authKitFactory(), req, res)
     } catch (error) {
         next(error)
     }
@@ -141,19 +159,53 @@ function rejectReadOnlyWrite(req: Request): never {
     throw new SettingsError(405, 'METHOD_NOT_ALLOWED', 'Use PUT /api/v1/server-settings to change a setting.')
 }
 
+/** Request-only authorizer is never serialized or accepted in a payload. Host/CLI callers use plain deps. */
+function requestDeps(req: Request): ServiceDeps {
+    return {
+        ...depsFactory(),
+        authorize: async () => {
+            if (!(await isInstanceOperator(req, depsFactory().env)))
+                throw new SettingsError(403, 'INSTANCE_OPERATOR_REQUIRED', INSTANCE_OPERATOR_NOTICE)
+            const values = req.body?.values
+            if (
+                req.method === 'PUT' &&
+                values &&
+                Object.prototype.hasOwnProperty.call(values, 'INBOUND_ACCESS_V2') &&
+                !(await recentlyAuthenticated(req))
+            )
+                throw new SettingsError(403, 'RECENT_AUTH_REQUIRED', 'Verify a fresh sign-in before changing access-key enforcement.')
+        }
+    }
+}
+
 router.use(requireOwner())
 router.get(
     '/',
-    handle(() => getView(depsFactory()))
+    handle(async (req) => {
+        if (!(await isInstanceOperator(req, requestDeps(req).env))) return { instanceOperator: false, message: INSTANCE_OPERATOR_NOTICE }
+        return { ...(await getView(requestDeps(req))), instanceOperator: true }
+    })
 )
+// Narrow proof/management API: never opens any other global settings or setup path.
+router.get(
+    '/operator',
+    handle((req) => operatorPanelStatus(req, depsFactory().env))
+)
+for (const action of ['request', 'claim', 'rebind', 'recover', 'transfer', 'revoke']) {
+    router.post(
+        '/operator/' + action,
+        handle((req) => operatorPanelAction(req, depsFactory().env, action))
+    )
+}
+router.use(requireInstanceOperator(() => depsFactory().env))
 router.get(
     '/read-only',
-    handle(() => ({ scope: 'instance', settings: listReadOnlyStatus(depsFactory().env) }))
+    handle((req) => ({ scope: 'instance', settings: listReadOnlyStatus(requestDeps(req).env) }))
 )
 router.get(
     '/read-only/:key',
     handle((req) => {
-        const status = readOnlyStatusFor(depsFactory().env, req.params.key)
+        const status = readOnlyStatusFor(requestDeps(req).env, req.params.key)
         if (!status) throw new SettingsError(404, 'NOT_FOUND', 'No read-only setting with that name.')
         return status
     })
@@ -169,14 +221,14 @@ router.put(
     '/',
     handle((req) => {
         const who = actor(req)
-        return saveChanges(depsFactory(), req.body, who.by, who.actorId)
+        return saveChanges(requestDeps(req), req.body, who.by, who.actorId)
     })
 )
 router.post(
     '/discard',
     handle((req) => {
         const who = actor(req)
-        return discardChanges(depsFactory(), who.by, who.actorId)
+        return discardChanges(requestDeps(req), who.by, who.actorId)
     })
 )
 // Try it again: puts back the settings safe boot set aside after two starts that did not finish.
@@ -184,36 +236,36 @@ router.post(
     '/retry',
     handle((req) => {
         const who = actor(req)
-        return retryRolledBack(depsFactory(), who.by, who.actorId)
+        return retryRolledBack(requestDeps(req), who.by, who.actorId)
     })
 )
 router.get(
     '/history',
-    handle((req) => historyPage(depsFactory(), req.query.limit, req.query.cursor))
+    handle((req) => historyPage(requestDeps(req), req.query.limit, req.query.cursor))
 )
 router.post(
     '/restart',
     // Lets runs in progress finish first unless the owner chose Restart now ({ wait: false }).
     handle((req) => {
         const who = actor(req)
-        return restartNow(depsFactory(), who.by, { wait: (req.body as { wait?: unknown })?.wait !== false, actorId: who.actorId })
+        return restartNow(requestDeps(req), who.by, { wait: (req.body as { wait?: unknown })?.wait !== false, actorId: who.actorId })
     }, 202)
 )
 // Test connection: tries the values on screen without saving them. Nothing is written except a small test file in
 // a storage bucket, which is removed again.
 router.post(
     '/test',
-    handle((req) => testConnection(depsFactory(), req.body, driversFactory()))
+    handle((req) => testConnection(requestDeps(req), req.body, driversFactory()))
 )
 
 // Set up AuthKit: check the values, run a test sign-in with them, then save them.
 router.post(
     '/authkit/check',
-    handle((req) => checkAuthKit(depsFactory(), authKitFactory(), req.body, requestOrigin(req)))
+    handle((req) => checkAuthKit(requestDeps(req), authKitFactory(), req.body, requestOrigin(req)))
 )
 router.post(
     '/authkit/test',
-    handle((req) => startAuthKitTest(depsFactory(), authKitFactory(), req))
+    handle((req) => startAuthKitTest(requestDeps(req), authKitFactory(), req))
 )
 router.get(
     '/authkit/test',
@@ -221,21 +273,21 @@ router.get(
 )
 router.post(
     '/authkit/apply',
-    handle((req) => applyAuthKitTest(depsFactory(), authKitFactory(), req))
+    handle((req) => applyAuthKitTest(requestDeps(req), authKitFactory(), req))
 )
 
 // Switch database: test and explain, then switch (RESTART typed) and restart; Switch back puts the previous one back.
 router.post(
     '/database/check',
-    handle((req) => checkDatabase(depsFactory(), req.body, driversFactory()))
+    handle((req) => checkDatabase(requestDeps(req), req.body, driversFactory()))
 )
 router.post(
     '/database/switch',
-    handle((req) => switchDatabase(depsFactory(), req.body, actor(req).by, driversFactory()))
+    handle((req) => switchDatabase(requestDeps(req), req.body, actor(req).by, driversFactory(), actor(req).actorId))
 )
 router.post(
     '/database/restore',
-    handle((req) => restorePreviousDatabase(depsFactory(), req.body, actor(req).by, driversFactory()))
+    handle((req) => restorePreviousDatabase(requestDeps(req), req.body, actor(req).by, driversFactory(), actor(req).actorId))
 )
 
 export default router

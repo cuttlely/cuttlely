@@ -12,6 +12,10 @@ services:
         image: cuttlely-worker:local
         restart: always
         environment:
+            # Blank rollout is unset (saved mode wins); blank ignore flag is off.
+            - INBOUND_ACCESS_V2=${INBOUND_ACCESS_V2:-}
+            - CUTTLELY_IGNORE_ADMIN_SETTINGS=${CUTTLELY_IGNORE_ADMIN_SETTINGS:-}
+            - CUTTLELY_INSTANCE_OPERATOR
             - WORKER_PORT=${WORKER_PORT:-5566}
 
             # DATABASE

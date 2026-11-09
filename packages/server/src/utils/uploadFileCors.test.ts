@@ -84,6 +84,7 @@ app.use(errorHandlerMiddleware)
 const flow = (id: string, allowedOrigins?: string[]) => ({
     id,
     workspaceId: 'ws-1',
+    apiAccessMode: 'public',
     isPublic: true,
     chatbotConfig: JSON.stringify(allowedOrigins ? { allowedOrigins } : { title: 'Bakery' })
 })

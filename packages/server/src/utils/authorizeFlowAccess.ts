@@ -1,3 +1,4 @@
+import { FlowOriginPolicyError } from '../services/accessKeys/errors'
 import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { isPathTraversal, isValidUUID } from '@cuttlely/components'
@@ -14,6 +15,8 @@ import { isStreamingRequest } from './streaming'
 import { validateFlowAPIKey } from './validateKey'
 
 export interface FlowAccessOptions {
+    /** Additional authorization on the resolved flow, before committed key admission. */
+    beforeAdmission?: (req: Request, chatflow: ChatFlow) => void | Promise<void>
     /** Returns the chatflow id the request targets (for example a route param). */
     getChatflowId: (req: Request) => string | undefined | Promise<string | undefined>
     /** Returns other request values that end up in storage paths; each is checked for path traversal. */
@@ -41,6 +44,7 @@ export interface FlowAccessOptions {
 }
 
 export interface FlowAccessCheck {
+    charge?: boolean
     /** Skip the session branch; only the flow's API key decides. */
     keyOnly?: boolean
     /**
@@ -62,8 +66,8 @@ export const hasFlowAccess = async (req: Request, chatflow: ChatFlow, check: Flo
     const sessionUsable =
         !check.keyOnly &&
         (!check.sessionNeedsHeader || cookieMutationAllowed(req.method || '', req.headers['x-request-from'] === 'internal'))
-    if (sessionUsable && chatflow.workspaceId && req.user?.activeWorkspaceId === chatflow.workspaceId) return true
-    return validateFlowAPIKey(req, chatflow)
+    if (sessionUsable && !req.user?.apiKeyId && chatflow.workspaceId && req.user?.activeWorkspaceId === chatflow.workspaceId) return true
+    return validateFlowAPIKey(req, chatflow, check.charge)
 }
 
 /** The chatflow loaded by `authorizeFlowAccess` for this request, if it ran. */
@@ -104,7 +108,11 @@ export const authorizeFlowAccess =
             res.locals.signedAccess = signed
             if (
                 !signed &&
-                !(await hasFlowAccess(req, chatflow, { keyOnly: options.keyOnly, sessionNeedsHeader: options.sessionNeedsHeader }))
+                !(await hasFlowAccess(req, chatflow, {
+                    keyOnly: options.keyOnly,
+                    sessionNeedsHeader: options.sessionNeedsHeader,
+                    charge: options.beforeAdmission ? false : undefined
+                }))
             ) {
                 throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             }
@@ -113,14 +121,21 @@ export const authorizeFlowAccess =
                 const origin = checkChatflowOrigin(chatflow.chatbotConfig, req.headers.origin)
                 if (!origin.allowed) {
                     // Same answer as the controller: plain text for a (parsed) streaming request, else the JSON error.
-                    if (isStreamingRequest(req)) return res.status(StatusCodes.FORBIDDEN).send(origin.error)
+                    if (isStreamingRequest(req)) return res.status(StatusCodes.FORBIDDEN).type('text/plain').send(origin.error)
                     throw new AppError(StatusCodes.FORBIDDEN, origin.error)
                 }
             }
 
+            if (!signed && options.beforeAdmission) {
+                await options.beforeAdmission(req, chatflow)
+                if (!(await hasFlowAccess(req, chatflow, { keyOnly: options.keyOnly, sessionNeedsHeader: options.sessionNeedsHeader })))
+                    throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+            }
             res.locals.chatflow = chatflow
             next()
         } catch (error) {
+            if (error instanceof FlowOriginPolicyError && options.checkOrigin && isStreamingRequest(req))
+                return res.status(403).type('text/plain').send(error.message)
             // No stream has started here, so the error handler answers with the JSON error (it only stays silent once headers are sent).
             next(error)
         }
@@ -206,6 +221,9 @@ export const authorizeFeedbackRead: RequestHandler = authorizeFlowAccess({
  * is still refused afterwards by `validateFeedbackForCreation` (400). No message id: 400; unknown message: 404.
  */
 export const authorizeFeedbackCreate: RequestHandler = authorizeFlowAccess({
+    beforeAdmission: async (req) => {
+        await (await import('../services/feedback/validation')).validateFeedbackForCreation(req.body)
+    },
     getChatflowId: async (req) => {
         const messageId = singleString(req.body?.messageId)
         if (!messageId) throw new AppError(StatusCodes.BAD_REQUEST, 'Message ID is required')
@@ -220,6 +238,9 @@ export const authorizeFeedbackCreate: RequestHandler = authorizeFlowAccess({
  * a missing id keeps the controller's 412 and message.
  */
 export const authorizeFeedbackUpdate: RequestHandler = authorizeFlowAccess({
+    beforeAdmission: async (req) => {
+        await (await import('../services/feedback/validation')).validateFeedbackForUpdate(req.params.id, req.body)
+    },
     getChatflowId: async (req) => (req.params.id ? (await validateFeedbackExists(req.params.id)).chatflowid : undefined),
     missingIdError: () =>
         new AppError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.updateChatMessageFeedbackForChatflow - id not provided!`),
@@ -233,6 +254,9 @@ export const authorizeFeedbackUpdate: RequestHandler = authorizeFlowAccess({
  * file opens it without the key or a session; an expired, changed or missing one falls back to the key or session.
  */
 export const authorizeUploadFileRead: RequestHandler = authorizeFlowAccess({
+    beforeAdmission: (req, chatflow) => {
+        bindSuppliedChatId(req, { chatflow, isInternal: callerIsSignedIn(req), suppliedChatId: req.query.chatId, failClosed: true })
+    },
     getChatflowId: (req) => singleString(req.query.chatflowId),
     getPathValues: (req) => [singleString(req.query.chatId)],
     signedAccess: async (req, chatflow) => {

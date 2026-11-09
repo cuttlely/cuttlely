@@ -8,6 +8,8 @@ import os from 'os'
 import path from 'path'
 import request from 'supertest'
 import { generateSecretHash } from './apiKey'
+import { parsePolicy } from '../services/accessKeys/policy'
+import { accessKeyRouteGuard } from '../services/accessKeys/routes'
 
 const REQUEST_TIMEOUT_MS = 20_000
 jest.setTimeout(30_000)
@@ -56,10 +58,13 @@ jest.mock('./index', () => {
     }
 })
 
-const mockApiKeys = new Map<string, { id: string; workspaceId: string; apiSecret: string }>()
+const mockApiKeys = new Map<string, any>()
 jest.mock('../services/apikey', () => ({
     __esModule: true,
-    default: { getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null) }
+    default: {
+        getApiKey: jest.fn(async (token: string) => require('./accessKeyTestFixtures').migratedKeyForToken(mockApiKeys, token)),
+        getApiKeyById: jest.fn(async (id: string) => mockApiKeys.get(id) ?? null)
+    }
 }))
 
 const vectorCalls: string[] = []
@@ -124,6 +129,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
     if (typeof raw === 'string') (req as Request & { user?: object }).user = JSON.parse(raw)
     next()
 })
+app.use('/api/v1', accessKeyRouteGuard)
 app.use('/api/v1/vector', vectorsRouter)
 app.use('/api/v1/document-store', documentStoreRouter)
 app.use(errorHandlerMiddleware)
@@ -196,10 +202,46 @@ describe('Vector upsert access', () => {
     })
 
     it('internal upsert from another workspace is 401 and writes nothing', async () => {
-        const res = await multipart(`/api/v1/vector/internal-upsert/${FLOW}`, { 'x-test-user': user(OTHER, []) })
+        const res = await multipart(`/api/v1/vector/internal-upsert/${FLOW}`, {
+            'x-test-user': JSON.stringify({ ...JSON.parse(user(OTHER, [])), id: 'interactive-user' })
+        })
         expect(res.status).toBe(401)
         expectNoWrites()
         expect(vectorCalls).toEqual([])
+    })
+
+    it.each(['off', 'shadow', 'on'])('internal upsert refuses API principals before storage in %s mode', async (mode) => {
+        const previous = process.env.INBOUND_ACCESS_V2
+        process.env.INBOUND_ACCESS_V2 = mode
+        try {
+            // The legacy guard remains compatible in off/shadow; the route itself must still require a session.
+            for (const accessPolicy of [{ ...parsePolicy({}), legacy: true }, parsePolicy({})]) {
+                mockApiKeys.set('apikey-flow', {
+                    ...mockApiKeys.get('apikey-flow'),
+                    permissions: [],
+                    accessPolicy
+                })
+                const res = await multipart(`/api/v1/vector/internal-upsert/${FLOW}`, {
+                    'x-test-user': JSON.stringify({ ...JSON.parse(user(WS, [])), apiKeyId: 'apikey-flow' }),
+                    Authorization: `Bearer ${KEY}`
+                })
+                expect(res.status).toBe(mode === 'on' ? 403 : accessPolicy.legacy ? 401 : 503)
+                expectNoWrites()
+                expect(vectorCalls).toEqual([])
+            }
+        } finally {
+            if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+            else process.env.INBOUND_ACCESS_V2 = previous
+        }
+    })
+
+    it('internal upsert accepts an interactive session in the owning workspace', async () => {
+        const res = await multipart(`/api/v1/vector/internal-upsert/${FLOW}`, {
+            'x-test-user': JSON.stringify({ ...JSON.parse(user(WS, [])), id: 'interactive-user' })
+        })
+        expect(res.status).toBe(200)
+        expect(mockState.multerWrites).toEqual(['note.txt'])
+        expect(vectorCalls).toEqual(['vector'])
     })
 
     it('a matching workspace and flow key reaches the controller after multer', async () => {
@@ -209,6 +251,24 @@ describe('Vector upsert access', () => {
         })
         expect(res.status).toBe(200)
         expect(res.body).toEqual({ ok: true })
+        expect(mockState.multerWrites).toEqual(['note.txt'])
+        expect(vectorCalls).toEqual(['vector'])
+    })
+
+    it('external upsert admits a scoped upload key exactly once before storage', async () => {
+        mockApiKeys.set('apikey-flow', {
+            ...mockApiKeys.get('apikey-flow'),
+            permissions: ['chatflows:view'],
+            accessPolicy: parsePolicy({ scopes: ['upload'] })
+        })
+        const consume = require('../services/accessKeys/limiter').consume as jest.Mock
+        consume.mockClear()
+        const res = await multipart(url, {
+            'x-test-user': JSON.stringify({ ...JSON.parse(user(WS, [])), apiKeyId: 'apikey-flow' }),
+            Authorization: `Bearer ${KEY}`
+        })
+        expect(res.status).toBe(200)
+        expect(consume).toHaveBeenCalledTimes(1)
         expect(mockState.multerWrites).toEqual(['note.txt'])
         expect(vectorCalls).toEqual(['vector'])
     })
@@ -249,4 +309,15 @@ describe('Document-store upsert access', () => {
         expect(mockState.multerWrites).toEqual(['note.txt'])
         expect(docCalls).toEqual(['doc'])
     })
+})
+
+// Model the post-migration access store while preserving each transport's original storage spies.
+jest.mock('../services/accessKeys/data', () => ({
+    accessData: async () => require('./accessKeyTestFixtures').fixtureAccessData(mockDb.chatflows)
+}))
+jest.mock('../services/accessKeys/limiter', () => ({ consume: jest.fn(async () => undefined) }))
+jest.mock('../services/accessKeys/audit', () => ({ recordKeyUse: jest.fn(async () => undefined) }))
+
+beforeEach(() => {
+    for (const flow of mockDb.chatflows.values()) flow.apiAccessMode = flow.apikeyid ? 'private' : 'public'
 })

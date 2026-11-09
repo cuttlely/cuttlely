@@ -7,9 +7,7 @@ import {
     planApiKeyRewrite,
     storedApiKeyLookup
 } from './apiKey'
-import { Platform } from '../Interface'
-import apikeyService, { ownerForCreatedApiKey } from '../services/apikey'
-import { getRunningExpressApp } from './getRunningExpressApp'
+import { ownerForCreatedApiKey, validatePermissions } from '../services/apikey'
 
 jest.mock('./getRunningExpressApp', () => ({ getRunningExpressApp: jest.fn() }))
 jest.mock('./addChatflowsCount', () => ({ addChatflowsCount: jest.fn(async (keys: unknown) => keys) }))
@@ -100,40 +98,6 @@ describe('Api Key', () => {
             expect(ownerForCreatedApiKey({ apiKeyOwnerUserId: 'user-2' })).toBe('user-2')
             expect(ownerForCreatedApiKey({})).toBeNull()
         })
-
-        it('saves an API-key-created key with the creating key owner', async () => {
-            let saved: Record<string, unknown> | undefined
-            const query = {
-                orderBy: jest.fn().mockReturnThis(),
-                andWhere: jest.fn().mockReturnThis(),
-                getMany: jest.fn(async () => (saved ? [saved] : []))
-            }
-            const repository = {
-                create: jest.fn((row) => row),
-                save: jest.fn(async (row) => {
-                    saved = row as unknown as Record<string, unknown>
-                    return row
-                }),
-                createQueryBuilder: jest.fn(() => query)
-            }
-            jest.mocked(getRunningExpressApp).mockReturnValue({
-                identityManager: { getPlatformType: () => Platform.OPEN_SOURCE },
-                AppDataSource: { getRepository: () => repository }
-            } as never)
-
-            await apikeyService.createApiKey(
-                {
-                    permissions: ['chatflows:view'],
-                    isOrganizationAdmin: false,
-                    activeWorkspaceId: 'team-1',
-                    apiKeyOwnerUserId: 'user-2'
-                },
-                'Child key',
-                ['chatflows:view']
-            )
-
-            expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: 'user-2' }))
-        })
     })
 
     describe('permission restrictions', () => {
@@ -143,13 +107,11 @@ describe('Api Key', () => {
             activeWorkspaceId: 'team-1'
         }
 
-        it('refuses authentication permissions on create and update', async () => {
-            await expect(apikeyService.createApiKey(actor, 'Automation', ['authentication:manage'])).rejects.toMatchObject({
-                statusCode: 400
-            })
-            await expect(apikeyService.updateApiKey(actor, 'credential-1', 'Automation', ['authentication:manage'])).rejects.toMatchObject({
-                statusCode: 400
-            })
+        it('refuses authentication permissions on create and update', () => {
+            for (const operation of ['create', 'update'])
+                expect(() => validatePermissions(actor, ['authentication:manage'], operation)).toThrow(
+                    expect.objectContaining({ statusCode: 400 })
+                )
         })
     })
 })

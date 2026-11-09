@@ -1,8 +1,9 @@
 import { NextFunction, Request, Response } from 'express'
+import { accessContext, completeAccessKeyAdmission } from '../../services/accessKeys/authorization'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
-import chatflowsService from '../../services/chatflows'
+import chatflowsService, { validateReferencedHarnesses } from '../../services/chatflows'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import { DraftChangedError } from '../../services/flow-drafts/draftChanged'
 import flowCheckService from '../../services/flow-check'
@@ -25,13 +26,14 @@ function permissionFor(type: string | null | undefined, action: 'view' | 'update
 }
 
 // The flow must be in the caller's active workspace, and the caller needs the permission for its type.
-async function flowFor(req: Request, action: 'view' | 'update') {
+async function flowFor(req: Request, action: 'view' | 'update', admit = true) {
     const workspaceId = req.user?.activeWorkspaceId
     if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     const flow = await chatflowsService.getChatflowByIdForWorkspace(req.params.chatflowId, workspaceId)
     if (!(await hasAnyPermission(req, permissionFor(flow.type, action)))) {
         throw new AppError(StatusCodes.FORBIDDEN, `You do not have permission to ${action} this type of flow.`)
     }
+    if (admit) await completeAccessKeyAdmission(req, [permissionFor(flow.type, action)])
     return flow
 }
 
@@ -124,7 +126,7 @@ function summary(flow: any) {
 // like a save, unless the body sends overwriteDraftChanges: true.
 const publishDraft = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const flow = await flowFor(req, 'update')
+        const flow = await flowFor(req, 'update', false)
         const workspaceId = req.user?.activeWorkspaceId
         const orgId = req.user?.activeOrganizationId
         if (!workspaceId || !orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
@@ -133,6 +135,8 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
             expectedDraftHash: req.body?.expectedDraftHash,
             overwriteDraftChanges: req.body?.overwriteDraftChanges
         })
+        if (accessContext(req)?.routeAdmission) await validateReferencedHarnesses({ ...flow, flowData: draft }, await harnessCallerFor(req))
+        await completeAccessKeyAdmission(req, [permissionFor(flow.type, 'update')])
         // The Live canvas the stale check above was made against. The save only goes through while Live is
         // still this canvas, so an update that lands meanwhile is never overwritten silently.
         const liveBefore = flow.flowData
@@ -185,7 +189,7 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
 // version. An open draft is kept.
 const rollbackLive = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const flow = await flowFor(req, 'update')
+        const flow = await flowFor(req, 'update', false)
         if (!flowDraftsService.isDraftsEnabled()) {
             throw new AppError(StatusCodes.CONFLICT, 'Drafts are off on this server. Use Restore instead.')
         }

@@ -1033,7 +1033,7 @@ async function main() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-canvas-actions-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const started = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const started = await startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     try {
         await waitForPing(base, started.child, started.logs)
         for (let wait = 0; wait < 50 && !started.setupCode; wait++) await new Promise((resolve) => setTimeout(resolve, 100))

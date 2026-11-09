@@ -416,7 +416,8 @@ describe('identity postgres schema', () => {
                     'AddSessionConvergence1801100000000',
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
-                    'AddScimGroups1801200000001'
+                    'AddScimGroups1801200000001',
+                    'AccessKeys1801300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -535,7 +536,8 @@ describe('identity mariadb schema', () => {
                     'AddSessionConvergence1801100000000',
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
-                    'AddScimGroups1801200000001'
+                    'AddScimGroups1801200000001',
+                    'AccessKeys1801300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -733,7 +735,8 @@ describe('identity mysql 8 schema', () => {
                     'AddSessionConvergence1801100000000',
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
-                    'AddScimGroups1801200000001'
+                    'AddScimGroups1801200000001',
+                    'AccessKeys1801300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -798,7 +801,8 @@ describe('identity sqlite upgrade', () => {
                     'AddSessionConvergence1801100000000',
                     'AddWorkosSessionId1801150000000',
                     'AddScimProvisioning1801200000000',
-                    'AddScimGroups1801200000001'
+                    'AddScimGroups1801200000001',
+                    'AccessKeys1801300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

@@ -8,6 +8,7 @@
 
 const mockRepo = {
     findOneBy: jest.fn(),
+    findOneByOrFail: jest.fn(async (): Promise<any> => mockRepo.save.mock.results.at(-1)?.value),
     findOne: jest.fn(),
     find: jest.fn(),
     create: jest.fn(),
@@ -19,6 +20,7 @@ const mockRepo = {
     createQueryBuilder: jest.fn()
 }
 
+let mockConditionalPatch: Record<string, unknown> | null = null
 let casExecute: ((qb: any) => Promise<{ affected: number }>) | null = null
 function makeQb() {
     const qb: any = {
@@ -37,17 +39,36 @@ function makeQb() {
             qb._wheres.push({ sql, params })
             return qb
         },
-        execute: async () => (casExecute ? casExecute(qb) : { affected: 1 })
+        execute: async () => {
+            const result = casExecute ? await casExecute(qb) : { affected: 1 }
+            if (result.affected) mockConditionalPatch = qb._set
+            return result
+        }
     }
     return qb
 }
 
+const mockTransaction = async (fn: (manager: any) => Promise<unknown>) =>
+    fn({
+        getRepository: () => ({
+            ...mockRepo,
+            findOneBy: async (where: any) => {
+                const found = await mockRepo.findOneBy(where)
+                if (found?.id === where.id) return found
+                // The row passed to updateChatflow represents the persisted pre-image in this unit fixture.
+                const original = mockRepo.merge.mock.calls.at(-1)?.[0]
+                if (Object.keys(where).length === 2 && where.id === original?.id && where.workspaceId === original?.workspaceId)
+                    return { ...original }
+                return found
+            }
+        }),
+        createQueryBuilder: () => makeQb()
+    })
+
 const mockAppServer = {
     AppDataSource: {
         getRepository: jest.fn().mockReturnValue(mockRepo),
-        transaction: jest.fn(async (fn: (manager: any) => Promise<unknown>) =>
-            fn({ getRepository: () => mockRepo, createQueryBuilder: () => makeQb() })
-        ),
+        transaction: jest.fn(mockTransaction),
         driver: { escape: (name: string) => `"${name}"` },
         options: {},
         getMetadata: () => ({ tableName: 'flow_version_state' })
@@ -216,11 +237,18 @@ const SAVE_ARGS = {
 
 beforeEach(() => {
     jest.clearAllMocks()
+    mockAppServer.AppDataSource.transaction.mockReset().mockImplementation(mockTransaction)
     casExecute = null
+    mockConditionalPatch = null
     liveWriteHooks.beforeLiveWrite = null
     liveWriteHooks.beforeConditionalWrite = null
     mockRepo.findOneBy.mockReset()
-    mockRepo.update.mockReset()
+    mockRepo.update.mockReset().mockResolvedValue({ affected: 1 })
+    mockRepo.findOneByOrFail
+        .mockReset()
+        .mockImplementation(async () =>
+            mockConditionalPatch ? { ...makeChatflow(), ...mockConditionalPatch } : mockRepo.save.getMockImplementation()?.()
+        )
     mockAppServer.AppDataSource.getRepository.mockReturnValue(mockRepo)
     mockRepo.create.mockImplementation((x: unknown) => x)
     mockRepo.save.mockResolvedValue(makeChatflow())
@@ -487,12 +515,15 @@ describe('updateChatflow', () => {
         const updates = makeChatflow({ flowData: makeScheduleFlowData() })
         const merged = { ...existingFlow, ...updates }
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
 
         const result = await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
 
         expect(mockRepo.merge).toHaveBeenCalled()
-        expect(mockRepo.save).toHaveBeenCalled()
+        expect(mockRepo.update).toHaveBeenCalledWith(
+            { id: existingFlow.id, workspaceId: 'ws-1', type: existingFlow.type },
+            expect.any(Object)
+        )
         expect(result).toBe(merged)
         expect(flowVersionsService.recordFlowVersion).toHaveBeenCalledWith(merged, {})
     })
@@ -501,7 +532,7 @@ describe('updateChatflow', () => {
         const updates = makeChatflow({ flowData: makePlainFlowData() })
         const merged = { ...existingFlow, ...updates }
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockRepo.findOneBy.mockResolvedValue({
             chatflowId: existingFlow.id,
             publishGate: true,
@@ -509,14 +540,17 @@ describe('updateChatflow', () => {
         })
         const result = await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
         expect(result.flowData).toBe(updates.flowData)
-        expect(mockRepo.save).toHaveBeenCalled()
+        expect(mockRepo.update).toHaveBeenCalledWith(
+            { id: existingFlow.id, workspaceId: 'ws-1', type: existingFlow.type },
+            expect.any(Object)
+        )
     })
 
     it('passes a history label with this one save and hands back its record result', async () => {
         const updates = makeChatflow({ flowData: makeScheduleFlowData() })
         const merged = { ...existingFlow, ...updates }
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         ;(flowVersionsService.recordFlowVersion as jest.Mock).mockResolvedValueOnce('abc1234')
         let queued: Promise<string | null> | undefined
         await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1', {
@@ -735,7 +769,7 @@ describe('updateChatflow', () => {
         const updates = makeChatflow({ flowData: makeScheduleFlowData() })
         const merged = { ...existingFlow, ...updates }
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1', {
             versionRecord: { kind: 'restore', title: 'Restored: Changed instructions (abcdef1)' },
             actor: { id: 'user-1', name: 'Dana' }
@@ -748,7 +782,7 @@ describe('updateChatflow', () => {
     })
 
     it('does not record a version when the save fails', async () => {
-        mockRepo.save.mockRejectedValue(new Error('db down'))
+        mockRepo.update.mockRejectedValue(new Error('db down'))
         await expect(
             chatflowsService.updateChatflow(existingFlow as any, makeChatflow() as any, 'org-1', 'ws-1', 'sub-1')
         ).rejects.toThrow()
@@ -767,7 +801,7 @@ describe('updateChatflow', () => {
         const updates = { flowData: makeScheduleFlowData() } // no type field
         const merged = { ...existingFlow, flowData: makeScheduleFlowData() }
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
 
         await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
 
@@ -789,7 +823,7 @@ describe('updateChatflow', () => {
         const updates = makeChatflow({ flowData: makeScheduleFlowData() })
         const merged = { ...existingFlow, flowData: makeScheduleFlowData(), type: EnumChatflowType.AGENTFLOW }
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
 
         await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
 
@@ -801,7 +835,7 @@ describe('updateChatflow', () => {
     it('calls onScheduleChanged upsert when the updated schedule is enabled', async () => {
         const merged = makeChatflow({ flowData: makeScheduleFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockCreateOrUpdateSchedule.mockResolvedValue({ id: 'sched-1', enabled: true })
 
         await chatflowsService.updateChatflow(existingFlow as any, makeChatflow() as any, 'org-1', 'ws-1', 'sub-1')
@@ -813,7 +847,7 @@ describe('updateChatflow', () => {
     it('calls onScheduleChanged delete when the updated schedule is disabled', async () => {
         const merged = makeChatflow({ flowData: makeScheduleFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockCreateOrUpdateSchedule.mockResolvedValue({ id: 'sched-1', enabled: false })
         mockCanScheduleEnable.mockReturnValue(false)
 
@@ -826,7 +860,7 @@ describe('updateChatflow', () => {
     it('sets enabled=false in createOrUpdateSchedule when canScheduleEnable returns false', async () => {
         const merged = makeChatflow({ flowData: makeScheduleFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockCanScheduleEnable.mockReturnValue(false)
         mockCreateOrUpdateSchedule.mockResolvedValue({ id: 'sched-1', enabled: false })
 
@@ -838,7 +872,7 @@ describe('updateChatflow', () => {
     it('passes undefined enabled in createOrUpdateSchedule when canScheduleEnable returns true (preserve existing)', async () => {
         const merged = makeChatflow({ flowData: makeScheduleFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockCanScheduleEnable.mockReturnValue(true)
         mockCreateOrUpdateSchedule.mockResolvedValue({ id: 'sched-1', enabled: true })
 
@@ -852,7 +886,7 @@ describe('updateChatflow', () => {
     it('deletes existing schedule when start node switches away from scheduleInput', async () => {
         const merged = makeChatflow({ flowData: makeChatInputFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
 
         await chatflowsService.updateChatflow(
             existingFlow as any,
@@ -868,7 +902,7 @@ describe('updateChatflow', () => {
     it('calls onScheduleChanged delete after deleting the existing schedule record', async () => {
         const merged = makeChatflow({ flowData: makeChatInputFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockDeleteScheduleForTarget.mockResolvedValue({ id: 'sched-old' })
 
         await chatflowsService.updateChatflow(
@@ -886,7 +920,7 @@ describe('updateChatflow', () => {
     it('does not call onScheduleChanged when no existing schedule was found', async () => {
         const merged = makeChatflow({ flowData: makeChatInputFlowData() })
         mockRepo.merge.mockReturnValue(merged)
-        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneByOrFail.mockResolvedValue(merged)
         mockDeleteScheduleForTarget.mockResolvedValue(undefined)
 
         await chatflowsService.updateChatflow(
@@ -904,7 +938,7 @@ describe('updateChatflow', () => {
     it('does not touch schedules for a non-AGENTFLOW type', async () => {
         const nonAgentFlow = makeChatflow({ type: EnumChatflowType.CHATFLOW, flowData: makePlainFlowData() })
         mockRepo.merge.mockReturnValue(nonAgentFlow)
-        mockRepo.save.mockResolvedValue(nonAgentFlow)
+        mockRepo.findOneByOrFail.mockResolvedValue(nonAgentFlow)
 
         await chatflowsService.updateChatflow(existingFlow as any, nonAgentFlow as any, 'org-1', 'ws-1', 'sub-1')
 
@@ -1168,11 +1202,27 @@ describe('getChatflowByApiKey', () => {
 describe('deleteChatflow', () => {
     type Call = { inTransaction: boolean; entity: string; where: unknown }
 
+    const grantQuery = () => {
+        const qb: any = {
+            select: () => qb,
+            where: () => qb,
+            andWhere: () => qb,
+            delete: () => qb,
+            from: () => qb,
+            setParameters: () => qb,
+            getQuery: () => 'SELECT id FROM apikey WHERE workspaceId = :workspaceId',
+            getParameters: () => ({ workspaceId: 'ws-1' }),
+            execute: jest.fn(async () => ({ affected: 1, raw: [] }))
+        }
+        return qb
+    }
+
     /** Records every repository delete with the entity name and whether it ran inside the transaction. */
     const trackDeletes = (failOn?: string) => {
         const calls: Call[] = []
         const repoFor = (inTransaction: boolean) => (entity: { name: string }) => ({
             ...mockRepo,
+            createQueryBuilder: grantQuery,
             delete: jest.fn(async (where: unknown) => {
                 calls.push({ inTransaction, entity: entity.name, where })
                 if (inTransaction && entity.name === failOn) throw new Error(`${failOn} delete failed`)
@@ -1181,7 +1231,7 @@ describe('deleteChatflow', () => {
         })
         mockAppServer.AppDataSource.getRepository.mockImplementation(repoFor(false) as any)
         mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) =>
-            fn({ getRepository: repoFor(true) })
+            fn({ getRepository: repoFor(true), createQueryBuilder: grantQuery })
         )
         return calls
     }
@@ -1280,7 +1330,14 @@ describe('deleteChatflow', () => {
         const commit = jest.fn(async () => undefined)
         const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockResolvedValue({ names: ['navi'], restore, commit })
         mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) => {
-            await fn({ getRepository: () => ({ ...mockRepo, delete: jest.fn(async () => ({ affected: 1, raw: [] })) }) })
+            await fn({
+                getRepository: () => ({
+                    ...mockRepo,
+                    createQueryBuilder: grantQuery,
+                    delete: jest.fn(async () => ({ affected: 1, raw: [] }))
+                }),
+                createQueryBuilder: grantQuery
+            })
             throw new Error('commit failed')
         })
         try {
@@ -1447,7 +1504,7 @@ describe('harnesses a saved canvas names', () => {
         await chatflowsService.updateChatflow({ ...stored } as any, { category: 'x' } as any, 'org-1', 'ws-1', 'sub-1', {
             caller: keyCaller
         })
-        expect(mockRepo.save).toHaveBeenCalledTimes(1)
+        expect(mockRepo.update).toHaveBeenCalledTimes(1)
     })
 
     it('refuses a HARNESS canvas whose name is off the key list before any row is written', async () => {
@@ -1601,7 +1658,7 @@ describe('harnesses a saved canvas names', () => {
         const previous = makeChatflow({ type: EnumChatflowType.HARNESS, name: 'same-name', flowData: makePlainFlowData() })
         const placeholder = makePlainFlowData()
         const saved = { ...previous, flowData: placeholder }
-        mockRepo.findOneBy.mockResolvedValue(undefined)
+        mockRepo.findOneBy.mockImplementation(async (where: any) => (where.id === previous.id && !where.name ? previous : undefined))
         mockRepo.merge.mockReturnValue(saved)
         mockRepo.save.mockResolvedValue(saved)
         ;((global as any).__harnessCanWaitForRoster as jest.Mock).mockReturnValue(true)
@@ -1648,3 +1705,20 @@ describe('getAllChatflows for an API key', () => {
         expect(wheres.some(([sql]) => sql.includes('HARNESS'))).toBe(false)
     })
 })
+
+it.each([{ apiAccessMode: 'private' }, { apikeyid: 'new-key' }])(
+    'rejects API-access changes during restoration before storing uploaded files: %j',
+    async (access) => {
+        const stored = makeChatflow({ type: 'CHATFLOW', flowData: makePlainFlowData() })
+        mockContainsBase64File.mockReturnValue(true)
+        const files = jest.requireMock('../../utils/fileRepository').updateFlowDataWithFilePaths
+        await expect(
+            chatflowsService.updateChatflow(stored as any, { ...access, flowData: makePlainFlowData() } as any, 'org-1', 'ws-1', 'sub-1', {
+                expectedFlowData: stored.flowData
+            })
+        ).rejects.toMatchObject({ statusCode: 400 })
+        expect(files).not.toHaveBeenCalled()
+        expect(mockRepo.save).not.toHaveBeenCalled()
+        expect(mockCreateOrUpdateSchedule).not.toHaveBeenCalled()
+    }
+)

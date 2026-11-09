@@ -23,7 +23,7 @@ The caller's active team is the workspace on the session. Switch with `POST /api
 | Edit a custom role             | `PATCH /api/v1/roles/:id`                      | `roles:manage`     |
 | Delete a custom role           | `DELETE /api/v1/roles/:id`                     | `roles:manage`     |
 
-The owner of the active team's organization passes every check. An owner role in another organization does not. Anyone else needs the key on their role in the active team. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`.
+An active owner of the active team's organization passes the tenant permission checks on these directory routes; record and state safeguards still apply. An owner role in another organization does not pass. Anyone else needs the key on their role in the active team. This tenant access does not satisfy the separate [instance-operator](../how-to/instance-operator.md) gate for global service configuration. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`.
 
 An admin cannot grant a permission they do not hold, and cannot assign Owner. That is **403** `{ "message": "You cannot grant a permission you do not have" }` or `{ "message": "Only an owner can assign the owner role" }`. On a team role change, nobody can change their own row, and only an organization owner can change an organization owner's role: **403** `{ "message": "You cannot change your own role" }` or `{ "message": "The organization owner's role cannot be changed" }`. Someone who is not the organization owner also cannot change the role of, or remove from a team, a person whose current team role has a permission they do not hold: **403** `{ "message": "You cannot change the role of someone with permissions you do not have" }` or `{ "message": "You cannot remove someone with permissions you do not have" }`.
 
@@ -43,6 +43,12 @@ Seeded once, with stable ids. The permission list is fixed. Create, edit, and de
 Lowering a role ends every local session for that person and bumps their permission version. A session issued at an older version is rejected, so a cookie from before the change cannot keep the old permissions. Raising a role does not end sessions. The next request reads the new keys. Disabling, deleting, removing the team membership, or shrinking a custom role's keys also ends sessions.
 
 A team role and the organization role are separate. `PUT /api/v1/users/:id/role` and `PUT /api/v1/workspaceuser` change the role on that team and leave the organization role as it is. The exception is Owner: assigning Owner also sets the organization role to owner, and assigning any other role to someone who is currently an owner sets the organization role back to `member`. Invite (`POST /api/v1/account/invite`) stores the chosen role on the team and stores `member` on the organization, unless the chosen role is Owner.
+
+## Cancel a pending owner invitation
+
+The OSS **Users** page (`/users`) lets an active organization owner cancel another pending owner invitation. It sends `DELETE /api/v1/organizationuser?organizationId=<id>&userId=<id>&invitationOnly=true` through a signed-in session. The server rechecks active ownership and target status under the organization-removal lock, removes that organization's memberships and revokes invite links across its teams in the same transaction. Other organizations' memberships and links remain separate.
+
+An already accepted invitation returns `409` (`This invitation is no longer pending. Refresh the user list.`); a missing membership returns `404`. Self-removal returns `403` when another active owner exists; the last active owner retains the `409` protection. Active owners remain **Super User, read-only** in the Users UI. This conditional cancellation does not remove an accepted owner. The generic organization-removal API, without `invitationOnly=true`, still allows an active owner to remove another active owner when multiple active owners exist.
 
 ## Last owner
 

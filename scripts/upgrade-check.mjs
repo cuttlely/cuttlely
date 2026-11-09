@@ -119,11 +119,18 @@ export async function request(url, { method = 'GET', cookie = '', body, timeoutM
     return { status: response.status, text, json, cookie: cookieHeader(response) || cookie }
 }
 
-export function startServer(serverRoot, env, { preload = [] } = {}) {
+export async function startServer(serverRoot, env, { preload = [] } = {}) {
+    // Each isolated boot gets a separate gateway as well as a separate application port.
+    const gatewayPort = await freePort()
     const serverDir = path.join(serverRoot, 'packages', 'server')
     const logs = []
     const args = [...preload.flatMap((p) => ['-r', p]), path.join(serverDir, 'bin', 'run'), 'start']
-    const child = spawn(process.execPath, args, { cwd: serverDir, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, args, {
+        cwd: serverDir,
+        env: { ...env, CUTTLELY_HARNESS_GATEWAY_PORT: String(gatewayPort) },
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+    })
     const keep = (chunk) => {
         logs.push(String(chunk))
         if (logs.length > 120) logs.shift()
@@ -640,7 +647,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
         const port = await freePort()
         const base = `http://127.0.0.1:${port}`
         if (keyAlias !== 'conflict') await seedUpgradePipeline(dataRoot)
-        let server = startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
+        let server = await startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
         let problems = []
         try {
             if (keyAlias === 'conflict') {
@@ -704,7 +711,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             await server.stop()
         }
 
-        server = startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
+        server = await startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
         try {
             await waitForPing(base, server)
             const cookie = await login(base, meta.account)

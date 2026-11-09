@@ -1,3 +1,4 @@
+import AccessPolicyEditor, { newAccessPolicy } from './AccessPolicyEditor'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import PropTypes from 'prop-types'
 import { useEffect, useState } from 'react'
@@ -17,7 +18,8 @@ import {
     OutlinedInput,
     Popover,
     Stack,
-    Typography
+    Typography,
+    TextField
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
@@ -27,7 +29,6 @@ import { IconCopy, IconKey, IconX } from '@tabler/icons-react'
 // API
 import apikeyApi from '@/api/apikey'
 import authApi from '@/api/auth'
-import harnessesApi from '@/api/harnesses'
 
 // Hooks
 import useApi from '@/hooks/useApi'
@@ -62,29 +63,61 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const openPopOver = Boolean(anchorEl)
     const [selectedPermissions, setSelectedPermissions] = useState({})
     const [permissions, setPermissions] = useState({})
-    const [selectedHarnesses, setSelectedHarnesses] = useState([])
-
+    const [policy, setPolicy] = useState(newAccessPolicy)
+    const [resources, setResources] = useState([])
+    const [expiresAt, setExpiresAt] = useState(null)
+    const [confirmed, setConfirmed] = useState(false)
+    const [options, setOptions] = useState({})
+    const [graceSeconds, setGraceSeconds] = useState(3600)
     const getAllPermissionsApi = useApi(authApi.getAllPermissions)
-    const listHarnessesApi = useApi(harnessesApi.listHarnesses)
     const { hasPermission } = useAuth()
-    const canListHarnesses = hasPermission('chatflows:view,agentflows:view')
-    const harnessNames = Array.isArray(listHarnessesApi.data)
-        ? listHarnessesApi.data
-              .filter((row) => !row.incomplete)
-              .map((row) => row.name)
-              .sort()
-        : []
+    const policyBody = () => ({
+        accessPolicy: {
+            ...policy,
+            origins: policy.origins.map((s) => s.trim()).filter(Boolean),
+            ips: policy.ips.map((s) => s.trim()).filter(Boolean)
+        },
+        resources,
+        expiresAt,
+        confirmAllResources: confirmed
+    })
+    const rotate = async () => {
+        try {
+            const result = await apikeyApi.rotate(dialogProps.key.id, graceSeconds)
+            setCreatedSecret(result.data.apiKey)
+        } catch (error) {
+            if (setError) setError(error)
+        }
+    }
+    const revokeCredential = async (credentialId) => {
+        try {
+            await apikeyApi.revokeCredential(dialogProps.key.id, credentialId)
+            onConfirm()
+        } catch (error) {
+            if (setError) setError(error)
+        }
+    }
 
     useEffect(() => {
         if (dialogProps.type === 'EDIT' && dialogProps.key) {
             setKeyName(dialogProps.key.keyName)
-            setSelectedHarnesses(Array.isArray(dialogProps.key.harnesses) ? dialogProps.key.harnesses : [])
+            setPolicy(dialogProps.key.accessPolicy || newAccessPolicy())
+            setResources(dialogProps.key.resources || [])
+            setExpiresAt(dialogProps.key.expiresAt || null)
         } else if (dialogProps.type === 'ADD') {
             setKeyName('')
-            setSelectedHarnesses([])
+            setPolicy(newAccessPolicy())
+            setResources([])
+            setExpiresAt(new Date(Date.now() + 90 * 86400000).toISOString())
         }
         getAllPermissionsApi.request('API_KEY')
-        if (canListHarnesses) listHarnessesApi.request()
+        setConfirmed(false)
+        apikeyApi
+            .options()
+            .then((r) => setOptions(r.data))
+            .catch((error) => {
+                if (setError) setError(error)
+            })
         setCreatedSecret('')
         return () => {
             setSelectedPermissions({})
@@ -239,13 +272,13 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
             const createResp = await apikeyApi.createNewAPI({
                 keyName,
                 permissions: tempPermissions,
-                harnesses: selectedHarnesses
+                ...policyBody()
             })
             if (createResp.data) {
                 const rows = Array.isArray(createResp.data) ? createResp.data : createResp.data.data || []
                 const revealed = rows.find((row) => row && row.apiKey)
                 enqueueSnackbar({
-                    message: 'New API key added',
+                    message: 'New access key added',
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'success',
@@ -299,11 +332,11 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
             const saveResp = await apikeyApi.updateAPI(dialogProps.key.id, {
                 keyName,
                 permissions: tempPermissions,
-                harnesses: selectedHarnesses
+                ...policyBody()
             })
             if (saveResp.data) {
                 enqueueSnackbar({
-                    message: 'API Key saved',
+                    message: 'Access key saved',
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'success',
@@ -341,23 +374,8 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
         if (!keyName || keyName === '') {
             return true
         }
-        if (!Object.keys(selectedPermissions).length || !ifPermissionContainsTrue(selectedPermissions)) {
-            return true
-        }
-        return false
-    }
-
-    const ifPermissionContainsTrue = (obj) => {
-        for (const key in obj) {
-            if (typeof obj[key] === 'object' && obj[key] !== null) {
-                // Recursively check nested objects
-                if (ifPermissionContainsTrue(obj[key])) {
-                    return true
-                }
-            } else if (obj[key] === true) {
-                return true
-            }
-        }
+        if (options.rollout !== 'on') return true
+        if (policy.allResources && !confirmed) return true
         return false
     }
 
@@ -539,50 +557,62 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                     ))}
                             </div>
                         </div>
-                        <div className='permissions-container'>
-                            <p>Harnesses this key may run</p>
-                            <Typography variant='body2' color='text.secondary' sx={{ mb: 1 }}>
-                                A key runs no harness until one is ticked here. It also needs a chatflow create or update permission to
-                                start a run, and chatflow view to read runs.
-                            </Typography>
-                            {!canListHarnesses ? (
-                                <Typography variant='body2' color='text.secondary'>
-                                    You need chatflow view permission to choose harnesses.
+                        <AccessPolicyEditor
+                            policy={policy}
+                            setPolicy={setPolicy}
+                            resources={resources}
+                            setResources={setResources}
+                            options={options}
+                            expiresAt={expiresAt}
+                            setExpiresAt={setExpiresAt}
+                            confirmed={confirmed}
+                            setConfirmed={setConfirmed}
+                        />
+                        {dialogProps.type === 'EDIT' && (
+                            <Box sx={{ mt: 3 }}>
+                                <Typography variant='h5'>Credentials and usage</Typography>
+                                <Typography variant='body2'>
+                                    Rotation preserves this principal and its policy. Revocation blocks new work; admitted runs may finish.
                                 </Typography>
-                            ) : listHarnessesApi.error ? (
-                                <Typography variant='body2' color='error'>
-                                    Could not load the harnesses in this team.
-                                </Typography>
-                            ) : harnessNames.length === 0 && !listHarnessesApi.loading ? (
-                                <Typography variant='body2' color='text.secondary'>
-                                    This team has no harnesses yet.
-                                </Typography>
-                            ) : (
-                                <div className='permissions-list'>
-                                    {[...new Set([...harnessNames, ...selectedHarnesses])].map((harnessName, index) => (
-                                        <div
-                                            key={harnessName}
-                                            className={`permission-item ${index % 2 === 0 ? 'left-column' : 'right-column'}`}
-                                        >
-                                            <label>
-                                                <input
-                                                    type='checkbox'
-                                                    checked={selectedHarnesses.includes(harnessName)}
-                                                    onChange={() =>
-                                                        setSelectedHarnesses((current) =>
-                                                            current.includes(harnessName)
-                                                                ? current.filter((item) => item !== harnessName)
-                                                                : [...current, harnessName]
-                                                        )
-                                                    }
-                                                />
-                                                {harnessName}
-                                            </label>
-                                        </div>
+                                <TextField
+                                    label='Rotation grace (seconds, 0–86400)'
+                                    type='number'
+                                    value={graceSeconds}
+                                    onChange={(e) => setGraceSeconds(Number(e.target.value))}
+                                    inputProps={{ min: 0, max: 86400 }}
+                                />
+                                {hasPermission('apikeys:update') && (
+                                    <Button onClick={rotate} disabled={!!dialogProps.key.disabledAt || options.rollout !== 'on'}>
+                                        Rotate and reveal successor once
+                                    </Button>
+                                )}
+                                {dialogProps.key.hasLegacyCredential && (
+                                    <Button onClick={() => revokeCredential('legacy')}>Revoke legacy credential</Button>
+                                )}
+                                {(dialogProps.key.credentials || []).map((credential) => (
+                                    <Stack direction='row' key={credential.id} spacing={1}>
+                                        <Typography>
+                                            {credential.displayPrefix}…{credential.lastFour} ·{' '}
+                                            {credential.revokedAt
+                                                ? 'Revoked'
+                                                : credential.expiresAt
+                                                ? `Expires ${credential.expiresAt}`
+                                                : 'No expiry'}
+                                        </Typography>
+                                        <Button disabled={!!credential.revokedAt} onClick={() => revokeCredential(credential.id)}>
+                                            Revoke credential
+                                        </Button>
+                                    </Stack>
+                                ))}
+                                {(dialogProps.key.usage || [])
+                                    .filter((u) => u.operation === '*')
+                                    .map((u) => (
+                                        <Typography key={u.period}>
+                                            {u.period} UTC: {u.accepted} accepted; last used {u.lastUsedAt || 'Never'}
+                                        </Typography>
                                     ))}
-                                </div>
-                            )}
-                        </div>
+                            </Box>
+                        )}
                     </div>
                 )}
             </DialogContent>

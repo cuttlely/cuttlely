@@ -9,6 +9,9 @@ const updateAPI = (id, body) => client.put(`/apikey/${id}`, body)
 const deleteAPI = (id) => client.delete(`/apikey/${id}`)
 
 export default {
+    options: () => client.get('/apikey/options'),
+    rotate: (id, graceSeconds) => client.post(`/apikey/${id}/rotate`, { graceSeconds }),
+    revokeCredential: (id, credentialId) => client.post(`/apikey/${id}/credentials/${credentialId}/revoke`),
     getAllAPIKeys,
     createNewAPI,
     updateAPI,

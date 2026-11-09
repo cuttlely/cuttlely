@@ -1,3 +1,7 @@
+import { ApiKeyReport } from './ApiKeyReport'
+import { ApiKeyCredential } from './ApiKeyCredential'
+import { ApiKeyResource } from './ApiKeyResource'
+import { ApiKeyUsage } from './ApiKeyUsage'
 import { ChatFlow } from './ChatFlow'
 import { ChatMessage } from './ChatMessage'
 import { ChatMessageFeedback } from './ChatMessageFeedback'
@@ -52,6 +56,10 @@ export const entities = {
     EvaluationRun,
     Evaluator,
     ApiKey,
+    ApiKeyCredential,
+    ApiKeyResource,
+    ApiKeyUsage,
+    ApiKeyReport,
     User,
     IdentitySetupCode,
     LoginActivity,

@@ -58,6 +58,8 @@ The first count is inherited files (the same path as release 3.1.4, tests left o
 | Flow import                     | The helpers under `packages/ui/src/utils` that load an export from another tool, including `langflowImport.mjs`                                                                                                          | 3                              | 0                                | B+    |
 | Usage                           | `packages/server/src/services/usage`, the `token_usage_day` entity, and its migration                                                                                                                                    | 10                             | 0                                | A     |
 
+Access keys is a cross-cutting subsystem under `packages/server/src/services/accessKeys/`, with its principal/credential/grant/usage entities, portable migrations and `packages/ui/src/views/apikey/`. Its explicit entry points connect inbound route authorization and management to the existing flow, runtime and storage adapters. `architecture/boundary-baseline.json` records those adapter edges with the reason; it does not expose arbitrary internals as entry points.
+
 `core-shared` is every other core file: docs, the website, samples, most of `scripts/`, startup, and the shared UI helpers that are not one of the rows above. `entryPoints` in the JSON are the files inherited code imports today. The CLI and the agent runtime have none: nothing in inherited code imports them.
 
 The agent runtime is 3,026 tracked files, with 6 patch files (1,494 lines) under `hermes/patches/`.

@@ -358,6 +358,7 @@ const getLogs = async (query: LogQuery = {}): Promise<LogRead> => {
     // would hide only the BEGIN line and leave the body.
     let text = parts.length ? parts.reverse().join('\n') : ''
     if (text.endsWith('\n')) text = text.slice(0, -1)
+    text = text.replace(/(\[instance operator\] Panel designation proof[^\r\n]*?: )[^\r\n]*/g, '$1[secret hidden]')
     text = redactSecrets(text).text
     let lines = text ? text.split('\n') : []
     lines = filterByLevel(lines, minimum)
