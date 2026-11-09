@@ -166,17 +166,13 @@ jest.mock('../controllers/flow-drafts', () => ({
     )
 }))
 
-jest.mock(
-    '@cuttlely/components',
-    () => ({
-        StorageProviderFactory: {
-            getProvider: () => ({
-                getLoggerTransports: () => []
-            })
-        }
-    }),
-    { virtual: true }
-)
+jest.mock('@cuttlely/components', () => ({
+    StorageProviderFactory: {
+        getProvider: () => ({
+            getLoggerTransports: () => []
+        })
+    }
+}))
 
 jest.mock('../controllers/pinned-queries', () => ({
     __esModule: true,

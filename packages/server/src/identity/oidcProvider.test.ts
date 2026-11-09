@@ -478,7 +478,10 @@ describe('generic OIDC provider', () => {
             subject: 'subject-1',
             email: 'ada@example.com'
         })
-        const now = Math.floor(Date.now() / 1000)
+        // Freeze the clock so the token and the check read the same second; a tick between them moved the 60 second edge.
+        const nowMs = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(nowMs)
+        const now = Math.floor(nowMs / 1000)
         const cases: Array<[string, Partial<Claims>, string]> = [
             ['issuer', { iss: 'https://other.example' }, 'issuer'],
             ['audience', { aud: 'other-client' }, 'audience'],
@@ -487,8 +490,12 @@ describe('generic OIDC provider', () => {
             ['future', { iat: now + 61 }, 'time claims'],
             ['nonce', { nonce: 'wrong' }, 'nonce']
         ]
-        for (const [, claims, message] of cases) {
-            await expect(validateIdToken(idp.token(claims), config, discovery, idp.nonce, 'provider')).rejects.toThrow(message)
+        try {
+            for (const [, claims, message] of cases) {
+                await expect(validateIdToken(idp.token(claims), config, discovery, idp.nonce, 'provider')).rejects.toThrow(message)
+            }
+        } finally {
+            clock.mockRestore()
         }
         await expect(validateIdToken(idp.token({}, 'none'), config, discovery, idp.nonce, 'provider')).rejects.toThrow('algorithm')
         await expect(validateIdToken(idp.token({}, 'HS256'), config, discovery, idp.nonce, 'provider')).rejects.toThrow('algorithm')
