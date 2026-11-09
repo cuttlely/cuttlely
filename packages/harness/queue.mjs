@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { assertHarnessCaller, serializableCaller } from './caller.mjs'
+import { assertHarnessCaller, serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
 import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
@@ -30,7 +30,7 @@ export function workerConcurrency() {
     return Math.floor(n)
 }
 
-function jobPayload(args) {
+export function jobPayload(args) {
     const flow = args.flowOptions || {}
     if (flow.harnessCaller?.harnessIds !== undefined)
         assertHarnessCaller(args.name, flow.harnessCaller, { requirePin: true, expectedChatflowId: flow.expectedHarnessChatflowId })
@@ -53,6 +53,9 @@ function jobPayload(args) {
         apiKeyId: typeof args.apiKeyId === 'string' && args.apiKeyId ? args.apiKeyId.slice(0, 128) : null,
         // A worker in another process checks the same caller. A job without one is refused there.
         caller: serializableCaller(flow.harnessCaller),
+        // The worker rebuilds the in-process flow runner from these plain fields.
+        nestedFlowCaller: serializableNestedFlowCaller(flow.nestedFlowCaller || flow.harnessCaller),
+        nestedFlowDepth: Number.isInteger(flow.nestedFlowDepth) && flow.nestedFlowDepth >= 0 ? flow.nestedFlowDepth : 0,
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
         images: promptImages(args.images),
@@ -233,12 +236,14 @@ function offlineLoadNode(payload) {
 }
 
 // The node pool copies workspaceId off the harness file. The job payload is the caller's team.
-function callerFlowOptions(payload, flowOptions) {
+export function callerFlowOptions(payload, flowOptions) {
     const next = { ...(flowOptions || {}) }
     if (payload?.callerChatflowId && next.callerChatflowId == null) next.callerChatflowId = payload.callerChatflowId
     next.workspaceId = payload?.workspaceId || undefined
     next.harnessCaller = payload?.caller || undefined
     next.expectedHarnessChatflowId = payload?.expectedHarnessChatflowId ?? undefined
+    next.nestedFlowCaller = payload?.nestedFlowCaller || undefined
+    next.nestedFlowDepth = Number.isInteger(payload?.nestedFlowDepth) && payload.nestedFlowDepth >= 0 ? payload.nestedFlowDepth : 0
     return next
 }
 
@@ -260,7 +265,12 @@ async function jobRuntime(job, local) {
         const record = getHarness(job.payload.name)
         let runtime = null
         try {
-            runtime = record ? await workerContextFor(record) : null
+            runtime = record
+                ? await workerContextFor(record, {
+                      nestedFlowCaller: job.payload.nestedFlowCaller,
+                      nestedFlowDepth: job.payload.nestedFlowDepth
+                  })
+                : null
         } catch (error) {
             console.info(`[harness] worker ${process.pid} node pool context failed (${error?.name || 'Error'})`)
         }
@@ -277,6 +287,11 @@ async function jobRuntime(job, local) {
 
 // A running external job is the caller's team for the gateway, which otherwise only sees the harness file.
 export function callerWorkspaceForJob(name) {
+    const flowOptions = callerFlowOptionsForJob(name)
+    return flowOptions === null ? null : flowOptions?.workspaceId
+}
+
+export function callerFlowOptionsForJob(name) {
     let rows = []
     try {
         rows = database().prepare(`SELECT payload FROM jobs WHERE status = 'running'`).all()
@@ -292,9 +307,15 @@ export function callerWorkspaceForJob(name) {
             continue
         }
         if (payload?.name !== name) continue
-        const next = typeof payload.workspaceId === 'string' ? payload.workspaceId : ''
+        const next = callerFlowOptions(payload)
         if (caller === undefined) caller = next
-        else if (caller !== next) return null
+        else if (
+            caller.workspaceId !== next.workspaceId ||
+            caller.nestedFlowDepth !== next.nestedFlowDepth ||
+            JSON.stringify(caller.harnessCaller) !== JSON.stringify(next.harnessCaller) ||
+            JSON.stringify(caller.nestedFlowCaller) !== JSON.stringify(next.nestedFlowCaller)
+        )
+            return null
     }
     return caller
 }

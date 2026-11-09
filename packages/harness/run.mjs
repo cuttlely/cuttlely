@@ -73,7 +73,7 @@ import {
 import {
     abortGatewayProfile,
     clearCallerWorkspace,
-    noteCallerWorkspace,
+    noteCallerFlowOptions,
     setGatewayContext,
     offeredPinnedTools,
     invokeOfferedPinnedTool,
@@ -419,7 +419,7 @@ async function runTurn(
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
     const callerWorkspace = typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : ''
-    if (callerWorkspace) noteCallerWorkspace(harness.name, callerWorkspace)
+    const callerContextToken = callerWorkspace ? noteCallerFlowOptions(harness.name, flowOptions) : undefined
     try {
         return await runTurnBody(harness, {
             name,
@@ -445,7 +445,7 @@ async function runTurn(
             recordInterpretationDiagnostic
         })
     } finally {
-        if (callerWorkspace) clearCallerWorkspace(harness.name)
+        if (callerWorkspace) clearCallerWorkspace(harness.name, callerContextToken)
     }
 }
 

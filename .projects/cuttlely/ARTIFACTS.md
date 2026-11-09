@@ -1,3 +1,9 @@
+## Same-server flow and Harness nested calls
+
+-   `packages/server/src/utils/nestedFlowCall.ts` is the shared in-process entry for flow and Harness targets. `packages/server/src/services/harnesses/index.ts` rebuilds its runner from the serialized parent caller and depth.
+-   `packages/harness/{queue,node-pool,gateway,run}.mjs` carries that caller through direct and queued Harness execution, reconstructs process-local functions, and keeps concurrent gateway principals isolated.
+-   `nestedFlowCall.test.ts`, `nestedFlowContext.test.ts`, `authorization.test.ts`, the Harness node suite, and the three `packages/harness/*-nested-flow.test.mjs` files cover the two directions, required target grants, serialization and isolation.
+
 ## Access-key maintenance, 1.7.1
 
 -   `packages/ui/src/views/apikey/APIKeyDialog.test.js`: saved-Harness preselection, server-proposed run/view prerequisites, enabled creation with Advanced collapsed and one-time reveal. The production fixture also covers an actual Harness-only workspace and prediction admission; that case ran inside the full gate's round12 production-route suite.

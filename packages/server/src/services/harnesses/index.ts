@@ -4,7 +4,7 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
 import { DataSource } from 'typeorm'
-import { User, Workspace } from '../../database/entities/identity'
+import { Organization, User, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceId } from '../../identity/workspaceScope'
@@ -20,8 +20,10 @@ import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 import { safeHarnessName } from './apiAccess'
 import { harnessCanvasDelete } from './canvasDelete'
-import type { IHarnessCaller } from '../../Interface'
+import type { IHarnessCaller, INestedFlowCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
+import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/nestedFlowCall'
+import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
@@ -339,22 +341,59 @@ export async function backfillHarnessWorkspaces() {
     return { harnesses: rows.length, fromFlow, fromDefault, unassigned }
 }
 
-export async function contextFor(record: { chatflowId?: string; workspaceId?: string | null } | null) {
+type HarnessNestedFlowContext = {
+    nestedFlowCaller?: INestedFlowCaller
+    nestedFlowDepth?: number
+    signal?: AbortSignal
+}
+
+export async function contextFor(
+    record: { chatflowId?: string; workspaceId?: string | null } | null,
+    nested: HarnessNestedFlowContext = {}
+) {
     const appServer = getRunningExpressApp()
     const componentNodes = appServer.nodesPool.componentNodes
+    const orgId = await orgIdForWorkspace(record?.workspaceId)
+    const flowOptions: Record<string, unknown> = {
+        appDataSource: appServer.AppDataSource,
+        databaseEntities,
+        logger,
+        componentNodes,
+        chatflowid: record?.chatflowId,
+        workspaceId: record?.workspaceId || undefined,
+        orgId,
+        baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
+        cachePool: appServer.cachePool
+    }
+    if (record?.chatflowId && record.workspaceId && nested.nestedFlowCaller) {
+        const organization = orgId ? await appServer.AppDataSource.getRepository(Organization).findOneBy({ id: orgId }) : null
+        Object.assign(
+            flowOptions,
+            nestedFlowNodeOptions({
+                parentFlowId: record.chatflowId,
+                parentWorkspaceId: record.workspaceId,
+                caller: nested.nestedFlowCaller,
+                depth:
+                    Number.isInteger(nested.nestedFlowDepth) && (nested.nestedFlowDepth as number) >= 0
+                        ? (nested.nestedFlowDepth as number)
+                        : 0,
+                baseURL: flowOptions.baseURL as string,
+                orgId: orgId || '',
+                subscriptionId: organization?.subscriptionId || '',
+                productId: OSS_PRODUCT_ID,
+                signal: nested.signal ? ({ signal: nested.signal } as AbortController) : undefined,
+                componentNodes,
+                appDataSource: appServer.AppDataSource,
+                telemetry: appServer.telemetry,
+                cachePool: appServer.cachePool,
+                usageCacheManager: appServer.usageCacheManager,
+                sseStreamer: appServer.sseStreamer
+            })
+        )
+    }
     return {
         componentNodes,
-        flowOptions: {
-            appDataSource: appServer.AppDataSource,
-            databaseEntities,
-            logger,
-            componentNodes,
-            chatflowid: record?.chatflowId,
-            workspaceId: record?.workspaceId || undefined,
-            orgId: await orgIdForWorkspace(record?.workspaceId),
-            baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
-            cachePool: appServer.cachePool
-        }
+        flowOptions
     }
 }
 
@@ -1312,6 +1351,9 @@ const startRun = async (
         allowFlow?: boolean
         // Required for enforced key callers; retained through runtime and queue name re-resolution.
         expectedChatflowId?: string
+        // Serialized parent identity and depth for specialist calls to another same-server flow.
+        nestedFlowCaller?: INestedFlowCaller
+        nestedFlowDepth?: number
     }
 ) => {
     assertHarnessAvailable(name)
@@ -1321,9 +1363,12 @@ const startRun = async (
     })
     const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
+    const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller)
+    const nestedFlowDepth =
+        Number.isInteger(opts.nestedFlowDepth) && (opts.nestedFlowDepth as number) >= 0 ? (opts.nestedFlowDepth as number) : 0
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
-        runtime = await contextFor(prepared.harness)
+        runtime = await contextFor(prepared.harness, { nestedFlowCaller, nestedFlowDepth, signal: opts.signal })
     } catch (error) {
         logger.warn(`[harness] ${name} playground context unavailable: ${getErrorMessage(error)}`)
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness runtime context is not available.')
@@ -1653,6 +1698,8 @@ const startCanvasRun = async (
         signal?: AbortSignal
         onEvent?: (event: { type: string }) => void
         caller: IHarnessCaller
+        nestedFlowCaller?: INestedFlowCaller
+        nestedFlowDepth?: number
     }
 ) => {
     const { canvas, ...runOpts } = opts
@@ -1670,6 +1717,8 @@ const startCanvasRun = async (
         ...runOpts,
         allowFlow: true,
         workspaceId: chatflow.workspaceId,
+        nestedFlowCaller: opts.nestedFlowCaller,
+        nestedFlowDepth: opts.nestedFlowDepth,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })

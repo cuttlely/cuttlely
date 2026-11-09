@@ -204,6 +204,36 @@ it.each(['CHATFLOW', 'AGENTFLOW'])('rechecks an access key and its exact %s gran
     }
 })
 
+it('requires prediction and Harness execution authority for a nested Harness target', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const target = { ...flow, id: HARNESS, name: 'baker', type: 'HARNESS' } as ChatFlow
+        mockFlows.set(HARNESS, target)
+        const principal = key({ scopes: ['predict'] })
+        mockKeys.set('fixture-token', principal)
+        grant(HARNESS, 'HARNESS')
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject({
+            statusCode: 403,
+            message: expect.stringContaining('harness:run')
+        })
+        principal.accessPolicy = parsePolicy({ scopes: ['predict', 'harness:run'] })
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id,
+            harnessIds: { baker: HARNESS }
+        })
+        mockGrants.delete(`${principal.id}:HARNESS:${HARNESS}`)
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject({
+            statusCode: 403,
+            message: expect.stringContaining('HARNESS resource grant')
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
+
 it('refuses an unknown nested key and a target in another workspace', async () => {
     const previous = process.env.INBOUND_ACCESS_V2
     process.env.INBOUND_ACCESS_V2 = 'on'

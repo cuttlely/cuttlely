@@ -57,27 +57,56 @@ function contextFrom(loaded) {
     return {
         ready: true,
         count,
-        contextFor: async (record) => ({
-            componentNodes,
-            flowOptions: {
+        contextFor: async (record, nested = {}) => {
+            const organization = await organizationFor(loaded, record?.workspaceId)
+            const flowOptions = {
                 appDataSource: loaded.appDataSource,
                 databaseEntities: loaded.databaseEntities,
                 componentNodes,
                 cachePool: loaded.cachePool,
                 chatflowid: record?.chatflowId,
                 workspaceId: record?.workspaceId || undefined,
-                orgId: await orgIdFor(loaded, record?.workspaceId),
+                orgId: organization?.id,
                 baseURL
             }
-        })
+            if (
+                record?.chatflowId &&
+                record.workspaceId &&
+                nested?.nestedFlowCaller &&
+                typeof loaded.nestedFlowNodeOptions === 'function'
+            ) {
+                Object.assign(
+                    flowOptions,
+                    loaded.nestedFlowNodeOptions({
+                        parentFlowId: record.chatflowId,
+                        parentWorkspaceId: record.workspaceId,
+                        caller: nested.nestedFlowCaller,
+                        depth: Number.isInteger(nested.nestedFlowDepth) && nested.nestedFlowDepth >= 0 ? nested.nestedFlowDepth : 0,
+                        baseURL,
+                        orgId: organization?.id || '',
+                        subscriptionId: organization?.subscriptionId || '',
+                        productId: loaded.productId || '',
+                        componentNodes,
+                        appDataSource: loaded.appDataSource,
+                        telemetry: loaded.telemetry,
+                        cachePool: loaded.cachePool,
+                        usageCacheManager: loaded.usageCacheManager,
+                        sseStreamer: loaded.sseStreamer
+                    })
+                )
+            }
+            return { componentNodes, flowOptions }
+        }
     }
 }
 
-async function orgIdFor(loaded, workspaceId) {
+async function organizationFor(loaded, workspaceId) {
     if (!workspaceId || !loaded.workspaceEntity || !loaded.appDataSource?.getRepository) return undefined
     try {
         const row = await loaded.appDataSource.getRepository(loaded.workspaceEntity).findOneBy({ id: workspaceId })
-        return row?.organizationId || undefined
+        if (!row?.organizationId) return undefined
+        if (!loaded.organizationEntity) return { id: row.organizationId }
+        return (await loaded.appDataSource.getRepository(loaded.organizationEntity).findOneBy({ id: row.organizationId })) || undefined
     } catch {
         return undefined
     }
@@ -111,12 +140,25 @@ async function loadBuiltServer() {
     const dataFile = serverFile('DataSource.js')
     const cacheFile = serverFile('CachePool.js')
     const utilsFile = serverFile('utils/index.js')
-    if (![nodesFile, dataFile, cacheFile, utilsFile].every((file) => fs.existsSync(file))) return null
+    const nestedFile = serverFile('utils/nestedFlowCall.js')
+    const telemetryFile = serverFile('utils/telemetry.js')
+    const usageFile = serverFile('UsageCacheManager.js')
+    const streamerFile = serverFile('utils/SSEStreamer.js')
+    if (
+        ![nodesFile, dataFile, cacheFile, utilsFile, nestedFile, telemetryFile, usageFile, streamerFile].every((file) =>
+            fs.existsSync(file)
+        )
+    )
+        return null
     const require = createRequire(path.join(repoRoot(), 'packages', 'server', 'package.json'))
     const { NodesPool } = require(nodesFile)
     const { getDataSource } = require(dataFile)
     const { CachePool } = require(cacheFile)
     const utils = require(utilsFile)
+    const { nestedFlowNodeOptions } = require(nestedFile)
+    const { Telemetry } = require(telemetryFile)
+    const { UsageCacheManager } = require(usageFile)
+    const { SSEStreamer } = require(streamerFile)
     const nodesPool = new NodesPool()
     await nodesPool.initialize()
     if (typeof utils.getEncryptionKey === 'function') await utils.getEncryptionKey()
@@ -139,11 +181,18 @@ async function loadBuiltServer() {
         }
     }
     const workspaceEntity = appDataSource.entityMetadatas?.find((item) => item.name === 'Workspace')?.target
+    const organizationEntity = appDataSource.entityMetadatas?.find((item) => item.name === 'Organization')?.target
     return {
         componentNodes: nodesPool.componentNodes,
         appDataSource,
         databaseEntities: utils.databaseEntities,
         cachePool,
-        workspaceEntity
+        workspaceEntity,
+        organizationEntity,
+        nestedFlowNodeOptions,
+        telemetry: new Telemetry(),
+        usageCacheManager: await UsageCacheManager.getInstance(),
+        sseStreamer: new SSEStreamer(),
+        productId: ''
     }
 }

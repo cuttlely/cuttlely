@@ -43,7 +43,7 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const tokens = new Map()
 const servers = []
 const inflight = new Set()
-const callerWorkspaces = new Map()
+const callerContexts = new Map()
 let tokensLoaded = false
 let contextFor = null
 
@@ -53,25 +53,55 @@ export function setGatewayContext(next) {
     return previous
 }
 
+function callerContext(flowOptions) {
+    if (!flowOptions || typeof flowOptions !== 'object') return null
+    return {
+        workspaceId: typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : undefined,
+        harnessCaller: flowOptions.harnessCaller,
+        nestedFlowCaller: flowOptions.nestedFlowCaller,
+        nestedFlowDepth: flowOptions.nestedFlowDepth,
+        runNestedFlow: flowOptions.runNestedFlow
+    }
+}
+
 // The run that is in this process. The gateway otherwise only sees the harness file.
+export function noteCallerFlowOptions(name, flowOptions) {
+    const context = callerContext(flowOptions)
+    if (!name || !context) return
+    const stack = callerContexts.get(name) || []
+    const token = Symbol(name)
+    stack.push({ token, context })
+    callerContexts.set(name, stack)
+    return token
+}
+
 export function noteCallerWorkspace(name, workspaceId) {
-    if (!name || !workspaceId) return
-    const stack = callerWorkspaces.get(name) || []
-    stack.push(workspaceId)
-    callerWorkspaces.set(name, stack)
+    noteCallerFlowOptions(name, { workspaceId })
 }
 
-export function clearCallerWorkspace(name) {
-    const stack = callerWorkspaces.get(name)
+export function clearCallerWorkspace(name, token) {
+    const stack = callerContexts.get(name)
     if (!stack) return
-    stack.pop()
-    if (!stack.length) callerWorkspaces.delete(name)
+    if (token) {
+        const index = stack.findIndex((entry) => entry.token === token)
+        if (index >= 0) stack.splice(index, 1)
+    } else stack.pop()
+    if (!stack.length) callerContexts.delete(name)
 }
 
-function notedCallerWorkspace(name) {
-    const stack = callerWorkspaces.get(name)
+function notedCallerContext(name) {
+    const stack = callerContexts.get(name)
     if (!stack?.length) return undefined
-    return stack[stack.length - 1]
+    const contexts = stack.map((entry) => entry.context)
+    const identity = (context) =>
+        JSON.stringify({
+            workspaceId: context.workspaceId,
+            harnessCaller: context.harnessCaller,
+            nestedFlowCaller: context.nestedFlowCaller,
+            nestedFlowDepth: context.nestedFlowDepth
+        })
+    if (contexts.some((context) => identity(context) !== identity(contexts[0]))) return null
+    return contexts[contexts.length - 1]
 }
 
 let healthHolds = 0
@@ -687,16 +717,19 @@ async function ownerContext(record) {
     if (typeof contextFor !== 'function') {
         throw new HarnessError('no_flow_context', 'Harness tools need the Cuttlely server context; run them through a chat flow.')
     }
-    const runtime = await contextFor(record)
-    const flowOptions = { ...(runtime?.flowOptions || {}) }
-    const noted = notedCallerWorkspace(record.name)
-    let caller = noted
+    let caller = notedCallerContext(record.name)
     if (caller === undefined) {
-        const { callerWorkspaceForJob } = await import('./queue.mjs')
-        caller = callerWorkspaceForJob(record.name)
+        const { callerFlowOptionsForJob } = await import('./queue.mjs')
+        caller = callerFlowOptionsForJob(record.name)
     }
+    const runtime = await contextFor(record, {
+        nestedFlowCaller: caller?.nestedFlowCaller,
+        nestedFlowDepth: caller?.nestedFlowDepth
+    })
+    const callerOptions = caller && typeof caller === 'object' ? caller : {}
+    const flowOptions = { ...(runtime?.flowOptions || {}), ...callerOptions }
     // contextFor copies the harness file's team. A known caller replaces that before the comparison.
-    if (caller !== undefined) flowOptions.workspaceId = caller || undefined
+    if (caller !== undefined) flowOptions.workspaceId = callerOptions.workspaceId || undefined
     // A harness with no team is not in the caller's team. Both empty is an offline run with no team on either side.
     if ((flowOptions.workspaceId || '') !== (record.workspaceId || '')) {
         throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)

@@ -2,12 +2,21 @@ import { ChatFlow } from '../database/entities/ChatFlow'
 
 const mockAuthorizeNestedFlowKey = jest.fn()
 const mockExecuteFlow = jest.fn(async (_params?: unknown) => ({ text: 'nested answer' }))
+const mockStartCanvasRun = jest.fn(async (..._args: unknown[]) => ({
+    chatId: 'harness-chat',
+    run: { id: 'run-1' },
+    payload: { text: 'team answer' }
+}))
 
 jest.mock('../services/accessKeys/authorization', () => ({
     authorizeNestedFlowKey: (...args: unknown[]) => mockAuthorizeNestedFlowKey(...args)
 }))
 jest.mock('./buildChatflow', () => ({
     executeFlow: (params: unknown) => mockExecuteFlow(params)
+}))
+jest.mock('../services/harnesses', () => ({
+    __esModule: true,
+    default: { startCanvasRun: (...args: unknown[]) => mockStartCanvasRun(...args) }
 }))
 
 import { authorizeNestedFlowCaller, MAX_NESTED_FLOW_DEPTH, nestedFlowCallerFromHarness, nestedFlowNodeOptions } from './nestedFlowCall'
@@ -25,6 +34,7 @@ const privateFlow = (type: string = 'CHATFLOW', workspaceId = 'one') =>
 beforeEach(() => {
     mockAuthorizeNestedFlowKey.mockReset()
     mockExecuteFlow.mockClear()
+    mockStartCanvasRun.mockClear()
 })
 
 it.each(['CHATFLOW', 'AGENTFLOW'])('allows a signed-in parent to call a same-workspace private %s', async (type) => {
@@ -87,6 +97,43 @@ it('rebuilds the in-process runner from serializable job fields and advances nes
             harnessCaller: { via: 'session' }
         })
     )
+})
+
+it('runs a same-server Harness target in process with the parent caller and next depth', async () => {
+    const target = privateFlow('HARNESS')
+    const options = nestedFlowNodeOptions({
+        parentFlowId: '11111111-1111-4111-8111-111111111111',
+        parentWorkspaceId: 'one',
+        caller: { via: 'session' },
+        depth: 3,
+        baseURL: 'http://localhost:3000',
+        orgId: 'org',
+        subscriptionId: 'sub',
+        productId: 'product',
+        componentNodes: {},
+        appDataSource: { getRepository: () => ({ findOneBy: async () => target }) } as any,
+        telemetry: {} as any,
+        cachePool: {} as any,
+        usageCacheManager: {} as any,
+        sseStreamer: {} as any
+    })
+
+    await expect(options.runNestedFlow({ targetFlowId: target.id, question: 'ask the team' })).resolves.toEqual({
+        chatId: 'harness-chat',
+        run: { id: 'run-1' },
+        text: 'team answer'
+    })
+    expect(mockStartCanvasRun).toHaveBeenCalledWith(
+        target,
+        expect.objectContaining({ question: 'ask the team', streaming: false }),
+        expect.objectContaining({
+            caller: { via: 'session' },
+            canvas: 'live',
+            nestedFlowCaller: { via: 'session' },
+            nestedFlowDepth: 4
+        })
+    )
+    expect(mockExecuteFlow).not.toHaveBeenCalled()
 })
 
 it('refuses self-calls and excessive in-process nesting before resolving a target', async () => {

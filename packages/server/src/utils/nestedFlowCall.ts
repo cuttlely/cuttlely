@@ -64,6 +64,8 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
             source: 'playground',
             caller: harnessCaller,
             canvas: 'live',
+            nestedFlowCaller: runtime.caller,
+            nestedFlowDepth: runtime.depth + 1,
             ...(runtime.signal ? { signal: runtime.signal.signal } : {})
         })
         return { chatId: outcome.chatId, run: outcome.run, ...(outcome.payload || {}) }
