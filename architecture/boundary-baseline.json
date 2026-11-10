@@ -2833,6 +2833,11 @@
             "from": "scripts/components-package-alias.test.mjs",
             "to": "packages/components/src/index.ts",
             "reason": "compatibility test for the earlier components package specifier"
+        },
+        {
+            "from": "scripts/harness-per-run-auth.test.cjs",
+            "to": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
+            "reason": "Production fixture loads the real Chatflow Tool so concurrent Harness chats can be checked against actual nested-target admission, not a stand-in."
         }
     ],
     "r4Edges": [
