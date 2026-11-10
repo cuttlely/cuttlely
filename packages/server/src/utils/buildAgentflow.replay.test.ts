@@ -70,7 +70,8 @@ beforeAll(() => {
         // Same assignment as Custom Function: $flow.input is the string the engine passed in.
         customFunctionAgentflow: write(
             'custom-function',
-            `const flow = { input: input }
+            `if (options.postProcessing) return { output: { content: 'Final: ' + options.postProcessing.rawOutput } }
+            const flow = { input: input }
             return { id: nodeData.id, name: 'customFunctionAgentflow', input: {}, output: { content: flow.input }, state: {} }`
         ),
         directReplyAgentflow: write(
@@ -178,6 +179,7 @@ const iterationCanvas = () =>
 async function run(opts: {
     replay: boolean
     showToolEvents?: boolean
+    postProcessing?: boolean
     startInputType?: string
     humanInput?: unknown
     flowData?: string
@@ -200,7 +202,13 @@ async function run(opts: {
             id: 'b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a',
             name: 'Bakery helper',
             type: 'AGENTFLOW',
-            chatbotConfig: JSON.stringify({ showToolEvents: { status: opts.showToolEvents } }),
+            chatbotConfig: JSON.stringify({
+                showToolEvents: { status: opts.showToolEvents },
+                postProcessing: {
+                    enabled: opts.postProcessing === true,
+                    customFunction: JSON.stringify('return "Final: " + $flow.rawOutput')
+                }
+            }),
             flowData: opts.flowData || canvas(opts.startInputType || 'chatInput'),
             workspaceId: 'ws-1'
         } as any,
@@ -247,13 +255,22 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         }
     )
 
-    it('streams the aggregated iteration answer when Show tool events is Off', async () => {
-        const { result, events, tokens } = await run({ replay: false, showToolEvents: false, flowData: iterationCanvas() })
-        expect(result.text).toContain('Fresh bread at 7 for:')
-        expect(events).toContain('streamStartEvent')
-        expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
-        expect(tokens.join('')).toBe(result.text)
-    })
+    it.each([false, true])(
+        'streams the aggregated iteration answer when Show tool events is Off and postProcessing=%s',
+        async (postProcessing) => {
+            const { result, events, tokens } = await run({
+                replay: false,
+                showToolEvents: false,
+                postProcessing,
+                flowData: iterationCanvas()
+            })
+            expect(result.text).toContain('Fresh bread at 7 for:')
+            if (postProcessing) expect(result.text).toMatch(/^Final: /)
+            expect(events).toContain('streamStartEvent')
+            expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
+            expect(tokens.join('')).toBe(result.text)
+        }
+    )
 
     it('does not duplicate an already-streamed last-node answer when Show tool events is Off', async () => {
         // Stub last node streams its own token; the end-of-run path must not append again.
@@ -292,18 +309,37 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(tokens).toEqual(['A', 'B'])
     })
 
-    it('streams an Iteration answer even when an earlier sibling already streamed tokens and Show tool events is Off', async () => {
-        const { result, tokens, events } = await run({
-            replay: false,
-            showToolEvents: false,
-            flowData: fanOutIterationCanvas()
+    it('does not append post-processed text to an already-streamed terminal answer when Show tool events is Off', async () => {
+        const flowData = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+                node('directReplyAgentflow_0', 'directReplyAgentflow', 'Reply', { directReplyMessage: 'Answer' })
+            ],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'directReplyAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }]
         })
-        expect(result.text).toContain('Fresh bread at 7 for:')
-        expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
-        // Side note streams first; the aggregated Iteration answer must still arrive.
-        expect(tokens[0]).toBe('Side note first')
-        expect(tokens.slice(1).join('')).toBe(result.text)
+        const { result, tokens, saved } = await run({ replay: false, showToolEvents: false, postProcessing: true, flowData })
+        expect(result.text).toBe('Final: Answer')
+        expect(saved.ChatMessage.content).toBe('Final: Answer')
+        expect(tokens).toEqual(['Answer'])
     })
+
+    it.each([false, true])(
+        'streams an Iteration answer after an earlier streamed sibling when Show tool events is Off and postProcessing=%s',
+        async (postProcessing) => {
+            const { result, tokens, events } = await run({
+                replay: false,
+                showToolEvents: false,
+                postProcessing,
+                flowData: fanOutIterationCanvas()
+            })
+            expect(result.text).toContain('Fresh bread at 7 for:')
+            if (postProcessing) expect(result.text).toMatch(/^Final: /)
+            expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
+            // Side note streams first; the aggregated Iteration answer must still arrive.
+            expect(tokens[0]).toBe('Side note first')
+            expect(tokens.slice(1).join('')).toBe(result.text)
+        }
+    )
 
     it('runs the steps and returns the answer and the steps, with their tokens', async () => {
         const { result } = await run({ replay: true })

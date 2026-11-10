@@ -2561,6 +2561,7 @@ const runAgentFlow = async ({
     // check if last agentFlowExecutedData.data.output contains the key "content"
     const lastNodeOutput = agentFlowExecutedData[agentFlowExecutedData.length - 1].data?.output as ICommonObject | undefined
     let content = (lastNodeOutput?.content as string) ?? ' '
+    const rawContentWasStreamed = typeof content === 'string' && content.length > 0 && streamedAnswerText.endsWith(content)
 
     /* Check for post-processing settings */
     let chatflowConfig: ICommonObject = {}
@@ -2775,9 +2776,15 @@ const runAgentFlow = async ({
     )
 
     // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens
-    // unless the stream already ends with that answer (e.g. a last-node Direct Reply / LLM
-    // after earlier terminal siblings streamed their own answers).
-    if (!showToolEvents && typeof content === 'string' && content.trim() && !streamedAnswerText.endsWith(content)) {
+    // unless its raw or final content was already streamed (e.g. a last-node Direct Reply / LLM
+    // before post-processing, or after earlier terminal siblings streamed their own answers).
+    if (
+        !showToolEvents &&
+        typeof content === 'string' &&
+        content.trim() &&
+        !rawContentWasStreamed &&
+        !streamedAnswerText.endsWith(content)
+    ) {
         sseStreamer?.streamTokenEvent(chatId, content)
     }
 
