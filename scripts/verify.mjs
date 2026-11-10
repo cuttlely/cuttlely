@@ -83,6 +83,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'access-keys.test.cjs'),
             path.join(ROOT, 'scripts', 'access-keys-production.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-per-run-auth.test.cjs'),
+            path.join(ROOT, 'packages', 'harness', 'node-pool-nested-flow.test.mjs'),
             path.join(ROOT, 'scripts', 'access-keys-postgres.test.cjs'),
             path.join(ROOT, 'scripts', 'access-rollout-admin.test.cjs'),
             path.join(ROOT, 'scripts', 'breakglass-operator.test.cjs'),
