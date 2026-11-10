@@ -325,8 +325,8 @@ it('enforces current owner permissions for nested legacy keys like HTTP while al
         mockKeys.set('fixture-token', principal)
         grant(FLOW, 'AGENTFLOW')
         grant(TARGET, 'CHATFLOW')
-        const parent = { ...flow, type: 'AGENTFLOW', apikeyid: principal.id }
-        const target = { ...flow, id: TARGET, apikeyid: principal.id }
+        const parent = { ...flow, type: 'AGENTFLOW', apikeyid: principal.id } as ChatFlow
+        const target = { ...flow, id: TARGET, apikeyid: principal.id } as ChatFlow
         mockOwnerPermissions = ['agentflows:view']
         await expect(authorizeFlowKey(req(), parent)).resolves.toBe(true)
         await expect(authorizeNestedFlowKey(principal.id, parent)).resolves.toMatchObject({ apiKeyId: principal.id })
