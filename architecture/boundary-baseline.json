@@ -1734,7 +1734,17 @@
         },
         {
             "from": "packages/server/src/utils/buildAgentflow.replay.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The iteration-depth regression imports the nested-call depth limit, options type, and parent caller types it exercises."
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentflow.replay.test.ts",
             "to": "packages/server/src/utils/buildAgentflow.ts"
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentflow.replay.test.ts",
+            "to": "packages/server/src/utils/nestedFlowCall.ts",
+            "reason": "The iteration-depth regression imports the nested-call depth limit, options type, and parent caller types it exercises."
         },
         {
             "from": "packages/server/src/utils/buildAgentGraph.overrides.test.ts",
