@@ -8,6 +8,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Same-server calls between chatflows, agentflows, and Harnesses now run in process as the parent caller, including Harness specialists calling flows and flows calling Private Harnesses. Targets require the same workspace and, for access keys, their own grants and required scopes (including the same legacy replacement-binding rule as HTTP prediction); remote Base URL overrides keep their configured HTTP credential path. When different callers overlap on one Harness, Public nested targets with no bound key still run anonymously; Private or key-bound targets refuse immediately without waiting or retrying. Nesting depth is not part of caller identity.
 
+-   Nested access-key admission checks the owner's current target permissions with enforcement On, including for migrated legacy keys, matching HTTP prediction. Legacy keys retain their own permission-flag compatibility.
+
+-   Agentflow iteration subruns preserve nested-call options and depth, so the eight-level limit still stops cycles that pass through an iteration.
+
 -   Access-key dialogs keep preset labels clear, retain the selected duration, show Custom for a manually edited expiry, and make Advanced controls easier to expand and collapse.
 
 -   Publish dialog API access selector: the floating label no longer overlaps the selected value, and the saved-access line and key-action links use clearer spacing.

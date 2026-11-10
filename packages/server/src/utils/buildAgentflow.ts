@@ -1435,7 +1435,8 @@ const executeNode = async ({
                             subscriptionId,
                             productId,
                             replay,
-                            harnessCaller
+                            harnessCaller,
+                            nestedFlowOptions
                         })
 
                         // Store the result

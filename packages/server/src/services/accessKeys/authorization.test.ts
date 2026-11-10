@@ -312,6 +312,37 @@ it('applies the same replacement legacy binding rule on nested access-key calls'
         else process.env.INBOUND_ACCESS_V2 = previous
     }
 })
+it('enforces current owner permissions for nested legacy keys like HTTP while allowing older key permission flags', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = {
+            ...key({ scopes: ['predict'] }),
+            ownerUserId: 'creator',
+            permissions: [],
+            accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+        }
+        mockKeys.set('fixture-token', principal)
+        grant(FLOW, 'AGENTFLOW')
+        grant(TARGET, 'CHATFLOW')
+        const parent = { ...flow, type: 'AGENTFLOW', apikeyid: principal.id }
+        const target = { ...flow, id: TARGET, apikeyid: principal.id }
+        mockOwnerPermissions = ['agentflows:view']
+        await expect(authorizeFlowKey(req(), parent)).resolves.toBe(true)
+        await expect(authorizeNestedFlowKey(principal.id, parent)).resolves.toMatchObject({ apiKeyId: principal.id })
+        const refusal = { statusCode: 403, message: expect.stringContaining('key owner needs chatflows:view') }
+        await expect(authorizeFlowKey(req(), target)).rejects.toMatchObject(refusal)
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject(refusal)
+
+        mockOwnerPermissions.push('chatflows:view')
+        await expect(authorizeFlowKey(req(), target)).resolves.toBe(true)
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({ apiKeyId: principal.id })
+        expect(principal.permissions).toEqual([])
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
 it('checks expiry, revoke and the owner’s current workspace membership and permissions', async () => {
     grant()
     const valid = key({ scopes: ['predict'] })

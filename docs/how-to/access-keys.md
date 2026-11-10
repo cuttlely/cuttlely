@@ -132,7 +132,11 @@ On the same server, Execute Flow, Chatflow Tool, Agent as Tool, and Harness tool
 
 An access key keeps the parent principal throughout the nested run. A Harness target needs its exact Harness grant, `harness:run`, and `chatflows:view`; the parent flow call already requires `predict`. A chatflow target needs `predict`, its exact Chatflow grant, and `chatflows:view`. An agentflow target needs `predict`, its exact Agentflow grant, and `agentflows:view`. A key granted only to the parent cannot use the parent to reach another Private flow or Harness.
 
+With enforcement On, the key owner's current permissions must also allow the target, just as for HTTP prediction. This includes migrated legacy keys: their own older permission flags remain compatible, but an owner without the target's required view permission causes a `403` refusal.
+
 The target must be in the parent's workspace. Anonymous callers still reach only Public flows with no bound key, and an anonymous request to a Private prediction endpoint still returns `401`. These rules do not turn a Private target into a public one. When a card sets a different Base URL, it keeps the remote HTTP path and uses only the credential configured on that card; the parent bearer is not forwarded.
+
+Nested calls are limited to eight levels. Agentflow iteration subruns keep the parent's nesting depth, so entering an iteration does not restart that limit.
 
 If different callers run the same Harness at the same time in one workspace, nested calls to Public flows with no bound key still run anonymously. For example, this applies to two different access-key principals, or an access key and a signed-in session. Calls to Private flows or flows with a bound key fail immediately with an `ambiguous_caller` error. There is no automatic wait or retry, and the Harness does not borrow another caller's identity or a card credential. The same caller reaching the Harness at different nesting depths does not cause this refusal.
 

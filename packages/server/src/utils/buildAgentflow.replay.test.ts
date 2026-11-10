@@ -17,6 +17,8 @@ import {
 } from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
 import * as usage from '../services/usage'
+import { MAX_NESTED_FLOW_DEPTH, NestedFlowNodeOptions } from './nestedFlowCall'
+import type { IHarnessCaller, INestedFlowCaller } from '../Interface'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
 jest.mock('@cuttlely/components', () => ({ ...jest.requireActual('@cuttlely/components'), tracingEnvEnabled: () => false }))
@@ -152,6 +154,10 @@ async function run(opts: {
     chatType?: string
     nodes?: Record<string, { filePath: string }>
     previousExecutions?: any[]
+    nestedFlowOptions?: NestedFlowNodeOptions
+    nestedFlowCaller?: INestedFlowCaller
+    nestedFlowDepth?: number
+    harnessCaller?: IHarnessCaller
 }) {
     const { calls, saved, appDataSource } = recordingDataSource(opts.previousExecutions)
     const { events, sseStreamer } = streamer()
@@ -183,7 +189,11 @@ async function run(opts: {
         workspaceId: 'ws-1',
         subscriptionId: 'sub-1',
         productId: 'prod-1',
-        replay: opts.replay
+        replay: opts.replay,
+        nestedFlowOptions: opts.nestedFlowOptions,
+        nestedFlowCaller: opts.nestedFlowCaller,
+        nestedFlowDepth: opts.nestedFlowDepth,
+        harnessCaller: opts.harnessCaller
     } as any)
     return { result, calls, events, telemetry, saved }
 }
@@ -233,6 +243,52 @@ describe('executeAgentFlow with replay on (publish check)', () => {
     it('without replay the same iteration writes its execution (the spy sees the iteration path)', async () => {
         const { calls } = await run({ replay: false, flowData: iterationCanvas() })
         expect(calls).toEqual(expect.arrayContaining(['Execution.findOne', 'Execution.save']))
+    })
+
+    it('keeps the existing nested runner, caller and depth inside iteration subruns', async () => {
+        const probe = path.join(dir, 'nested-options-probe.js')
+        fs.writeFileSync(
+            probe,
+            step(`const nested = await options.runNestedFlow({ targetFlowId: 'target', question: input })
+                return { id: nodeData.id, name: 'llmAgentflow', input: {}, output: {
+                    content: nested.text, depth: options.nestedFlowDepth, caller: options.nestedFlowCaller
+                } }`)
+        )
+        const runNestedFlow = jest.fn(async () => ({ text: 'nested answer' }))
+        const nestedFlowCaller: INestedFlowCaller = { via: 'api_key', apiKeyId: 'parent-key' }
+        const { result } = await run({
+            replay: true,
+            flowData: iterationCanvas(),
+            nodes: { ...componentNodes, llmAgentflow: { filePath: probe } },
+            nestedFlowOptions: { nestedFlowCaller, nestedFlowDepth: 5, runNestedFlow },
+            harnessCaller: { via: 'api_key', apiKeyId: 'parent-key', harnesses: [] }
+        })
+        expect(result.status).toBe('FINISHED')
+        expect(runNestedFlow).toHaveBeenCalledTimes(2)
+        const inner = result.agentFlowExecutedData.filter((s: any) => s.nodeLabel === 'Loaf helper')
+        expect(inner).toHaveLength(2)
+        for (const row of inner) {
+            expect(row.data.output).toMatchObject({ content: 'nested answer', depth: 5, caller: nestedFlowCaller })
+        }
+    })
+
+    it('applies the eight-level nested-call guard through an iteration subrun', async () => {
+        const probe = path.join(dir, 'nested-depth-probe.js')
+        fs.writeFileSync(
+            probe,
+            step(`await options.runNestedFlow({ targetFlowId: 'target', question: input })
+                return { id: nodeData.id, name: 'llmAgentflow', input: {}, output: { content: 'unexpected dispatch' } }`)
+        )
+        const { result, calls } = await run({
+            replay: true,
+            flowData: iterationCanvas(),
+            nodes: { ...componentNodes, llmAgentflow: { filePath: probe } },
+            nestedFlowCaller: { via: 'session' },
+            nestedFlowDepth: MAX_NESTED_FLOW_DEPTH,
+            harnessCaller: { via: 'session' }
+        })
+        expect(JSON.stringify(result)).toContain(`Nested flow calls are limited to ${MAX_NESTED_FLOW_DEPTH} levels.`)
+        expect(calls.filter((call) => call.startsWith('ChatFlow.'))).toEqual([])
     })
 
     it('records each iteration step once on the top-level run', async () => {
