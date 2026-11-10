@@ -9,10 +9,10 @@ Why: Cuttlely's MCP bridge starts alongside Hermes, so the first tools/list can 
 ---
  tests/tools/test_cuttlely_mcp_retry.py | 105 ++++++++++++++++++++
  tools/mcp_tool.py                      |  38 ++++++--
- tools/mcp_tool_cuttlely.py             | 101 +++++++++++++++++++
+ tools/mcp_tool_cuttlely.py             | 100 +++++++++++++++++++
  tools/mcp_tool_discovery.py            | 130 +++++++++++++++++++++++--
  tools/mcp_tool_handlers.py             |  61 ++++++++++--
- 5 files changed, 414 insertions(+), 21 deletions(-)
+ 5 files changed, 413 insertions(+), 21 deletions(-)
  create mode 100644 tests/tools/test_cuttlely_mcp_retry.py
  create mode 100644 tools/mcp_tool_cuttlely.py
 
@@ -197,10 +197,10 @@ index 91d8aef01e49a722f8dea4e396143f655688194a..d1e9974e840090dc07c9a4fa16b69e95
  # Servers opted into parallel tool calls, keyed by the consuming profile's own key (``foo-bar``/
 diff --git a/tools/mcp_tool_cuttlely.py b/tools/mcp_tool_cuttlely.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..a885ee542f0c97545e4596b0cea597989d66c4f9
+index 0000000000000000000000000000000000000000..b82a7cd11d5798280177d42514b794be73e6ee5c
 --- /dev/null
 +++ b/tools/mcp_tool_cuttlely.py
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,100 @@
 +"""cuttlely patch: startup retries for an MCP server that lists no tools or cannot be reached,
 +and the flag that keeps an expected analyst result off the circuit breaker.
 +
@@ -250,7 +250,7 @@ index 0000000000000000000000000000000000000000..a885ee542f0c97545e4596b0cea59798
 +def is_analyst_bridge(server_name: str, config: Optional[dict] = None) -> bool:
 +    """cuttlely: the bridge is named after its specialist, so a data specialist's bridge is "data".
 +
-+    The harness profile marks every bridge with a query tool with CUTTLELY_ANALYST_BRIDGE=1 in its env.
++    The harness profile marks every Cuttlely bridge with CUTTLELY_ANALYST_BRIDGE=1 in its env.
 +    """
 +    if server_name == "analyst":
 +        return True
@@ -262,14 +262,13 @@ index 0000000000000000000000000000000000000000..a885ee542f0c97545e4596b0cea59798
 +                           config: Optional[dict] = None) -> dict:
 +    """cuttlely: a page cursor is scoped to this chat.
 +
-+    The analyst bridge reads ``_cuttlelyScope`` and drops it before the tool schema.
++    Cuttlely bridges read ``_cuttlelyScope`` before dispatch. The runtime always
++    replaces the model's value, including when its own session identity is missing.
 +    Other MCP servers keep the model's arguments unchanged.
 +    """
 +    if not is_analyst_bridge(server_name, config):
 +        return args
 +    session = str(session_id or "").strip()
-+    if not session:
-+        return args
 +    merged = dict(args or {})
 +    merged["_cuttlelyScope"] = session
 +    return merged

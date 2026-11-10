@@ -323,7 +323,7 @@ Time zones are IANA place names such as `Europe/Paris`, or `UTC`. Offsets and ab
 There are two known limits:
 
 -   An explicitly public flow can run its referenced Harnesses in its team without a caller key. For private API access with enforcement on, set **API Endpoint** to **Private (selected access keys)** and grant both the flow and its referenced Harnesses. A resource grant alone does not make a flow private.
--   Execute Flow, Chatflow Tool and Agent as Tool send the API key stored in their credential. Treat that as delegated server access: keep privileged keys out of shared credentials. Public share/embed access remains a separate transport.
+-   On the same server, Execute Flow, Chatflow Tool, Agent as Tool, and Harness tools run the target as the parent caller. A signed-in parent can reach a Private target in the same workspace; an access key needs its own grant on that target. A remote Base URL still uses only the credential on the card. Public share/embed access remains a separate transport. [Calls between flows and Harnesses](./docs/how-to/access-keys.md#calls-between-flows-and-harnesses).
 
 ---
 

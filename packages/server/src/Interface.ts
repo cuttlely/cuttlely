@@ -487,6 +487,10 @@ export interface IExecuteFlowParams extends IPredictionQueueAppServer {
     sessionToken?: string
     /** Who a Harness card on this flow runs for. The harness engine refuses a run without one. */
     harnessCaller: IHarnessCaller | undefined
+    /** Parent caller retained across queue serialization for same-server nested flow authorization. */
+    nestedFlowCaller?: INestedFlowCaller
+    /** Number of same-server flow calls above this run. */
+    nestedFlowDepth?: number
 }
 
 /** An API key and the harnesses on its list, read from its row for this call. */
@@ -503,6 +507,9 @@ export interface IApiKeyAccess {
  * `flow` is a flow with no API key: anyone with its id can call it, so its Harness cards were checked when it was saved.
  */
 export type IHarnessCaller = { via: 'session' } | { via: 'flow' } | ({ via: 'api_key' } & IApiKeyAccess)
+
+/** Serializable identity retained by a queued run for same-server flow calls. No bearer value is stored. */
+export type INestedFlowCaller = { via: 'session' } | { via: 'flow' } | { via: 'api_key'; apiKeyId: string }
 
 export interface INodeOverrides {
     [key: string]: {

@@ -1735,6 +1735,9 @@ paths:
                 predict, upload and stream before file storage. Caller-policy refusals are 403; expiry/revocation is 401; authentication-store outages are 503;
                 exhausted budgets are 429 with Retry-After. With enforcement off (default), legacy bindings remain in use.
                 Public share/embed access remains separate.
+                Same-server Execute Flow, Chatflow Tool, Agent as Tool, and Harness nested calls do not open a second HTTP prediction;
+                they reuse the parent run's session or access-key principal in process. An access key still needs its own grant on the nested target.
+                A remote Base URL override keeps the card credential path. See docs/how-to/access-keys.md#calls-between-flows-and-harnesses.
             parameters:
                 - in: path
                   name: id

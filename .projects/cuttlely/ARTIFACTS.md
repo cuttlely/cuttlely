@@ -1,3 +1,17 @@
+## Same-server flow and Harness nested calls
+
+-   `scripts/harness-per-run-auth.test.cjs` exercises actual gateway HTTP, Chatflow Tool and SQLite target grants, including signed-in Try it isolation, missing scope, queued caller selection, cross-workspace refusal and remote card credentials. It runs in the existing validation gate.
+-   `packages/harness/gateway-nested-flow.test.mjs` and `queue-nested-flow.test.mjs` exercise per-chat principal and callback isolation, active-chat collisions and exact queued-job selection. `scripts/hermes-analyst-scope.test.mjs` covers runtime scope replacement, including bridges without analyst tools.
+-   `packages/server/src/utils/nestedFlowCall.ts` is the shared in-process entry for flow and Harness targets. `packages/server/src/services/harnesses/index.ts` rebuilds its runner from the serialized parent caller and depth.
+-   Nested grant rules: `docs/how-to/access-keys.md#calls-between-flows-and-harnesses`, `docs/reference/access-keys.md` (Nested same-server calls), FAQ harness access bullet, Swagger `POST /prediction/{id}` description, `docs/how-to/canvas.md` and `docs/how-to/harnesses.md` cross-links.
+-   `packages/harness/{queue,node-pool,gateway,run}.mjs` carries that caller through direct and queued Harness execution, reconstructs process-local functions, and keeps concurrent gateway principals isolated.
+-   `nestedFlowCall.test.ts`, `nestedFlowContext.test.ts`, `authorization.test.ts`, the Harness node suite, and the three `packages/harness/*-nested-flow.test.mjs` files cover the two directions, required target grants, serialization and isolation.
+
+-   `packages/server/src/utils/buildAgentflow.nested-iteration.test.ts` runs iteration subflows through the real agentflow engine: a parent at depth four keeps its caller and callback, and a cycle through an iteration advances to the eight-level refusal. Removing nested-runner propagation makes both regressions fail.
+-   `packages/server/src/services/accessKeys/authorization.test.ts` compares HTTP and nested target admission for a migrated legacy key after its Agentflow parent is admitted. Both paths refuse a Private Chatflow until the active owner has its view permission, while nested calls add no HTTP quota charge.
+
+-   `scripts/fixtures/harness-worker-nested.cjs`, run from `packages/harness/node-pool-nested-flow.test.mjs`, exercises an external Harness worker path with no Express application singleton: a granted access key runs a pinned Private Chatflow Tool target, a missing grant returns 403, and a missing or revoked key is refused as authentication rather than a 503 verification outage. Additional controls cover owner permissions, scopes, workspace boundaries and replacement bindings. The fixture uses a disposable SQLite database and the worker's injected connection.
+
 ## Flow tool-event display
 
 -   `packages/components/src/streaming.ts`: shared flow-type default resolution and an execution-scoped SSE proxy. `streaming.test.ts` covers boolean overrides, blocked typed/custom events, Harness passthrough and shared-streamer isolation.

@@ -27,6 +27,8 @@ print(json.dumps({
     "plain": call("data", args, "sales--data:chat-9", {"command": "node", "env": {}}),
     "other": call("github", args, "sales--data:chat-9", {"command": "npx"}),
     "noSession": call("data", args, "", bridge),
+    "worker": call("worker", {"input": "look up a flow", "_cuttlelyScope": "sales--worker:another-chat"}, "sales--worker:chat-9", bridge),
+    "workerNoSession": call("worker", {"input": "look up a flow", "_cuttlelyScope": "sales--worker:another-chat"}, "", bridge),
     "argsUntouched": args,
 }))
 `
@@ -39,7 +41,9 @@ test('Hermes adds the chat scope for a query bridge whatever the specialist is c
     assert.deepEqual(out.analyst, { sql: 'select 1', _cuttlelyScope: 'sales--analyst:chat-9' })
     assert.deepEqual(out.plain, { sql: 'select 1' })
     assert.deepEqual(out.other, { sql: 'select 1' })
-    assert.deepEqual(out.noSession, { sql: 'select 1' })
+    assert.deepEqual(out.noSession, { sql: 'select 1', _cuttlelyScope: '' })
+    assert.deepEqual(out.worker, { input: 'look up a flow', _cuttlelyScope: 'sales--worker:chat-9' })
+    assert.deepEqual(out.workerNoSession, { input: 'look up a flow', _cuttlelyScope: '' })
     assert.deepEqual(out.argsUntouched, { sql: 'select 1' })
 })
 
@@ -56,7 +60,7 @@ from tools.mcp_tool import MCPServerTask
 from tools.mcp_tool_config import _filter_suspicious_mcp_servers, _interpolate_env_vars
 from tools.mcp_tool_loop import _ensure_mcp_loop, _stop_mcp_loop
 sent = {}
-def run(server_name, config, session_id):
+def run(server_name, config, session_id, args=None, tool="query"):
     servers = _filter_suspicious_mcp_servers({server_name: config})
     server = MCPServerTask(server_name)
     asyncio.run(server._prepare_run(_interpolate_env_vars(servers[server_name])))
@@ -66,14 +70,16 @@ def run(server_name, config, session_id):
     handlers._acquire_call_server = lambda name, timeout: (server, None)
     handlers._cuttlely_refresh_toolless = lambda srv, name: None
     handlers._call_tool_racing_stdio_death = wire
-    handlers._make_tool_handler(server_name, "query", 10)({"sql": "select 1"}, session_id=session_id)
+    handlers._make_tool_handler(server_name, tool, 10)(args or {"sql": "select 1"}, session_id=session_id)
     return sent.get(server_name)
 bridge = {"command": "node", "args": ["packages/harness/mcp-bridge.mjs", "--harness", "sales", "--specialist", "data"],
           "env": {"CUTTLELY_ANALYST_BRIDGE": "1"}}
 plain = {"command": "npx", "args": ["some-mcp-server"], "env": {}}
 _ensure_mcp_loop()
 try:
-    out = {"data": run("data", bridge, "sales--data:chat-9"), "plain": run("github", plain, "sales--data:chat-9")}
+    out = {"data": run("data", bridge, "sales--data:chat-9"), "plain": run("github", plain, "sales--data:chat-9"),
+           "worker": run("worker", bridge, "sales--worker:chat-9", {"input":"hello", "_cuttlelyScope":"sales--worker:another-chat"}, "lookup"),
+           "workerNoSession": run("worker", bridge, "", {"input":"hello", "_cuttlelyScope":"sales--worker:another-chat"}, "lookup")}
 finally:
     _stop_mcp_loop()
 print(json.dumps(out))
@@ -109,6 +115,8 @@ test('the real MCP tool handler sends the chat scope to a query bridge named aft
     const out = JSON.parse(run.stdout.trim().split('\n').at(-1))
     assert.deepEqual(out.data, { sql: 'select 1', _cuttlelyScope: 'sales--data:chat-9' })
     assert.deepEqual(out.plain, { sql: 'select 1' })
+    assert.deepEqual(out.worker, { input: 'hello', _cuttlelyScope: 'sales--worker:chat-9' })
+    assert.deepEqual(out.workerNoSession, { input: 'hello', _cuttlelyScope: '' })
 })
 
 test('the compiler emits the runtime scope flag for an actual query bridge', () => {
@@ -125,6 +133,36 @@ test('the compiler emits the runtime scope flag for an actual query bridge', () 
             compileProfile(record)
             const config = fs.readFileSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'query-scope--data', 'config.yaml'), 'utf8')
             assert.ok(/CUTTLELY_ANALYST_BRIDGE:\\s*['"]?1/.test(config))
+        `
+        const run = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
+            encoding: 'utf8',
+            timeout: 10000,
+            env: { ...process.env, CUTTLELY_DATA_DIR: dir, CUTTLELY_HERMES_HOME: path.join(dir, 'runtime') }
+        })
+        assert.equal(run.status, 0, run.stderr)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('the compiler scopes every non-analyst module bridge in saved and Try-it profiles', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'module-scope-profile-'))
+    try {
+        const source = `
+            import assert from 'node:assert/strict'
+            import fs from 'node:fs'
+            import path from 'node:path'
+            import { compileProfile, compileTryProfile } from ${JSON.stringify(pathToFileURL(PROFILE).href)}
+            const record = { name: 'module-scope', chief: { model: { nodeName: 'unused' } }, specialists: [
+                { name: 'worker', shell: true, modules: [{ nodeName: 'echoNode', inputs: {} }] }
+            ] }
+            compileProfile(record)
+            compileTryProfile(record, 'abcdef1234567890')
+            for (const profile of ['module-scope--worker', 'tryabcdef1234567890--worker']) {
+                const config = fs.readFileSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', profile, 'config.yaml'), 'utf8')
+                assert.ok(config.includes('mcp-bridge.mjs'))
+                assert.ok(/CUTTLELY_ANALYST_BRIDGE:\\s*['"]?1/.test(config))
+            }
         `
         const run = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
             encoding: 'utf8',

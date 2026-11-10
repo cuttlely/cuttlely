@@ -13,6 +13,7 @@ import {
 } from '../../../src/utils'
 import { isValidUUID, isValidURL } from '../../../src/validator'
 import { v4 as uuidv4 } from 'uuid'
+import { isSameServerBaseURL, RunNestedFlow } from '../../../src/nestedFlow'
 
 class AgentAsTool_Tools implements INode {
     label: string
@@ -177,13 +178,16 @@ class AgentAsTool_Tools implements INode {
             throw new Error('Invalid base URL: must be a valid URL')
         }
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
-        const agentflowApiKey = getCredentialParam('agentflowApiKey', credentialData, nodeData)
-
         if (selectedAgentflowId === options.chatflowid) throw new Error('Cannot call the same agentflow!')
 
+        const runNestedFlow = options.runNestedFlow as RunNestedFlow | undefined
+        const useNestedRunner = !!runNestedFlow && isSameServerBaseURL(baseURL, options.baseURL as string)
         let headers = {}
-        if (agentflowApiKey) headers = { Authorization: `Bearer ${agentflowApiKey}` }
+        if (!useNestedRunner) {
+            const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+            const agentflowApiKey = getCredentialParam('agentflowApiKey', credentialData, nodeData)
+            if (agentflowApiKey) headers = { Authorization: `Bearer ${agentflowApiKey}` }
+        }
 
         let toolInput = ''
         if (useQuestionFromChat) {
@@ -203,7 +207,8 @@ class AgentAsTool_Tools implements INode {
             startNewSession,
             headers,
             input: toolInput,
-            overrideConfig
+            overrideConfig,
+            runNestedFlow: useNestedRunner ? runNestedFlow : undefined
         })
     }
 }
@@ -229,6 +234,8 @@ class AgentflowTool extends StructuredTool {
 
     overrideConfig?: object
 
+    runNestedFlow?: RunNestedFlow
+
     schema = z.object({
         input: z.string().describe('input question')
         // overrideConfig: z.record(z.any()).optional().describe('override config'), // This will be passed to the Agent, so comment it for now.
@@ -243,7 +250,8 @@ class AgentflowTool extends StructuredTool {
         startNewSession,
         baseURL,
         headers,
-        overrideConfig
+        overrideConfig,
+        runNestedFlow
     }: {
         name: string
         description: string
@@ -254,6 +262,7 @@ class AgentflowTool extends StructuredTool {
         baseURL: string
         headers: ICommonObject
         overrideConfig?: object
+        runNestedFlow?: RunNestedFlow
     }) {
         super()
         this.name = name
@@ -264,6 +273,7 @@ class AgentflowTool extends StructuredTool {
         this.headers = headers
         this.agentflowid = agentflowid
         this.overrideConfig = overrideConfig
+        this.runNestedFlow = runNestedFlow
         this.returnDirect = returnDirect
     }
 
@@ -331,6 +341,16 @@ class AgentflowTool extends StructuredTool {
                 ...(this.overrideConfig ?? {}),
                 ...(arg.overrideConfig ?? {})
             }
+        }
+
+        if (this.runNestedFlow) {
+            const response = await this.runNestedFlow({
+                targetFlowId: this.agentflowid,
+                question: inputQuestion,
+                chatId: body.chatId,
+                overrideConfig: body.overrideConfig
+            })
+            return typeof response.text === 'string' ? response.text : response.text == null ? '' : JSON.stringify(response.text)
         }
 
         const options = {

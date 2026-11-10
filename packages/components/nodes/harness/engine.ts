@@ -21,6 +21,11 @@ export interface HarnessFlowOptions {
     // The engine refuses a run without one, and a key runs only the harnesses on its list.
     harnessCaller?: unknown
     expectedHarnessChatflowId?: unknown
+    /** Serializable parent identity retained for same-server specialist flow calls. */
+    nestedFlowCaller?: unknown
+    nestedFlowDepth?: unknown
+    /** Rebuilt in each process; never serialized into a queued job. */
+    runNestedFlow?: unknown
 }
 
 export interface HarnessRunArgs {
@@ -104,7 +109,8 @@ export interface HarnessEngine {
     assertHarnessWorkspace?(name: string, flowOptions?: HarnessFlowOptions): void
     configureHarnessRuntime(options: {
         contextFor?: (
-            record: { chatflowId?: string; workspaceId?: string | null; name?: string } | null
+            record: { chatflowId?: string; workspaceId?: string | null; name?: string } | null,
+            nested?: Pick<HarnessFlowOptions, 'nestedFlowCaller' | 'nestedFlowDepth'>
         ) => HarnessRuntimeContext | Promise<HarnessRuntimeContext>
     }): void
     warmHarnessProfiles(options?: {
