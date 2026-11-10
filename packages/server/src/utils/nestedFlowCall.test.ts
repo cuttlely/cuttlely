@@ -46,9 +46,48 @@ it('keeps anonymous public access narrow and refuses private or cross-workspace 
     await expect(
         authorizeNestedFlowCaller({ via: 'flow' }, 'one', { ...privateFlow(), apiAccessMode: 'public', apikeyid: undefined })
     ).resolves.toEqual({ via: 'flow' })
+    await expect(
+        authorizeNestedFlowCaller({ via: 'flow' }, 'one', { ...privateFlow(), apiAccessMode: 'public', apikeyid: 'bound-key' })
+    ).rejects.toMatchObject({ statusCode: 401 })
     await expect(authorizeNestedFlowCaller({ via: 'session' }, 'one', privateFlow('CHATFLOW', 'other'))).rejects.toMatchObject({
         statusCode: 403
     })
+})
+
+it.each(['CHATFLOW', 'HARNESS'])('runs a public unbound %s anonymously without key or session authority', async (type) => {
+    const target = { ...privateFlow(type), apiAccessMode: 'public' }
+    const options = nestedFlowNodeOptions({
+        parentFlowId: '11111111-1111-4111-8111-111111111111',
+        parentWorkspaceId: 'one',
+        caller: { via: 'flow' },
+        depth: 2,
+        baseURL: 'http://localhost:3000',
+        orgId: 'org',
+        subscriptionId: 'sub',
+        productId: 'product',
+        componentNodes: {},
+        appDataSource: { getRepository: () => ({ findOneBy: async () => target }) } as any,
+        telemetry: {} as any,
+        cachePool: {} as any,
+        usageCacheManager: {} as any,
+        sseStreamer: {} as any
+    })
+
+    await options.runNestedFlow({ targetFlowId: target.id, question: 'hello' })
+    if (type === 'HARNESS') {
+        expect(mockStartCanvasRun).toHaveBeenCalledWith(
+            target,
+            expect.any(Object),
+            expect.objectContaining({ caller: { via: 'flow' }, nestedFlowCaller: { via: 'flow' }, nestedFlowDepth: 3 })
+        )
+        expect(mockExecuteFlow).not.toHaveBeenCalled()
+    } else {
+        expect(mockExecuteFlow).toHaveBeenCalledWith(
+            expect.objectContaining({ harnessCaller: { via: 'flow' }, nestedFlowCaller: { via: 'flow' }, nestedFlowDepth: 3 })
+        )
+        expect(mockStartCanvasRun).not.toHaveBeenCalled()
+    }
+    expect(mockAuthorizeNestedFlowKey).not.toHaveBeenCalled()
 })
 
 it('delegates a serialized key id without a bearer and converts Harness callers without secrets', async () => {

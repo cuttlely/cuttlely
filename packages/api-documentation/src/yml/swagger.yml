@@ -1737,6 +1737,8 @@ paths:
                 Public share/embed access remains separate.
                 Same-server Execute Flow, Chatflow Tool, Agent as Tool, and Harness nested calls do not open a second HTTP prediction;
                 they reuse the parent run's session or access-key principal in process. An access key still needs its own grant on the nested target.
+                During overlapping runs of the same Harness by different caller identities, Public nested targets with no bound key run anonymously;
+                Private or key-bound targets refuse immediately without waiting or retrying. Nesting depth is not part of caller identity.
                 A remote Base URL override keeps the card credential path. See docs/how-to/access-keys.md#calls-between-flows-and-harnesses.
             parameters:
                 - in: path

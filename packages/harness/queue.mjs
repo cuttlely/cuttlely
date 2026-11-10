@@ -318,21 +318,22 @@ export function callerFlowOptionsForJob(name) {
                 JSON.stringify({
                     workspaceId: caller.workspaceId,
                     harnessCaller: caller.harnessCaller,
-                    nestedFlowCaller: caller.nestedFlowCaller,
-                    nestedFlowDepth: caller.nestedFlowDepth
+                    nestedFlowCaller: caller.nestedFlowCaller
                 }) ===
                 JSON.stringify({
                     workspaceId: callers[0].workspaceId,
                     harnessCaller: callers[0].harnessCaller,
-                    nestedFlowCaller: callers[0].nestedFlowCaller,
-                    nestedFlowDepth: callers[0].nestedFlowDepth
+                    nestedFlowCaller: callers[0].nestedFlowCaller
                 })
         )
     )
         return callers[callers.length - 1]
     if (workspaces.size === 1) {
         const workspaceId = callers[0].workspaceId
-        return typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}
+        return {
+            ...(typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}),
+            nestedFlowDepth: Math.max(0, ...callers.map((caller) => caller.nestedFlowDepth || 0))
+        }
     }
     return null
 }

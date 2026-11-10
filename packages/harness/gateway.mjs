@@ -94,8 +94,7 @@ function principalIdentity(context) {
     return JSON.stringify({
         workspaceId: context.workspaceId,
         harnessCaller: context.harnessCaller,
-        nestedFlowCaller: context.nestedFlowCaller,
-        nestedFlowDepth: context.nestedFlowDepth
+        nestedFlowCaller: context.nestedFlowCaller
     })
 }
 
@@ -108,14 +107,22 @@ function workspaceOnlyCaller(context) {
     return typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}
 }
 
-/** Merge noted/job callers. null = refuse; workspace-only = team check without nested grants. */
+/** Merge noted/job callers. null = refuse; overlap retains the team and deepest nesting, without grants. */
 export function reconcileCallerContexts(contexts) {
     if (!contexts.length) return undefined
     if (contexts.some((context) => context === null)) return null
-    if (contexts.every((context) => principalIdentity(context) === principalIdentity(contexts[0]))) return contexts[contexts.length - 1]
+    if (hasNestedPrincipal(contexts[0]) && contexts.every((context) => principalIdentity(context) === principalIdentity(contexts[0]))) {
+        return contexts[contexts.length - 1]
+    }
     const workspaces = new Set(contexts.map((context) => context.workspaceId || ''))
     if (workspaces.size !== 1) return null
-    return workspaceOnlyCaller(contexts[0])
+    return {
+        ...workspaceOnlyCaller(contexts[0]),
+        nestedFlowDepth: Math.max(
+            0,
+            ...contexts.map((context) => (Number.isInteger(context.nestedFlowDepth) ? context.nestedFlowDepth : 0))
+        )
+    }
 }
 
 function notedCallerContext(name) {
@@ -127,8 +134,24 @@ function notedCallerContext(name) {
 function refuseAmbiguousNestedFlow(name) {
     throw new HarnessError(
         'ambiguous_caller',
-        `Harness "${name}" is already running for another caller. Wait for that run to finish before calling another flow from it.`
+        `Harness "${name}" is running for different callers. During overlap, nested calls can only reach Public flows with no bound key; Private or key-bound targets are refused immediately.`
     )
+}
+
+function anonymousNestedFlowRunner(name, flowOptions) {
+    const runNestedFlow = flowOptions.runNestedFlow
+    const { appDataSource, databaseEntities, workspaceId } = flowOptions
+    return async (request) => {
+        if (typeof runNestedFlow !== 'function' || !appDataSource?.getRepository || !databaseEntities?.ChatFlow) {
+            return refuseAmbiguousNestedFlow(name)
+        }
+        const target = await appDataSource.getRepository(databaseEntities.ChatFlow).findOneBy({ id: request.targetFlowId })
+        if (target?.workspaceId !== workspaceId || target?.apiAccessMode !== 'public' || target.apikeyid) {
+            return refuseAmbiguousNestedFlow(name)
+        }
+        // This freshly built anonymous runner rechecks target authorization before executing it.
+        return runNestedFlow(request)
+    }
 }
 
 let healthHolds = 0
@@ -754,19 +777,20 @@ async function ownerContext(record) {
     if (caller === null) {
         throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
     }
+    const anonymousOverlap = caller !== undefined && !hasNestedPrincipal(caller)
     const runtime = await contextFor(record, {
-        nestedFlowCaller: caller?.nestedFlowCaller,
+        nestedFlowCaller: anonymousOverlap ? { via: 'flow' } : caller?.nestedFlowCaller,
         nestedFlowDepth: caller?.nestedFlowDepth
     })
     const callerOptions = caller && typeof caller === 'object' ? caller : {}
     const flowOptions = { ...(runtime?.flowOptions || {}), ...callerOptions }
     // contextFor copies the harness file's team. A known caller replaces that before the comparison.
     if (caller !== undefined) flowOptions.workspaceId = callerOptions.workspaceId || undefined
-    // Ambiguous same-workspace overlap: keep the team check, refuse nested in-process calls (no credential fallback).
-    if (caller !== undefined && !hasNestedPrincipal(caller)) {
-        delete flowOptions.nestedFlowCaller
+    // An overlap never borrows a noted caller's runner or principal, or falls back to a card credential.
+    if (anonymousOverlap) {
+        flowOptions.nestedFlowCaller = { via: 'flow' }
         delete flowOptions.harnessCaller
-        flowOptions.runNestedFlow = async () => refuseAmbiguousNestedFlow(record.name)
+        flowOptions.runNestedFlow = anonymousNestedFlowRunner(record.name, flowOptions)
     }
     // A harness with no team is not in the caller's team. Both empty is an offline run with no team on either side.
     if ((flowOptions.workspaceId || '') !== (record.workspaceId || '')) {
