@@ -95,7 +95,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
--   Expanding a name-keyed Harness gateway caller stack from workspace-only to full principal identity must not refuse ordinary same-workspace multi-key overlap. Keep the shared workspace for the team check and omit conflicting identity fields; never borrow another run's nested caller. Cross-workspace overlap still fails closed.
+-   Bind a Harness gateway caller to the exact Harness/chat pair before crossing a runtime HTTP callback. A shared team name cannot select a principal, abort signal or execution callback. Parse runtime scope first, match queued jobs on both fields, and refuse an active chat collision before replacing its binding. Every bridge needs runtime turn identity, including specialists without analyst tools; model-supplied scope cannot choose another chat. Missing scope fails closed without a card credential.
 
 -   **Complete authorization before committing quota.** Route preparation alone cannot charge: downstream RBAC, canvas references and ownership checks can still refuse. Commit after those checks and before application work; do not infer refunds from response status. Cap every issued credential when principal expiry changes, in the same transaction, so a later principal extension cannot undo a prior cutoff.
 -   **Refresh downstream identity with admission authority.** Refreshing a key at admission must also refresh the permissions used by route RBAC; recheck additional route permissions before charging. Body parsing can separate preflight from admission by an arbitrary amount of time. A migration compatibility marker must not admit a previously session-only route in off/shadow.

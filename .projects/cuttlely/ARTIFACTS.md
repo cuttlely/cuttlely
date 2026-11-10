@@ -1,5 +1,7 @@
 ## Same-server flow and Harness nested calls
 
+-   `scripts/harness-per-run-auth.test.cjs` exercises actual gateway HTTP, Chatflow Tool and SQLite target grants, including signed-in Try it isolation, missing scope, queued caller selection, cross-workspace refusal and remote card credentials. It runs in the existing validation gate.
+-   `packages/harness/gateway-nested-flow.test.mjs` and `queue-nested-flow.test.mjs` exercise per-chat principal and callback isolation, active-chat collisions and exact queued-job selection. `scripts/hermes-analyst-scope.test.mjs` covers runtime scope replacement, including bridges without analyst tools.
 -   `packages/server/src/utils/nestedFlowCall.ts` is the shared in-process entry for flow and Harness targets. `packages/server/src/services/harnesses/index.ts` rebuilds its runner from the serialized parent caller and depth.
 -   Nested grant rules: `docs/how-to/access-keys.md#calls-between-flows-and-harnesses`, `docs/reference/access-keys.md` (Nested same-server calls), FAQ harness access bullet, Swagger `POST /prediction/{id}` description, `docs/how-to/canvas.md` and `docs/how-to/harnesses.md` cross-links.
 -   `packages/harness/{queue,node-pool,gateway,run}.mjs` carries that caller through direct and queued Harness execution, reconstructs process-local functions, and keeps concurrent gateway principals isolated.
