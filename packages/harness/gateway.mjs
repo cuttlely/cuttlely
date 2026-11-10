@@ -100,8 +100,15 @@ function notedCallerContext(name) {
             nestedFlowCaller: context.nestedFlowCaller,
             nestedFlowDepth: context.nestedFlowDepth
         })
-    if (contexts.some((context) => identity(context) !== identity(contexts[0]))) return null
-    return contexts[contexts.length - 1]
+    if (contexts.every((context) => identity(context) === identity(contexts[0]))) return contexts[contexts.length - 1]
+    // Concurrent principals must not borrow each other's grants. Same-workspace overlap keeps the team
+    // check only; cross-workspace overlap stays refused.
+    const workspaces = new Set(contexts.map((context) => context.workspaceId || ''))
+    if (workspaces.size === 1) {
+        const workspaceId = contexts[0].workspaceId
+        return typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}
+    }
+    return null
 }
 
 let healthHolds = 0
@@ -721,6 +728,9 @@ async function ownerContext(record) {
     if (caller === undefined) {
         const { callerFlowOptionsForJob } = await import('./queue.mjs')
         caller = callerFlowOptionsForJob(record.name)
+    }
+    if (caller === null) {
+        throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
     }
     const runtime = await contextFor(record, {
         nestedFlowCaller: caller?.nestedFlowCaller,

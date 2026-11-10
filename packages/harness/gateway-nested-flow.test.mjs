@@ -44,7 +44,7 @@ test('specialist gateway context retains the admitted caller and nested runner',
     }
 })
 
-test('overlapping runs with different principals fail closed instead of borrowing a caller', async () => {
+test('overlapping same-workspace principals keep the team and do not borrow a caller', async () => {
     const previous = setGatewayContext(async (record) => ({
         componentNodes: {},
         flowOptions: { workspaceId: record.workspaceId }
@@ -62,8 +62,38 @@ test('overlapping runs with different principals fail closed instead of borrowin
         nestedFlowDepth: 0
     })
     try {
+        const context = await pinnedCallContext({ name: 'team', workspaceId: 'workspace', chatflowId: 'flow-1' }, {})
+        assert.equal(context.flowOptions.workspaceId, 'workspace')
+        assert.equal(context.flowOptions.harnessCaller, undefined)
+        assert.equal(context.flowOptions.nestedFlowCaller, undefined)
+        assert.equal(context.flowOptions.runNestedFlow, undefined)
+    } finally {
+        clearCallerWorkspace('team', first)
+        clearCallerWorkspace('team', second)
+        setGatewayContext(previous)
+    }
+})
+
+test('overlapping runs from different workspaces still fail closed', async () => {
+    const previous = setGatewayContext(async (record) => ({
+        componentNodes: {},
+        flowOptions: { workspaceId: record.workspaceId }
+    }))
+    const first = noteCallerFlowOptions('team', {
+        workspaceId: 'workspace-a',
+        harnessCaller: { via: 'api_key', apiKeyId: 'key-1', harnesses: ['team'] },
+        nestedFlowCaller: { via: 'api_key', apiKeyId: 'key-1' },
+        nestedFlowDepth: 0
+    })
+    const second = noteCallerFlowOptions('team', {
+        workspaceId: 'workspace-b',
+        harnessCaller: { via: 'api_key', apiKeyId: 'key-2', harnesses: ['team'] },
+        nestedFlowCaller: { via: 'api_key', apiKeyId: 'key-2' },
+        nestedFlowDepth: 0
+    })
+    try {
         await assert.rejects(
-            pinnedCallContext({ name: 'team', workspaceId: 'workspace', chatflowId: 'flow-1' }, {}),
+            pinnedCallContext({ name: 'team', workspaceId: 'workspace-a', chatflowId: 'flow-1' }, {}),
             (error) => error?.code === 'wrong_workspace'
         )
     } finally {
