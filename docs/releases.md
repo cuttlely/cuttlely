@@ -2,6 +2,8 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
+Version **1.7.2** is a patch covering the chatflow tool-event default, publish and access-key dialog fixes, same-server flow-to-flow and external worker access checks, and the README setup-code clarification. It adds no schema migration. The four product manifests are prepared together; publication and availability are separate maintainer checks. Version **1.7.0** uses the security exception below. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default. The support row describes the 1.7.x release line. Tag, image and npm availability are checked separately by the release procedure below. The release tool dates the changelog when cutting the release.
+
 ## Versions
 
 Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MAJOR.MINOR.PATCH`.
@@ -156,5 +158,3 @@ It then builds the widget, runs `npm pack --dry-run` for both packages, and publ
 -   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
 
 The server itself is not an npm package. The image carries the Python agent runtime. `NPM_TOKEN` is an npm access token for the cuttlely org. It is not stored in this repository. Both packages set `publishConfig.access` to `public`. There is no publish workflow.
-
-Version **1.7.1** contains access-key setup and private-flow fixes without a new schema migration. The four product manifests are prepared together; publication and availability are separate maintainer checks. Version **1.7.0** uses the security exception above. It closes previously allowed browser service administration and changes fresh setup. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default. The support row describes the 1.7.x release line. Tag, image and npm availability are verified separately by the release procedure above. The release tool dates the changelog when cutting the release.
