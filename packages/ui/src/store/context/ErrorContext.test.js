@@ -66,4 +66,24 @@ describe('ErrorProvider page errors', () => {
         await act(async () => api.setError(null))
         expect(shown()).toBe('none')
     })
+
+    test('a canvas request that fails after you leave does not replace the next page error', async () => {
+        const handleOnCanvas = api.handleError
+        await act(async () => api.navigate('/chatflows'))
+        await act(async () => api.setError(new Error('List failed')))
+        expect(shown()).toBe('List failed')
+        const late = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
+        await act(async () => handleOnCanvas(late))
+        expect(shown()).toBe('List failed')
+    })
+
+    test('an old canvas error does not come back when you return to the canvas', async () => {
+        const handleOnCanvas = api.handleError
+        await act(async () => api.navigate('/chatflows'))
+        const late = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
+        await act(async () => handleOnCanvas(late))
+        await act(async () => api.navigate('/chatflows/other'))
+        await act(async () => api.navigate('/canvas/flow-1'))
+        expect(shown()).toBe('none')
+    })
 })

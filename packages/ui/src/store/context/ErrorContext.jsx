@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { redirectWhenUnauthorized } from '@/utils/genericHelper'
 import PropTypes from 'prop-types'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -9,19 +9,29 @@ import { ErrorMessage } from '../constant'
 const ErrorContext = createContext()
 
 export const ErrorProvider = ({ children }) => {
-    const [pageError, setPageError] = useState(null)
+    const [pageErrors, setPageErrors] = useState({})
     const [authRateLimitError, setAuthRateLimitError] = useState(null)
     const navigate = useNavigate()
     const { pathname } = useLocation()
 
-    // A page error belongs to the page whose request failed. A request from the canvas that fails
-    // after you leave it must not replace the next page with an error card.
-    // Clearing from another page leaves this page's error alone.
+    // Each page keeps its own error, under the path whose request failed. A request from the canvas
+    // that fails or succeeds after you leave it changes only the canvas entry, so the page you are on
+    // keeps its own error card or its own clear. Leaving a page drops the errors of every other page.
     const setError = useCallback(
-        (err) => setPageError((current) => (err ? { error: err, pathname } : current && current.pathname !== pathname ? current : null)),
+        (err) =>
+            setPageErrors((current) => {
+                if (err) return { ...current, [pathname]: err }
+                if (!(pathname in current)) return current
+                const next = { ...current }
+                delete next[pathname]
+                return next
+            }),
         [pathname]
     )
-    const error = pageError && pageError.pathname === pathname ? pageError.error : null
+    useEffect(() => {
+        setPageErrors((current) => (pathname in current ? { [pathname]: current[pathname] } : {}))
+    }, [pathname])
+    const error = pageErrors[pathname] ?? null
 
     const handleError = async (err) => {
         console.error(err)
