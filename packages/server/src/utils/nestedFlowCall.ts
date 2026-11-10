@@ -1,5 +1,6 @@
 import type { ICommonObject, INestedFlowRequest, RunNestedFlow } from '@cuttlely/components'
 import { v4 as uuidv4 } from 'uuid'
+import type { DataSource } from 'typeorm'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { AppError } from '../errors/appError'
 import { AccessKeyAuthenticationError } from '../services/accessKeys/errors'
@@ -34,11 +35,13 @@ export function nestedFlowCallerFromHarness(caller?: IHarnessCaller): INestedFlo
 export async function authorizeNestedFlowCaller(
     caller: INestedFlowCaller,
     parentWorkspaceId: string,
-    target: ChatFlow
+    target: ChatFlow,
+    dataSource?: DataSource
 ): Promise<IHarnessCaller> {
     if (target.workspaceId !== parentWorkspaceId) throw new AppError(403, 'A nested flow must belong to the parent workspace.')
     if (caller.via === 'session') return { via: 'session' }
-    if (caller.via === 'api_key') return authorizeNestedFlowKey(caller.apiKeyId, target)
+    if (caller.via === 'api_key')
+        return dataSource ? authorizeNestedFlowKey(caller.apiKeyId, target, dataSource) : authorizeNestedFlowKey(caller.apiKeyId, target)
     if (target.apiAccessMode === 'public' && !target.apikeyid) return { via: 'flow' }
     throw new AccessKeyAuthenticationError()
 }
@@ -49,7 +52,7 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
 
     const target = await runtime.appDataSource.getRepository(ChatFlow).findOneBy({ id: request.targetFlowId })
     if (!target) throw new AppError(404, `Chatflow ${request.targetFlowId} not found`)
-    const harnessCaller = await authorizeNestedFlowCaller(runtime.caller, runtime.parentWorkspaceId, target)
+    const harnessCaller = await authorizeNestedFlowCaller(runtime.caller, runtime.parentWorkspaceId, target, runtime.appDataSource)
     const chatId = request.chatId || uuidv4()
     const incomingInput = {
         question: request.question,

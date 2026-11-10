@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key calls to another flow from an external Harness worker no longer fail verification because the web server runs in a separate process. The worker rechecks the key and permissions against the application database.
+
 -   Same-server calls made with migrated legacy keys enforce the owner's current target permissions, matching HTTP prediction. Agentflow iterations preserve nesting depth so cycles through an iteration stop at the eight-level limit.
 
 -   Concurrent chats with the same agent team keep their own access permissions when calling another flow. A signed-in test chat cannot lend its permissions to an access-key run, and missing chat scope refuses the nested call without using a saved card credential.

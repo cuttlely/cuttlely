@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import workerNestedAuthorization from '../../scripts/fixtures/harness-worker-nested.cjs'
 import { bootHarnessNodePool } from './node-pool.mjs'
 
 test('a worker rebuilds the nested runner from queued caller fields', async () => {
@@ -48,3 +49,6 @@ test('a worker rebuilds the nested runner from queued caller fields', async () =
     assert.equal(captured[0].parentWorkspaceId, 'workspace')
     assert.equal(captured[0].subscriptionId, 'sub-1')
 })
+
+test('external worker reauthorizes a pinned private target using its own database without Express', (t) =>
+    workerNestedAuthorization(t, bootHarnessNodePool))

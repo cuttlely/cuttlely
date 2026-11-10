@@ -216,12 +216,12 @@ export async function authorizeKey(
     }
 }
 
-async function nestedKeyFor(apiKeyId: string): Promise<{ key: ApiKey; ownerPermissions?: string[] }> {
+async function nestedKeyFor(apiKeyId: string, dataSource?: DataSource): Promise<{ key: ApiKey; ownerPermissions?: string[] }> {
     const { default: service } = await import('../apikey')
-    let key = await service.getApiKeyById(apiKeyId)
+    let key = await service.getApiKeyById(apiKeyId, dataSource)
     if (!key || !principalActive(key)) throw new AccessKeyAuthenticationError()
 
-    const data = await accessData()
+    const data = await accessData(dataSource)
     const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
     if (!workspace || !(await data.getRepository(Organization).findOneBy({ id: workspace.organizationId })))
         throw new AccessKeyAuthenticationError()
@@ -229,7 +229,7 @@ async function nestedKeyFor(apiKeyId: string): Promise<{ key: ApiKey; ownerPermi
     if (key.ownerUserId) {
         const owner = await data.getRepository(User).findOneBy({ id: key.ownerUserId })
         if (!owner || typeof owner.status !== 'string' || owner.status.toLowerCase() !== 'active') throw new AccessKeyAuthenticationError()
-        const access = await resolveTeamAccess(owner.id, key.workspaceId)
+        const access = await resolveTeamAccess(owner.id, key.workspaceId, dataSource)
         if (!access.owner) {
             if (!access.permissions) throw new AccessKeyAuthenticationError()
             ownerPermissions = access.permissions
@@ -244,13 +244,14 @@ async function requireNestedCapability(
     key: ApiKey,
     ownerPermissions: string[] | undefined,
     operation: Operation,
-    resource: ResourceGrant
+    resource: ResourceGrant,
+    dataSource?: DataSource
 ): Promise<void> {
     const policy = key.accessPolicy
     if (!policy) throw new AccessKeyPolicyError('Access policy unavailable. Run database migrations.')
     requireOwnerCapability(policy, ownerPermissions, operation, resource)
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError(`This key is missing the ${operation} API operation.`)
-    if (!(await hasGrant(await accessData(), key, resource)))
+    if (!(await hasGrant(await accessData(dataSource), key, resource)))
         throw new AccessKeyPolicyError(`This key is missing a ${resource.resourceType} resource grant for this operation.`)
     const permissions = operationPermissions(operation, resource)
     if (!policy.legacy && !permissions.some((permission) => key.permissions.includes(permission)))
@@ -258,17 +259,17 @@ async function requireNestedCapability(
 }
 
 /**
- * Re-check a serialized access-key identity for an in-process flow call. This deliberately does not accept a bearer,
+ * Re-check a serialized access-key identity for a same-server nested flow call. This deliberately does not accept a bearer,
  * apply caller-network restrictions again, or consume another HTTP admission quota.
  */
-export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): Promise<IHarnessCaller> {
+export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow, dataSource?: DataSource): Promise<IHarnessCaller> {
     try {
-        const { key, ownerPermissions } = await nestedKeyFor(apiKeyId)
+        const { key, ownerPermissions } = await nestedKeyFor(apiKeyId, dataSource)
         if (key.workspaceId !== flow.workspaceId) throw new AccessKeyAuthenticationError()
 
         if (accessRollout() !== 'on') {
             if (!((flow.apiAccessMode === 'public' && !flow.apikeyid) || flow.apikeyid === key.id)) throw new AccessKeyAuthenticationError()
-            const harnesses = await keyHarnessNames(key)
+            const harnesses = await keyHarnessNames(key, true, dataSource)
             return { via: 'api_key', apiKeyId: key.id, harnesses }
         }
 
@@ -276,11 +277,11 @@ export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): 
         if (
             key.accessPolicy?.legacy &&
             flow.apikeyid &&
-            (flow.apikeyid !== key.id || !(await hasGrant(await accessData(), key, flowResource(flow))))
+            (flow.apikeyid !== key.id || !(await hasGrant(await accessData(dataSource), key, flowResource(flow))))
         )
             throw new AccessKeyAuthenticationError()
 
-        await requireNestedCapability(key, ownerPermissions, 'predict', flowResource(flow))
+        await requireNestedCapability(key, ownerPermissions, 'predict', flowResource(flow), dataSource)
         const requiredHarnesses: ChatFlow[] = []
         if (flow.type === 'HARNESS') requiredHarnesses.push(flow)
         if (typeof flow.flowData === 'string') {
@@ -291,21 +292,21 @@ export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): 
             }
             const { referencedHarnessNames } = await import('../harnesses/apiAccess')
             for (const name of referencedHarnessNames(flow.flowData)) {
-                const harness = await resolveHarnessFlow(name, flow.workspaceId)
+                const harness = await resolveHarnessFlow(name, flow.workspaceId, dataSource)
                 if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
                 requiredHarnesses.push(harness)
             }
         }
         for (const harness of requiredHarnesses) {
             try {
-                await requireNestedCapability(key, ownerPermissions, 'harness:run', flowResource(harness))
+                await requireNestedCapability(key, ownerPermissions, 'harness:run', flowResource(harness), dataSource)
             } catch (error) {
                 if (error instanceof AccessKeyPolicyError && harness.id !== flow.id)
                     error.message = `This flow also needs the ${harness.name} Harness. ${error.message}`
                 throw error
             }
         }
-        const harnessIds = requiredHarnesses.length ? await keyHarnessIds(key) : {}
+        const harnessIds = requiredHarnesses.length ? await keyHarnessIds(key, true, dataSource) : {}
         for (const harness of requiredHarnesses) harnessIds[harness.name] = harness.id
         return { via: 'api_key', apiKeyId: key.id, harnesses: Object.keys(harnessIds), harnessIds }
     } catch (error) {
