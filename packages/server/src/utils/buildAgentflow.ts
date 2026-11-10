@@ -1835,6 +1835,25 @@ const runAgentFlow = async ({
 }: IExecuteAgentFlowParams) => {
     const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
     sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
+    // When tool/status events are hidden, some terminal paths (e.g. Iteration + Direct Reply)
+    // only used to surface the answer via agentFlowExecutedData. Track live answer tokens so
+    // we can emit the aggregated text once at the end without duplicating an already-streamed answer.
+    let answerTokensStreamed = false
+    if (sseStreamer) {
+        const answerStream = sseStreamer
+        sseStreamer = new Proxy(answerStream, {
+            get(target, property) {
+                if (property === 'streamTokenEvent') {
+                    return (id: string, token: string) => {
+                        if (token) answerTokensStreamed = true
+                        return target.streamTokenEvent(id, token)
+                    }
+                }
+                const value = Reflect.get(target, property)
+                return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+            }
+        }) as typeof answerStream
+    }
     logger.debug('\n🚀 Starting flow execution')
 
     const question = incomingInput.question
@@ -2752,6 +2771,11 @@ const runAgentFlow = async ({
         },
         orgId
     )
+
+    // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens once.
+    if (!showToolEvents && !answerTokensStreamed && typeof content === 'string' && content.trim()) {
+        sseStreamer?.streamTokenEvent(chatId, content)
+    }
 
     /*** Prepare response ***/
     let result: ICommonObject = {}

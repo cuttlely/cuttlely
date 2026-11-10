@@ -126,9 +126,21 @@ function recordingDataSource(previousExecutions: any[] = []) {
 
 const streamer = () => {
     const events: string[] = []
+    const tokens: string[] = []
     return {
         events,
-        sseStreamer: new Proxy({}, { get: (_t, name: string) => () => events.push(name) })
+        tokens,
+        sseStreamer: new Proxy(
+            {},
+            {
+                get:
+                    (_t, name: string) =>
+                    (...args: unknown[]) => {
+                        events.push(name)
+                        if (name === 'streamTokenEvent' && typeof args[1] === 'string') tokens.push(args[1])
+                    }
+            }
+        )
     }
 }
 
@@ -155,7 +167,7 @@ async function run(opts: {
     previousExecutions?: any[]
 }) {
     const { calls, saved, appDataSource } = recordingDataSource(opts.previousExecutions)
-    const { events, sseStreamer } = streamer()
+    const { events, tokens, sseStreamer } = streamer()
     const telemetry = { sendTelemetry: jest.fn() }
     const result = await executeAgentFlow({
         componentNodes: opts.nodes || componentNodes,
@@ -187,7 +199,7 @@ async function run(opts: {
         productId: 'prod-1',
         replay: opts.replay
     } as any)
-    return { result, calls, events, telemetry, saved }
+    return { result, calls, events, tokens, telemetry, saved }
 }
 
 describe('executeAgentFlow with replay on (publish check)', () => {
@@ -214,6 +226,34 @@ describe('executeAgentFlow with replay on (publish check)', () => {
             }
         }
     )
+
+    it('streams the aggregated iteration answer when Show tool events is Off', async () => {
+        const { result, events, tokens } = await run({ replay: false, showToolEvents: false, flowData: iterationCanvas() })
+        expect(result.text).toContain('Fresh bread at 7 for:')
+        expect(events).toContain('streamStartEvent')
+        expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
+        expect(tokens.join('')).toBe(result.text)
+    })
+
+    it('does not duplicate an already-streamed last-node answer when Show tool events is Off', async () => {
+        // Stub last node streams its own token; the end-of-run path must not append again.
+        const streamingNodes = {
+            ...componentNodes,
+            llmAgentflow: (() => {
+                const file = path.join(dir, 'llm-stream.js')
+                fs.writeFileSync(
+                    file,
+                    step(
+                        `if (options.isLastNode && options.sseStreamer) options.sseStreamer.streamTokenEvent(options.chatId, 'Fresh bread at 7 for: ' + input)
+                        return { id: nodeData.id, name: 'llmAgentflow', input: {}, output: { content: 'Fresh bread at 7 for: ' + input, usageMetadata: { input_tokens: 12, output_tokens: 9, total_tokens: 21 } } }`
+                    )
+                )
+                return { filePath: file }
+            })()
+        }
+        const { result, tokens } = await run({ replay: false, showToolEvents: false, nodes: streamingNodes })
+        expect(tokens).toEqual([result.text])
+    })
 
     it('runs the steps and returns the answer and the steps, with their tokens', async () => {
         const { result } = await run({ replay: true })

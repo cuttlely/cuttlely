@@ -86,8 +86,9 @@ const ShowToolEvents = ({ dialogProps, onConfirm }) => {
         <Stack direction='column' spacing={2} sx={{ width: '100%' }}>
             <SwitchInput label='Show tool events' onChange={handleChange} value={showToolEvents} />
             <Typography variant='body2' color='text.secondary'>
-                When on, chat shows live tool and step status while the flow works. When off, only the answer streams. A Harness run card
-                still appears if this flow calls a Harness.
+                When on, chat shows live tool and step status while the flow works. When off, live tool and step status are hidden. Answers,
+                sources and attachments still appear. A Harness run card still appears on a Harness canvas, and when this flow calls a
+                Harness.
             </Typography>
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', width: '100%', mt: 2 }}>
                 <StyledButton variant='contained' onClick={onSave} sx={{ minWidth: 100 }}>

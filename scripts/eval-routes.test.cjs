@@ -35,7 +35,7 @@ const appHandle = {
     AppDataSource: null
 }
 
-const streamingHelpers = serverRequire('../components/dist/src/streaming.js')
+const streamingHelpers = serverRequire('../components/src/streaming.ts')
 const componentsStub = {
     EvaluationRunner: class EvaluationRunner {
         async runEvaluations() {
