@@ -10,6 +10,8 @@
 -   `packages/server/src/utils/buildAgentflow.nested-iteration.test.ts` runs iteration subflows through the real agentflow engine: a parent at depth four keeps its caller and callback, and a cycle through an iteration advances to the eight-level refusal. Removing nested-runner propagation makes both regressions fail.
 -   `packages/server/src/services/accessKeys/authorization.test.ts` compares HTTP and nested target admission for a migrated legacy key after its Agentflow parent is admitted. Both paths refuse a Private Chatflow until the active owner has its view permission, while nested calls add no HTTP quota charge.
 
+-   `scripts/fixtures/harness-worker-nested.cjs`, run from `packages/harness/node-pool-nested-flow.test.mjs`, exercises an external Harness worker path with no Express application singleton: a granted access key runs a pinned Private Chatflow Tool target, a missing grant returns 403, and a missing or revoked key is refused as authentication rather than a 503 verification outage. Additional controls cover owner permissions, scopes, workspace boundaries and replacement bindings. The fixture uses a disposable SQLite database and the worker's injected connection.
+
 ## Flow tool-event display
 
 -   `packages/components/src/streaming.ts`: shared flow-type default resolution and an execution-scoped SSE proxy. `streaming.test.ts` covers boolean overrides, blocked typed/custom events, Harness passthrough and shared-streamer isolation.
