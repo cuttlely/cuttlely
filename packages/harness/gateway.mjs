@@ -33,6 +33,9 @@ import { removeContainedTree } from './profile.mjs'
 import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
+import { sessionKey } from './session.mjs'
+import { serializableCaller, serializableNestedFlowCaller } from './caller.mjs'
+import { callerFlowOptionsForJob } from './queue.mjs'
 import { getHarness } from './store.mjs'
 import { trustedOutputReceipt } from './trusted-output.mjs'
 
@@ -55,38 +58,41 @@ export function setGatewayContext(next) {
 
 function callerContext(flowOptions) {
     if (!flowOptions || typeof flowOptions !== 'object') return null
-    return {
+    const harnessCaller = serializableCaller(flowOptions.harnessCaller)
+    const nestedFlowCaller = serializableNestedFlowCaller(flowOptions.nestedFlowCaller || flowOptions.harnessCaller)
+    if (harnessCaller?.harnesses) Object.freeze(harnessCaller.harnesses)
+    if (harnessCaller?.harnessIds) Object.freeze(harnessCaller.harnessIds)
+    return Object.freeze({
         workspaceId: typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : undefined,
-        harnessCaller: flowOptions.harnessCaller,
-        nestedFlowCaller: flowOptions.nestedFlowCaller,
-        nestedFlowDepth: flowOptions.nestedFlowDepth,
-        runNestedFlow: flowOptions.runNestedFlow
-    }
+        harnessCaller: harnessCaller ? Object.freeze(harnessCaller) : undefined,
+        nestedFlowCaller: nestedFlowCaller ? Object.freeze(nestedFlowCaller) : undefined,
+        nestedFlowDepth:
+            Number.isInteger(flowOptions.nestedFlowDepth) && flowOptions.nestedFlowDepth >= 0 ? flowOptions.nestedFlowDepth : 0,
+        ...(typeof flowOptions.runNestedFlow === 'function' ? { runNestedFlow: flowOptions.runNestedFlow } : {})
+    })
 }
 
-// The run that is in this process. The gateway otherwise only sees the harness file.
-export function noteCallerFlowOptions(name, flowOptions) {
+// The gateway callback must use this chat's caller and closures, even while other chats run the same team.
+export function noteCallerFlowOptions(name, flowOptions, chatId) {
+    const key = sessionKey(name, chatId)
     const context = callerContext(flowOptions)
-    if (!name || !context) return
-    const stack = callerContexts.get(name) || []
-    const token = Symbol(name)
-    stack.push({ token, context })
-    callerContexts.set(name, stack)
+    if (!context) throw new HarnessError('caller_required', 'Harness cannot run without a caller context.')
+    // chatId is client supplied. An active binding is never replaced, even by an identical caller's second turn.
+    const job = callerFlowOptionsForJob(name, chatId)
+    if (callerContexts.has(key) || job === null || (job && principalIdentity(context) !== principalIdentity(callerContext(job)))) {
+        throw new HarnessError('caller_collision', `Harness "${name}" already has an active run for this chat id. Use a different chat id.`)
+    }
+    const token = Object.freeze({ key, context })
+    callerContexts.set(key, context)
     return token
 }
 
-export function noteCallerWorkspace(name, workspaceId) {
-    noteCallerFlowOptions(name, { workspaceId })
+export function noteCallerWorkspace(name, workspaceId, chatId) {
+    return noteCallerFlowOptions(name, { workspaceId }, chatId)
 }
 
 export function clearCallerWorkspace(name, token) {
-    const stack = callerContexts.get(name)
-    if (!stack) return
-    if (token) {
-        const index = stack.findIndex((entry) => entry.token === token)
-        if (index >= 0) stack.splice(index, 1)
-    } else stack.pop()
-    if (!stack.length) callerContexts.delete(name)
+    if (token?.key?.startsWith(`${name}:`) && callerContexts.get(token.key) === token.context) callerContexts.delete(token.key)
 }
 
 function principalIdentity(context) {
@@ -99,36 +105,8 @@ function principalIdentity(context) {
     })
 }
 
-function hasNestedPrincipal(context) {
-    return Boolean(context && (context.nestedFlowCaller || context.harnessCaller))
-}
-
-function workspaceOnlyCaller(context) {
-    const workspaceId = context?.workspaceId
-    return typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}
-}
-
-/** Merge noted/job callers. null = refuse; workspace-only = team check without nested grants. */
-export function reconcileCallerContexts(contexts) {
-    if (!contexts.length) return undefined
-    if (contexts.some((context) => context === null)) return null
-    if (contexts.every((context) => principalIdentity(context) === principalIdentity(contexts[0]))) return contexts[contexts.length - 1]
-    const workspaces = new Set(contexts.map((context) => context.workspaceId || ''))
-    if (workspaces.size !== 1) return null
-    return workspaceOnlyCaller(contexts[0])
-}
-
-function notedCallerContext(name) {
-    const stack = callerContexts.get(name)
-    if (!stack?.length) return undefined
-    return reconcileCallerContexts(stack.map((entry) => entry.context))
-}
-
-function refuseAmbiguousNestedFlow(name) {
-    throw new HarnessError(
-        'ambiguous_caller',
-        `Harness "${name}" is already running for another caller. Wait for that run to finish before calling another flow from it.`
-    )
+function refuseUnboundNestedFlow() {
+    throw new HarnessError('caller_required', 'Calling another flow needs the active Harness chat scope.')
 }
 
 let healthHolds = 0
@@ -740,19 +718,18 @@ function modelBinding(record, specialistName) {
     throw new HarnessError('stale_record', `Harness "${record.name}" was saved by an older Cuttlely. Open its canvas and save it again.`)
 }
 
-async function ownerContext(record) {
+async function ownerContext(record, chatId) {
     if (typeof contextFor !== 'function') {
         throw new HarnessError('no_flow_context', 'Harness tools need the Cuttlely server context; run them through a chat flow.')
     }
-    const local = notedCallerContext(record.name)
-    const { callerFlowOptionsForJob } = await import('./queue.mjs')
-    const job = callerFlowOptionsForJob(record.name)
-    const parts = []
-    if (local !== undefined) parts.push(local)
-    if (job !== undefined) parts.push(job)
-    const caller = reconcileCallerContexts(parts)
-    if (caller === null) {
-        throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
+    let caller
+    if (chatId) {
+        const local = callerContexts.get(sessionKey(record.name, chatId))
+        const job = callerFlowOptionsForJob(record.name, chatId)
+        if (job === null || (local && job && principalIdentity(local) !== principalIdentity(callerContext(job)))) {
+            throw new HarnessError('caller_collision', `Harness "${record.name}" has conflicting callers for this chat id.`)
+        }
+        caller = local || (job ? callerContext(job) : undefined)
     }
     const runtime = await contextFor(record, {
         nestedFlowCaller: caller?.nestedFlowCaller,
@@ -762,11 +739,16 @@ async function ownerContext(record) {
     const flowOptions = { ...(runtime?.flowOptions || {}), ...callerOptions }
     // contextFor copies the harness file's team. A known caller replaces that before the comparison.
     if (caller !== undefined) flowOptions.workspaceId = callerOptions.workspaceId || undefined
-    // Ambiguous same-workspace overlap: keep the team check, refuse nested in-process calls (no credential fallback).
-    if (caller !== undefined && !hasNestedPrincipal(caller)) {
+    if (!caller?.nestedFlowCaller) {
         delete flowOptions.nestedFlowCaller
         delete flowOptions.harnessCaller
-        flowOptions.runNestedFlow = async () => refuseAmbiguousNestedFlow(record.name)
+        delete flowOptions.nestedFlowDepth
+        // Discovery and completions have no chat identity. Tool execution without a binding must refuse nested calls.
+        if (chatId !== undefined) flowOptions.runNestedFlow = async () => refuseUnboundNestedFlow()
+        else delete flowOptions.runNestedFlow
+    }
+    if (chatId !== undefined && typeof flowOptions.runNestedFlow !== 'function') {
+        flowOptions.runNestedFlow = async () => refuseUnboundNestedFlow()
     }
     // A harness with no team is not in the caller's team. Both empty is an offline run with no team on either side.
     if ((flowOptions.workspaceId || '') !== (record.workspaceId || '')) {
@@ -1094,14 +1076,14 @@ async function callTool(req, res, meta) {
         return
     }
     const record = requireHarness(meta)
-    const ctx = await ownerContext(record)
-    assertStillValid(meta)
     // The page cursor and the analyst session use the saved harness name. meta.harnessName is the try profile.
     const scope = callScope(body.scope, record.name)
+    const chatId = scope.startsWith(`${record.name}:`) ? scope.slice(record.name.length + 1) : ''
+    const ctx = await ownerContext(record, chatId)
+    assertStillValid(meta)
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId
-    const chatId = scope.startsWith(`${record.name}:`) ? scope.slice(record.name.length + 1) : ''
     // A call can come before any tool list in this process, after a restart for example.
     if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
         await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
@@ -1236,9 +1218,9 @@ export async function offeredPinnedTools(record, specialistName, moduleOptions, 
 }
 
 // The node context a model-issued tool call runs with. Without the server context (offline tests), the run's own.
-export async function pinnedCallContext(record, fallback) {
+export async function pinnedCallContext(record, fallback, chatId = '') {
     if (typeof contextFor !== 'function') return fallback
-    const ctx = await ownerContext(record)
+    const ctx = await ownerContext(record, chatId)
     return { componentNodes: ctx.componentNodes, loadNode: ctx.loadNode, flowOptions: ctx.flowOptions, nodeCache: ctx.nodeCache }
 }
 

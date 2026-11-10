@@ -285,20 +285,21 @@ async function jobRuntime(job, local) {
     return { loadNode: offline, flowOptions: callerFlowOptions(job.payload) }
 }
 
-// A running external job is the caller's team for the gateway, which otherwise only sees the harness file.
-export function callerWorkspaceForJob(name) {
-    const flowOptions = callerFlowOptionsForJob(name)
+// External workers expose only the job for this exact chat, never another chat on the same team.
+export function callerWorkspaceForJob(name, chatId) {
+    const flowOptions = callerFlowOptionsForJob(name, chatId)
     return flowOptions === null ? null : flowOptions?.workspaceId
 }
 
-export function callerFlowOptionsForJob(name) {
+export function callerFlowOptionsForJob(name, chatId) {
+    if (!name || !chatId) return undefined
     let rows = []
     try {
-        rows = database().prepare(`SELECT payload FROM jobs WHERE status = 'running'`).all()
+        rows = database().prepare(`SELECT payload FROM jobs WHERE status = 'running' AND session_key = ?`).all(sessionKey(name, chatId))
     } catch {
         return undefined
     }
-    const callers = []
+    let caller
     for (const row of rows) {
         let payload
         try {
@@ -306,35 +307,12 @@ export function callerFlowOptionsForJob(name) {
         } catch {
             continue
         }
-        if (payload?.name !== name) continue
-        callers.push(callerFlowOptions(payload))
+        if (payload?.name !== name || payload?.chatId !== chatId) continue
+        // Admission serializes a chat. Conflicting rows cannot choose a principal for a tool call.
+        if (caller !== undefined) return null
+        caller = callerFlowOptions(payload)
     }
-    if (!callers.length) return undefined
-    // Same-workspace principal overlap keeps the team only; cross-workspace stays refused (null).
-    const workspaces = new Set(callers.map((caller) => caller.workspaceId || ''))
-    if (
-        callers.every(
-            (caller) =>
-                JSON.stringify({
-                    workspaceId: caller.workspaceId,
-                    harnessCaller: caller.harnessCaller,
-                    nestedFlowCaller: caller.nestedFlowCaller,
-                    nestedFlowDepth: caller.nestedFlowDepth
-                }) ===
-                JSON.stringify({
-                    workspaceId: callers[0].workspaceId,
-                    harnessCaller: callers[0].harnessCaller,
-                    nestedFlowCaller: callers[0].nestedFlowCaller,
-                    nestedFlowDepth: callers[0].nestedFlowDepth
-                })
-        )
-    )
-        return callers[callers.length - 1]
-    if (workspaces.size === 1) {
-        const workspaceId = callers[0].workspaceId
-        return typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}
-    }
-    return null
+    return caller
 }
 
 function savedRunId(row) {
