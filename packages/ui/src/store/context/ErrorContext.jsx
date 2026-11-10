@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { redirectWhenUnauthorized } from '@/utils/genericHelper'
 import PropTypes from 'prop-types'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -9,29 +9,25 @@ import { ErrorMessage } from '../constant'
 const ErrorContext = createContext()
 
 export const ErrorProvider = ({ children }) => {
-    const [pageErrors, setPageErrors] = useState({})
+    const [pageError, setPageError] = useState(null)
     const [authRateLimitError, setAuthRateLimitError] = useState(null)
     const navigate = useNavigate()
-    const { pathname } = useLocation()
+    const location = useLocation()
+    const currentVisit = useRef(location)
+    currentVisit.current = location
 
-    // Each page keeps its own error, under the path whose request failed. A request from the canvas
-    // that fails or succeeds after you leave it changes only the canvas entry, so the page you are on
-    // keeps its own error card or its own clear. Leaving a page drops the errors of every other page.
+    // The page error belongs to one route visit: the router location of the page whose request
+    // failed. A callback captured on an earlier visit (for example a canvas request that fails or
+    // succeeds after you left) is ignored, so it cannot replace, clear or later bring back an error,
+    // even when you return to the same path.
     const setError = useCallback(
-        (err) =>
-            setPageErrors((current) => {
-                if (err) return { ...current, [pathname]: err }
-                if (!(pathname in current)) return current
-                const next = { ...current }
-                delete next[pathname]
-                return next
-            }),
-        [pathname]
+        (err) => {
+            if (currentVisit.current !== location) return
+            setPageError(err ? { error: err, visit: location } : null)
+        },
+        [location]
     )
-    useEffect(() => {
-        setPageErrors((current) => (pathname in current ? { [pathname]: current[pathname] } : {}))
-    }, [pathname])
-    const error = pageErrors[pathname] ?? null
+    const error = pageError && pageError.visit === location ? pageError.error : null
 
     const handleError = async (err) => {
         console.error(err)

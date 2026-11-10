@@ -688,12 +688,7 @@ const Canvas = () => {
         })
     }
 
-    const apiErrorText = (error) => {
-        const data = error?.response?.data
-        if (data && typeof data === 'object' && data.message) return data.message
-        if (typeof data === 'string' && data) return data
-        return error?.message || 'Save failed'
-    }
+    const apiErrorText = (error) => (error ? requestFailureMessage(error) : 'Save failed')
 
     const errorFailed = (message) => {
         enqueueSnackbar({
