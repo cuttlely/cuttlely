@@ -1,5 +1,6 @@
 import { findCredential, principalActive } from '../accessKeys/credentials'
 import { StatusCodes } from 'http-status-codes'
+import type { DataSource } from 'typeorm'
 import { ApiKey } from '../../database/entities/ApiKey'
 import { User } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
@@ -211,10 +212,10 @@ function legacyActive(key: ApiKey): boolean {
     return principalActive(key) && (!key.legacyRevokedAt || new Date(key.legacyRevokedAt).getTime() > Date.now())
 }
 
-async function apiKeyOwnerActive(row: ApiKey): Promise<boolean> {
+async function apiKeyOwnerActive(row: ApiKey, dataSource?: DataSource): Promise<boolean> {
     if (!row.ownerUserId) return true
-    const appServer = getRunningExpressApp()
-    const user = await appServer.AppDataSource.getRepository(User).findOneBy({ id: row.ownerUserId })
+    const data = dataSource ?? getRunningExpressApp().AppDataSource
+    const user = await data.getRepository(User).findOneBy({ id: row.ownerUserId })
     return Boolean(user && typeof user.status === 'string' && user.status.toLowerCase() === 'active')
 }
 
@@ -227,16 +228,16 @@ const getApiKey = async (apiKey: string) => {
     }
 }
 
-const getApiKeyById = async (apiKeyId: string) => {
+const getApiKeyById = async (apiKeyId: string, dataSource?: DataSource) => {
     try {
-        const appServer = getRunningExpressApp()
-        const currentKey = await appServer.AppDataSource.getRepository(ApiKey).findOneBy({
+        const data = dataSource ?? getRunningExpressApp().AppDataSource
+        const currentKey = await data.getRepository(ApiKey).findOneBy({
             id: apiKeyId
         })
         if (!currentKey) {
             return undefined
         }
-        return principalActive(currentKey) && (await apiKeyOwnerActive(currentKey)) ? currentKey : undefined
+        return principalActive(currentKey) && (await apiKeyOwnerActive(currentKey, data)) ? currentKey : undefined
     } catch (error) {
         if (error instanceof AppError && error.statusCode < 500) throw error
         throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, 'Access key verification is unavailable.')

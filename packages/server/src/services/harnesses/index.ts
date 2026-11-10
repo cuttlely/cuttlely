@@ -4,7 +4,7 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
 import { DataSource } from 'typeorm'
-import { User, Workspace } from '../../database/entities/identity'
+import { Organization, User, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceId } from '../../identity/workspaceScope'
@@ -20,8 +20,11 @@ import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 import { safeHarnessName } from './apiAccess'
 import { harnessCanvasDelete } from './canvasDelete'
-import type { IHarnessCaller } from '../../Interface'
+import type { IHarnessCaller, INestedFlowCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
+import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/nestedFlowCall'
+import type { NestedFlowExecutionRuntime } from '../../utils/nestedFlowCall'
+import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
@@ -62,9 +65,9 @@ function nameClash(name: string) {
 
 // The install's default team for a harness saved before harnesses stored one. Same rule as a pipeline:
 // CUTTLELY_ETL_DEFAULT_WORKSPACE_ID when it names a workspace, otherwise the only workspace.
-async function defaultWorkspaceId(): Promise<string | null> {
+async function defaultWorkspaceId(dataSource?: DataSource): Promise<string | null> {
     try {
-        const repo = getRunningExpressApp().AppDataSource.getRepository(Workspace)
+        const repo = (dataSource ?? getRunningExpressApp().AppDataSource).getRepository(Workspace)
         const configured = (process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID || '').trim()
         if (configured) {
             if (await repo.findOneBy({ id: configured })) return configured
@@ -97,21 +100,24 @@ export function canvasTeamQuery(dataSource: DataSource, chatflowId: string) {
 
 // A stored team wins. A file with none takes its canvas's team, else the install default. A canvas lookup
 // that throws leaves the file with no team: the default is not a substitute for a failed read.
-async function ownerOf(record: { workspaceId?: string | null; chatflowId?: string | null }): Promise<string | null> {
+async function ownerOf(
+    record: { workspaceId?: string | null; chatflowId?: string | null },
+    dataSource?: DataSource
+): Promise<string | null> {
     if (typeof record?.workspaceId === 'string' && record.workspaceId) return record.workspaceId
     const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
     if (UUID.test(chatflowId)) {
-        const found = await canvasWorkspace(chatflowId)
+        const found = await canvasWorkspace(chatflowId, dataSource)
         if (found.failed) return null
         if (found.workspaceId) return found.workspaceId
     }
-    return defaultWorkspaceId()
+    return defaultWorkspaceId(dataSource)
 }
 
-async function canvasWorkspace(chatflowId: string): Promise<{ failed: boolean; workspaceId: string | null }> {
+async function canvasWorkspace(chatflowId: string, dataSource?: DataSource): Promise<{ failed: boolean; workspaceId: string | null }> {
     if (!UUID.test(chatflowId)) return { failed: false, workspaceId: null }
     try {
-        const row = await canvasTeamQuery(getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
+        const row = await canvasTeamQuery(dataSource ?? getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
         const id = row?.workspaceId ?? row?.workspaceid
         return { failed: false, workspaceId: typeof id === 'string' && id ? id : null }
     } catch (error) {
@@ -164,9 +170,9 @@ const listHarnesses = async (workspaceId?: string | null, opts: { includeIncompl
     return visible
 }
 
-const getHarness = async (name: string, workspaceId?: string | null) => {
-    const harness = await requireHarness(name, workspaceId)
-    return (await isOrphan(harness)) ? { ...harness, orphaned: true } : harness
+const getHarness = async (name: string, workspaceId?: string | null, dataSource?: DataSource) => {
+    const harness = await requireHarness(name, workspaceId, dataSource)
+    return (await isOrphan(harness, dataSource)) ? { ...harness, orphaned: true } : harness
 }
 
 const setHarnessCategory = async (name: string, category: unknown, workspaceId?: string | null) => {
@@ -339,22 +345,100 @@ export async function backfillHarnessWorkspaces() {
     return { harnesses: rows.length, fromFlow, fromDefault, unassigned }
 }
 
-export async function contextFor(record: { chatflowId?: string; workspaceId?: string | null } | null) {
+type HarnessNestedFlowContext = {
+    nestedFlowCaller?: INestedFlowCaller
+    nestedFlowDepth?: number
+    signal?: AbortSignal
+}
+
+// A nested canvas in an external worker uses its existing runtime, with the target
+// canvas as the parent of any later nested calls. It does not configure the server runtime.
+function contextFromRuntime(
+    record: { chatflowId?: unknown; workspaceId?: unknown },
+    runtime: NestedFlowExecutionRuntime,
+    nested: HarnessNestedFlowContext
+) {
+    const chatflowId = typeof record.chatflowId === 'string' ? record.chatflowId : undefined
+    const workspaceId = typeof record.workspaceId === 'string' ? record.workspaceId : undefined
+    const flowOptions: Record<string, unknown> = {
+        appDataSource: runtime.appDataSource,
+        databaseEntities,
+        logger,
+        componentNodes: runtime.componentNodes,
+        chatflowid: chatflowId,
+        workspaceId,
+        orgId: runtime.orgId,
+        baseURL: runtime.baseURL,
+        cachePool: runtime.cachePool,
+        telemetry: runtime.telemetry,
+        usageCacheManager: runtime.usageCacheManager,
+        sseStreamer: runtime.sseStreamer,
+        subscriptionId: runtime.subscriptionId,
+        productId: runtime.productId
+    }
+    if (chatflowId && workspaceId && nested.nestedFlowCaller) {
+        Object.assign(
+            flowOptions,
+            nestedFlowNodeOptions({
+                ...runtime,
+                parentFlowId: chatflowId,
+                parentWorkspaceId: workspaceId,
+                caller: nested.nestedFlowCaller,
+                depth: nested.nestedFlowDepth ?? 0,
+                signal: nested.signal ? ({ signal: nested.signal } as AbortController) : runtime.signal
+            })
+        )
+    }
+    return { componentNodes: runtime.componentNodes, flowOptions }
+}
+
+export async function contextFor(
+    record: { chatflowId?: string; workspaceId?: string | null } | null,
+    nested: HarnessNestedFlowContext = {}
+) {
     const appServer = getRunningExpressApp()
     const componentNodes = appServer.nodesPool.componentNodes
+    const orgId = await orgIdForWorkspace(record?.workspaceId)
+    const flowOptions: Record<string, unknown> = {
+        appDataSource: appServer.AppDataSource,
+        databaseEntities,
+        logger,
+        componentNodes,
+        chatflowid: record?.chatflowId,
+        workspaceId: record?.workspaceId || undefined,
+        orgId,
+        baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
+        cachePool: appServer.cachePool
+    }
+    if (record?.chatflowId && record.workspaceId && nested.nestedFlowCaller) {
+        const organization = orgId ? await appServer.AppDataSource.getRepository(Organization).findOneBy({ id: orgId }) : null
+        Object.assign(
+            flowOptions,
+            nestedFlowNodeOptions({
+                parentFlowId: record.chatflowId,
+                parentWorkspaceId: record.workspaceId,
+                caller: nested.nestedFlowCaller,
+                depth:
+                    Number.isInteger(nested.nestedFlowDepth) && (nested.nestedFlowDepth as number) >= 0
+                        ? (nested.nestedFlowDepth as number)
+                        : 0,
+                baseURL: flowOptions.baseURL as string,
+                orgId: orgId || '',
+                subscriptionId: organization?.subscriptionId || '',
+                productId: OSS_PRODUCT_ID,
+                signal: nested.signal ? ({ signal: nested.signal } as AbortController) : undefined,
+                componentNodes,
+                appDataSource: appServer.AppDataSource,
+                telemetry: appServer.telemetry,
+                cachePool: appServer.cachePool,
+                usageCacheManager: appServer.usageCacheManager,
+                sseStreamer: appServer.sseStreamer
+            })
+        )
+    }
     return {
         componentNodes,
-        flowOptions: {
-            appDataSource: appServer.AppDataSource,
-            databaseEntities,
-            logger,
-            componentNodes,
-            chatflowid: record?.chatflowId,
-            workspaceId: record?.workspaceId || undefined,
-            orgId: await orgIdForWorkspace(record?.workspaceId),
-            baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
-            cachePool: appServer.cachePool
-        }
+        flowOptions
     }
 }
 
@@ -664,9 +748,9 @@ export function canvasRowQuery(dataSource: DataSource, chatflowId: string) {
 }
 
 export const harnessCanvasLookup = {
-    find: async (chatflowId: string): Promise<CanvasState> => {
+    find: async (chatflowId: string, dataSource?: DataSource): Promise<CanvasState> => {
         try {
-            const row = await canvasRowQuery(getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
+            const row = await canvasRowQuery(dataSource ?? getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
             if (!row) return { state: 'missing' }
             const ws = row.workspaceId ?? row.workspaceid
             return { state: 'present', workspaceId: typeof ws === 'string' && ws ? ws : null, type: row.type ?? null }
@@ -677,15 +761,15 @@ export const harnessCanvasLookup = {
     }
 }
 
-async function canvasState(record: { chatflowId?: string | null }): Promise<CanvasState | null> {
+async function canvasState(record: { chatflowId?: string | null }, dataSource?: DataSource): Promise<CanvasState | null> {
     const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
     if (!UUID.test(chatflowId)) return null
-    return harnessCanvasLookup.find(chatflowId)
+    return dataSource ? harnessCanvasLookup.find(chatflowId, dataSource) : harnessCanvasLookup.find(chatflowId)
 }
 
 // A harness built on a canvas whose canvas row is gone. A harness saved through the API has no canvas and is never an orphan.
-async function isOrphan(record: { chatflowId?: string | null }): Promise<boolean> {
-    return (await canvasState(record))?.state === 'missing'
+async function isOrphan(record: { chatflowId?: string | null }, dataSource?: DataSource): Promise<boolean> {
+    return (await canvasState(record, dataSource))?.state === 'missing'
 }
 
 // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
@@ -1172,7 +1256,7 @@ function httpHarnessError(error: unknown) {
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
 
-const requireHarness = async (name: string, workspaceId?: string | null) => {
+const requireHarness = async (name: string, workspaceId?: string | null, dataSource?: DataSource) => {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     let harness
@@ -1182,7 +1266,7 @@ const requireHarness = async (name: string, workspaceId?: string | null) => {
         throw httpHarnessError(error)
     }
     if (!harness) throw notFound(name)
-    const owner = await ownerOf(harness)
+    const owner = await ownerOf(harness, dataSource)
     if (!inWorkspace(owner, ws)) throw notFound(name)
     if (!harness.workspaceId && owner) {
         const claimed = store.claimWorkspace(name, owner)
@@ -1235,7 +1319,7 @@ const assertRunRequest = async (
     body: Record<string, unknown>,
     workspaceId: string | null | undefined,
     caller: IHarnessCaller | undefined,
-    access: { allowFlow?: boolean; expectedChatflowId?: string } = {}
+    access: { allowFlow?: boolean; expectedChatflowId?: string; dataSource?: DataSource } = {}
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
@@ -1248,7 +1332,7 @@ const assertRunRequest = async (
     )
         throw new AppError(StatusCodes.FORBIDDEN, 'An authorized Harness canvas id is required for this access-key run.')
     const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
-    const harness = await requireHarness(name, workspaceId)
+    const harness = await requireHarness(name, workspaceId, access.dataSource)
     if (
         access.expectedChatflowId !== undefined &&
         (typeof harness.chatflowId !== 'string' || harness.chatflowId !== access.expectedChatflowId)
@@ -1312,18 +1396,29 @@ const startRun = async (
         allowFlow?: boolean
         // Required for enforced key callers; retained through runtime and queue name re-resolution.
         expectedChatflowId?: string
+        // Serialized parent identity and depth for specialist calls to another same-server flow.
+        nestedFlowCaller?: INestedFlowCaller
+        nestedFlowDepth?: number
+        runtime?: NestedFlowExecutionRuntime
     }
 ) => {
     assertHarnessAvailable(name)
     const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
         allowFlow: opts.allowFlow === true,
-        expectedChatflowId: opts.expectedChatflowId
+        expectedChatflowId: opts.expectedChatflowId,
+        dataSource: opts.runtime?.appDataSource
     })
     const apiKeyId = callerKeyId(opts.caller)
-    await configureRuntime()
+    if (!opts.runtime) await configureRuntime()
+    const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller)
+    const nestedFlowDepth =
+        Number.isInteger(opts.nestedFlowDepth) && (opts.nestedFlowDepth as number) >= 0 ? (opts.nestedFlowDepth as number) : 0
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
-        runtime = await contextFor(prepared.harness)
+        const nested = { nestedFlowCaller, nestedFlowDepth, signal: opts.signal }
+        runtime = opts.runtime
+            ? contextFromRuntime(opts.record || prepared.harness, opts.runtime, nested)
+            : await contextFor(prepared.harness, nested)
     } catch (error) {
         logger.warn(`[harness] ${name} playground context unavailable: ${getErrorMessage(error)}`)
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness runtime context is not available.')
@@ -1384,7 +1479,7 @@ const startRun = async (
         const workspaceId = prepared.harness.workspaceId
         if (workspaceId) {
             try {
-                void recordCompletedRun(getRunningExpressApp().AppDataSource, {
+                void recordCompletedRun(opts.runtime?.appDataSource ?? getRunningExpressApp().AppDataSource, {
                     workspaceId,
                     flowId: prepared.harness.name,
                     result: payload
@@ -1653,23 +1748,27 @@ const startCanvasRun = async (
         signal?: AbortSignal
         onEvent?: (event: { type: string }) => void
         caller: IHarnessCaller
+        nestedFlowCaller?: INestedFlowCaller
+        nestedFlowDepth?: number
+        runtime?: NestedFlowExecutionRuntime
     }
 ) => {
     const { canvas, ...runOpts } = opts
     const flowData = canvas === 'live' ? chatflow.flowData : await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
-    const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
         name: chatflow.name,
         chatflowId: chatflow.id,
         flowData,
         workspaceId: chatflow.workspaceId,
-        componentNodes: appServer.nodesPool?.componentNodes
+        componentNodes: opts.runtime ? opts.runtime.componentNodes : getRunningExpressApp().nodesPool?.componentNodes
     })
     return await startRun(chatflow.name, body, {
         ...runOpts,
         allowFlow: true,
         workspaceId: chatflow.workspaceId,
+        nestedFlowCaller: opts.nestedFlowCaller,
+        nestedFlowDepth: opts.nestedFlowDepth,
         expectedChatflowId: opts.caller?.via === 'api_key' ? opts.caller.harnessIds?.[chatflow.name] : undefined,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })

@@ -55,7 +55,8 @@ jest.mock('../apikey', () => ({
         getApiKey: async (token: string) => {
             if (mockKeyError) throw mockKeyError
             return mockKeys.get(token)
-        }
+        },
+        getApiKeyById: async (id: string) => [...mockKeys.values()].find((candidate) => candidate.id === id)
     }
 }))
 jest.mock('./limiter', () => ({
@@ -100,7 +101,15 @@ jest.mock('./data', () => ({
     })
 }))
 
-import { accessContext, admitAccessKey, authorizeFlowKey, authorizeKey, flowOperation, setAccessContext } from './authorization'
+import {
+    accessContext,
+    admitAccessKey,
+    authorizeFlowKey,
+    authorizeKey,
+    authorizeNestedFlowKey,
+    flowOperation,
+    setAccessContext
+} from './authorization'
 import { accessKeyRouteGuard } from './routes'
 import { accessKeyPreflight } from './preflight'
 import { scopedFlowMetadataUpdate } from './managementBoundary'
@@ -108,6 +117,7 @@ import { setTeamPermissionLookup } from '../../identity/rbac'
 
 const FLOW = '11111111-1111-4111-8111-111111111111'
 const HARNESS = '22222222-2222-4222-8222-222222222222'
+const TARGET = '33333333-3333-4333-8333-333333333333'
 const flow = { id: FLOW, type: 'CHATFLOW', workspaceId: 'one', apiAccessMode: 'private', flowData: '{}' } as ChatFlow
 function key(policy: object = {}): ApiKey {
     return {
@@ -168,6 +178,101 @@ it('requires both an operation and an exact resource grant; workspace boundaries
     await expect(authorizeFlowKey(req(), { ...flow, workspaceId: 'other' })).rejects.toMatchObject({ statusCode: 401 })
     expect(mockConsume).toHaveBeenCalledTimes(1)
 })
+
+it.each(['CHATFLOW', 'AGENTFLOW'])('rechecks an access key and its exact %s grant for a nested flow call', async (type) => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = key({ scopes: ['predict'] })
+        principal.permissions = ['chatflows:view', 'agentflows:view']
+        mockKeys.set('fixture-token', principal)
+        grant(FLOW, 'CHATFLOW')
+        grant(TARGET, type)
+        const target = { ...flow, id: TARGET, type } as ChatFlow
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id
+        })
+        mockGrants.delete(`${principal.id}:${type}:${TARGET}`)
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject({
+            statusCode: 403,
+            message: expect.stringContaining(`${type} resource grant`)
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
+
+it('requires prediction and Harness execution authority for a nested Harness target', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const target = { ...flow, id: HARNESS, name: 'baker', type: 'HARNESS' } as ChatFlow
+        mockFlows.set(HARNESS, target)
+        const principal = key({ scopes: ['predict'] })
+        mockKeys.set('fixture-token', principal)
+        grant(HARNESS, 'HARNESS')
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject({
+            statusCode: 403,
+            message: expect.stringContaining('harness:run')
+        })
+        principal.accessPolicy = parsePolicy({ scopes: ['predict', 'harness:run'] })
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id,
+            harnessIds: { baker: HARNESS }
+        })
+        mockGrants.delete(`${principal.id}:HARNESS:${HARNESS}`)
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject({
+            statusCode: 403,
+            message: expect.stringContaining('HARNESS resource grant')
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
+
+it('refuses an unknown nested key and a target in another workspace', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        await expect(authorizeNestedFlowKey('missing', flow)).rejects.toMatchObject({ statusCode: 401 })
+        const principal = key({ scopes: ['predict'], allResources: true })
+        mockKeys.set('fixture-token', principal)
+        await expect(authorizeNestedFlowKey(principal.id, { ...flow, workspaceId: 'other' })).rejects.toMatchObject({
+            statusCode: 401
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
+
+it('keeps referenced Harness scope and grant checks on an access-key nested call', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = key({ scopes: ['predict', 'harness:run'] })
+        mockKeys.set('fixture-token', principal)
+        const target = {
+            ...flow,
+            id: TARGET,
+            flowData: JSON.stringify({ nodes: [{ data: { inputs: { harnessName: 'baker' } } }] })
+        } as ChatFlow
+        mockFlows.set(HARNESS, { id: HARNESS, name: 'baker', type: 'HARNESS', workspaceId: 'one' })
+        grant(TARGET, 'CHATFLOW')
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject({ statusCode: 403 })
+        grant(HARNESS, 'HARNESS')
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({
+            harnessIds: { baker: HARNESS }
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
 it('accepts many keys for the same resource and refuses a different resource or type', async () => {
     for (const id of ['first', 'second']) {
         mockKeys.set(id, { ...key({ scopes: ['predict'] }), id })
@@ -184,6 +289,28 @@ it('never lets a stale migration grant override a replacement legacy binding', a
     grant()
     await expect(authorizeFlowKey(req(), { ...flow, apikeyid: 'replacement-key' })).rejects.toMatchObject({ statusCode: 401 })
     expect(mockConsume).not.toHaveBeenCalled()
+})
+it('applies the same replacement legacy binding rule on nested access-key calls', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = {
+            ...key({ scopes: ['predict'] }),
+            accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+        }
+        mockKeys.set('fixture-token', principal)
+        grant()
+        await expect(authorizeNestedFlowKey(principal.id, { ...flow, apikeyid: 'replacement-key' })).rejects.toMatchObject({
+            statusCode: 401
+        })
+        await expect(authorizeNestedFlowKey(principal.id, { ...flow, apikeyid: principal.id })).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id
+        })
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
 })
 it('checks expiry, revoke and the owner’s current workspace membership and permissions', async () => {
     grant()
@@ -272,6 +399,43 @@ it.each(['principal permission', 'owner permission', 'legacy owner permission', 
         expect(mockConsume).toHaveBeenCalledTimes(1)
     }
 )
+it('applies HTTP legacy owner permissions to a nested Private target after an admitted agentflow', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = {
+            ...key({ scopes: ['predict'] }),
+            ownerUserId: 'creator',
+            permissions: ['agentflows:view'],
+            accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+        }
+        const parent: ChatFlow = { ...flow, type: 'AGENTFLOW', apikeyid: principal.id }
+        const target: ChatFlow = { ...flow, id: TARGET, apikeyid: principal.id }
+        mockFlows.set(FLOW, parent)
+        mockFlows.set(TARGET, target)
+        mockKeys.set('fixture-token', principal)
+        grant(FLOW, 'AGENTFLOW')
+        grant(TARGET, 'CHATFLOW')
+        mockOwnerPermissions = ['agentflows:view']
+
+        await expect(authorizeFlowKey(req(), parent)).resolves.toBe(true)
+        const refusal = { statusCode: 403, message: expect.stringContaining('The key owner needs chatflows:view for predict.') }
+        await expect(authorizeFlowKey(req(), target)).rejects.toMatchObject(refusal)
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject(refusal)
+        expect(mockConsume).toHaveBeenCalledTimes(1)
+
+        mockOwnerPermissions.push('chatflows:view')
+        await expect(authorizeFlowKey(req(), target)).resolves.toBe(true)
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id
+        })
+        expect(mockConsume).toHaveBeenCalledTimes(2)
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
 it('refuses caller policies and never trusts forwarded headers directly', async () => {
     grant()
     mockKeys.set(

@@ -10,6 +10,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Access-key calls to another flow from an external Harness worker recheck the key and permissions against the application database. Authorized same-server nested Harness canvas calls also run on the worker's own runtime instead of failing because the web process is separate.
+
+-   Same-server calls made with migrated legacy keys enforce the owner's current target permissions, matching HTTP prediction. Agentflow iterations preserve nesting depth so cycles through an iteration stop at the eight-level limit.
+
+-   Concurrent chats with the same agent team keep their own access permissions when calling another flow. A signed-in test chat cannot lend its permissions to an access-key run, and missing chat scope refuses the nested call without using a saved card credential.
+
+-   Same-server calls between chatflows, agentflows, and Harnesses now run in process as the parent caller, including Harness specialists calling flows and flows calling Private Harnesses. Targets require the same workspace and, for access keys, their own grants and required scopes (including the same legacy replacement-binding rule as HTTP prediction); remote Base URL overrides keep their configured HTTP credential path.
+
 -   Tool callbacks resolve real tool names from serialized metadata instead of showing `unknown-tool`. Disabling tool events hides live tool and status events and chat cards while preserving saved tool details, sources, attachments and actions.
 
 -   With Show tool events Off, Post Processing no longer appends a transformed answer to terminal text that already streamed. Unstreamed Iteration answers still deliver their final content.

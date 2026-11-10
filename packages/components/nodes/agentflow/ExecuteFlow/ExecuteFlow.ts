@@ -15,6 +15,7 @@ import { DataSource } from 'typeorm'
 import { BaseMessageLike } from '@langchain/core/messages'
 import { updateFlowState } from '../utils'
 import { flatten } from 'lodash'
+import { isSameServerBaseURL, RunNestedFlow } from '../../../src/nestedFlow'
 
 class ExecuteFlow_Agentflow implements INode {
     label: string
@@ -181,41 +182,49 @@ class ExecuteFlow_Agentflow implements INode {
         const sseStreamer: IServerSideEventStreamer | undefined = options.sseStreamer
 
         try {
-            const credentialData = await getCredentialData(nodeData.credential ?? '', options)
-            const chatflowApiKey = getCredentialParam('chatflowApiKey', credentialData, nodeData)
-
             if (!baseURL || !isValidURL(baseURL)) throw new Error('Invalid base URL: must be a valid URL')
 
             if (selectedFlowId === options.chatflowid) throw new Error('Cannot call the same agentflow!')
 
-            let headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'flowise-tool': 'true'
+            const body = {
+                question: flowInput,
+                chatId: options.chatId,
+                overrideConfig
             }
-            if (chatflowApiKey) headers = { ...headers, Authorization: `Bearer ${chatflowApiKey}` }
-
-            const finalUrl = `${baseURL}/api/v1/prediction/${selectedFlowId}`
-            const requestConfig: AxiosRequestConfig = {
-                method: 'POST',
-                url: finalUrl,
-                headers,
-                data: {
+            const nestedRunner = options.runNestedFlow as RunNestedFlow | undefined
+            let responseData: ICommonObject
+            if (nestedRunner && isSameServerBaseURL(baseURL, options.baseURL as string)) {
+                responseData = await nestedRunner({
+                    targetFlowId: selectedFlowId,
                     question: flowInput,
                     chatId: options.chatId,
                     overrideConfig
+                })
+            } else {
+                const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+                const chatflowApiKey = getCredentialParam('chatflowApiKey', credentialData, nodeData)
+                let headers: Record<string, string> = {
+                    'Content-Type': 'application/json',
+                    'flowise-tool': 'true'
                 }
+                if (chatflowApiKey) headers = { ...headers, Authorization: `Bearer ${chatflowApiKey}` }
+                const requestConfig: AxiosRequestConfig = {
+                    method: 'POST',
+                    url: `${baseURL}/api/v1/prediction/${selectedFlowId}`,
+                    headers,
+                    data: body
+                }
+                responseData = (await secureAxiosRequest(requestConfig)).data
             }
 
-            const response = await secureAxiosRequest(requestConfig)
-
             let resultText = ''
-            const { sourceDocuments, usedTools, artifacts, fileAnnotations } = response.data
+            const { sourceDocuments, usedTools, artifacts, fileAnnotations } = responseData
             const flattenedSourceDocuments = Array.isArray(sourceDocuments) ? flatten(sourceDocuments) : []
             const flattenedUsedTools = Array.isArray(usedTools) ? flatten(usedTools) : []
             const flattenedArtifacts = Array.isArray(artifacts) ? flatten(artifacts) : []
-            if (response.data.text) resultText = response.data.text
-            else if (response.data.json) resultText = '```json\n' + JSON.stringify(response.data.json, null, 2)
-            else resultText = JSON.stringify(response.data, null, 2)
+            if (responseData.text) resultText = responseData.text
+            else if (responseData.json) resultText = '```json\n' + JSON.stringify(responseData.json, null, 2)
+            else resultText = JSON.stringify(responseData, null, 2)
 
             if (isLastNode && sseStreamer) {
                 sseStreamer.streamTokenEvent(options.chatId, resultText)

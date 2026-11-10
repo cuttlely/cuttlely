@@ -355,6 +355,29 @@ describe('Harness node workspace refusal', () => {
         )
     })
 
+    it('forwards the nested flow runner, caller, and depth to Harness specialists', async () => {
+        mockHarnessRuns.current = { text: 'team answer' }
+        const runNestedFlow = jest.fn()
+        const node = new HarnessNode()
+        await node.run({ inputs: { harnessName: 'other' } } as never, 'How many loaves?', {
+            chatId: 'c1',
+            workspaceId: 'ws-1',
+            harnessCaller: { via: 'session' },
+            nestedFlowCaller: { via: 'session' },
+            nestedFlowDepth: 2,
+            runNestedFlow
+        })
+        expect(queuedRun).toHaveBeenCalledWith(
+            expect.objectContaining({
+                flowOptions: expect.objectContaining({
+                    nestedFlowCaller: { via: 'session' },
+                    nestedFlowDepth: 2,
+                    runNestedFlow
+                })
+            })
+        )
+    })
+
     it('refuses a harness name that is a list or an object before any check or run, on a keyless flow too', async () => {
         const node = new HarnessNode()
         for (const harnessName of [['payroll'], { name: 'payroll' }, 7]) {

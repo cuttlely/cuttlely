@@ -1,7 +1,8 @@
 import type { DataSource } from 'typeorm'
 
-/** Routes load before the running application. Resolve it only when handling a request. */
-export async function accessData(): Promise<DataSource> {
+/** Workers pass their own connection. Web routes resolve the application only when handling a request. */
+export async function accessData(dataSource?: DataSource): Promise<DataSource> {
+    if (dataSource) return dataSource
     const { getRunningExpressApp } = await import('../../utils/getRunningExpressApp')
     return getRunningExpressApp().AppDataSource
 }

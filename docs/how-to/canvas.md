@@ -74,6 +74,8 @@ Workflow cards look the same in both settings. Only where their settings open ch
 
 In an agentflow, a template variable in a card's text, such as `{{ question }}`, `{{ $flow.state.region }}`, `{{ $vars.region }}`, `{{ $form.email }}`, `{{ $iteration }}` or a node output, is replaced by its value character for character. That includes `$` characters and sequences such as `$&`, `$'`, `$$` or `$1`, so a question such as `SELECT 'a$''b' AS x` reaches the card exactly as typed. Before 1.5.2, such sequences could change the inserted text. Which value a variable gets is described in [Override configuration](../reference/override-config.md#request-variables-and-vars).
 
+Execute Flow, Chatflow Tool, and Agent as Tool can call another flow. Same-server calls keep the parent caller's workspace and access-key grants; a remote Base URL uses the credential on the card. See [Calls between flows and Harnesses](./access-keys.md#calls-between-flows-and-harnesses).
+
 ### Older V1 agentflows
 
 **Add New** on **Agentflows** opens the agentflow canvas. Older V1 agentflows are hidden from the app: **Add New**, **Duplicate** and templates no longer make new ones. Existing ones still run through the API, embeds and shared links, still open from a direct link, and appear under **Legacy agentflows** when a workspace has any.

@@ -1,4 +1,4 @@
-import { keyHarnessIds, resolveHarnessFlow } from './resources'
+import { keyHarnessIds, keyHarnessNames, resolveHarnessFlow } from './resources'
 import { accessRollout, compareLegacy } from './rollout'
 import { AccessKeyAuthenticationError, AccessKeyPolicyError, explainAccessKeyError, FlowOriginPolicyError } from './errors'
 import { recordKeyUse } from './audit'
@@ -14,7 +14,8 @@ import { bearerApiKey } from '../../utils/apiKey'
 import { accessData } from './data'
 import { principalActive } from './credentials'
 import { consume } from './limiter'
-import { callerPolicyAllows, Operation, operationPermissions, readPolicy, ResourceGrant } from './policy'
+import { AccessPolicy, callerPolicyAllows, Operation, operationPermissions, readPolicy, ResourceGrant } from './policy'
+import type { IHarnessCaller } from '../../Interface'
 
 interface AccessContext {
     key: ApiKey
@@ -95,6 +96,19 @@ export async function hasGrant(data: DataSource, key: ApiKey, resource: Resource
     if (key.accessPolicy?.allResources) return true
     return !!(await data.getRepository(ApiKeyResource).findOneBy({ principalId: key.id, ...resource }))
 }
+function requireOwnerCapability(
+    policy: AccessPolicy,
+    ownerPermissions: string[] | undefined,
+    operation: Operation,
+    resource?: ResourceGrant
+): void {
+    if (
+        ownerPermissions &&
+        !(policy.legacy && !resource && ['api:read', 'api:write'].includes(operation)) &&
+        !operationPermissions(operation, resource).some((permission) => ownerPermissions.includes(permission))
+    )
+        throw new AccessKeyPolicyError(`The key owner needs ${operationPermissions(operation, resource).join(' or ')} for ${operation}.`)
+}
 async function checkKey(
     req: Request,
     operation: Operation,
@@ -116,13 +130,7 @@ async function checkKey(
     const requestedResource = resource
     // Compatibility belongs to the refreshed policy, never to an earlier request snapshot.
     if (legacyManagement && policy.legacy && ['api:read', 'api:write'].includes(operation)) resource = undefined
-    const ownerPermissions = accessContext(req)?.ownerPermissions
-    if (
-        ownerPermissions &&
-        !(policy.legacy && !resource && ['api:read', 'api:write'].includes(operation)) &&
-        !operationPermissions(operation, resource).some((p) => ownerPermissions.includes(p))
-    )
-        throw new AccessKeyPolicyError(`The key owner needs ${operationPermissions(operation, resource).join(' or ')} for ${operation}.`)
+    requireOwnerCapability(policy, accessContext(req)?.ownerPermissions, operation, resource)
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError(`This key is missing the ${operation} API operation.`)
     // Revalidate prerequisites (for example stream or nested Harness authority) against the
     // refreshed principal too, before any quota is consumed.
@@ -203,6 +211,106 @@ export async function authorizeKey(
             !(error instanceof AccessKeyPolicyError) &&
             !(error instanceof FlowOriginPolicyError)
         )
+            throw new AppError(503, 'Access key verification is unavailable.')
+        throw explainAccessKeyError(error)
+    }
+}
+
+async function nestedKeyFor(apiKeyId: string, dataSource?: DataSource): Promise<{ key: ApiKey; ownerPermissions?: string[] }> {
+    const { default: service } = await import('../apikey')
+    let key = await service.getApiKeyById(apiKeyId, dataSource)
+    if (!key || !principalActive(key)) throw new AccessKeyAuthenticationError()
+
+    const data = await accessData(dataSource)
+    const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
+    if (!workspace || !(await data.getRepository(Organization).findOneBy({ id: workspace.organizationId })))
+        throw new AccessKeyAuthenticationError()
+    let ownerPermissions: string[] | undefined
+    if (key.ownerUserId) {
+        const owner = await data.getRepository(User).findOneBy({ id: key.ownerUserId })
+        if (!owner || typeof owner.status !== 'string' || owner.status.toLowerCase() !== 'active') throw new AccessKeyAuthenticationError()
+        const access = await resolveTeamAccess(owner.id, key.workspaceId, dataSource)
+        if (!access.owner) {
+            if (!access.permissions) throw new AccessKeyAuthenticationError()
+            ownerPermissions = access.permissions
+            key = { ...key, permissions: key.permissions.filter((permission) => access.permissions!.includes(permission)) }
+        }
+    }
+    if (key.accessPolicy) key.accessPolicy = readPolicy(key.accessPolicy)
+    return { key, ownerPermissions }
+}
+
+async function requireNestedCapability(
+    key: ApiKey,
+    ownerPermissions: string[] | undefined,
+    operation: Operation,
+    resource: ResourceGrant,
+    dataSource?: DataSource
+): Promise<void> {
+    const policy = key.accessPolicy
+    if (!policy) throw new AccessKeyPolicyError('Access policy unavailable. Run database migrations.')
+    requireOwnerCapability(policy, ownerPermissions, operation, resource)
+    if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError(`This key is missing the ${operation} API operation.`)
+    if (!(await hasGrant(await accessData(dataSource), key, resource)))
+        throw new AccessKeyPolicyError(`This key is missing a ${resource.resourceType} resource grant for this operation.`)
+    const permissions = operationPermissions(operation, resource)
+    if (!policy.legacy && !permissions.some((permission) => key.permissions.includes(permission)))
+        throw new AccessKeyPolicyError(`This key needs ${permissions.join(' or ')} permission for ${operation}.`)
+}
+
+/**
+ * Re-check a serialized access-key identity for a same-server nested flow call. This deliberately does not accept a bearer,
+ * apply caller-network restrictions again, or consume another HTTP admission quota.
+ */
+export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow, dataSource?: DataSource): Promise<IHarnessCaller> {
+    try {
+        const { key, ownerPermissions } = await nestedKeyFor(apiKeyId, dataSource)
+        if (key.workspaceId !== flow.workspaceId) throw new AccessKeyAuthenticationError()
+
+        if (accessRollout() !== 'on') {
+            if (!((flow.apiAccessMode === 'public' && !flow.apikeyid) || flow.apikeyid === key.id)) throw new AccessKeyAuthenticationError()
+            const harnesses = await keyHarnessNames(key, true, dataSource)
+            return { via: 'api_key', apiKeyId: key.id, harnesses }
+        }
+
+        // Match authorizeFlowV2Body: a retained legacy migration grant must not override a replacement binding.
+        if (
+            key.accessPolicy?.legacy &&
+            flow.apikeyid &&
+            (flow.apikeyid !== key.id || !(await hasGrant(await accessData(dataSource), key, flowResource(flow))))
+        )
+            throw new AccessKeyAuthenticationError()
+
+        await requireNestedCapability(key, ownerPermissions, 'predict', flowResource(flow), dataSource)
+        const requiredHarnesses: ChatFlow[] = []
+        if (flow.type === 'HARNESS') requiredHarnesses.push(flow)
+        if (typeof flow.flowData === 'string') {
+            try {
+                JSON.parse(flow.flowData)
+            } catch {
+                throw new AccessKeyPolicyError('Flow authorization data is unavailable.')
+            }
+            const { referencedHarnessNames } = await import('../harnesses/apiAccess')
+            for (const name of referencedHarnessNames(flow.flowData)) {
+                const harness = await resolveHarnessFlow(name, flow.workspaceId, dataSource)
+                if (!harness || harness.name !== name) throw new AccessKeyPolicyError('Referenced harness is unavailable.')
+                requiredHarnesses.push(harness)
+            }
+        }
+        for (const harness of requiredHarnesses) {
+            try {
+                await requireNestedCapability(key, ownerPermissions, 'harness:run', flowResource(harness), dataSource)
+            } catch (error) {
+                if (error instanceof AccessKeyPolicyError && harness.id !== flow.id)
+                    error.message = `This flow also needs the ${harness.name} Harness. ${error.message}`
+                throw error
+            }
+        }
+        const harnessIds = requiredHarnesses.length ? await keyHarnessIds(key, true, dataSource) : {}
+        for (const harness of requiredHarnesses) harnessIds[harness.name] = harness.id
+        return { via: 'api_key', apiKeyId: key.id, harnesses: Object.keys(harnessIds), harnessIds }
+    } catch (error) {
+        if (accessRollout() === 'on' && !(error instanceof AppError && error.statusCode < 500) && !(error instanceof AccessKeyPolicyError))
             throw new AppError(503, 'Access key verification is unavailable.')
         throw explainAccessKeyError(error)
     }
