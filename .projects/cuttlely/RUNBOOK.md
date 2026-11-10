@@ -331,11 +331,15 @@ Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.tes
 
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
 
-## Local 1.7.2 release preparation
+## Import target-handle types
 
-This 1.7.2 release PR integrates `origin/main` through a normal merge at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization. The four product manifests and current docs pins remain 1.7.2. Keep release notes under the single `## [1.7.2] - Unreleased` heading so `pnpm release` dates them later, and retain #450 with `76c5a7ee` in the changelog. This PR includes the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
+This branch is `fix/import-target-handle-type` after a normal merge of released 1.7.2 on `main` at `712cb85d`. Keep this fix under `## [Unreleased]`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
-This local preparation uses focused release, documentation and runtime checks. The final committed-head full gate and Checker record remain pending with the coordinating validation run. Keep normal commit hooks enabled. Do not push, open a PR, build Docker images, tag, publish or change live configuration as part of this preparation. Publication, deployment and enforcement activation remain separate authorized steps; the 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+## Historical local 1.7.2 release preparation
+
+1.7.2 was prepared after a normal merge of `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization, and landed on main as `712cb85d`. The four product manifests and current docs pins are 1.7.2. That release's notes are dated `## [1.7.2] - 2026-11-10` and retain #450 with `76c5a7ee`. The prep included the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
+
+That local preparation used focused release, documentation and runtime checks, then an exact-head full gate. Publication, deployment and enforcement activation remained separate authorized steps; the 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
 Same-server nested flow and Harness calls reuse the parent principal; see [Calls between flows and Harnesses](../../docs/how-to/access-keys.md#calls-between-flows-and-harnesses).
 

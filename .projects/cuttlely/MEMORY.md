@@ -95,6 +95,8 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+Handle comparison must treat a changed trailing type as the same input, and must not treat two dashed names as types. Matching already covered a missing class against a single class, but two different single classes on the same name (`BaseLanguageModel` versus `BaseChatModel`) did not match, so import healing dropped the Bakery helper model edge. Equating both stripped names blindly also collapses `when-true` and `when-false`. Only treat both trailing segments as types when they look like classes, then write the saved handle to the live anchor id. Import the shipped `examples/imports/bakery-helper.json` as-is; a fixture that already uses the current type will not catch this.
+
 -   Bind a Harness gateway caller to the exact Harness/chat pair before crossing a runtime HTTP callback. A shared team name cannot select a principal, abort signal or execution callback. Parse runtime scope first, match queued jobs on both fields, and refuse an active chat collision before replacing its binding. Every bridge needs runtime turn identity, including specialists without analyst tools; model-supplied scope cannot choose another chat. Missing scope fails closed without a card credential.
 
 -   **Complete authorization before committing quota.** Route preparation alone cannot charge: downstream RBAC, canvas references and ownership checks can still refuse. Commit after those checks and before application work; do not infer refunds from response status. Cap every issued credential when principal expiry changes, in the same transaction, so a later principal extension cannot undo a prior cutoff.

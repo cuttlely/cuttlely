@@ -1,6 +1,14 @@
-## Local 1.7.2 release preparation
+## Import target-handle types
 
-This is the `release/1.7.2` release-prep branch after a normal merge of `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)). The four product manifests and current install pins are 1.7.2. `CHANGELOG.md` uses `## [1.7.2] - Unreleased`; `pnpm release` dates it later. This branch is the 1.7.2 release PR. Publication, deployment and enforcement activation remain separate authorized steps; 1.7.2 is not yet published.
+This branch is `fix/import-target-handle-type` after a normal merge of `origin/main` at `712cb85d` ([#453](https://github.com/cuttlely/cuttlely/pull/453), Release v1.7.2). 1.7.2 is on main. `CHANGELOG.md` keeps this fix under `## [Unreleased]`; the dated 1.7.2 notes stay as shipped.
+
+Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example (`examples/imports/bakery-helper.json`) stores the Conversation Chain model handle with `BaseLanguageModel` while the refreshed node uses `BaseChatModel`. Comparison now treats those as the same input, then writes the live handle id, so the ChatOpenAI to Conversation Chain connection stays. A genuinely different input still drops the edge. The Connections bullet in `docs/bring-your-flows.md` describes this. Focused `packages/ui/src/utils/edgeRefs.test.js` coverage imports that shipped file as-is and includes a different-input case. The exact-head full `pnpm verify` and sealed reviews for this head remain pending.
+
+The 1.7.0 backup, operator onboarding/recovery and default-Off enforcement requirements still apply.
+
+## Historical 1.7.2 release
+
+1.7.2 was prepared on `release/1.7.2` after a normal merge of `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)) and landed on main as `712cb85d` ([#453](https://github.com/cuttlely/cuttlely/pull/453)). The four product manifests and current install pins are 1.7.2. `CHANGELOG.md` dates that release `## [1.7.2] - 2026-11-10`.
 
 The landed nested-call behavior is described below. This PR includes the target-scope wording, active-chat wording and empty-session test/patch corrections against the merged implementation. No new 27-step full-gate or sealed-review result is claimed for this post-merge branch; the final committed-head Checker record remains pending.
 
@@ -466,7 +474,7 @@ Trusted-output contracts accept an optional author reporting symbol for monetary
 
 ## What works on `main`
 
-This branch includes `origin/main` at `76c5a7ee` (#450), after a normal merge. The four product manifests are 1.7.2 and release notes use `## [1.7.2] - Unreleased`; publication remains separate. The historical 1.6.1 section remains dated 2026-11-06. Tags `v1.6.0`, `v1.6.1` and annotated `v1.7.0` are present locally. Local tag presence does not establish current registry or deployment availability. The product version is the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog reads the server one. The root package name is `cuttlely-workspace` so the published launcher can be named `cuttlely`. The server package is `@cuttlely/server`, the UI package is `@cuttlely/ui`, and the API docs package is `@cuttlely/api-docs`.
+This branch includes `origin/main` at `712cb85d` (#453, released 1.7.2), after a normal merge. The four product manifests are 1.7.2 and that release is dated in `CHANGELOG.md`; unreleased notes cover the import handle-type fix. The historical 1.6.1 section remains dated 2026-11-06. Tags `v1.6.0`, `v1.6.1` and annotated `v1.7.0` are present locally. Local tag presence does not establish current registry or deployment availability. The product version is the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog reads the server one. The root package name is `cuttlely-workspace` so the published launcher can be named `cuttlely`. The server package is `@cuttlely/server`, the UI package is `@cuttlely/ui`, and the API docs package is `@cuttlely/api-docs`.
 
 -   **Agent teams (harnesses).** A harness is a named team: Harness Prime routes each question, specialists do the work in parallel, and Prime writes one answer. Specialists use canvas tools, retrievers, vector stores and MCP servers in process, and the agent runtime for Shell, Browser, Code execution, Files and MCP work. Any chat-model node can drive Prime or a specialist, with an optional fallback model. Turns stream over the prediction API, have a wall-clock budget, cap their context tokens, and report tokens and timings. Each harness has a run history page with a playground.
 -   **Agent team delete.** Cards on the Agent Team list delete for owners and editors (`DELETE /api/v1/harnesses/:name`, 403 otherwise). A HARNESS canvas delete removes its harness record inside the chat flow delete transaction; startup removes harness records whose canvas is gone, and an orphan opens to a message instead of the run page.
