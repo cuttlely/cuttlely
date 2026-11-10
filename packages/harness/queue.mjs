@@ -298,7 +298,7 @@ export function callerFlowOptionsForJob(name) {
     } catch {
         return undefined
     }
-    let caller
+    const callers = []
     for (const row of rows) {
         let payload
         try {
@@ -307,17 +307,34 @@ export function callerFlowOptionsForJob(name) {
             continue
         }
         if (payload?.name !== name) continue
-        const next = callerFlowOptions(payload)
-        if (caller === undefined) caller = next
-        else if (
-            caller.workspaceId !== next.workspaceId ||
-            caller.nestedFlowDepth !== next.nestedFlowDepth ||
-            JSON.stringify(caller.harnessCaller) !== JSON.stringify(next.harnessCaller) ||
-            JSON.stringify(caller.nestedFlowCaller) !== JSON.stringify(next.nestedFlowCaller)
-        )
-            return null
+        callers.push(callerFlowOptions(payload))
     }
-    return caller
+    if (!callers.length) return undefined
+    // Same-workspace principal overlap keeps the team only; cross-workspace stays refused (null).
+    const workspaces = new Set(callers.map((caller) => caller.workspaceId || ''))
+    if (
+        callers.every(
+            (caller) =>
+                JSON.stringify({
+                    workspaceId: caller.workspaceId,
+                    harnessCaller: caller.harnessCaller,
+                    nestedFlowCaller: caller.nestedFlowCaller,
+                    nestedFlowDepth: caller.nestedFlowDepth
+                }) ===
+                JSON.stringify({
+                    workspaceId: callers[0].workspaceId,
+                    harnessCaller: callers[0].harnessCaller,
+                    nestedFlowCaller: callers[0].nestedFlowCaller,
+                    nestedFlowDepth: callers[0].nestedFlowDepth
+                })
+        )
+    )
+        return callers[callers.length - 1]
+    if (workspaces.size === 1) {
+        const workspaceId = callers[0].workspaceId
+        return typeof workspaceId === 'string' && workspaceId ? { workspaceId } : {}
+    }
+    return null
 }
 
 function savedRunId(row) {

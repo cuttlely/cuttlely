@@ -66,7 +66,8 @@ test('overlapping same-workspace principals keep the team and do not borrow a ca
         assert.equal(context.flowOptions.workspaceId, 'workspace')
         assert.equal(context.flowOptions.harnessCaller, undefined)
         assert.equal(context.flowOptions.nestedFlowCaller, undefined)
-        assert.equal(context.flowOptions.runNestedFlow, undefined)
+        assert.equal(typeof context.flowOptions.runNestedFlow, 'function')
+        await assert.rejects(context.flowOptions.runNestedFlow({}), (error) => error?.code === 'ambiguous_caller')
     } finally {
         clearCallerWorkspace('team', first)
         clearCallerWorkspace('team', second)
