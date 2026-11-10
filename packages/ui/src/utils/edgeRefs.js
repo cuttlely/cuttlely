@@ -25,6 +25,18 @@ const handleParts = (value) => {
     return { head, name: rest, withoutSingleClass: rest.substring(0, lastDash) }
 }
 
+const looksLikeClassSegment = (value) => {
+    if (!value) return false
+    if (value.includes('|')) return true
+    if (/^[A-Z][A-Za-z0-9]*$/.test(value)) return true
+    return /^(string|number|boolean|json|any)$/i.test(value)
+}
+
+const trailingClass = (parts) => {
+    if (!parts.withoutSingleClass) return ''
+    return parts.name.slice(parts.withoutSingleClass.length + 1)
+}
+
 export const handlesEqual = (a, b) => {
     if (a === b) return true
     if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false
@@ -32,7 +44,19 @@ export const handlesEqual = (a, b) => {
     const right = handleParts(b)
     if (!left || !right) return withoutClassList(a) === withoutClassList(b)
     if (left.head !== right.head) return false
-    return left.name === right.name || left.withoutSingleClass === right.name || left.name === right.withoutSingleClass
+    // Same input/output name on the same node, even when the trailing type segment changed
+    // (e.g. model-BaseLanguageModel vs model-BaseChatModel). Only treat both trailing
+    // segments as types when they look like classes, so dashed names such as when-true
+    // and when-false stay distinct.
+    return (
+        left.name === right.name ||
+        left.withoutSingleClass === right.name ||
+        left.name === right.withoutSingleClass ||
+        (Boolean(left.withoutSingleClass) &&
+            left.withoutSingleClass === right.withoutSingleClass &&
+            looksLikeClassSegment(trailingClass(left)) &&
+            looksLikeClassSegment(trailingClass(right)))
+    )
 }
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -318,6 +342,38 @@ const mappedNodeData = (spec, data) => {
     return next
 }
 
+// Point saved handles at the live anchor ids when only the trailing type segment changed.
+const retargetHandle = (handle, anchors) => {
+    const list = Array.isArray(anchors) ? anchors : []
+    const expanded = list.flatMap((anchor) => {
+        if (anchor?.type === 'options' && Array.isArray(anchor.options)) return anchor.options
+        return [anchor]
+    })
+    const match = expanded.find((item) => item?.id && handlesEqual(item.id, handle))
+    return match?.id || handle
+}
+
+export const retargetEdgesToCurrentHandles = (nodes, edges) => {
+    const byId = new Map((Array.isArray(nodes) ? nodes : []).map((node) => [node?.id, node]))
+    return (Array.isArray(edges) ? edges : []).map((edge) => {
+        const target = byId.get(edge?.target)
+        const source = byId.get(edge?.source)
+        let next = edge
+        if (target?.data) {
+            const targetHandle = retargetHandle(edge.targetHandle, [
+                ...(target.data.inputAnchors || []),
+                ...(target.data.inputParams || [])
+            ])
+            if (targetHandle !== edge.targetHandle) next = { ...next, targetHandle }
+        }
+        if (source?.data?.outputAnchors?.length) {
+            const sourceHandle = retargetHandle(edge.sourceHandle, source.data.outputAnchors)
+            if (sourceHandle !== (next.sourceHandle ?? edge.sourceHandle)) next = { ...next, sourceHandle }
+        }
+        return next
+    })
+}
+
 export const healImportedFlow = (nodes, edges, specs, options = {}) => {
     if (!supportedCanvas(options.canvasType)) {
         return { nodes, edges, attention: [] }
@@ -345,12 +401,14 @@ export const healImportedFlow = (nodes, edges, specs, options = {}) => {
             data.outputs = { ...data.outputs }
             delete data.outputs.output
         }
+        const synced = { ...node, data }
+        nextEdges = retargetEdgesToCurrentHandles([synced], nextEdges)
         for (const { edge, side } of invalidEdges(data, nextEdges)) {
             if (removedEdges.has(edge)) continue
             removedEdges.add(edge)
             attention.push(removedEdgeMessage(edge, nextNodes, side))
         }
-        return { ...node, data }
+        return synced
     })
 
     if (removedEdges.size) {
@@ -368,6 +426,8 @@ export const healImportedFlow = (nodes, edges, specs, options = {}) => {
         }
         return { ...node, data: fillSpecDefaults(node.data, spec, nextEdges, options.showHide) }
     })
+
+    nextEdges = retargetEdgesToCurrentHandles(nextNodes, nextEdges)
 
     const refs = applyEdgeRefs(nextNodes, nextEdges, options)
     attention.push(...refs.unmatched)

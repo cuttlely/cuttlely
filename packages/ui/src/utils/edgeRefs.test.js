@@ -568,6 +568,11 @@ describe('handles that list a single class', () => {
             'a dashed node id',
             'target-with-hyphen-input-model-BaseChatModel',
             'target-with-hyphen-input-model-BaseChatModel|BaseLanguageModel'
+        ],
+        [
+            'different single classes on the same input',
+            'conversationChain_0-input-model-BaseChatModel',
+            'conversationChain_0-input-model-BaseLanguageModel'
         ]
     ])('matches %s', (_label, anchorId, handle) => {
         expect(handlesEqual(anchorId, handle)).toBe(true)
@@ -580,7 +585,12 @@ describe('handles that list a single class', () => {
         ['an input against an output', 'chatOpenAI_0-input-chatOpenAI-ChatOpenAI', 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI'],
         ['a shorter dashed anchor', 'ifElse_0-output-when-true-string|number', 'ifElse_0-output-when'],
         ['two different anchors with no class', 'ifElse_0-output-when-true', 'ifElse_0-output-when-false'],
-        ['an empty handle', pipeList, undefined]
+        ['an empty handle', pipeList, undefined],
+        [
+            'a different input name with a single class',
+            'conversationChain_0-input-model-BaseLanguageModel',
+            'conversationChain_0-input-memory-BaseMemory'
+        ]
     ])('does not match %s', (_label, anchorId, handle) => {
         expect(handlesEqual(anchorId, handle)).toBe(false)
         expect(handlesEqual(handle, anchorId)).toBe(false)
@@ -630,5 +640,46 @@ describe('handles that list a single class', () => {
             ]
         }
         expect(updateOutdatedNodeEdge(updated, source.edges)).toEqual([])
+    })
+
+    const shippedBakery = () =>
+        JSON.parse(readFileSync(join(__dirname, '..', '..', '..', '..', 'examples', 'imports', 'bakery-helper.json'), 'utf8'))
+
+    const prepareShippedBakery = (nodeSpecs = specs) => {
+        const report = scanFlowiseMigration(shippedBakery(), { catalog: nodeSpecs })
+        expect(report.ok).toBe(true)
+        const normalized = normalizeCanvasFlow(report.canvas, specsByName(nodeSpecs))
+        return { report, healed: healImportedFlow(normalized.nodes, normalized.edges, nodeSpecs, { canvasType: 'CHATFLOW' }) }
+    }
+
+    it('keeps the ChatOpenAI to Conversation Chain edge when importing the shipped bakery-helper example as-is', () => {
+        const shipped = shippedBakery()
+        expect(shipped.edges.find((edge) => edge.id === 'e-model').targetHandle).toBe('conversationChain_0-input-model-BaseLanguageModel')
+        const { report, healed } = prepareShippedBakery()
+        const chain = healed.nodes.find((node) => node.data.name === 'conversationChain')
+        expect(chain.data.inputs.model).toBe('{{chatOpenAI_0.data.instance}}')
+        expect(chain.data.inputs.memory).toBe('{{bufferMemory_0.data.instance}}')
+        const modelEdge = healed.edges.find((edge) => edge.id === 'e-model')
+        expect(modelEdge).toBeDefined()
+        expect(modelEdge.source).toBe('chatOpenAI_0')
+        expect(modelEdge.target).toBe('conversationChain_0')
+        expect(modelEdge.targetHandle).toBe('conversationChain_0-input-model-BaseChatModel')
+        expect(healed.edges.map((edge) => edge.id).sort()).toEqual(['e-memory', 'e-model'])
+        expect([...report.attention, ...healed.attention].filter((message) => message.includes('Removed the edge'))).toEqual([])
+    })
+
+    it('does not keep an edge that points at a genuinely different input', () => {
+        const changedSpecs = specs.map((spec) =>
+            spec.name === 'conversationChain'
+                ? { ...spec, inputs: spec.inputs.map((input) => (input.name === 'model' ? { ...input, name: 'chatModel' } : input)) }
+                : spec
+        )
+        const { healed } = prepareShippedBakery(changedSpecs)
+        expect(healed.edges.map((edge) => edge.id)).toEqual(['e-memory'])
+        const chain = healed.nodes.find((node) => node.data.name === 'conversationChain')
+        expect(chain.data.inputs.model).toBeUndefined()
+        expect(chain.data.inputs.chatModel).not.toBe('{{chatOpenAI_0.data.instance}}')
+        expect(chain.data.inputs.memory).toBe('{{bufferMemory_0.data.instance}}')
+        expect(healed.attention.some((message) => message.includes('input it pointed at is no longer'))).toBe(true)
     })
 })

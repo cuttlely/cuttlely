@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection.
+
 -   Tool callbacks resolve real tool names from serialized metadata instead of showing `unknown-tool`. Disabling tool events hides live tool and status events and chat cards while preserving saved tool details, sources, attachments and actions.
 
 -   With Show tool events Off, Post Processing no longer appends a transformed answer to terminal text that already streamed. Unstreamed Iteration answers still deliver their final content.
