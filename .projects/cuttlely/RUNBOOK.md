@@ -43,12 +43,14 @@ Commits need a git identity (`user.name` and `user.email`). On a machine without
 
 ```bash
 pnpm install
-pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no build, no key, no network
+pnpm --filter @cuttlely/versioning build   # prerequisite when built package output is absent
+pnpm --filter @cuttlely/components build   # the harness credential reader uses this output
+pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no key, no network
 pnpm etl:check                 # node packages/etl/check.mjs — the retriever and splitter cases need the components build
 node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
 ```
 
-`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. One case runs the built Calculator node and prints `skip` when components are not built.
+`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. The model-error masking case requires the built components credential reader, whose imports also require the versioning build. A Calculator case prints `skip` when its built node is absent.
 
 ## Local verify
 
@@ -331,7 +333,7 @@ Keep normal commit hooks enabled. After the final handoff commit, run the Infra 
 
 ## Local 1.7.2 release preparation
 
-This 1.7.2 release PR has normally merged `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization. The four product manifests and current docs pins remain 1.7.2. Keep release notes under the single `## [1.7.2] - Unreleased` heading so `pnpm release` dates them later, and retain #450 with `76c5a7ee` in the changelog. This PR applies the remaining access-key wording and empty-session test/patch corrections through the documented vendor workflow.
+This 1.7.2 release PR integrates `origin/main` through a normal merge at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization. The four product manifests and current docs pins remain 1.7.2. Keep release notes under the single `## [1.7.2] - Unreleased` heading so `pnpm release` dates them later, and retain #450 with `76c5a7ee` in the changelog. This PR includes the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
 
 This local preparation uses focused release, documentation and runtime checks. The final committed-head full gate and Checker record remain pending with the coordinating validation run. Keep normal commit hooks enabled. Do not push, open a PR, build Docker images, tag, publish or change live configuration as part of this preparation. Publication, deployment and enforcement activation remain separate authorized steps; the 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
