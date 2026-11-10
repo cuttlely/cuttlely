@@ -18,6 +18,8 @@ An external Harness worker (`CUTTLELY_HARNESS_QUEUE=external`) rechecks a nested
 
 The handoff refresh for this worker-path correction read all ten required files completely in contiguous pages before these note edits, with source/page hashes, line/byte spans and reconstruction evidence retained outside the repository. Local facts record starting HEAD `99c52a39` on `fix/nested-principal-per-run`. STATUS and ARTIFACTS add the worker database recheck and its regression fixture. PLAN, OPEN, DECISIONS, RUNBOOK, MEMORY, README, root AGENTS and the project-handoff rule retain their existing contracts and instructions.
 
+Authorized same-server nested Harness canvas calls also execute on the external worker's own runtime and database connection, without the web process. The target receives its own canvas context, the same caller and the incremented nesting depth; later nested calls retain the worker's connection and pools. The full repository gate remains assigned to the coordinator for the final committed head.
+
 ## Flow tool-event display
 
 Each flow has **Configuration > Chat > Show tool events**, stored as `chatbotConfig.showToolEvents.status`. A missing setting resolves to Off for chatflows (including an unset canvas type), and On for agentflows, multiagent flows and Harness canvases. Explicit boolean choices override the type default without a migration. The public chatbot config returns the resolved boolean without exposing the canvas.

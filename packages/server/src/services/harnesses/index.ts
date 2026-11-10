@@ -23,6 +23,7 @@ import { harnessCanvasDelete } from './canvasDelete'
 import type { IHarnessCaller, INestedFlowCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from '../../utils/nestedFlowCall'
+import type { NestedFlowExecutionRuntime } from '../../utils/nestedFlowCall'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
 
@@ -348,6 +349,47 @@ type HarnessNestedFlowContext = {
     nestedFlowCaller?: INestedFlowCaller
     nestedFlowDepth?: number
     signal?: AbortSignal
+}
+
+// A nested canvas in an external worker uses its existing runtime, with the target
+// canvas as the parent of any later nested calls. It does not configure the server runtime.
+function contextFromRuntime(
+    record: { chatflowId?: unknown; workspaceId?: unknown },
+    runtime: NestedFlowExecutionRuntime,
+    nested: HarnessNestedFlowContext
+) {
+    const chatflowId = typeof record.chatflowId === 'string' ? record.chatflowId : undefined
+    const workspaceId = typeof record.workspaceId === 'string' ? record.workspaceId : undefined
+    const flowOptions: Record<string, unknown> = {
+        appDataSource: runtime.appDataSource,
+        databaseEntities,
+        logger,
+        componentNodes: runtime.componentNodes,
+        chatflowid: chatflowId,
+        workspaceId,
+        orgId: runtime.orgId,
+        baseURL: runtime.baseURL,
+        cachePool: runtime.cachePool,
+        telemetry: runtime.telemetry,
+        usageCacheManager: runtime.usageCacheManager,
+        sseStreamer: runtime.sseStreamer,
+        subscriptionId: runtime.subscriptionId,
+        productId: runtime.productId
+    }
+    if (chatflowId && workspaceId && nested.nestedFlowCaller) {
+        Object.assign(
+            flowOptions,
+            nestedFlowNodeOptions({
+                ...runtime,
+                parentFlowId: chatflowId,
+                parentWorkspaceId: workspaceId,
+                caller: nested.nestedFlowCaller,
+                depth: nested.nestedFlowDepth ?? 0,
+                signal: nested.signal ? ({ signal: nested.signal } as AbortController) : runtime.signal
+            })
+        )
+    }
+    return { componentNodes: runtime.componentNodes, flowOptions }
 }
 
 export async function contextFor(
@@ -1277,7 +1319,7 @@ const assertRunRequest = async (
     body: Record<string, unknown>,
     workspaceId: string | null | undefined,
     caller: IHarnessCaller | undefined,
-    access: { allowFlow?: boolean; expectedChatflowId?: string } = {}
+    access: { allowFlow?: boolean; expectedChatflowId?: string; dataSource?: DataSource } = {}
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
@@ -1290,7 +1332,7 @@ const assertRunRequest = async (
     )
         throw new AppError(StatusCodes.FORBIDDEN, 'An authorized Harness canvas id is required for this access-key run.')
     const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
-    const harness = await requireHarness(name, workspaceId)
+    const harness = await requireHarness(name, workspaceId, access.dataSource)
     if (
         access.expectedChatflowId !== undefined &&
         (typeof harness.chatflowId !== 'string' || harness.chatflowId !== access.expectedChatflowId)
@@ -1357,21 +1399,26 @@ const startRun = async (
         // Serialized parent identity and depth for specialist calls to another same-server flow.
         nestedFlowCaller?: INestedFlowCaller
         nestedFlowDepth?: number
+        runtime?: NestedFlowExecutionRuntime
     }
 ) => {
     assertHarnessAvailable(name)
     const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
         allowFlow: opts.allowFlow === true,
-        expectedChatflowId: opts.expectedChatflowId
+        expectedChatflowId: opts.expectedChatflowId,
+        dataSource: opts.runtime?.appDataSource
     })
     const apiKeyId = callerKeyId(opts.caller)
-    await configureRuntime()
+    if (!opts.runtime) await configureRuntime()
     const nestedFlowCaller = opts.nestedFlowCaller ?? nestedFlowCallerFromHarness(opts.caller)
     const nestedFlowDepth =
         Number.isInteger(opts.nestedFlowDepth) && (opts.nestedFlowDepth as number) >= 0 ? (opts.nestedFlowDepth as number) : 0
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
-        runtime = await contextFor(prepared.harness, { nestedFlowCaller, nestedFlowDepth, signal: opts.signal })
+        const nested = { nestedFlowCaller, nestedFlowDepth, signal: opts.signal }
+        runtime = opts.runtime
+            ? contextFromRuntime(opts.record || prepared.harness, opts.runtime, nested)
+            : await contextFor(prepared.harness, nested)
     } catch (error) {
         logger.warn(`[harness] ${name} playground context unavailable: ${getErrorMessage(error)}`)
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness runtime context is not available.')
@@ -1432,7 +1479,7 @@ const startRun = async (
         const workspaceId = prepared.harness.workspaceId
         if (workspaceId) {
             try {
-                void recordCompletedRun(getRunningExpressApp().AppDataSource, {
+                void recordCompletedRun(opts.runtime?.appDataSource ?? getRunningExpressApp().AppDataSource, {
                     workspaceId,
                     flowId: prepared.harness.name,
                     result: payload
@@ -1703,18 +1750,18 @@ const startCanvasRun = async (
         caller: IHarnessCaller
         nestedFlowCaller?: INestedFlowCaller
         nestedFlowDepth?: number
+        runtime?: NestedFlowExecutionRuntime
     }
 ) => {
     const { canvas, ...runOpts } = opts
     const flowData = canvas === 'live' ? chatflow.flowData : await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
-    const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
         name: chatflow.name,
         chatflowId: chatflow.id,
         flowData,
         workspaceId: chatflow.workspaceId,
-        componentNodes: appServer.nodesPool?.componentNodes
+        componentNodes: opts.runtime ? opts.runtime.componentNodes : getRunningExpressApp().nodesPool?.componentNodes
     })
     return await startRun(chatflow.name, body, {
         ...runOpts,

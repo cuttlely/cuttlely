@@ -51,6 +51,8 @@ module.exports = async function workerNestedAuthorization(t, bootHarnessNodePool
     const { getDataSource } = require('./src/DataSource.ts')
     const { executeModule } = await import('../../packages/harness/bridge.mjs')
     const { saveHarness } = await import('../../packages/harness/store.mjs')
+    const { configureHarnessRuntime } = await import('../../packages/harness/run.mjs')
+    const { setGatewayContext } = await import('../../packages/harness/gateway.mjs')
     const { closeQueueDb } = await import('../../packages/harness/lock.mjs')
     t.after(() => closeQueueDb())
 
@@ -142,35 +144,77 @@ module.exports = async function workerNestedAuthorization(t, bootHarnessNodePool
     const harnessResource = { principalId: 'worker-key', resourceType: 'HARNESS', resourceId: harnessId }
     const policy = parsePolicy({ scopes: ['predict', 'harness:run'] })
     await data.getRepository(ApiKeyResource).save(resource)
-    const componentNodes = { workerFixture: { filePath } }
+    const harnessEndingPath = path.join(dir, 'harness-ending.cjs')
+    fs.writeFileSync(
+        harnessEndingPath,
+        `const assert = require('node:assert/strict')
+    exports.observed = []
+    exports.nodeClass = class {
+        async init() { return {} }
+        async run(_node, question, options) {
+            exports.observed.push(options)
+            assert.equal(options.chatflowid, '${harnessId}')
+            assert.equal(options.workspaceId, '${workspace}')
+            assert.equal(options.orgId, '${org}')
+            assert.equal(options.nestedFlowDepth, 2)
+            assert.deepEqual(options.nestedFlowCaller, { via: 'api_key', apiKeyId: 'worker-key' })
+            await assert.rejects(options.runNestedFlow({ targetFlowId: '${harnessId}', question }),
+                { statusCode: 400, message: /cannot call itself/ })
+            const result = await options.runNestedFlow({ targetFlowId: '${targetId}', question: question + ' from harness' })
+            return result.text
+        }
+    }`
+    )
+    const harnessCanvas = {
+        nodes: [
+            { id: 'chief', data: { name: 'harnessChief', inputs: {} } },
+            { id: 'helper', data: { name: 'harnessSpecialist', inputs: { specialistName: 'helper' } } },
+            { id: 'model', data: { name: 'fixtureModel', category: 'Chat Models', inputs: {} } },
+            { id: 'ending', data: { name: 'harnessEnding', category: 'Tools', inputs: {} } }
+        ],
+        edges: [
+            { source: 'model', target: 'chief', targetHandle: 'chief-input-model' },
+            { source: 'ending', target: 'helper', targetHandle: 'helper-input-tools' }
+        ]
+    }
+    await data.getRepository(ChatFlow).update({ id: harnessId }, { flowData: JSON.stringify(harnessCanvas) })
+    const componentNodes = { workerFixture: { filePath }, harnessEnding: { filePath: harnessEndingPath }, fixtureModel: {} }
+    const cachePool = {}
+    const telemetry = { sendTelemetry: async () => {} }
+    const usageCacheManager = {}
+    const sseStreamer = {}
     const pool = await bootHarnessNodePool({
         loadServer: async () => ({
             componentNodes,
             appDataSource: data,
             databaseEntities: entities,
-            cachePool: {},
+            cachePool,
             workspaceEntity: Workspace,
             organizationEntity: Organization,
             nestedFlowNodeOptions,
-            telemetry: { sendTelemetry: async () => {} },
-            usageCacheManager: {},
-            sseStreamer: {},
+            telemetry,
+            usageCacheManager,
+            sseStreamer,
             productId: ''
         })
     })
     assert.equal(pool.ready, true)
+    const workerContextFor = pool.contextFor
+    const previousContextFor = setGatewayContext(workerContextFor)
+    configureHarnessRuntime({ contextFor: workerContextFor })
+    t.after(() => configureHarnessRuntime({ contextFor: previousContextFor }))
     const context = await pool.contextFor(
         { chatflowId: '11111111-1111-4111-8111-111111111111', workspaceId: workspace },
         { nestedFlowCaller: { via: 'api_key', apiKeyId: 'worker-key' }, nestedFlowDepth: 1 }
     )
     const ChatflowTool = require('../components/nodes/tools/ChatflowTool/ChatflowTool.ts').nodeClass
-    const invoke = () =>
+    const invoke = (selectedChatflow = targetId) =>
         executeModule(
             {
                 nodeName: 'chatflowTool',
                 nodeId: 'pinned-private-tool',
                 inputs: {
-                    selectedChatflow: targetId,
+                    selectedChatflow,
                     baseURL: context.flowOptions.baseURL,
                     name: 'private_target',
                     description: 'Fixture private target'
@@ -283,6 +327,48 @@ module.exports = async function workerNestedAuthorization(t, bootHarnessNodePool
         await assert.rejects(authorize(), { statusCode: 403, message: /HARNESS resource grant/ })
         await data.getRepository(ApiKeyResource).save(harnessResource)
         assert.deepEqual((await authorize()).harnessIds, { 'worker-reference': harnessId })
+    })
+    await t.test('a granted key executes a pinned Private Harness canvas and its later nested call on the worker runtime', async () => {
+        // Old saved records resolve their canvas ownership through the injected database too.
+        saveHarness(
+            {
+                name: 'worker-reference',
+                chatflowId: harnessId,
+                chief: { model: { nodeName: 'fixtureModel' } },
+                specialists: [{ name: 'helper' }]
+            },
+            { overwrite: true }
+        )
+        assert.equal(await invoke(harnessId), 'private target: hello from harness')
+        const observed = require(harnessEndingPath).observed
+        assert.equal(observed.length, 1)
+        assert.equal(observed[0].appDataSource, data)
+        assert.equal(observed[0].componentNodes, componentNodes)
+        assert.equal(observed[0].cachePool, cachePool)
+        assert.equal(observed[0].telemetry, telemetry)
+        assert.equal(observed[0].usageCacheManager, usageCacheManager)
+        assert.equal(observed[0].sseStreamer, sseStreamer)
+        // Server runtime setup would replace this worker callback before booting its gateway.
+        assert.equal(setGatewayContext(workerContextFor), workerContextFor)
+        assert.equal(observed[0].baseURL, context.flowOptions.baseURL)
+        assert.equal(await data.getRepository(ChatMessage).countBy({ chatflowid: targetId, role: 'apiMessage' }), 2)
+        assert.equal(getInstance(), undefined)
+        assert.throws(getRunningExpressApp, /getRunningExpressApp failed/)
+        assert.equal(getDataSource().isInitialized, false)
+    })
+    await t.test('a Private Harness canvas still requires its current grant and active key', async () => {
+        await data.getRepository(ApiKeyResource).delete(harnessResource)
+        try {
+            await assert.rejects(invoke(harnessId), { statusCode: 403 })
+        } finally {
+            await data.getRepository(ApiKeyResource).save(harnessResource)
+        }
+        await data.getRepository(ApiKey).update({ id: 'worker-key' }, { disabledAt: new Date() })
+        try {
+            await assert.rejects(invoke(harnessId), { statusCode: 401 })
+        } finally {
+            await data.getRepository(ApiKey).update({ id: 'worker-key' }, { disabledAt: null })
+        }
     })
     await t.test('off and shadow retain binding checks while resolving Harness names on the worker database', async () => {
         await data.getRepository(ChatFlow).update({ id: targetId }, { apikeyid: 'worker-key' })

@@ -15,16 +15,19 @@ export interface NestedFlowNodeOptions extends ICommonObject {
     runNestedFlow: RunNestedFlow
 }
 
-interface NestedFlowRuntime extends IPredictionQueueAppServer {
-    parentFlowId: string
-    parentWorkspaceId: string
-    caller: INestedFlowCaller
-    depth: number
+export interface NestedFlowExecutionRuntime extends IPredictionQueueAppServer {
     baseURL: string
     orgId: string
     subscriptionId: string
     productId: string
     signal?: AbortController
+}
+
+interface NestedFlowRuntime extends NestedFlowExecutionRuntime {
+    parentFlowId: string
+    parentWorkspaceId: string
+    caller: INestedFlowCaller
+    depth: number
 }
 
 export function nestedFlowCallerFromHarness(caller?: IHarnessCaller): INestedFlowCaller | undefined {
@@ -69,6 +72,7 @@ async function runNestedFlow(runtime: NestedFlowRuntime, request: INestedFlowReq
             canvas: 'live',
             nestedFlowCaller: runtime.caller,
             nestedFlowDepth: runtime.depth + 1,
+            runtime,
             ...(runtime.signal ? { signal: runtime.signal.signal } : {})
         })
         return { chatId: outcome.chatId, run: outcome.run, ...(outcome.payload || {}) }

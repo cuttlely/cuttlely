@@ -101,10 +101,10 @@ it('rebuilds the in-process runner from serializable job fields and advances nes
 
 it('runs a same-server Harness target in process with the parent caller and next depth', async () => {
     const target = privateFlow('HARNESS')
-    const options = nestedFlowNodeOptions({
+    const runtime = {
         parentFlowId: '11111111-1111-4111-8111-111111111111',
         parentWorkspaceId: 'one',
-        caller: { via: 'session' },
+        caller: { via: 'session' as const },
         depth: 3,
         baseURL: 'http://localhost:3000',
         orgId: 'org',
@@ -115,8 +115,10 @@ it('runs a same-server Harness target in process with the parent caller and next
         telemetry: {} as any,
         cachePool: {} as any,
         usageCacheManager: {} as any,
-        sseStreamer: {} as any
-    })
+        sseStreamer: {} as any,
+        signal: new AbortController()
+    }
+    const options = nestedFlowNodeOptions(runtime)
 
     await expect(options.runNestedFlow({ targetFlowId: target.id, question: 'ask the team' })).resolves.toEqual({
         chatId: 'harness-chat',
@@ -130,7 +132,9 @@ it('runs a same-server Harness target in process with the parent caller and next
             caller: { via: 'session' },
             canvas: 'live',
             nestedFlowCaller: { via: 'session' },
-            nestedFlowDepth: 4
+            nestedFlowDepth: 4,
+            runtime,
+            signal: runtime.signal.signal
         })
     )
     expect(mockExecuteFlow).not.toHaveBeenCalled()

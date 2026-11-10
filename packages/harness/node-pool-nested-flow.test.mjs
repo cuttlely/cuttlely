@@ -50,5 +50,5 @@ test('a worker rebuilds the nested runner from queued caller fields', async () =
     assert.equal(captured[0].subscriptionId, 'sub-1')
 })
 
-test('external worker reauthorizes a pinned private target using its own database without Express', (t) =>
+test('external worker authorizes and executes pinned private Chatflow and Harness targets without Express', (t) =>
     workerNestedAuthorization(t, bootHarnessNodePool))

@@ -10,7 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Access-key calls to another flow from an external Harness worker no longer fail verification because the web server runs in a separate process. The worker rechecks the key and permissions against the application database.
+-   Access-key calls to another flow from an external Harness worker recheck the key and permissions against the application database. Authorized same-server nested Harness canvas calls also run on the worker's own runtime instead of failing because the web process is separate.
 
 -   Same-server calls made with migrated legacy keys enforce the owner's current target permissions, matching HTTP prediction. Agentflow iterations preserve nesting depth so cycles through an iteration stop at the eight-level limit.
 
