@@ -17,6 +17,7 @@ import useNotifier from '@/utils/useNotifier'
 // API
 import chatflowsApi from '@/api/chatflows'
 import { resolveShowToolEvents } from '@/utils/toolEvents'
+import { safeJsonParse } from '@/utils/safeJsonParse'
 
 const ShowToolEvents = ({ dialogProps, onConfirm }) => {
     const dispatch = useDispatch()
@@ -77,8 +78,11 @@ const ShowToolEvents = ({ dialogProps, onConfirm }) => {
 
     useEffect(() => {
         const flow = dialogProps.chatflow
-        const config = flow?.chatbotConfig ? JSON.parse(flow.chatbotConfig) : {}
-        setChatbotConfig(config || {})
+        // A saved value that is not valid JSON, or one that is already an object, must not crash the dialog.
+        const raw = flow?.chatbotConfig
+        const parsed = raw && typeof raw === 'object' ? raw : safeJsonParse(raw, {})
+        const config = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+        setChatbotConfig(config)
         setShowToolEvents(resolveShowToolEvents(config, flow?.type))
     }, [dialogProps])
 

@@ -1,7 +1,7 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useState } from 'react'
 import { redirectWhenUnauthorized } from '@/utils/genericHelper'
 import PropTypes from 'prop-types'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { store } from '@/store'
 import { logoutSuccess } from '@/store/reducers/authSlice'
 import { ErrorMessage } from '../constant'
@@ -9,9 +9,19 @@ import { ErrorMessage } from '../constant'
 const ErrorContext = createContext()
 
 export const ErrorProvider = ({ children }) => {
-    const [error, setError] = useState(null)
+    const [pageError, setPageError] = useState(null)
     const [authRateLimitError, setAuthRateLimitError] = useState(null)
     const navigate = useNavigate()
+    const { pathname } = useLocation()
+
+    // A page error belongs to the page whose request failed. A request from the canvas that fails
+    // after you leave it must not replace the next page with an error card.
+    // Clearing from another page leaves this page's error alone.
+    const setError = useCallback(
+        (err) => setPageError((current) => (err ? { error: err, pathname } : current && current.pathname !== pathname ? current : null)),
+        [pathname]
+    )
+    const error = pageError && pageError.pathname === pathname ? pageError.error : null
 
     const handleError = async (err) => {
         console.error(err)

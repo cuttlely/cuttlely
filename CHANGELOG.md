@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. The page now says the server could not be reached and asks you to check your connection, then reload. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
+
 -   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
 
 ## [1.7.2] - 2026-11-10
