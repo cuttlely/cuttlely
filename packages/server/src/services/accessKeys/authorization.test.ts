@@ -399,6 +399,43 @@ it.each(['principal permission', 'owner permission', 'legacy owner permission', 
         expect(mockConsume).toHaveBeenCalledTimes(1)
     }
 )
+it('applies HTTP legacy owner permissions to a nested Private target after an admitted agentflow', async () => {
+    const previous = process.env.INBOUND_ACCESS_V2
+    process.env.INBOUND_ACCESS_V2 = 'on'
+    try {
+        const principal = {
+            ...key({ scopes: ['predict'] }),
+            ownerUserId: 'creator',
+            permissions: ['agentflows:view'],
+            accessPolicy: { ...parsePolicy({ scopes: ['predict'] }), legacy: true }
+        }
+        const parent: ChatFlow = { ...flow, type: 'AGENTFLOW', apikeyid: principal.id }
+        const target: ChatFlow = { ...flow, id: TARGET, apikeyid: principal.id }
+        mockFlows.set(FLOW, parent)
+        mockFlows.set(TARGET, target)
+        mockKeys.set('fixture-token', principal)
+        grant(FLOW, 'AGENTFLOW')
+        grant(TARGET, 'CHATFLOW')
+        mockOwnerPermissions = ['agentflows:view']
+
+        await expect(authorizeFlowKey(req(), parent)).resolves.toBe(true)
+        const refusal = { statusCode: 403, message: expect.stringContaining('The key owner needs chatflows:view for predict.') }
+        await expect(authorizeFlowKey(req(), target)).rejects.toMatchObject(refusal)
+        await expect(authorizeNestedFlowKey(principal.id, target)).rejects.toMatchObject(refusal)
+        expect(mockConsume).toHaveBeenCalledTimes(1)
+
+        mockOwnerPermissions.push('chatflows:view')
+        await expect(authorizeFlowKey(req(), target)).resolves.toBe(true)
+        await expect(authorizeNestedFlowKey(principal.id, target)).resolves.toMatchObject({
+            via: 'api_key',
+            apiKeyId: principal.id
+        })
+        expect(mockConsume).toHaveBeenCalledTimes(2)
+    } finally {
+        if (previous === undefined) delete process.env.INBOUND_ACCESS_V2
+        else process.env.INBOUND_ACCESS_V2 = previous
+    }
+})
 it('refuses caller policies and never trusts forwarded headers directly', async () => {
     grant()
     mockKeys.set(

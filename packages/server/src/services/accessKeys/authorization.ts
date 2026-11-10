@@ -14,7 +14,7 @@ import { bearerApiKey } from '../../utils/apiKey'
 import { accessData } from './data'
 import { principalActive } from './credentials'
 import { consume } from './limiter'
-import { callerPolicyAllows, Operation, operationPermissions, readPolicy, ResourceGrant } from './policy'
+import { AccessPolicy, callerPolicyAllows, Operation, operationPermissions, readPolicy, ResourceGrant } from './policy'
 import type { IHarnessCaller } from '../../Interface'
 
 interface AccessContext {
@@ -96,6 +96,19 @@ export async function hasGrant(data: DataSource, key: ApiKey, resource: Resource
     if (key.accessPolicy?.allResources) return true
     return !!(await data.getRepository(ApiKeyResource).findOneBy({ principalId: key.id, ...resource }))
 }
+function requireOwnerCapability(
+    policy: AccessPolicy,
+    ownerPermissions: string[] | undefined,
+    operation: Operation,
+    resource?: ResourceGrant
+): void {
+    if (
+        ownerPermissions &&
+        !(policy.legacy && !resource && ['api:read', 'api:write'].includes(operation)) &&
+        !operationPermissions(operation, resource).some((permission) => ownerPermissions.includes(permission))
+    )
+        throw new AccessKeyPolicyError(`The key owner needs ${operationPermissions(operation, resource).join(' or ')} for ${operation}.`)
+}
 async function checkKey(
     req: Request,
     operation: Operation,
@@ -117,13 +130,7 @@ async function checkKey(
     const requestedResource = resource
     // Compatibility belongs to the refreshed policy, never to an earlier request snapshot.
     if (legacyManagement && policy.legacy && ['api:read', 'api:write'].includes(operation)) resource = undefined
-    const ownerPermissions = accessContext(req)?.ownerPermissions
-    if (
-        ownerPermissions &&
-        !(policy.legacy && !resource && ['api:read', 'api:write'].includes(operation)) &&
-        !operationPermissions(operation, resource).some((p) => ownerPermissions.includes(p))
-    )
-        throw new AccessKeyPolicyError(`The key owner needs ${operationPermissions(operation, resource).join(' or ')} for ${operation}.`)
+    requireOwnerCapability(policy, accessContext(req)?.ownerPermissions, operation, resource)
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError(`This key is missing the ${operation} API operation.`)
     // Revalidate prerequisites (for example stream or nested Harness authority) against the
     // refreshed principal too, before any quota is consumed.
@@ -209,7 +216,7 @@ export async function authorizeKey(
     }
 }
 
-async function nestedKeyFor(apiKeyId: string): Promise<ApiKey> {
+async function nestedKeyFor(apiKeyId: string): Promise<{ key: ApiKey; ownerPermissions?: string[] }> {
     const { default: service } = await import('../apikey')
     let key = await service.getApiKeyById(apiKeyId)
     if (!key || !principalActive(key)) throw new AccessKeyAuthenticationError()
@@ -218,22 +225,30 @@ async function nestedKeyFor(apiKeyId: string): Promise<ApiKey> {
     const workspace = await data.getRepository(Workspace).findOneBy({ id: key.workspaceId })
     if (!workspace || !(await data.getRepository(Organization).findOneBy({ id: workspace.organizationId })))
         throw new AccessKeyAuthenticationError()
+    let ownerPermissions: string[] | undefined
     if (key.ownerUserId) {
         const owner = await data.getRepository(User).findOneBy({ id: key.ownerUserId })
         if (!owner || typeof owner.status !== 'string' || owner.status.toLowerCase() !== 'active') throw new AccessKeyAuthenticationError()
         const access = await resolveTeamAccess(owner.id, key.workspaceId)
         if (!access.owner) {
             if (!access.permissions) throw new AccessKeyAuthenticationError()
+            ownerPermissions = access.permissions
             key = { ...key, permissions: key.permissions.filter((permission) => access.permissions!.includes(permission)) }
         }
     }
     if (key.accessPolicy) key.accessPolicy = readPolicy(key.accessPolicy)
-    return key
+    return { key, ownerPermissions }
 }
 
-async function requireNestedCapability(key: ApiKey, operation: Operation, resource: ResourceGrant): Promise<void> {
+async function requireNestedCapability(
+    key: ApiKey,
+    ownerPermissions: string[] | undefined,
+    operation: Operation,
+    resource: ResourceGrant
+): Promise<void> {
     const policy = key.accessPolicy
     if (!policy) throw new AccessKeyPolicyError('Access policy unavailable. Run database migrations.')
+    requireOwnerCapability(policy, ownerPermissions, operation, resource)
     if (!policy.scopes.includes(operation)) throw new AccessKeyPolicyError(`This key is missing the ${operation} API operation.`)
     if (!(await hasGrant(await accessData(), key, resource)))
         throw new AccessKeyPolicyError(`This key is missing a ${resource.resourceType} resource grant for this operation.`)
@@ -248,7 +263,7 @@ async function requireNestedCapability(key: ApiKey, operation: Operation, resour
  */
 export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): Promise<IHarnessCaller> {
     try {
-        const key = await nestedKeyFor(apiKeyId)
+        const { key, ownerPermissions } = await nestedKeyFor(apiKeyId)
         if (key.workspaceId !== flow.workspaceId) throw new AccessKeyAuthenticationError()
 
         if (accessRollout() !== 'on') {
@@ -265,7 +280,7 @@ export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): 
         )
             throw new AccessKeyAuthenticationError()
 
-        await requireNestedCapability(key, 'predict', flowResource(flow))
+        await requireNestedCapability(key, ownerPermissions, 'predict', flowResource(flow))
         const requiredHarnesses: ChatFlow[] = []
         if (flow.type === 'HARNESS') requiredHarnesses.push(flow)
         if (typeof flow.flowData === 'string') {
@@ -283,7 +298,7 @@ export async function authorizeNestedFlowKey(apiKeyId: string, flow: ChatFlow): 
         }
         for (const harness of requiredHarnesses) {
             try {
-                await requireNestedCapability(key, 'harness:run', flowResource(harness))
+                await requireNestedCapability(key, ownerPermissions, 'harness:run', flowResource(harness))
             } catch (error) {
                 if (error instanceof AccessKeyPolicyError && harness.id !== flow.id)
                     error.message = `This flow also needs the ${harness.name} Harness. ${error.message}`

@@ -4251,6 +4251,10 @@
             "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
         },
         {
+            "path": "packages/server/src/utils/buildAgentflow.nested-iteration.test.ts",
+            "reason": "The iteration regression stays beside the agentflow engine and exercises its recursive nested-call path."
+        },
+        {
             "path": "packages/server/src/utils/buildAgentflow.resume-usage.test.ts",
             "reason": "The loop resume usage test stays next to the agentflow runner it exercises."
         },
