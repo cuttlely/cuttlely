@@ -2,8 +2,8 @@
 
 -   `packages/server/src/utils/nestedFlowCall.ts` is the shared in-process entry for flow and Harness targets. `packages/server/src/services/harnesses/index.ts` rebuilds its runner from the serialized parent caller and depth.
 -   Nested grant rules: `docs/how-to/access-keys.md#calls-between-flows-and-harnesses`, `docs/reference/access-keys.md` (Nested same-server calls), FAQ harness access bullet, Swagger `POST /prediction/{id}` description, `docs/how-to/canvas.md` and `docs/how-to/harnesses.md` cross-links.
--   `packages/harness/{queue,node-pool,gateway,run}.mjs` carries that caller through direct and queued Harness execution, reconstructs process-local functions, and keeps concurrent gateway principals isolated.
--   `nestedFlowCall.test.ts`, `nestedFlowContext.test.ts`, `authorization.test.ts`, the Harness node suite, and the three `packages/harness/*-nested-flow.test.mjs` files cover the two directions, required target grants, serialization and isolation.
+-   `packages/harness/{queue,node-pool,gateway,run}.mjs` carries the caller through direct and queued Harness execution and reconstructs process-local functions. Different-principal overlap on one Harness rebuilds an anonymous runner for Public targets with no bound key and immediately refuses Private or key-bound targets. Depth is excluded from caller identity. Same-principal runs still share the last recorded runner.
+-   `nestedFlowCall.test.ts`, `nestedFlowContext.test.ts`, `authorization.test.ts`, the Harness node suite, and the three `packages/harness/*-nested-flow.test.mjs` files cover both directions, target grants and serialization. Focused overlap regressions cover two keys, anonymous Public success, Private/key-bound refusal, same-principal depths 0 and 1, queued comparisons and conservative depth merging.
 
 ## Access-key maintenance, 1.7.1
 
