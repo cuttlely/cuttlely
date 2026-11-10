@@ -72,6 +72,12 @@ beforeAll(() => {
             'custom-function',
             `const flow = { input: input }
             return { id: nodeData.id, name: 'customFunctionAgentflow', input: {}, output: { content: flow.input }, state: {} }`
+        ),
+        directReplyAgentflow: write(
+            'direct-reply',
+            `const text = (nodeData.inputs && nodeData.inputs.directReplyMessage) || 'side note'
+            if (options.isLastNode && options.sseStreamer) options.sseStreamer.streamTokenEvent(options.chatId, text)
+            return { id: nodeData.id, name: 'directReplyAgentflow', input: {}, output: { content: text } }`
         )
     }
 })
@@ -143,6 +149,20 @@ const streamer = () => {
         )
     }
 }
+
+const fanOutIterationCanvas = () =>
+    JSON.stringify({
+        nodes: [
+            node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+            node('directReplyAgentflow_0', 'directReplyAgentflow', 'Side note', { directReplyMessage: 'Side note first' }),
+            node('iterationAgentflow_0', 'iterationAgentflow', 'Each loaf', {}),
+            { ...node('llmAgentflow_1', 'llmAgentflow', 'Loaf helper', {}), parentNode: 'iterationAgentflow_0', extent: 'parent' }
+        ],
+        edges: [
+            { id: 'e1', source: 'startAgentflow_0', target: 'directReplyAgentflow_0', sourceHandle: 'a', targetHandle: 'b' },
+            { id: 'e2', source: 'startAgentflow_0', target: 'iterationAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }
+        ]
+    })
 
 // Start, then an iteration over two loaves with one model step inside it.
 const iterationCanvas = () =>
@@ -253,6 +273,19 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         }
         const { result, tokens } = await run({ replay: false, showToolEvents: false, nodes: streamingNodes })
         expect(tokens).toEqual([result.text])
+    })
+
+    it('streams an Iteration answer even when an earlier sibling already streamed tokens and Show tool events is Off', async () => {
+        const { result, tokens, events } = await run({
+            replay: false,
+            showToolEvents: false,
+            flowData: fanOutIterationCanvas()
+        })
+        expect(result.text).toContain('Fresh bread at 7 for:')
+        expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
+        // Side note streams first; the aggregated Iteration answer must still arrive.
+        expect(tokens[0]).toBe('Side note first')
+        expect(tokens.slice(1).join('')).toBe(result.text)
     })
 
     it('runs the steps and returns the answer and the steps, with their tokens', async () => {

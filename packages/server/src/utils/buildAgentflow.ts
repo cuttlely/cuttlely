@@ -1838,14 +1838,16 @@ const runAgentFlow = async ({
     // When tool/status events are hidden, some terminal paths (e.g. Iteration + Direct Reply)
     // only used to surface the answer via agentFlowExecutedData. Track live answer tokens so
     // we can emit the aggregated text once at the end without duplicating an already-streamed answer.
-    let answerTokensStreamed = false
+    // Concatenate live answer tokens so a terminal Iteration aggregate can still be
+    // delivered when an earlier sibling branch already streamed a different answer.
+    let streamedAnswerText = ''
     if (sseStreamer) {
         const answerStream = sseStreamer
         sseStreamer = new Proxy(answerStream, {
             get(target, property) {
                 if (property === 'streamTokenEvent') {
                     return (id: string, token: string) => {
-                        if (token) answerTokensStreamed = true
+                        if (token) streamedAnswerText += token
                         return target.streamTokenEvent(id, token)
                     }
                 }
@@ -2772,8 +2774,9 @@ const runAgentFlow = async ({
         orgId
     )
 
-    // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens once.
-    if (!showToolEvents && !answerTokensStreamed && typeof content === 'string' && content.trim()) {
+    // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens
+    // unless that exact text was already streamed (e.g. last-node Direct Reply / LLM).
+    if (!showToolEvents && typeof content === 'string' && content.trim() && streamedAnswerText !== content) {
         sseStreamer?.streamTokenEvent(chatId, content)
     }
 
