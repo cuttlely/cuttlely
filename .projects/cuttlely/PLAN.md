@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **Import handle types.** Current work on `fix/import-target-handle-type` after a normal merge of released 1.7.2 (`712cb85d`, [#453](https://github.com/cuttlely/cuttlely/pull/453)). Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. The exact-head full gate and Checker record for this branch remain pending.
+-   **Canvas error page after no response.** Current work on `fix/canvas-save-crash` from `95c64dab` for [#455](https://github.com/cuttlely/cuttlely/issues/455). A request that gets no answer shows a reachable-server message instead of the route error page, and a page error stays with the page that failed. The exact-head full gate and Checker record for this branch remain pending.
+
+-   **Import handle types (done).** Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection.
 
 -   **1.7.2 release (done).** Released on main as `712cb85d` ([#453](https://github.com/cuttlely/cuttlely/pull/453)) on 2026-11-10, after [#450](https://github.com/cuttlely/cuttlely/pull/450) (`76c5a7ee`) and the release-prep PR ([#451](https://github.com/cuttlely/cuttlely/pull/451)). Manifests and pins are 1.7.2. The README setup-code clarification and embed display guidance shipped in that release. Backups and 1.7.0 operator onboarding/recovery still apply; enforcement stays default Off. Remaining action-only captures and technical follow-ons remain open. [Access keys](../../docs/reference/access-keys.md).
 

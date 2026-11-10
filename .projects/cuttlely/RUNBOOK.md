@@ -331,9 +331,13 @@ Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.tes
 
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
 
+## Canvas error page after no response
+
+This branch is `fix/canvas-save-crash` from `main` at `95c64dab`. Keep this fix under `## [Unreleased]`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
+
 ## Import target-handle types
 
-This branch is `fix/import-target-handle-type` after a normal merge of released 1.7.2 on `main` at `712cb85d`. Keep this fix under `## [Unreleased]`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Keep this fix under `## [Unreleased]`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
 ## Historical local 1.7.2 release preparation
 
