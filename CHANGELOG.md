@@ -2,7 +2,7 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.2] - Unreleased
 
 ### Added
 
@@ -10,13 +10,17 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Access-key calls to another flow from an external Harness worker recheck the key and permissions against the application database. Authorized same-server nested Harness canvas calls also run on the worker's own runtime instead of failing because the web process is separate.
+-   The share-and-embed guide now says the shared link and website embed do not show live tool or step status cards. They still show the answer, sources, attachments and any Harness run card. The Cuttlely app chat is the view that follows **Show tool events** for those cards.
 
--   Same-server calls made with migrated legacy keys enforce the owner's current target permissions, matching HTTP prediction. Agentflow iterations preserve nesting depth so cycles through an iteration stop at the eight-level limit.
+-   The README banner and “Your first 10 minutes” (#438) now say that the setup code creates only the first account, needs local sign-in already on at the host (Docker does this by default), and that claiming the instance operator is a separate step. See [Sign in](./docs/how-to/sign-in.md) and [Designate the instance operator](./docs/how-to/instance-operator.md).
+
+-   **#450 (`76c5a7ee`):** Same-server calls between chatflows, agentflows, and Harnesses now run in process as the parent caller, including Harness specialists calling flows and flows calling Private Harnesses. Targets require the same workspace and, for access keys, their own grants and required scopes (including the same legacy replacement-binding rule as HTTP prediction); remote Base URL overrides keep their configured HTTP credential path.
 
 -   Concurrent chats with the same agent team keep their own access permissions when calling another flow. A signed-in test chat cannot lend its permissions to an access-key run, and missing chat scope refuses the nested call without using a saved card credential.
 
--   Same-server calls between chatflows, agentflows, and Harnesses now run in process as the parent caller, including Harness specialists calling flows and flows calling Private Harnesses. Targets require the same workspace and, for access keys, their own grants and required scopes (including the same legacy replacement-binding rule as HTTP prediction); remote Base URL overrides keep their configured HTTP credential path.
+-   Same-server calls made with migrated legacy keys enforce the owner's current target permissions, matching HTTP prediction. Agentflow iterations preserve nesting depth so cycles through an iteration stop at the eight-level limit.
+
+-   Access-key calls to another flow from an external Harness worker recheck the key and permissions against the application database. Authorized same-server nested Harness canvas calls also run on the worker's own runtime instead of failing because the web process is separate.
 
 -   Tool callbacks resolve real tool names from serialized metadata instead of showing `unknown-tool`. Disabling tool events hides live tool and status events and chat cards while preserving saved tool details, sources, attachments and actions.
 
@@ -946,6 +950,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...HEAD
+[1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...HEAD
 [1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/cuttlely/cuttlely/compare/v1.6.0...v1.6.1

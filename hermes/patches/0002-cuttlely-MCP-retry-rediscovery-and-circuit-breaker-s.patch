@@ -18,7 +18,7 @@ Why: Cuttlely's MCP bridge starts alongside Hermes, so the first tools/list can 
 
 diff --git a/tests/tools/test_cuttlely_mcp_retry.py b/tests/tools/test_cuttlely_mcp_retry.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..77c98c2604455b861113b374fc0f461cbd16db87
+index 0000000000000000000000000000000000000000..be13eace006cc2b2e32d72783efbda16a9361c5e
 --- /dev/null
 +++ b/tests/tools/test_cuttlely_mcp_retry.py
 @@ -0,0 +1,105 @@
@@ -107,7 +107,7 @@ index 0000000000000000000000000000000000000000..77c98c2604455b861113b374fc0f461c
 +    assert scoped["sql"] == "select 1"
 +    assert "_cuttlelyScope" not in args
 +    assert analyst_call_arguments("other", args, "chat-9") is args
-+    assert analyst_call_arguments("analyst", args, "") is args
++    assert analyst_call_arguments("analyst", args, "") == {**args, "_cuttlelyScope": ""}
 +
 +
 +def test_page_scope_is_added_for_a_bridge_named_after_its_specialist():
@@ -118,7 +118,7 @@ index 0000000000000000000000000000000000000000..77c98c2604455b861113b374fc0f461c
 +    assert "_cuttlelyScope" not in args
 +    assert analyst_call_arguments("data", args, "sales--data:chat-9", {"command": "node", "env": {}}) is args
 +    assert analyst_call_arguments("data", args, "sales--data:chat-9", None) is args
-+    assert analyst_call_arguments("data", args, "", bridge) is args
++    assert analyst_call_arguments("data", args, "", bridge) == {**args, "_cuttlelyScope": ""}
 +
 +
 +def test_expected_outcome_leaves_the_breaker_text_unchanged():

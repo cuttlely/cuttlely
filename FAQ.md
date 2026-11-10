@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.1)
+# Cuttlely FAQ (1.7.2)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,16 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.1?
+### What's new in 1.7.2?
+
+-   **Show tool events** lets you choose live tool and step status in the app chat. Chatflows start Off; agentflows, multiagent flows and Harness canvases start On. Answers, sources, attachments and Harness run cards stay visible. Shared links and website embeds keep those results and Harness run cards, without live tool or step status cards. See [Share and embed a chat](./docs/how-to/share-and-embed.md#what-the-chat-shows).
+-   Publish and access-key dialogs have clearer labels, duration controls and Advanced settings.
+-   Calls between flows and agent teams on the same server keep the caller's permissions, including concurrent chats and calls from an external worker. Access keys need permission for each target. See [Access keys](./docs/how-to/access-keys.md).
+-   The README explains that a setup code creates only the first account, with local sign-in already enabled at the host. Claiming the instance operator is a separate step. See [Sign in](./docs/how-to/sign-in.md) and [Designate the instance operator](./docs/how-to/instance-operator.md).
+
+Use matching 1.7.2 server and widget packages. The [changelog](./CHANGELOG.md) lists the patch fixes; the [1.7.0 upgrade requirements](./docs/upgrading.md#170-security-exception-upgrade) still apply.
+
+### What changed in 1.7.1?
 
 Flow-first access-key presets, automatic prediction prerequisites, a server check with one-click fixes, copyable examples, correct saved Private access and private copies. PostgreSQL flow deletion removes grants and private bindings atomically. See [Access keys](./docs/how-to/access-keys.md). Use matching 1.7.1 server and widget packages.
 
