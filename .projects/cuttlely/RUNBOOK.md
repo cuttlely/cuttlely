@@ -309,7 +309,7 @@ Run `CI=true node --test scripts/settings-no-way-in.test.cjs scripts/settings-wo
 
 A mixed WorkOS/local-users upgrade keeps WorkOS selected with an informational `configuration-ambiguous` warning. With matching active identity and exact AuthKit test proof, clearing an obsolete unlocked local-login flag is allowed without switching methods. The save retains the warning; mismatch, missing proof/link and unknown stored warnings still refuse readiness. Do not switch away and back merely to clear this informational warning.
 
-## Local 1.7.0 release preparation
+## Historical local 1.7.0 release preparation
 
 The four product manifests are 1.7.0. Public docs describe the security-exception release features in present tense; the FAQ uses a stable changelog link. Keep the exact `## [1.7.0] - Unreleased` heading for the release tool. `docker-compose.yml` and `.env.example` use `ghcr.io/cuttlely/cuttlely:1.7.0` as the release image pin. Tag, image and npm availability require separate release checks. The approved security exception requires explicit upgrade warnings, backups and operator onboarding/recovery. Only the designated operator changes service settings; host-log proof comes from the hosting dashboard or Docker/Compose logs. Enforcement stays default Off. Public captures under `docs/images/access-keys/` are from product 1.6.1 at feature head `5c08b125`; AK02/06/08/09 remain uncaptured action-only shots.
 
@@ -321,10 +321,16 @@ nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify
 
 Retain the creation command, session, stdout/stderr, exit code and a copy of `.verify/verify-report.json` under untracked `.agent-run/`. The report must name the exact final committed HEAD and pass all 27 steps; rerun after the last write. Normal commit hooks stay enabled. Under a local-only task boundary, block the handoff facts script's fetch/GitHub calls and label cached refs and unavailable remote/CI facts explicitly. Before editing handoff files, hash and count all ten required files, read every line in contiguous numbered pages, and retain each observed page's text plus its source hash, inclusive line/byte span and tool-result reference in the external read ledger. Split and reread any truncated page. Confirm 100% coverage, then collect local facts and reconcile each file's Updated/Unchanged reason against the full text. Keep before/after facts provenance as STATUS describes. No push, PR, tag, publish, merge, remote operation, Docker image build, live setting/operator/key change or live model call belongs to this preparation.
 
-## Local 1.7.1 maintenance preparation
+## Historical local 1.7.1 maintenance preparation
 
 The four product manifests are prepared at 1.7.1 with an Unreleased changelog. Publication and availability checks remain separate; enforcement stays default Off and the 1.7.0 upgrade/recovery instructions still apply. `docs/how-to/access-keys.md` documents presets, server prerequisite validation, private copies and current local fixture figures.
 
 Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.test.cjs` for SQLite/execution/UI regressions. For real Postgres, use a disposable local test service and the standard `CUTTLELY_TEST_PG_HOST`, `CUTTLELY_TEST_PG_PORT`, `CUTTLELY_TEST_PG_USER` and test-password inputs, then run `CUTTLELY_TEST_PG_REQUIRED=1 node --test scripts/access-keys-postgres.test.cjs`. The script creates and drops its own test database, runs the real migrations and exercises the delete route plus rollback; it never reads deployment database settings. An entity-synchronized database alone cannot reproduce the historical UUID/varchar mismatch. No Docker image build is needed.
 
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
+
+## Local 1.7.2 release preparation
+
+The four product manifests and current docs pins are prepared at 1.7.2. Keep release notes under the single `## [Unreleased]` heading so `pnpm release 1.7.2` dates them later. This branch starts at #448 and carries release docs, not the pending #450 implementation. After #450 lands, take a normal merge of updated `main`, apply the deferred access-key wording and empty-session test/patch corrections, then replace the pending squash-SHA marker with the actual merge SHA before a release cut.
+
+This local preparation uses the Infra precheck and lightweight banned-prose, README translation and practical website/touched-file checks. The shared full verification slot and reviews belong to #450 during this task. Keep normal commit hooks enabled. Do not push, open a PR, build Docker images, tag, publish or change live configuration as part of this preparation. Publication and enforcement activation remain separate; the 1.7.0 backup and operator-recovery requirements still apply.
