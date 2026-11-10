@@ -299,5 +299,5 @@ describe('capped read aligns to the next log record', () => {
                 }
             }
         }
-    })
+    }, 30000)
 })

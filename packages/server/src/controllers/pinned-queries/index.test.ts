@@ -2,17 +2,13 @@ import express from 'express'
 import request from 'supertest'
 
 // The harness gate loads the server logger, which constructs a storage provider at import time.
-jest.mock(
-    '@cuttlely/components',
-    () => ({
-        StorageProviderFactory: {
-            getProvider: () => ({
-                getLoggerTransports: () => []
-            })
-        }
-    }),
-    { virtual: true }
-)
+jest.mock('@cuttlely/components', () => ({
+    StorageProviderFactory: {
+        getProvider: () => ({
+            getLoggerTransports: () => []
+        })
+    }
+}))
 
 // The audit row goes through the real recordPinnedQueryTest and recordAudit; only the database handle is a stand-in.
 const mockAuditSql: { text: string; params: unknown[] }[] = []
