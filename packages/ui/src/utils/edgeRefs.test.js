@@ -310,6 +310,43 @@ describe('healing output connections', () => {
         )
     })
 
+    it('still drops an edge when a missing source output is combined with a retargeted target handle', () => {
+        const targetSpec = {
+            name: 'targetNode',
+            label: 'Target',
+            version: 2,
+            type: 'Target',
+            category: 'Utilities',
+            baseClasses: ['Target'],
+            inputs: [{ label: 'Value', name: 'value', type: 'BaseChatModel' }]
+        }
+        const olderTarget = {
+            ...targetNode,
+            data: {
+                ...targetNode.data,
+                version: 1,
+                inputs: { value: '{{chain_0.data.instance}}' },
+                inputAnchors: [{ id: 'target_0-input-value-BaseLanguageModel', name: 'value', type: 'BaseLanguageModel' }]
+            }
+        }
+        const edge = {
+            id: 'edge-1',
+            source: 'chain_0',
+            sourceHandle: 'chain_0-output-missing-string',
+            target: 'target_0',
+            targetHandle: 'target_0-input-value-BaseLanguageModel'
+        }
+        const result = healImportedFlow([sourceNode, olderTarget], [edge], [chainSpec, targetSpec], {
+            canvasType: 'CHATFLOW',
+            updateNodeData: updateOutdatedNodeData
+        })
+        expect(result.edges).toEqual([])
+        expect(result.nodes.find((node) => node.id === 'target_0').data.inputs.value).toBe('')
+        expect(result.attention).toContain(
+            'Removed the edge from Sample Chain to Target: the output it came from is no longer on Sample Chain. Connect it again.'
+        )
+    })
+
     it('clears only the dropped source reference from single and list inputs', () => {
         const singleTarget = {
             ...targetNode,

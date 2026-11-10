@@ -384,6 +384,7 @@ export const healImportedFlow = (nodes, edges, specs, options = {}) => {
     const byName = specsByName(specs)
     const attention = []
     const removedEdges = new Set()
+    const syncedNodes = []
 
     nextNodes = nextNodes.map((node) => {
         const spec = byName.get(node?.data?.name)
@@ -402,14 +403,22 @@ export const healImportedFlow = (nodes, edges, specs, options = {}) => {
             delete data.outputs.output
         }
         const synced = { ...node, data }
-        nextEdges = retargetEdgesToCurrentHandles([synced], nextEdges)
-        for (const { edge, side } of invalidEdges(data, nextEdges)) {
+        syncedNodes.push(synced)
+        return synced
+    })
+
+    // Retarget saved handles to the live anchors first. Collecting invalid edges
+    // before that, then replacing those objects during a later retarget, would
+    // leave a dropped edge in the result when the other endpoint only needed a
+    // type-suffix rewrite.
+    nextEdges = retargetEdgesToCurrentHandles(nextNodes, nextEdges)
+    for (const node of syncedNodes) {
+        for (const { edge, side } of invalidEdges(node.data, nextEdges)) {
             if (removedEdges.has(edge)) continue
             removedEdges.add(edge)
             attention.push(removedEdgeMessage(edge, nextNodes, side))
         }
-        return synced
-    })
+    }
 
     if (removedEdges.size) {
         nextEdges = nextEdges.filter((edge) => !removedEdges.has(edge))
