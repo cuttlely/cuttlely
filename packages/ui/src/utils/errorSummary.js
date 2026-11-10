@@ -18,3 +18,13 @@ export const errorSummaryText = (error) => {
     const { status, message } = errorSummary(error)
     return message ? `${status}\n${message}` : status
 }
+
+// The server's message for a failed API call, for a toast or an inline error.
+// A request that got no answer has no response body, so this says the server could not be reached.
+export const requestFailureMessage = (error) => {
+    const data = error?.response?.data
+    if (typeof data === 'string' && data) return data
+    if (typeof data?.message === 'string' && data.message) return data.message
+    if (error?.response === undefined && (error?.isAxiosError || error?.request)) return NO_ANSWER_MESSAGE
+    return typeof error?.message === 'string' && error.message ? error.message : NO_ANSWER_MESSAGE
+}

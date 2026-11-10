@@ -107,6 +107,7 @@ import {
 
 // const
 import { uiBaseURL } from '@/store/constant'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const nodeTypes = { customNode: CanvasNode, stickyNote: StickyNote }
 const edgeTypes = { buttonedge: ButtonEdge }
@@ -992,7 +993,7 @@ const Canvas = () => {
                 cancelled = true
             }
         } else if (getSpecificChatflowApi.error) {
-            errorFailed(`Failed to retrieve ${canvasTitle}: ${getSpecificChatflowApi.error.response.data.message}`)
+            errorFailed(`Failed to retrieve ${canvasTitle}: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

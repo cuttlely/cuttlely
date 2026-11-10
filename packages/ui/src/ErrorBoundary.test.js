@@ -5,7 +5,9 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import ErrorBoundary from './ErrorBoundary'
-import { NO_ANSWER_MESSAGE, errorSummary, errorSummaryText } from '@/utils/errorSummary'
+import { NO_ANSWER_MESSAGE, errorSummary, errorSummaryText, requestFailureMessage } from '@/utils/errorSummary'
+import fs from 'node:fs'
+import path from 'node:path'
 
 describe('ErrorBoundary card', () => {
     let root
@@ -50,5 +52,36 @@ describe('errorSummary', () => {
         expect(errorSummary({ response: { status: 502 } })).toEqual({ status: 'Status: 502', message: '' })
         expect(errorSummaryText({ response: { status: 502 } })).toBe('Status: 502')
         expect(errorSummaryText({ response: { status: 400, data: { message: 'Bad' } } })).toBe('Status: 400\nBad')
+    })
+})
+
+describe('requestFailureMessage', () => {
+    test('says the server could not be reached when a request got no answer', () => {
+        const noAnswer = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {}, response: undefined })
+        expect(requestFailureMessage(noAnswer)).toBe(NO_ANSWER_MESSAGE)
+        expect(requestFailureMessage(undefined)).toBe(NO_ANSWER_MESSAGE)
+    })
+
+    test('keeps the server message when there is one', () => {
+        expect(requestFailureMessage({ response: { status: 409, data: { message: 'Saved by someone else' } } })).toBe(
+            'Saved by someone else'
+        )
+        expect(requestFailureMessage({ response: { status: 500, data: 'Busy' } })).toBe('Busy')
+        expect(requestFailureMessage(new Error('Request failed with status code 500'))).toBe('Request failed with status code 500')
+    })
+})
+
+// A failed load or save on these pages is reported from an effect. Reading the server message
+// without a guard throws when the request got no answer, and the route then shows its error page.
+describe('pages that report a failed request from an effect', () => {
+    const pages = [
+        'views/canvas/index.jsx',
+        'views/agentflowsv2/Canvas.jsx',
+        'views/assistants/custom/CustomAssistantConfigurePreview.jsx',
+        'views/auth/forgotPassword.jsx'
+    ]
+    test.each(pages)('%s does not read a missing response', (page) => {
+        const source = fs.readFileSync(path.join(__dirname, page), 'utf8')
+        expect(source).not.toMatch(/Api\.error\.response\.(data|status)/)
     })
 })

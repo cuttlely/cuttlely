@@ -1,7 +1,7 @@
 ## Canvas error page after a request gets no answer
 
 -   `packages/ui/src/api/client.js`: `onResponseError` guards `error.response` and rejects a no-response error unchanged. `packages/ui/src/api/client.test.js` covers no response, `undefined` and 401 with and without a body.
--   `packages/ui/src/utils/errorSummary.js`: status and message for the error card. `packages/ui/src/ErrorBoundary.test.js` renders a no-response network error, a plain `TypeError` and a 500.
+-   `packages/ui/src/utils/errorSummary.js`: status and message for the error card, and `requestFailureMessage` for page notifications. `ErrorBoundary.test.js` also checks that the canvas, agentflow canvas, custom assistant and forgot-password pages do not read `Api.error.response` unguarded. `packages/ui/src/ErrorBoundary.test.js` renders a no-response network error, a plain `TypeError` and a 500.
 -   `packages/ui/src/store/context/ErrorContext.jsx`: the page error belongs to the path whose request failed. `packages/ui/src/store/context/ErrorContext.test.js` covers navigating away and a clear from another page.
 -   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx`: malformed `chatbotConfig` falls back to an empty object; `ShowToolEvents.test.js` covers it.
 -   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Unreleased notes in `CHANGELOG.md`.
