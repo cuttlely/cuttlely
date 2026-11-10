@@ -2775,8 +2775,9 @@ const runAgentFlow = async ({
     )
 
     // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens
-    // unless that exact text was already streamed (e.g. last-node Direct Reply / LLM).
-    if (!showToolEvents && typeof content === 'string' && content.trim() && streamedAnswerText !== content) {
+    // unless the stream already ends with that answer (e.g. a last-node Direct Reply / LLM
+    // after earlier terminal siblings streamed their own answers).
+    if (!showToolEvents && typeof content === 'string' && content.trim() && !streamedAnswerText.endsWith(content)) {
         sseStreamer?.streamTokenEvent(chatId, content)
     }
 

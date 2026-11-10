@@ -275,6 +275,23 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(tokens).toEqual([result.text])
     })
 
+    it('does not duplicate the final answer when two terminal siblings stream and Show tool events is Off', async () => {
+        const flowData = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+                node('directReplyAgentflow_0', 'directReplyAgentflow', 'Reply A', { directReplyMessage: 'A' }),
+                node('directReplyAgentflow_1', 'directReplyAgentflow', 'Reply B', { directReplyMessage: 'B' })
+            ],
+            edges: [
+                { id: 'e1', source: 'startAgentflow_0', target: 'directReplyAgentflow_0', sourceHandle: 'a', targetHandle: 'b' },
+                { id: 'e2', source: 'startAgentflow_0', target: 'directReplyAgentflow_1', sourceHandle: 'a', targetHandle: 'b' }
+            ]
+        })
+        const { result, tokens } = await run({ replay: false, showToolEvents: false, flowData })
+        expect(result.text).toBe('B')
+        expect(tokens).toEqual(['A', 'B'])
+    })
+
     it('streams an Iteration answer even when an earlier sibling already streamed tokens and Show tool events is Off', async () => {
         const { result, tokens, events } = await run({
             replay: false,
