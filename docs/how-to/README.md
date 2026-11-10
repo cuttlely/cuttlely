@@ -2,6 +2,12 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.2
+
+-   [Choose what chat shows](./share-and-embed.md#what-the-chat-shows) with **Show tool events**. Chatflows start with it Off; Harness run cards stay visible. The shared link and website embed show answers, sources, attachments and Harness run cards, without other live tool or step status cards.
+-   Access-key and Publish dialogs have clearer labels and controls. Calls between flows and agent teams keep the caller's access permissions, including calls from an external worker. [Access keys](./access-keys.md).
+-   The [first-account setup steps](../../README.md#your-first-10-minutes) explain that the setup code needs local sign-in already enabled at the host, and that [claiming the instance operator](./instance-operator.md) is a separate step. [Upgrade notes](../upgrading.md).
+
 ## New in 1.7.1
 
 -   [Create a working access key](./access-keys.md) with flow-first presets, automatic Harness prerequisites, a server check and copyable examples. Private copies and saved API access fail closed. [Upgrade notes](../upgrading.md).

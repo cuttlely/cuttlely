@@ -53,4 +53,11 @@ export function serializableCaller(caller) {
     }
 }
 
+/** The smaller caller shape used to reauthorize same-server flow targets. */
+export function serializableNestedFlowCaller(caller) {
+    const saved = serializableCaller(caller)
+    if (!saved) return null
+    return saved.via === 'api_key' ? { via: 'api_key', apiKeyId: saved.apiKeyId } : { via: saved.via }
+}
+
 export const SAVE_CALLERS = new Set(['session', 'api_key'])

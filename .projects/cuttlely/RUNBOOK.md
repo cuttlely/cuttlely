@@ -43,12 +43,14 @@ Commits need a git identity (`user.name` and `user.email`). On a machine without
 
 ```bash
 pnpm install
-pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no build, no key, no network
+pnpm --filter @cuttlely/versioning build   # prerequisite when built package output is absent
+pnpm --filter @cuttlely/components build   # the harness credential reader uses this output
+pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no key, no network
 pnpm etl:check                 # node packages/etl/check.mjs — the retriever and splitter cases need the components build
 node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
 ```
 
-`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. One case runs the built Calculator node and prints `skip` when components are not built.
+`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. The model-error masking case requires the built components credential reader, whose imports also require the versioning build. A Calculator case prints `skip` when its built node is absent.
 
 ## Local verify
 
@@ -309,7 +311,7 @@ Run `CI=true node --test scripts/settings-no-way-in.test.cjs scripts/settings-wo
 
 A mixed WorkOS/local-users upgrade keeps WorkOS selected with an informational `configuration-ambiguous` warning. With matching active identity and exact AuthKit test proof, clearing an obsolete unlocked local-login flag is allowed without switching methods. The save retains the warning; mismatch, missing proof/link and unknown stored warnings still refuse readiness. Do not switch away and back merely to clear this informational warning.
 
-## Local 1.7.0 release preparation
+## Historical local 1.7.0 release preparation
 
 The four product manifests are 1.7.0. Public docs describe the security-exception release features in present tense; the FAQ uses a stable changelog link. Keep the exact `## [1.7.0] - Unreleased` heading for the release tool. `docker-compose.yml` and `.env.example` use `ghcr.io/cuttlely/cuttlely:1.7.0` as the release image pin. Tag, image and npm availability require separate release checks. The approved security exception requires explicit upgrade warnings, backups and operator onboarding/recovery. Only the designated operator changes service settings; host-log proof comes from the hosting dashboard or Docker/Compose logs. Enforcement stays default Off. Public captures under `docs/images/access-keys/` are from product 1.6.1 at feature head `5c08b125`; AK02/06/08/09 remain uncaptured action-only shots.
 
@@ -321,10 +323,20 @@ nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify
 
 Retain the creation command, session, stdout/stderr, exit code and a copy of `.verify/verify-report.json` under untracked `.agent-run/`. The report must name the exact final committed HEAD and pass all 27 steps; rerun after the last write. Normal commit hooks stay enabled. Under a local-only task boundary, block the handoff facts script's fetch/GitHub calls and label cached refs and unavailable remote/CI facts explicitly. Before editing handoff files, hash and count all ten required files, read every line in contiguous numbered pages, and retain each observed page's text plus its source hash, inclusive line/byte span and tool-result reference in the external read ledger. Split and reread any truncated page. Confirm 100% coverage, then collect local facts and reconcile each file's Updated/Unchanged reason against the full text. Keep before/after facts provenance as STATUS describes. No push, PR, tag, publish, merge, remote operation, Docker image build, live setting/operator/key change or live model call belongs to this preparation.
 
-## Local 1.7.1 maintenance preparation
+## Historical local 1.7.1 maintenance preparation
 
 The four product manifests are prepared at 1.7.1 with an Unreleased changelog. Publication and availability checks remain separate; enforcement stays default Off and the 1.7.0 upgrade/recovery instructions still apply. `docs/how-to/access-keys.md` documents presets, server prerequisite validation, private copies and current local fixture figures.
 
 Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.test.cjs` for SQLite/execution/UI regressions. For real Postgres, use a disposable local test service and the standard `CUTTLELY_TEST_PG_HOST`, `CUTTLELY_TEST_PG_PORT`, `CUTTLELY_TEST_PG_USER` and test-password inputs, then run `CUTTLELY_TEST_PG_REQUIRED=1 node --test scripts/access-keys-postgres.test.cjs`. The script creates and drops its own test database, runs the real migrations and exercises the delete route plus rollback; it never reads deployment database settings. An entity-synchronized database alone cannot reproduce the historical UUID/varchar mismatch. No Docker image build is needed.
 
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
+
+## Local 1.7.2 release preparation
+
+This 1.7.2 release PR integrates `origin/main` through a normal merge at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization. The four product manifests and current docs pins remain 1.7.2. Keep release notes under the single `## [1.7.2] - Unreleased` heading so `pnpm release` dates them later, and retain #450 with `76c5a7ee` in the changelog. This PR includes the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
+
+This local preparation uses focused release, documentation and runtime checks. The final committed-head full gate and Checker record remain pending with the coordinating validation run. Keep normal commit hooks enabled. Do not push, open a PR, build Docker images, tag, publish or change live configuration as part of this preparation. Publication, deployment and enforcement activation remain separate authorized steps; the 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+
+Same-server nested flow and Harness calls reuse the parent principal; see [Calls between flows and Harnesses](../../docs/how-to/access-keys.md#calls-between-flows-and-harnesses).
+
+For per-chat nested caller changes, run `pnpm harness:check` before and after, plus the gateway/queue nested tests and `node --test scripts/hermes-analyst-scope.test.mjs`. Run the server nested authorization and access-key route suites, the real SQLite execution fixtures above, and `node --test scripts/harness-per-run-auth.test.cjs` after building components. Set `CUTTLELY_REQUIRE_HERMES_RUNTIME=1` with an importable runtime Python to require the actual MCP handler check. A scoped tool call must resolve only its own Harness/chat binding; missing scope must never fall through to a card credential. An active chat collision refuses the new run while the original chat keeps its binding. Follow a task's assigned full-gate slot; focused checks do not replace the final committed-head gate.

@@ -83,7 +83,7 @@ def test_analyst_page_scope_is_only_added_for_the_analyst_server():
     assert scoped["sql"] == "select 1"
     assert "_cuttlelyScope" not in args
     assert analyst_call_arguments("other", args, "chat-9") is args
-    assert analyst_call_arguments("analyst", args, "") is args
+    assert analyst_call_arguments("analyst", args, "") == {**args, "_cuttlelyScope": ""}
 
 
 def test_page_scope_is_added_for_a_bridge_named_after_its_specialist():
@@ -94,7 +94,7 @@ def test_page_scope_is_added_for_a_bridge_named_after_its_specialist():
     assert "_cuttlelyScope" not in args
     assert analyst_call_arguments("data", args, "sales--data:chat-9", {"command": "node", "env": {}}) is args
     assert analyst_call_arguments("data", args, "sales--data:chat-9", None) is args
-    assert analyst_call_arguments("data", args, "", bridge) is args
+    assert analyst_call_arguments("data", args, "", bridge) == {**args, "_cuttlelyScope": ""}
 
 
 def test_expected_outcome_leaves_the_breaker_text_unchanged():

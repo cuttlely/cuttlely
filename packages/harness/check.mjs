@@ -12154,6 +12154,7 @@ check(
         let error
         let gatewayStatus = 0
         let gatewayBody = ''
+        let discoveryStatus = 0
         const previous = gatewayApi.setGatewayContext(async (record) => ({
             flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
         }))
@@ -12167,8 +12168,16 @@ check(
                     token: tokenFor(name),
                     body: {}
                 })
-                gatewayStatus = listed.status
-                gatewayBody = listed.body
+                discoveryStatus = listed.status
+                const called = await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/call',
+                    token: tokenFor(name),
+                    body: { name: 'unavailable', scope: `${name}--reader:${name}-chat#turn-one`, arguments: {} }
+                })
+                gatewayStatus = called.status
+                gatewayBody = called.body
             }
             if (owned) {
                 try {
@@ -12181,7 +12190,7 @@ check(
             gatewayApi.setGatewayContext(previous)
             if (gateway) await gateway.close()
         }
-        return { owned, error, before, after: listRuns(name).length, modelCalls, gatewayStatus, gatewayBody }
+        return { owned, error, before, after: listRuns(name).length, modelCalls, gatewayStatus, gatewayBody, discoveryStatus }
     }
     externalRoster('extUnassigned')
     const unassignedJob = await refuseExternal('extUnassigned', 'team-a')
@@ -12191,6 +12200,7 @@ check(
             unassignedJob.error?.code === 'wrong_workspace' &&
             unassignedJob.modelCalls === 0 &&
             unassignedJob.after === unassignedJob.before &&
+            unassignedJob.discoveryStatus === 200 &&
             unassignedJob.gatewayStatus === 502 &&
             unassignedJob.gatewayBody.includes('another workspace'),
         JSON.stringify({
@@ -12209,6 +12219,7 @@ check(
             otherJob.error?.code === 'wrong_workspace' &&
             otherJob.modelCalls === 0 &&
             otherJob.after === otherJob.before &&
+            otherJob.discoveryStatus === 200 &&
             otherJob.gatewayStatus === 502 &&
             otherJob.gatewayBody.includes('another workspace'),
         JSON.stringify({

@@ -86,6 +86,7 @@ import { StatusCodes } from 'http-status-codes'
 import { pinOwnedMemorySession } from './sessionOwnership'
 import { fileDownloadUrl } from './fileLinkSignature'
 import { recordCompletedRun } from '../services/usage'
+import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from './nestedFlowCall'
 
 interface IWaitingNode {
     nodeId: string
@@ -190,12 +191,14 @@ interface IExecuteNodeParams {
     productId: string
     replay?: boolean
     harnessCaller?: IHarnessCaller
+    nestedFlowOptions?: ICommonObject
     // Filled by a Harness node an Agent calls as a tool, so the chat saves that harness trace with the reply.
     harnessToolPayloads?: Record<string, any>[]
 }
 
 interface IExecuteAgentFlowParams extends Omit<IExecuteFlowParams, 'incomingInput'> {
     incomingInput: IncomingAgentflowInput
+    nestedFlowOptions?: ICommonObject
 }
 
 // A publish check replay keeps its run in memory instead of the executions table.
@@ -1122,6 +1125,7 @@ const executeNode = async ({
     productId,
     replay,
     harnessCaller,
+    nestedFlowOptions,
     harnessToolPayloads
 }: IExecuteNodeParams): Promise<{
     result: any
@@ -1346,6 +1350,7 @@ const executeNode = async ({
             // A harness tool on this canvas records against the agentflow. The tool closes over these params.
             recordTokenUsage: recordCompletedRun,
             ...harnessNodeOptions(harnessCaller),
+            ...(nestedFlowOptions || {}),
             ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
             // An Agent initializes its tools with no input; a Harness tool routes this message instead of the agent task.
             harnessUserMessage: typeof finalInput === 'string' ? finalInput : ''
@@ -1433,7 +1438,8 @@ const executeNode = async ({
                             subscriptionId,
                             productId,
                             replay,
-                            harnessCaller
+                            harnessCaller,
+                            nestedFlowOptions
                         })
 
                         // Store the result
@@ -1781,6 +1787,32 @@ async function agentflowContinuation(
 }
 
 export const executeAgentFlow = async (params: IExecuteAgentFlowParams): Promise<any> => {
+    if (!params.nestedFlowOptions) {
+        const caller = params.nestedFlowCaller ?? nestedFlowCallerFromHarness(params.harnessCaller)
+        if (caller) {
+            const depth = Number.isInteger(params.nestedFlowDepth) && (params.nestedFlowDepth as number) >= 0 ? params.nestedFlowDepth! : 0
+            params = {
+                ...params,
+                nestedFlowOptions: nestedFlowNodeOptions({
+                    parentFlowId: params.chatflow.id,
+                    parentWorkspaceId: params.workspaceId,
+                    caller,
+                    depth,
+                    baseURL: params.baseURL,
+                    orgId: params.orgId,
+                    subscriptionId: params.subscriptionId,
+                    productId: params.productId,
+                    signal: params.signal,
+                    componentNodes: params.componentNodes,
+                    appDataSource: params.appDataSource,
+                    telemetry: params.telemetry,
+                    cachePool: params.cachePool,
+                    usageCacheManager: params.usageCacheManager,
+                    sseStreamer: params.sseStreamer
+                })
+            }
+        }
+    }
     // A publish check replay exports no spans, including the nodes it still runs.
     if (!params.isRecursive && params.replay) return silenceRunTraces(() => runAgentFlow(params))
     // When traces are off this is one environment check and the body runs once.
@@ -1831,7 +1863,8 @@ const runAgentFlow = async ({
     productId,
     sessionToken,
     replay,
-    harnessCaller
+    harnessCaller,
+    nestedFlowOptions
 }: IExecuteAgentFlowParams) => {
     const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
     sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
@@ -2391,6 +2424,7 @@ const runAgentFlow = async ({
                 productId,
                 replay,
                 harnessCaller,
+                nestedFlowOptions,
                 harnessToolPayloads
             })
 
