@@ -136,7 +136,8 @@ const PUBLIC_OBJECTS: Record<string, Record<string, DisplayKind>> = {
     textInput: { placeholder: 'text', backgroundColor: 'color', textColor: 'color', sendButtonColor: 'color' },
     chatFeedback: { status: 'boolean' },
     followUpPrompts: { status: 'boolean' },
-    enhancedStatusMessages: { status: 'boolean' }
+    enhancedStatusMessages: { status: 'boolean' },
+    showToolEvents: { status: 'boolean' }
 }
 
 const foldHyphens = (value: string): string => {

@@ -1,3 +1,4 @@
+import { resolveShowToolEvents, streamChatflowSafe } from '@cuttlely/components'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { cloneDeep, get } from 'lodash'
@@ -1307,6 +1308,8 @@ const executeNode = async ({
 
         // Prepare run parameters
         const runParams = {
+            showToolEvents: resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type),
+            chatflowType: chatflow.type,
             orgId,
             workspaceId,
             subscriptionId,
@@ -1830,6 +1833,29 @@ const runAgentFlow = async ({
     replay,
     harnessCaller
 }: IExecuteAgentFlowParams) => {
+    const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
+    sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
+    // When tool/status events are hidden, some terminal paths (e.g. Iteration + Direct Reply)
+    // only used to surface the answer via agentFlowExecutedData. Track live answer tokens so
+    // we can emit the aggregated text once at the end without duplicating an already-streamed answer.
+    // Concatenate live answer tokens so a terminal Iteration aggregate can still be
+    // delivered when an earlier sibling branch already streamed a different answer.
+    let streamedAnswerText = ''
+    if (sseStreamer) {
+        const answerStream = sseStreamer
+        sseStreamer = new Proxy(answerStream, {
+            get(target, property) {
+                if (property === 'streamTokenEvent') {
+                    return (id: string, token: string) => {
+                        if (token) streamedAnswerText += token
+                        return target.streamTokenEvent(id, token)
+                    }
+                }
+                const value = Reflect.get(target, property)
+                return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+            }
+        }) as typeof answerStream
+    }
     logger.debug('\n🚀 Starting flow execution')
 
     const question = incomingInput.question
@@ -2295,6 +2321,8 @@ const runAgentFlow = async ({
         logger.debug(`   Queue: [${nodeExecutionQueue.map((n) => n.nodeId).join(', ')}]`)
 
         if (iterations === 0 && !isRecursive) {
+            // Chat clients need an answer placeholder when step-status events are hidden.
+            if (!showToolEvents) sseStreamer?.streamStartEvent(chatId, '')
             sseStreamer?.streamAgentFlowEvent(chatId, 'INPROGRESS')
         }
 
@@ -2533,6 +2561,7 @@ const runAgentFlow = async ({
     // check if last agentFlowExecutedData.data.output contains the key "content"
     const lastNodeOutput = agentFlowExecutedData[agentFlowExecutedData.length - 1].data?.output as ICommonObject | undefined
     let content = (lastNodeOutput?.content as string) ?? ' '
+    const rawContentWasStreamed = typeof content === 'string' && content.length > 0 && streamedAnswerText.endsWith(content)
 
     /* Check for post-processing settings */
     let chatflowConfig: ICommonObject = {}
@@ -2745,6 +2774,19 @@ const runAgentFlow = async ({
         },
         orgId
     )
+
+    // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens
+    // unless its raw or final content was already streamed (e.g. a last-node Direct Reply / LLM
+    // before post-processing, or after earlier terminal siblings streamed their own answers).
+    if (
+        !showToolEvents &&
+        typeof content === 'string' &&
+        content.trim() &&
+        !rawContentWasStreamed &&
+        !streamedAnswerText.endsWith(content)
+    ) {
+        sseStreamer?.streamTokenEvent(chatId, content)
+    }
 
     /*** Prepare response ***/
     let result: ICommonObject = {}

@@ -1,3 +1,4 @@
+import { streamChatflowSafe } from '../../../src/streaming'
 import { flatten } from 'lodash'
 import type { BaseLanguageModel } from '@langchain/core/language_models/base'
 import { Tool } from '@langchain/core/tools'
@@ -114,7 +115,7 @@ class ConversationalAgent_Agents implements INode {
         const moderations = nodeData.inputs?.inputModeration as Moderation[]
 
         const shouldStreamResponse = options.shouldStreamResponse
-        const sseStreamer: IServerSideEventStreamer = options.sseStreamer as IServerSideEventStreamer
+        const sseStreamer: IServerSideEventStreamer = streamChatflowSafe(options.sseStreamer as IServerSideEventStreamer, options)
         const chatId = options.chatId
         if (moderations && moderations.length > 0) {
             try {

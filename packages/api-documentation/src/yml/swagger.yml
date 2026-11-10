@@ -1764,7 +1764,13 @@ paths:
                                     description: Files to be uploaded (images, audio, documents, etc.)
                                 streaming:
                                     type: boolean
-                                    description: Enable streaming responses
+                                    description: >
+                                        Enable server-sent event streaming. Chatflows default to start, token,
+                                        metadata and end (plus harness.* when a Harness runs). Configuration >
+                                        Chat > Show tool events (chatbotConfig.showToolEvents.status) adds live
+                                        tool and step events when on; chatflows default off, agentflows and
+                                        Harness canvases default on. Saved usedTools, sourceDocuments, artifacts,
+                                        fileAnnotations and action still appear on non-stream JSON and stored messages.
                                     default: false
                                 overrideConfig:
                                     type: string
@@ -2908,7 +2914,10 @@ components:
                         count: 1
                 streaming:
                     type: boolean
-                    description: Enable streaming responses for real-time output
+                    description: >
+                        Enable server-sent event streaming for real-time output. Live tool and step status events
+                        follow Configuration > Chat > Show tool events (defaults: chatflows off; agentflows and
+                        Harness canvases on). Harness.* run-card events still stream when a Harness runs.
                     default: false
                     example: false
                 overrideConfig:

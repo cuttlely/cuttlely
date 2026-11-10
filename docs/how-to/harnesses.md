@@ -260,6 +260,8 @@ When a step runs for a few seconds, the card adds a lighter, playful line in ita
 
 ![The same running card a few seconds later. Next to sql_analyst is running a SQL query… and the timer at 0:06, a lighter italic line reads Cross-checking the numbers….](../images/harnesses/run-card-live-status-playful.png)
 
+The nearby **Show tool events** setting controls live tool and step status outside the Harness run card. It defaults to Off on chatflows and On on agentflows, multiagent flows and Harness canvases. Turning it off keeps the Harness run card and its status lines, including when a chatflow calls a Harness. Select **Save** to apply the choice to that flow.
+
 The playful lines are on by default for every chatflow. To turn them off for one chatflow, open **Configuration** (the settings button on the canvas), select **Enhanced Status Messages** under **Chat**, switch **Enhanced status messages** off and select **Save**. The live status line, the row status and the timer always show. The embedded chat widget follows the same setting; see [Share and embed a chat](./share-and-embed.md#what-the-chat-shows). The finished card is unchanged.
 
 ![The Demo desk Configuration dialog with Enhanced Status Messages selected under Chat and marked ON. The page reads Playful lines during long run steps, with the Enhanced status messages switch on, a note that the live status itself always shows, and a Save button.](../images/harnesses/configuration-enhanced-status-messages.png)

@@ -33,6 +33,8 @@ import AllowedDomains from '@/ui-component/extended/AllowedDomains'
 import OverrideConfig from '@/ui-component/extended/OverrideConfig'
 import ChatFeedback from '@/ui-component/extended/ChatFeedback'
 import EnhancedStatusMessages from '@/ui-component/extended/EnhancedStatusMessages'
+import ShowToolEvents from '@/ui-component/extended/ShowToolEvents'
+import { resolveShowToolEvents } from '@/utils/toolEvents'
 import AnalyseFlow from '@/ui-component/extended/AnalyseFlow'
 import StarterPrompts from '@/ui-component/extended/StarterPrompts'
 import Leads from '@/ui-component/extended/Leads'
@@ -102,6 +104,12 @@ const CONFIGURATION_GROUPS = [
                 description: 'Allow users to rate responses'
             },
             {
+                label: 'Show tool events',
+                id: 'showToolEvents',
+                icon: IconBolt,
+                description: 'Live tool and step status in chat'
+            },
+            {
                 label: 'Enhanced Status Messages',
                 id: 'enhancedStatusMessages',
                 icon: IconSparkles,
@@ -163,8 +171,10 @@ const CONFIGURATION_GROUPS = [
     }
 ]
 
-function getSectionStatus(sectionId, chatflow) {
+export function getSectionStatus(sectionId, chatflow) {
     if (!chatflow) return false
+
+    if (sectionId === 'showToolEvents') return resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
 
     let chatbotConfig = {}
     let apiConfig = {}
@@ -304,6 +314,8 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
                 return <FollowUpPrompts {...props} />
             case 'chatFeedback':
                 return <ChatFeedback {...props} />
+            case 'showToolEvents':
+                return <ShowToolEvents {...props} />
             case 'enhancedStatusMessages':
                 return <EnhancedStatusMessages {...props} />
             case 'speechToText':

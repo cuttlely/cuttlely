@@ -1,3 +1,11 @@
+## Flow tool-event display
+
+-   `packages/components/src/streaming.ts`: shared flow-type default resolution and an execution-scoped SSE proxy. `streaming.test.ts` covers boolean overrides, blocked typed/custom events, Harness passthrough and shared-streamer isolation.
+-   `packages/components/src/handler.streaming.test.ts` and `nodes/agents/ToolAgent/ToolAgent.test.ts`: real serialized tool-name resolution and regular/MCP-named tool execution with offline model/executor seams; returned tool details remain intact.
+-   `packages/server/src/utils/buildChatflow.toolEvents.test.ts`: actual chatflow execution, real SSE encoding and message saves through a recording data source, with one stand-in ending node. `chatflowStream.test.ts` covers every flow type with default and explicit choices. `buildAgentflow.replay.test.ts` also exercises normal agentflow status suppression, the ordinary answer start, single-node and streaming-terminal-sibling answer deduplication, delivery of an unstreamed terminal Iteration aggregate after a streaming sibling, and a Post Processing case that must not append the transformed answer after the raw terminal text has already streamed. Public config and display sanitization tests cover the resolved flag.
+-   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx` and its adjacent test: the setting's switch, helper, save, reload and section status. `packages/ui/src/utils/toolEvents.js` shares the server resolver; `views/chatmessage/ChatMessage.events.test.js` renders the actual message-status markup with leaf cards substituted and checks answer tokens without status events.
+-   `packages/chat-widget/test/config.test.js` and `widget.test.js`: resolved public setting, ignored tool/step events and preserved Harness run behavior. User guidance is in `docs/api.md`, `docs/how-to/share-and-embed.md` and `docs/how-to/harnesses.md`; release notes are under Unreleased in `CHANGELOG.md`.
+
 ## Access-key maintenance, 1.7.1
 
 -   `packages/ui/src/views/apikey/APIKeyDialog.test.js`: saved-Harness preselection, server-proposed run/view prerequisites, enabled creation with Advanced collapsed and one-time reveal. The production fixture also covers an actual Harness-only workspace and prediction admission; that case ran inside the full gate's round12 production-route suite.
