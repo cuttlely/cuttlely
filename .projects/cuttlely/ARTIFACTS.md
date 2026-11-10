@@ -7,6 +7,9 @@
 -   `packages/harness/{queue,node-pool,gateway,run}.mjs` carries that caller through direct and queued Harness execution, reconstructs process-local functions, and keeps concurrent gateway principals isolated.
 -   `nestedFlowCall.test.ts`, `nestedFlowContext.test.ts`, `authorization.test.ts`, the Harness node suite, and the three `packages/harness/*-nested-flow.test.mjs` files cover the two directions, required target grants, serialization and isolation.
 
+-   `packages/server/src/utils/buildAgentflow.nested-iteration.test.ts` runs iteration subflows through the real agentflow engine: a parent at depth four keeps its caller and callback, and a cycle through an iteration advances to the eight-level refusal. Removing nested-runner propagation makes both regressions fail.
+-   `packages/server/src/services/accessKeys/authorization.test.ts` compares HTTP and nested target admission for a migrated legacy key after its Agentflow parent is admitted. Both paths refuse a Private Chatflow until the active owner has its view permission, while nested calls add no HTTP quota charge.
+
 ## Access-key maintenance, 1.7.1
 
 -   `packages/ui/src/views/apikey/APIKeyDialog.test.js`: saved-Harness preselection, server-proposed run/view prerequisites, enabled creation with Advanced collapsed and one-time reveal. The production fixture also covers an actual Harness-only workspace and prediction admission; that case ran inside the full gate's round12 production-route suite.
