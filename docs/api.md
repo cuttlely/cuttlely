@@ -475,6 +475,8 @@ Join the `token` events for the answer ("Yes, we have rye bread today since it's
 | Harness card in a chatflow | `harness.route`, `harness.specialist` and `harness.partial` while specialists work, `harness.handoff`, `start`, `token`, `harness.final`, `metadata`, `end` |
 | Direct HARNESS canvas      | `harness.*` progress and final events, optional `artifacts`, then `harness.recorded`, `end`                                                                 |
 
+By default, a chatflow streams `start`, `token`, `metadata` and `end`, plus `harness.*` events when it calls a Harness. In **Configuration > Chat > Show tool events**, turn the setting on to also receive live tool and step status (`usedTools`, `calledTools`, `agentReasoning`, `agent_trace`, `agentFlow*`, `nextAgent*` and `tool`). Agentflows, multiagent flows and Harness canvases default to On; an explicit saved choice overrides the flow-type default. Turning it off keeps Harness run cards and `harness.*` events, and does not change saved messages or non-stream JSON: text, `sourceDocuments`, `usedTools`, `artifacts`, `fileAnnotations` and `action` remain available.
+
 For a direct HARNESS canvas, read the completed answer from `harness.final` and conversation values from `harness.recorded`. Native files arrive in `artifacts`. Protected-output delivery sends its verified artifacts before the deferred final acknowledgment; other progress events can interleave.
 
 An `error` event carries a message when the run fails after streaming started. Ignore events you do not use; new ones can be added.

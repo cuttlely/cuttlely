@@ -1,3 +1,4 @@
+import { streamChatflowSafe, ToolEventOptions } from './streaming'
 import { Logger } from 'winston'
 import { URL } from 'url'
 import { v4 as uuidv4 } from 'uuid'
@@ -2028,9 +2029,9 @@ export class CustomStreamingHandler extends BaseCallbackHandler {
     private sseStreamer: IServerSideEventStreamer
     private chatId: string
 
-    constructor(sseStreamer: IServerSideEventStreamer, chatId: string) {
+    constructor(sseStreamer: IServerSideEventStreamer, chatId: string, options: ToolEventOptions = {}) {
         super()
-        this.sseStreamer = sseStreamer
+        this.sseStreamer = streamChatflowSafe(sseStreamer, options)
         this.chatId = chatId
     }
 
@@ -2040,7 +2041,11 @@ export class CustomStreamingHandler extends BaseCallbackHandler {
     async handleToolStart(tool: Serialized, input: string, runId: string, parentRunId?: string): Promise<void> {
         if (!this.sseStreamer) return
 
-        const toolName = typeof tool === 'object' && tool.name ? tool.name : 'unknown-tool'
+        const kwargs = tool && 'kwargs' in tool ? tool.kwargs : undefined
+        const toolName =
+            [tool?.name, kwargs?.name, Array.isArray(tool?.id) ? tool.id[tool.id.length - 1] : undefined].find(
+                (name) => typeof name === 'string' && name.trim() && name !== 'unknown-tool'
+            ) || 'tool'
         const toolInput = typeof input === 'string' ? input : JSON.stringify(input, null, 2)
 
         // Stream the tool invocation details using the agent_trace event type for consistency

@@ -70,8 +70,15 @@ beforeAll(() => {
         // Same assignment as Custom Function: $flow.input is the string the engine passed in.
         customFunctionAgentflow: write(
             'custom-function',
-            `const flow = { input: input }
+            `if (options.postProcessing) return { output: { content: 'Final: ' + options.postProcessing.rawOutput } }
+            const flow = { input: input }
             return { id: nodeData.id, name: 'customFunctionAgentflow', input: {}, output: { content: flow.input }, state: {} }`
+        ),
+        directReplyAgentflow: write(
+            'direct-reply',
+            `const text = (nodeData.inputs && nodeData.inputs.directReplyMessage) || 'side note'
+            if (options.isLastNode && options.sseStreamer) options.sseStreamer.streamTokenEvent(options.chatId, text)
+            return { id: nodeData.id, name: 'directReplyAgentflow', input: {}, output: { content: text } }`
         )
     }
 })
@@ -126,11 +133,37 @@ function recordingDataSource(previousExecutions: any[] = []) {
 
 const streamer = () => {
     const events: string[] = []
+    const tokens: string[] = []
     return {
         events,
-        sseStreamer: new Proxy({}, { get: (_t, name: string) => () => events.push(name) })
+        tokens,
+        sseStreamer: new Proxy(
+            {},
+            {
+                get:
+                    (_t, name: string) =>
+                    (...args: unknown[]) => {
+                        events.push(name)
+                        if (name === 'streamTokenEvent' && typeof args[1] === 'string') tokens.push(args[1])
+                    }
+            }
+        )
     }
 }
+
+const fanOutIterationCanvas = () =>
+    JSON.stringify({
+        nodes: [
+            node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+            node('directReplyAgentflow_0', 'directReplyAgentflow', 'Side note', { directReplyMessage: 'Side note first' }),
+            node('iterationAgentflow_0', 'iterationAgentflow', 'Each loaf', {}),
+            { ...node('llmAgentflow_1', 'llmAgentflow', 'Loaf helper', {}), parentNode: 'iterationAgentflow_0', extent: 'parent' }
+        ],
+        edges: [
+            { id: 'e1', source: 'startAgentflow_0', target: 'directReplyAgentflow_0', sourceHandle: 'a', targetHandle: 'b' },
+            { id: 'e2', source: 'startAgentflow_0', target: 'iterationAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }
+        ]
+    })
 
 // Start, then an iteration over two loaves with one model step inside it.
 const iterationCanvas = () =>
@@ -145,6 +178,8 @@ const iterationCanvas = () =>
 
 async function run(opts: {
     replay: boolean
+    showToolEvents?: boolean
+    postProcessing?: boolean
     startInputType?: string
     humanInput?: unknown
     flowData?: string
@@ -154,7 +189,7 @@ async function run(opts: {
     previousExecutions?: any[]
 }) {
     const { calls, saved, appDataSource } = recordingDataSource(opts.previousExecutions)
-    const { events, sseStreamer } = streamer()
+    const { events, tokens, sseStreamer } = streamer()
     const telemetry = { sendTelemetry: jest.fn() }
     const result = await executeAgentFlow({
         componentNodes: opts.nodes || componentNodes,
@@ -167,6 +202,13 @@ async function run(opts: {
             id: 'b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a',
             name: 'Bakery helper',
             type: 'AGENTFLOW',
+            chatbotConfig: JSON.stringify({
+                showToolEvents: { status: opts.showToolEvents },
+                postProcessing: {
+                    enabled: opts.postProcessing === true,
+                    customFunction: JSON.stringify('return "Final: " + $flow.rawOutput')
+                }
+            }),
             flowData: opts.flowData || canvas(opts.startInputType || 'chatInput'),
             workspaceId: 'ws-1'
         } as any,
@@ -185,7 +227,7 @@ async function run(opts: {
         productId: 'prod-1',
         replay: opts.replay
     } as any)
-    return { result, calls, events, telemetry, saved }
+    return { result, calls, events, tokens, telemetry, saved }
 }
 
 describe('executeAgentFlow with replay on (publish check)', () => {
@@ -194,6 +236,110 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(calls).toEqual(expect.arrayContaining(['Execution.find', 'Execution.save', 'ChatMessage.find', 'ChatMessage.save']))
         expect(telemetry.sendTelemetry).toHaveBeenCalled()
     })
+
+    it.each([undefined, true, false])(
+        'keeps agentflow results and persistence while tool-event setting=%s controls status streaming',
+        async (showToolEvents) => {
+            const { result, calls, events } = await run({ replay: false, showToolEvents })
+            expect(result.text).toBe('Fresh bread at 7 for: When is the sourdough ready?')
+            expect(result.agentFlowExecutedData).toHaveLength(2)
+            expect(calls).toContain('ChatMessage.save')
+            const statusEvents = events.filter((event) => event.startsWith('streamAgentFlow') || event.startsWith('streamNextAgent'))
+            if (showToolEvents === false) {
+                expect(statusEvents).toEqual([])
+                expect(events).toContain('streamStartEvent')
+            } else {
+                expect(statusEvents.length).toBeGreaterThan(0)
+                expect(events).not.toContain('streamStartEvent')
+            }
+        }
+    )
+
+    it.each([false, true])(
+        'streams the aggregated iteration answer when Show tool events is Off and postProcessing=%s',
+        async (postProcessing) => {
+            const { result, events, tokens } = await run({
+                replay: false,
+                showToolEvents: false,
+                postProcessing,
+                flowData: iterationCanvas()
+            })
+            expect(result.text).toContain('Fresh bread at 7 for:')
+            if (postProcessing) expect(result.text).toMatch(/^Final: /)
+            expect(events).toContain('streamStartEvent')
+            expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
+            expect(tokens.join('')).toBe(result.text)
+        }
+    )
+
+    it('does not duplicate an already-streamed last-node answer when Show tool events is Off', async () => {
+        // Stub last node streams its own token; the end-of-run path must not append again.
+        const streamingNodes = {
+            ...componentNodes,
+            llmAgentflow: (() => {
+                const file = path.join(dir, 'llm-stream.js')
+                fs.writeFileSync(
+                    file,
+                    step(
+                        `if (options.isLastNode && options.sseStreamer) options.sseStreamer.streamTokenEvent(options.chatId, 'Fresh bread at 7 for: ' + input)
+                        return { id: nodeData.id, name: 'llmAgentflow', input: {}, output: { content: 'Fresh bread at 7 for: ' + input, usageMetadata: { input_tokens: 12, output_tokens: 9, total_tokens: 21 } } }`
+                    )
+                )
+                return { filePath: file }
+            })()
+        }
+        const { result, tokens } = await run({ replay: false, showToolEvents: false, nodes: streamingNodes })
+        expect(tokens).toEqual([result.text])
+    })
+
+    it('does not duplicate the final answer when two terminal siblings stream and Show tool events is Off', async () => {
+        const flowData = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+                node('directReplyAgentflow_0', 'directReplyAgentflow', 'Reply A', { directReplyMessage: 'A' }),
+                node('directReplyAgentflow_1', 'directReplyAgentflow', 'Reply B', { directReplyMessage: 'B' })
+            ],
+            edges: [
+                { id: 'e1', source: 'startAgentflow_0', target: 'directReplyAgentflow_0', sourceHandle: 'a', targetHandle: 'b' },
+                { id: 'e2', source: 'startAgentflow_0', target: 'directReplyAgentflow_1', sourceHandle: 'a', targetHandle: 'b' }
+            ]
+        })
+        const { result, tokens } = await run({ replay: false, showToolEvents: false, flowData })
+        expect(result.text).toBe('B')
+        expect(tokens).toEqual(['A', 'B'])
+    })
+
+    it('does not append post-processed text to an already-streamed terminal answer when Show tool events is Off', async () => {
+        const flowData = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+                node('directReplyAgentflow_0', 'directReplyAgentflow', 'Reply', { directReplyMessage: 'Answer' })
+            ],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'directReplyAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }]
+        })
+        const { result, tokens, saved } = await run({ replay: false, showToolEvents: false, postProcessing: true, flowData })
+        expect(result.text).toBe('Final: Answer')
+        expect(saved.ChatMessage.content).toBe('Final: Answer')
+        expect(tokens).toEqual(['Answer'])
+    })
+
+    it.each([false, true])(
+        'streams an Iteration answer after an earlier streamed sibling when Show tool events is Off and postProcessing=%s',
+        async (postProcessing) => {
+            const { result, tokens, events } = await run({
+                replay: false,
+                showToolEvents: false,
+                postProcessing,
+                flowData: fanOutIterationCanvas()
+            })
+            expect(result.text).toContain('Fresh bread at 7 for:')
+            if (postProcessing) expect(result.text).toMatch(/^Final: /)
+            expect(events.filter((e) => e.startsWith('streamAgentFlow'))).toEqual([])
+            // Side note streams first; the aggregated Iteration answer must still arrive.
+            expect(tokens[0]).toBe('Side note first')
+            expect(tokens.slice(1).join('')).toBe(result.text)
+        }
+    )
 
     it('runs the steps and returns the answer and the steps, with their tokens', async () => {
         const { result } = await run({ replay: true })

@@ -65,3 +65,9 @@ describe('colors', () => {
         assert.equal(colorVariables({ accent: '#123456', userBg: '' }), '--dc-accent:#123456;')
     })
 })
+
+it('loads the resolved public tool-event setting', () => {
+    assert.equal(normalizeConfig({ showToolEvents: { status: true } }).showToolEvents, true)
+    assert.equal(normalizeConfig({ showToolEvents: { status: false } }).showToolEvents, false)
+    assert.equal(normalizeConfig('OK').showToolEvents, false)
+})

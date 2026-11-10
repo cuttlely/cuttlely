@@ -2791,3 +2791,13 @@ describe('tool func auth separator timing', () => {
         }
     })
 })
+
+describe('public tool-event display setting', () => {
+    it('keeps only a boolean status and omits extra data', () => {
+        expect(publicChatbotDisplayConfig({ showToolEvents: { status: true, extra: 'hidden' } })).toEqual({
+            showToolEvents: { status: true }
+        })
+        expect(publicChatbotDisplayConfig({ showToolEvents: { status: false } })).toEqual({ showToolEvents: { status: false } })
+        expect(publicChatbotDisplayConfig({ showToolEvents: { status: 'true' } })).toEqual({})
+    })
+})
