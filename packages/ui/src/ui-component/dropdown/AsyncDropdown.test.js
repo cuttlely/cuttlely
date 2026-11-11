@@ -65,4 +65,56 @@ describe('AsyncDropdown reused for another card', () => {
         expect(signals[1].signal.aborted).toBe(false)
         await act(async () => root.unmount())
     })
+
+    test('switching the card clears the old options and shows the new card value after its load', async () => {
+        const { createElement } = require('react')
+        const { act } = require('react-dom/test-utils')
+        const { createRoot } = require('react-dom/client')
+        const { ThemeProvider, createTheme } = require('@mui/material/styles')
+        const credentialsApi = require('@/api/credentials').default
+        const { AsyncDropdown } = require('./AsyncDropdown')
+        const pending = {}
+        credentialsApi.getCredentialsByName.mockImplementation(
+            (names) =>
+                new Promise((resolve) => {
+                    pending[names] = resolve
+                })
+        )
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        const render = (id, credentialNames, value) =>
+            act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(AsyncDropdown, {
+                            name: 'credential',
+                            nodeData: { id, name: 'card', inputParams: [{ name: 'credential' }] },
+                            value,
+                            onSelect: () => {},
+                            credentialNames
+                        })
+                    )
+                )
+            })
+
+        await render('node-a', ['providerA'], 'a-id')
+        await act(async () => pending.providerA({ data: [{ id: 'a-id', name: 'Alpha' }] }))
+        expect(container.querySelector('input').value).toBe('Alpha')
+
+        await render('node-b', ['providerB'], 'b-id')
+        expect(container.querySelector('input').value).toBe('')
+        await act(async () =>
+            pending.providerB({
+                data: [
+                    { id: 'a-id', name: 'Alpha' },
+                    { id: 'b-id', name: 'Beta' }
+                ]
+            })
+        )
+        expect(container.querySelector('input').value).toBe('Beta')
+        await act(async () => root.unmount())
+    })
 })

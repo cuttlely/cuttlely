@@ -118,8 +118,15 @@ export const AsyncDropdown = ({
     const [messages, setMessages] = useState([])
 
     useEffect(() => {
+        setInternalValue(value ?? 'choose an option')
+    }, [nodeData?.id, value])
+
+    useEffect(() => {
         const controller = new AbortController()
         let active = true
+        setOpen(false)
+        setOptions([])
+        setMessages([])
         setLoading(true)
         ;(async () => {
             try {
