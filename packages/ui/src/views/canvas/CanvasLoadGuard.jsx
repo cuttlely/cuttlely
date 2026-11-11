@@ -11,6 +11,17 @@ export const canvasLoadBlocked = (flowId, loadState) => Boolean(flowId) && !(loa
 export const canvasLoadRetryRequest = (flowId, loadState, loadedFlowId) =>
     loadState?.flowId === flowId && loadState?.request === 'status' && loadedFlowId === flowId ? 'status' : 'flow'
 
+// Why the open failed, in the person's terms. A request with no answer is a connection problem; an answered
+// request keeps the server's own reason (for example a deleted flow), so it does not look like a dropped connection.
+export const canvasLoadFailureReason = (error) => {
+    const response = error?.response
+    if (!response) return 'The server could not be reached. Select Retry when the connection is back.'
+    const data = response.data
+    const message = typeof data === 'string' ? data : data?.message
+    if (typeof message === 'string' && message.trim()) return `The server answered: ${message.trim()}`
+    return response.status ? `The server answered with status ${response.status}.` : 'The server answered with an error.'
+}
+
 const CanvasLoadGuard = ({ flowId, loadState, onRetry, onBack, children }) => {
     const active = canvasLoadBlocked(flowId, loadState)
     const current = loadState?.flowId === flowId
@@ -61,6 +72,7 @@ const CanvasLoadGuard = ({ flowId, loadState, onRetry, onBack, children }) => {
                                 : 'Draft status could not be loaded. The canvas stays closed so none of its actions can run.'
                             : 'Checking the saved draft before the canvas opens.'}
                     </Typography>
+                    {failed && <Typography color='text.secondary'>{canvasLoadFailureReason(failed)}</Typography>}
                     {failed ? (
                         <Button variant='contained' onClick={onRetry}>
                             Retry

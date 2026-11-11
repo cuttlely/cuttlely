@@ -18,7 +18,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Error notifications across the app, such as saving settings, credentials or evaluations, now show "The server could not be reached" when a request gets no answer, instead of showing nothing.
 
--   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays closed with a Retry action until its save mode is known.
+-   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays closed with a Retry action until its save mode is known, and says whether the server could not be reached or answered with an error.
 
 -   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. A canvas save notification that gets no answer says that the edits remain on the canvas and to press Save again when the connection is back. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
