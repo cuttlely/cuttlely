@@ -35,6 +35,8 @@ import {
     draftConflictFrom,
     publishChangeLines,
     publishResultMessage,
+    PUBLISH_NOT_LANDED_MESSAGE,
+    recheckPublish,
     showsPublishCheck
 } from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
@@ -301,14 +303,28 @@ const PublishDialog = ({
         setBusy(true)
         setError('')
         setPublishConflict(null)
+        const draft = { ...(draftExpected() || {}), ...(overwriteDraftChanges === true ? { overwriteDraftChanges: true } : {}) }
+        const before = {
+            draftHash: typeof draft.expectedDraftHash === 'string' ? draft.expectedDraftHash : draftStatus?.draft?.hash ?? null,
+            lastPublishedDate: draftStatus?.lastPublished?.date ?? null
+        }
         try {
-            const draft = { ...(draftExpected() || {}), ...(overwriteDraftChanges === true ? { overwriteDraftChanges: true } : {}) }
             const res = await flowDraftsApi.publish(chatflow.id, publishBody(stale, replaceLiveChanges, draft))
             finish(res.data)
         } catch (err) {
             const found = draftConflictFrom(err)
             if (found) setPublishConflict(found)
-            else setError(publishFailureMessage(err))
+            else if (err?.response === undefined && (err?.isAxiosError || err?.request)) {
+                // No answer: the publish may have landed. Read the status back (a retried GET) instead of sending it again.
+                const { outcome, status } = await recheckPublish(() => flowDraftsApi.getStatus(chatflow.id), before)
+                if (!mounted.current) return
+                if (outcome === 'published') {
+                    finish({ status })
+                    return
+                }
+                if (status) onDraftStatus(status)
+                setError(outcome === 'not-published' ? PUBLISH_NOT_LANDED_MESSAGE : publishFailureMessage(err))
+            } else setError(publishFailureMessage(err))
             setBusy(false)
         }
     }

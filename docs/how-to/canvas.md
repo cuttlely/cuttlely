@@ -52,7 +52,13 @@ Cuttlely quietly retries loading options, credentials, and other read requests. 
 
 Saves are not retried automatically yet. If Save cannot reach the server, the message says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits still show as unsaved. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes.
 
-Publish is also single-attempt. If it gets no answer, the message says **Publish not confirmed**, because the publish may have gone through before the connection dropped. When the connection is back, reopen the flow and check its Live version before you publish again. Draft-setting failures ask you to try that setting again instead of telling you to press Save.
+Publish is never sent twice on its own. If Publish gets no answer, the publish may still have gone through, so Cuttlely reads the flow's publish status again:
+
+-   If Live now has your draft, you see the usual **Published** message.
+-   If it does not, the dialog says **Publish did not go through. Nothing was published.** Select **Publish** to try again.
+-   If that check also gets no answer, the dialog says **Publish not confirmed**. When the connection is back, reopen the flow and check its Live version before you publish again.
+
+Draft-setting failures ask you to try that setting again instead of telling you to press Save.
 
 When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. The page says whether the server could not be reached or answered with an error, such as a flow that no longer exists. Select **Retry** after the connection is back, or **Back** to leave. This prevents a save or edit until Cuttlely knows the correct mode.
 

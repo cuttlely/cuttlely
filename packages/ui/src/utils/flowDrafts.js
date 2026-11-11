@@ -275,6 +275,35 @@ export const publishResultMessage = (data = {}) => {
     return { message: 'Published.', variant: 'success' }
 }
 
+export const PUBLISH_NOT_LANDED_MESSAGE = 'Publish did not go through. Nothing was published. Select Publish to try again.'
+
+// What a Publish that got no answer did, read back from the draft status. `before` is the draft hash that was
+// published and the last publish date before it. Live moved and that draft is no longer pending: it landed.
+// Live did not move and the same draft is still pending: it did not. Anything else stays unknown.
+export const publishOutcomeFromStatus = (before, status) => {
+    if (!status || typeof status !== 'object') return 'unknown'
+    const hash = typeof before?.draftHash === 'string' && before.draftHash ? before.draftHash : null
+    const beforeDate = before?.lastPublishedDate ?? null
+    const afterDate = status.lastPublished?.date ?? null
+    const pendingHash = status.draft?.hash ?? null
+    const moved = Boolean(afterDate) && afterDate !== beforeDate
+    if (moved && pendingHash !== hash) return 'published'
+    if (!moved && hash && pendingHash === hash) return 'not-published'
+    return 'unknown'
+}
+
+// Re-reads the status after a Publish got no answer. `read` is a GET on the shared client, which retries quietly.
+// The publish itself is never sent again here.
+export const recheckPublish = async (read, before) => {
+    try {
+        const response = await read()
+        const status = response?.data || null
+        return { outcome: publishOutcomeFromStatus(before, status), status }
+    } catch (error) {
+        return { outcome: 'unknown', status: null, error }
+    }
+}
+
 export const apiErrorMessage = (error, fallback) => {
     const data = error?.response?.data
     if (data && typeof data === 'object' && typeof data.message === 'string' && data.message) return data.message
