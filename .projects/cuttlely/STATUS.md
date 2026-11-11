@@ -8,9 +8,15 @@ The classic canvas and agentflow v2 do not choose Live until draft status is kno
 
 Node option, credential, hint, and nested configuration loads use the shared client and abort when their field unmounts. Canvas save and create hooks clear their prior result when a new write starts, ignore older completions, and give the current error priority. A no-answer failure after an earlier success cannot show a saved notice, clear the dirty revision, or start a PUT after the has-changed preflight failed. Canvas saves say the edits remain on the canvas and ask the person to press Save again after the connection returns. Publish says nothing was published, and draft-setting failures ask the person to try the setting again; page-level load failures retain their reload guidance. Unit tests cover the client, retry helpers, exact-id draft-status decision, delayed opening screen, current save result, action-specific write messages, dirty reducer, dropdown client path and analyst lookup. The save queue is the next pull request. Every UI error handler now reads `error.response` only after checking it (`requestFailureMessage`), and `utils/responseReads.test.js` also refuses handlers that call that helper only inside a response-body branch.
 
+## Proxy-safe HTTP timeouts
+
+This branch is `fix/proxy-safe-timeouts` from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
+
+The HTTP server keeps idle connections open for 65 seconds instead of Node's 5-second default. `HTTP_KEEP_ALIVE_TIMEOUT_MS` accepts whole numbers from 1000 to 600000. `HTTP_HEADERS_TIMEOUT_MS` defaults to the keep-alive value plus 1000, must be greater than keep-alive, and is capped at 601000. Invalid values warn and use the applicable default. Startup applies only `keepAliveTimeout` and `headersTimeout`; Node's `requestTimeout` is unchanged. `docs/how-to/reverse-proxy.md` covers upstream reuse, stream timeouts and buffering, upload size, gateway idle time, and `TRUST_PROXY`.
+
 ## Canvas error page after a request gets no answer
 
-This branch is `fix/canvas-save-crash` from `origin/main` at `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). It fixes [#455](https://github.com/cuttlely/cuttlely/issues/455). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.
+Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It fixes the client-side failure from [#455](https://github.com/cuttlely/cuttlely/issues/455). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.
 
 A request that gets no HTTP response (dropped connection, timeout, blocked proxy) used to crash the route. The API client's response interceptor read `error.response.status` without a guard and threw a `TypeError`. `useApi` passed that to the shared page error, and the next page to mount rendered `ErrorBoundary`, which read `error.response.status` again while rendering. The route then showed **Something went wrong**. A browser run that aborts requests during canvas edits, then goes back to the list, reproduced the same minified stack as the reported one.
 

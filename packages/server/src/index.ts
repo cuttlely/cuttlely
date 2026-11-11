@@ -40,6 +40,7 @@ import { attachIdentitySession } from './identity'
 import { apiV1Auth, isMcpEndpointPath, withoutDenylisted } from './identity/apiGate'
 import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
 import { resolveTrustProxy } from './utils/trustProxy'
+import { applyHttpServerTimeouts, resolveHttpServerTimeouts } from './utils/httpServerTimeouts'
 import { UsageCacheManager } from './UsageCacheManager'
 import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
 import { fileSizeLimit } from './settings/settingAlias'
@@ -435,6 +436,9 @@ export async function start(): Promise<void> {
     const host = process.env.HOST
     const port = parseInt(process.env.PORT || '', 10) || 3000
     const server = http.createServer(serverApp.app)
+    const httpServerTimeouts = resolveHttpServerTimeouts(process.env)
+    for (const message of httpServerTimeouts.warnings) logger.warn(`[server]: ${message}`)
+    applyHttpServerTimeouts(server, httpServerTimeouts)
     httpServer = server
 
     // A browser opened during boot gets a "Cuttlely is starting" page instead of a refused connection.
