@@ -115,6 +115,60 @@ const withoutFileBodies = (canvas) => {
     return next
 }
 
+const withSubmittedFilesNormalized = (storedValue, submittedValue) => {
+    const submittedNames = fileNamesInInput(submittedValue)
+    if (submittedNames) {
+        const storedNames =
+            fileNamesInInput(storedValue) || (typeof storedValue === 'string' && storedValue ? [savedFileName(storedValue)] : null)
+        return [{ savedFileNames: storedNames }, { savedFileNames: submittedNames }]
+    }
+    if (typeof submittedValue === 'string' && (submittedValue.startsWith('[') || submittedValue.startsWith('{'))) {
+        try {
+            const submitted = JSON.parse(submittedValue)
+            const stored = JSON.parse(storedValue)
+            const [normalizedStored, normalizedSubmitted] = withSubmittedFilesNormalized(stored, submitted)
+            return [JSON.stringify(normalizedStored), JSON.stringify(normalizedSubmitted)]
+        } catch {
+            return [storedValue, submittedValue]
+        }
+    }
+    if (Array.isArray(submittedValue) && Array.isArray(storedValue) && submittedValue.length === storedValue.length) {
+        const stored = []
+        const submitted = []
+        for (let index = 0; index < submittedValue.length; index += 1) {
+            const [normalizedStored, normalizedSubmitted] = withSubmittedFilesNormalized(storedValue[index], submittedValue[index])
+            stored.push(normalizedStored)
+            submitted.push(normalizedSubmitted)
+        }
+        return [stored, submitted]
+    }
+    if (
+        submittedValue &&
+        storedValue &&
+        Object.getPrototypeOf(submittedValue) === Object.prototype &&
+        Object.getPrototypeOf(storedValue) === Object.prototype
+    ) {
+        const stored = { ...storedValue }
+        const submitted = { ...submittedValue }
+        for (const key of Object.keys(submittedValue)) {
+            if (!Object.prototype.hasOwnProperty.call(storedValue, key)) continue
+            const normalized = withSubmittedFilesNormalized(storedValue[key], submittedValue[key])
+            stored[key] = normalized[0]
+            submitted[key] = normalized[1]
+        }
+        return [stored, submitted]
+    }
+    return [storedValue, submittedValue]
+}
+
+const sameDraftFileCanvas = (storedText, submittedText) => {
+    const stored = parseCanvas(storedText)
+    const submitted = parseCanvas(submittedText)
+    if (!stored || !submitted) return false
+    const normalized = withSubmittedFilesNormalized(withoutServerCanvasFields(stored), withoutServerCanvasFields(submitted))
+    return JSON.stringify(normalized[0]) === JSON.stringify(normalized[1])
+}
+
 // Draft storage may add node-pack metadata. That metadata does not make the stored graph a different canvas.
 export const sameSavedCanvas = (left, right) => {
     if (left === right) return true
@@ -179,8 +233,9 @@ export const draftSaveLanded = (status, entry) => {
     )
         return false
 
-    // Uploaded data is rewritten into stored paths, so its content cannot be compared reliably here.
-    if (entry.hasBase64) return true
+    // Storage rewrites uploaded bodies into file paths. Compare their names and every non-file graph field so a
+    // nearby same-account save from another tab cannot be accepted as this attempt.
+    if (entry.hasBase64) return sameDraftFileCanvas(stored.flowData, entry.flowData)
     return sameSavedCanvas(stored.flowData, entry.flowData)
 }
 

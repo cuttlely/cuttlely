@@ -222,6 +222,38 @@ describe('save queue core', () => {
         expect(save.onConflict).toHaveBeenCalledTimes(1)
     })
 
+    test('rejects a nearby same-account file draft when its non-file graph came from another tab', async () => {
+        const fileFlow = JSON.stringify({
+            nodes: [
+                {
+                    id: 'a',
+                    data: { category: 'Document Loaders', inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt', mode: 'mine' } }
+                }
+            ],
+            edges: []
+        })
+        const otherFlow = JSON.stringify({
+            nodes: [
+                {
+                    id: 'b',
+                    data: { category: 'Document Loaders', inputs: { file: 'flow-1/draft-1234abcd-a.txt', mode: 'other' } }
+                }
+            ],
+            edges: []
+        })
+        const save = entry({ flowData: fileFlow, hasBase64: true })
+        const stored = status('other', otherFlow)
+        const { queue } = makeQueue({
+            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            getDraftStatus: jest.fn().mockResolvedValue({ data: stored })
+        })
+
+        queue.enqueue(save)
+        await flush()
+        expect(save.onAck).not.toHaveBeenCalled()
+        expect(save.onConflict).toHaveBeenCalledTimes(1)
+    })
+
     test('ignores only stored node-pack metadata during canvas comparison', () => {
         const stamped = JSON.stringify({ nodes: [{ id: 'a', data: { name: 'card', nodePack: 'pack' } }], edges: [] })
         expect(sameSavedCanvas(FLOW_A, stamped)).toBe(true)
@@ -236,7 +268,7 @@ describe('save queue core', () => {
             edges: []
         })
         const storedFlow = JSON.stringify({
-            nodes: [{ id: 'a', data: { category: 'Document Loaders', inputs: { file: 'flow-1/draft-x-a.txt' } } }],
+            nodes: [{ id: 'a', data: { category: 'Document Loaders', inputs: { file: 'flow-1/draft-1234abcd-a.txt' } } }],
             edges: []
         })
         const save = entry({ flowData: fileFlow })
