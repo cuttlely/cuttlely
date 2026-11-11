@@ -440,7 +440,8 @@ export function repoFiles(root, inputs, { checkout = false, subPath = '' } = {})
         respectGitignore: checkout || boolInput(inputs.respectGitignore, true),
         useDefaults: checkout || boolInput(inputs.defaultIgnores, true),
         include: splitList(inputs.include),
-        exclude: [...splitList(inputs.exclude), ...(checkout ? repoDataExcludes(root) : [])]
+        exclude: [...splitList(inputs.exclude), ...(checkout ? repoDataExcludes(root) : [])],
+        gitignoreRoot: root
     })
     if (!subPath) return files
     return prefixRepoRels(files, subPath)

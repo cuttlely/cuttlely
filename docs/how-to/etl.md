@@ -212,7 +212,7 @@ Add a **Code Repository** node when the source is a git repository. Set **Folder
 
 You can paste a GitHub folder or file link, such as `https://github.com/hashicorp/web-unified-docs/tree/main/content/`. The node clones the repository on that branch and loads only that folder or file. A plain repository URL or a `.git` URL still works. SSH URLs are not cloned; use the https address instead.
 
-If the URL cannot be cloned, a short hint appears on the node. For a branch name that contains slashes, fill in **Branch** if the node cannot tell the branch apart from the folder path.
+An unsupported or malformed URL shows a short hint on the node. Repository access and branch errors appear when you preview or run the pipeline. For a branch name that contains slashes, fill in **Branch** if the node cannot tell the branch apart from the folder path.
 
 ## Restore an earlier version
 

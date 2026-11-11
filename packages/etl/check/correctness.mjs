@@ -37,6 +37,22 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     fs.writeFileSync(path.join(repo, 'node_modules', 'pkg.js'), 'nope')
     const walked = [...ignore.walkFiles(repo)].map((file) => file.rel)
     check('repo walk honors gitignore and default ignores', walked.join() === '.gitignore,src/a.ts', walked.join())
+
+    const selected = path.join(repo, 'docs')
+    fs.mkdirSync(path.join(selected, 'drafts'), { recursive: true })
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'skip.txt\ndocs/drafts/\n*.tmp\n')
+    fs.writeFileSync(path.join(selected, '.gitignore'), '!keep.tmp\n')
+    fs.writeFileSync(path.join(selected, 'guide.md'), 'guide')
+    fs.writeFileSync(path.join(selected, 'drop.tmp'), 'drop')
+    fs.writeFileSync(path.join(selected, 'keep.tmp'), 'keep')
+    fs.writeFileSync(path.join(selected, 'drafts', 'private.md'), 'private')
+    const { repoFiles } = await import('../sources.mjs')
+    const selectedWalk = [...repoFiles(repo, {}, { subPath: 'docs' })].map((file) => file.rel)
+    check(
+        'selected repo folder inherits root and nested gitignore rules',
+        selectedWalk.join() === 'docs/.gitignore,docs/guide.md,docs/keep.tmp',
+        selectedWalk.join()
+    )
 }
 
 // Same content keeps its id; a change does not. Positional metadata does not affect it.

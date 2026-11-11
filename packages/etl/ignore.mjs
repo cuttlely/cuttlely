@@ -101,18 +101,18 @@ export function compileRule(line) {
     return { regex: new RegExp(source), negate, dirOnly }
 }
 
-export function compileRules(lines, base = '') {
-    return { base, rules: lines.map(compileRule).filter(Boolean) }
+export function compileRules(lines, base = '', pathPrefix = '') {
+    return { base, pathPrefix, rules: lines.map(compileRule).filter(Boolean) }
 }
 
 // Rule sets are ordered from the walk root down; within and across sets the last matching rule wins, as in git.
 export function isIgnored(relPath, isDir, ruleSets) {
     let ignored = false
     for (const set of ruleSets) {
-        let rel = relPath
+        let rel = set.pathPrefix ? `${set.pathPrefix}/${relPath}` : relPath
         if (set.base) {
-            if (!relPath.startsWith(`${set.base}/`)) continue
-            rel = relPath.slice(set.base.length + 1)
+            if (!rel.startsWith(`${set.base}/`)) continue
+            rel = rel.slice(set.base.length + 1)
         }
         for (const rule of set.rules) {
             if (rule.dirOnly && !isDir) continue
@@ -143,12 +143,43 @@ export function compareSegments(a, b) {
 
 // Depth-first over sorted entries, recursing into a directory where it sorts, so files come out in
 // compareSegments order and a resumed walk can skip everything up to the checkpoint path.
-export function* walkFiles(root, { respectGitignore = true, useDefaults = true, exclude = [], include = [] } = {}) {
+export function* walkFiles(root, { respectGitignore = true, useDefaults = true, exclude = [], include = [], gitignoreRoot = root } = {}) {
     const baseRules = []
     if (useDefaults) baseRules.push(compileRules(DEFAULT_IGNORES))
     if (exclude.length) baseRules.push(compileRules(exclude))
     const includeRules = include.length ? compileRules(include) : null
-    yield* walkDir(root, '', baseRules, { respectGitignore, includeRules })
+    const inherited = respectGitignore ? inheritedGitignoreRules(root, gitignoreRoot) : { prefix: '', rules: [] }
+    if (inherited.prefix && isIgnored('', true, inherited.rules)) return
+    yield* walkDir(root, '', [...baseRules, ...inherited.rules], {
+        respectGitignore,
+        includeRules,
+        gitignorePrefix: inherited.prefix
+    })
+}
+
+function inheritedGitignoreRules(root, gitignoreRoot) {
+    const top = fs.realpathSync(gitignoreRoot)
+    const walk = fs.realpathSync(root)
+    const relative = path.relative(top, walk)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return { prefix: '', rules: [] }
+    const parts = relative.split(path.sep).filter(Boolean)
+    const prefix = parts.join('/')
+    const rules = []
+    let dir = top
+    let base = ''
+    for (let i = 0; i < parts.length; i += 1) {
+        const ignoreFile = path.join(dir, '.gitignore')
+        try {
+            if (fs.lstatSync(ignoreFile).isFile()) {
+                rules.push(compileRules(fs.readFileSync(ignoreFile, 'utf8').split(/\r?\n/), base, prefix))
+            }
+        } catch {
+            // A missing or unreadable ancestor ignore file contributes no rules.
+        }
+        dir = path.join(dir, parts[i])
+        base = base ? `${base}/${parts[i]}` : parts[i]
+    }
+    return { prefix, rules }
 }
 
 function* walkDir(dir, rel, ruleSets, options) {
@@ -160,7 +191,11 @@ function* walkDir(dir, rel, ruleSets, options) {
     }
     let sets = ruleSets
     if (options.respectGitignore && entries.some((entry) => entry.isFile() && entry.name === '.gitignore')) {
-        sets = [...ruleSets, compileRules(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8').split(/\r?\n/), rel)]
+        const base = options.gitignorePrefix ? `${options.gitignorePrefix}${rel ? `/${rel}` : ''}` : rel
+        sets = [
+            ...ruleSets,
+            compileRules(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8').split(/\r?\n/), base, options.gitignorePrefix)
+        ]
     }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     for (const entry of entries) {

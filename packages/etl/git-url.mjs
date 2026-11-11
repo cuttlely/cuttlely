@@ -13,7 +13,7 @@ export const GITHUB_PAGE_HINT = 'This GitHub page cannot be cloned. Use the repo
 export const MISSING_BRANCH_HINT = 'This GitHub link is missing a branch.'
 export const TRAVERSAL_HINT = 'The folder in this URL is not a path inside the repository.'
 export const SLASH_BRANCH_HINT =
-    'Set the Branch field. This folder link may use a branch name with slashes, so the node cannot tell the branch apart from the path.'
+    'No branch in this repository matches the link. Check the link, or fill in Branch when its name contains slashes.'
 export const LIST_REFS_HINT =
     'Could not list branches for this repository. Set the Branch field, or check that the URL is a public https repository.'
 export const WEB_PAGE_HINT = 'Use a git repository URL, not a web page. GitHub folder and file links are supported.'
@@ -179,8 +179,11 @@ export async function resolveGitSource({ gitUrl, branch = '', listRefs } = {}) {
         return { cloneUrl: inspected.cloneUrl, branch: chosen, subPath: '', kind: 'repo' }
     }
     const chosen = String(branch || '').trim()
+    if (chosen.startsWith('-')) throw new EtlError('bad_source', `Branch "${chosen}" is not a branch name.`)
     let refs = null
-    const needsRefs = !chosen && inspected.rest.includes('/')
+    const restSegments = safeSubPath(inspected.rest).split('/').filter(Boolean)
+    const chosenSegments = chosen ? safeSubPath(chosen).split('/').filter(Boolean) : []
+    const needsRefs = inspected.rest.includes('/') && (!chosen || !startsWithSegments(restSegments, chosenSegments))
     if (needsRefs) {
         try {
             refs = await (listRefs || listRemoteRefs)(inspected.cloneUrl)
