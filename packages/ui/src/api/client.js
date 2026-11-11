@@ -25,20 +25,25 @@ const apiClient = axios.create({
 
 let refreshPromise = null
 let retrySleep = abortableSleep
+let retryTrackingSequence = 0
+const activeRetryTrackingIds = new Set()
 
 export const setRetrySleep = (sleep) => {
     retrySleep = sleep || abortableSleep
 }
 
 const startRetryTracking = (config) => {
-    if (config._reconnecting) return
-    config._reconnecting = true
+    if (!config._reconnectTrackingId) {
+        retryTrackingSequence += 1
+        config._reconnectTrackingId = `request-${retryTrackingSequence}`
+    }
+    if (activeRetryTrackingIds.has(config._reconnectTrackingId)) return
+    activeRetryTrackingIds.add(config._reconnectTrackingId)
     beginReconnect()
 }
 
 const finishRetryTracking = (config) => {
-    if (!config?._reconnecting) return
-    config._reconnecting = false
+    if (!config?._reconnectTrackingId || !activeRetryTrackingIds.delete(config._reconnectTrackingId)) return
     endReconnect()
 }
 
@@ -151,6 +156,9 @@ export const resetClientState = () => {
     refreshPromise = null
     retrySleep = abortableSleep
     inFlightRequests.clear()
+    for (const _id of activeRetryTrackingIds) endReconnect()
+    activeRetryTrackingIds.clear()
+    retryTrackingSequence = 0
 }
 
 export default apiClient

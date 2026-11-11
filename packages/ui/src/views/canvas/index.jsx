@@ -15,7 +15,7 @@ import {
 import { cloneDeep } from 'lodash'
 
 // material-ui
-import { Toolbar, Box, AppBar, Button, Fab, Typography } from '@mui/material'
+import { Toolbar, Box, AppBar, Button, Fab } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
 // project imports
@@ -24,6 +24,7 @@ import ButtonEdge from './ButtonEdge'
 import StickyNote from './StickyNote'
 import TidyLayoutButton from './TidyLayoutButton'
 import CanvasHeader from './CanvasHeader'
+import CanvasLoadGuard from './CanvasLoadGuard'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
@@ -160,7 +161,9 @@ const Canvas = () => {
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
-    const [draftStatusLoadError, setDraftStatusLoadError] = useState(null)
+    const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, loading: false, error: null })
+    const [draftStatusRetry, setDraftStatusRetry] = useState(0)
+    const draftStatusLoadError = draftStatusLoad.flowId === chatflowId ? draftStatusLoad.error : null
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
     const draftSave = useDraftSave()
@@ -218,7 +221,7 @@ const Canvas = () => {
         [applyingDelete, deleteQueue, onEdgesChange]
     )
 
-    const [selectedNode, setSelectedNode] = useState(null)
+    const [, setSelectedNode] = useState(null)
     const [canvasLook, setCanvasLook] = useCanvasLook()
     const sidePanelOn = canvasLook === 'panel'
     const [panelNodeId, setPanelNodeId] = useState(null)
@@ -962,9 +965,11 @@ const Canvas = () => {
                 return
             }
             let cancelled = false
+            setDraftStatus(null)
+            setDraftStatusLoad({ flowId: loaded.id, loading: true, error: null })
             const paint = (status) => {
                 if (cancelled) return
-                setDraftStatusLoadError(null)
+                setDraftStatusLoad({ flowId: loaded.id, loading: false, error: null })
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
                 draftSave.record(status, text)
@@ -999,7 +1004,9 @@ const Canvas = () => {
                 })
                 .catch((error) => {
                     const decision = draftStatusOpenDecision(undefined, error)
-                    if (!cancelled && !decision.paint) setDraftStatusLoadError(decision.error)
+                    if (!cancelled && !decision.paint) {
+                        setDraftStatusLoad({ flowId: loaded.id, loading: false, error: decision.error })
+                    }
                 })
             return () => {
                 cancelled = true
@@ -1009,7 +1016,13 @@ const Canvas = () => {
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getSpecificChatflowApi.data, getSpecificChatflowApi.error])
+    }, [getSpecificChatflowApi.data, getSpecificChatflowApi.error, draftStatusRetry])
+
+    const retryDraftStatusLoad = () => {
+        setDraftStatus(null)
+        setDraftStatusLoad({ flowId: chatflowId, loading: true, error: null })
+        setDraftStatusRetry((attempt) => attempt + 1)
+    }
 
     // A saved flow opens zoomed to fit its cards, once React Flow has measured them.
     useEffect(() => {
@@ -1342,280 +1355,263 @@ const Canvas = () => {
     }, [openPanelNodeId, reactFlowInstance])
 
     return (
-        <>
-            <Box>
-                <AppBar
-                    enableColorOnDark
-                    position='fixed'
-                    color='inherit'
-                    elevation={1}
-                    sx={{
-                        bgcolor: theme.palette.background.default
-                    }}
-                >
-                    <Toolbar sx={{ height: 'auto', alignItems: 'center', py: { xs: 1, md: 0 } }}>
-                        <CanvasHeader
-                            chatflow={chatflow}
-                            handleSaveFlow={handleSaveFlow}
-                            handleDeleteFlow={handleDeleteFlow}
-                            handleLoadFlow={handleLoadFlow}
-                            catalogLoading={getNodesApi.loading}
-                            catalogError={getNodesApi.error}
-                            onRetryCatalog={() => getNodesApi.request()}
-                            onApplyMigration={({ canvas, name }) => {
-                                applyFlowiseCanvas(JSON.stringify(canvas))
-                                if (!chatflowRef.current?.id && name) {
-                                    dispatch({ type: SET_CHATFLOW, chatflow: { name } })
-                                }
-                            }}
-                            isAgentCanvas={isAgentCanvas}
-                            isHarnessCanvas={isHarnessCanvas}
-                            isEtlCanvas={isEtlCanvas}
-                            draftStatus={draftStatus}
-                            onDraftStatus={setDraftStatus}
-                            onChatflowUpdated={(next) => {
-                                dispatch({ type: SET_CHATFLOW, chatflow: next })
-                                if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
-                            }}
-                            onApplyCanvas={applyCanvasText}
-                            draftExpected={draftSave.expected}
-                            onDraftConflict={reviewPublishConflict}
-                        />
-                    </Toolbar>
-                </AppBar>
-                <Box sx={{ pt: { xs: '120px', md: '70px' }, height: '100vh', width: '100%' }}>
-                    <ReactFlowProvider>
-                        <CanvasPanelContext.Provider value={panelContext}>
-                            <div className='reactflow-parent-wrapper'>
-                                <div className='reactflow-wrapper' ref={reactFlowWrapper} style={{ position: 'relative' }}>
-                                    <ReactFlow
-                                        nodes={nodes}
-                                        edges={edges}
-                                        onNodesChange={handleNodesChange}
-                                        onNodeClick={onNodeClick}
-                                        onPaneClick={() => setPanelNodeId(null)}
-                                        onEdgesChange={handleEdgesChange}
-                                        onDrop={onDrop}
-                                        onDragOver={onDragOver}
-                                        onNodeDragStart={onNodeDragStart}
-                                        onNodeDragStop={onNodeDragStop}
-                                        nodeTypes={nodeTypes}
-                                        edgeTypes={edgeTypes}
-                                        onConnect={onConnect}
-                                        onInit={setReactFlowInstance}
-                                        fitView
-                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
-                                        minZoom={0.1}
-                                        snapGrid={[25, 25]}
-                                        snapToGrid={isSnappingEnabled}
-                                        className='chatflow-canvas'
-                                    >
-                                        <Controls
-                                            className={customization.isDarkMode ? 'dark-mode-controls' : ''}
-                                            style={{
-                                                display: 'flex',
-                                                flexDirection: 'row',
-                                                left: '50%',
-                                                transform: 'translate(-50%, -50%)'
-                                            }}
+        <CanvasLoadGuard
+            flowId={chatflowId}
+            loadState={draftStatusLoad}
+            onRetry={retryDraftStatusLoad}
+            onBack={() => navigate(isEtlCanvas ? '/etl' : isHarnessCanvas ? '/harnesses' : isAgentCanvas ? '/agentflows' : '/')}
+        >
+            <>
+                <Box>
+                    <AppBar
+                        enableColorOnDark
+                        position='fixed'
+                        color='inherit'
+                        elevation={1}
+                        sx={{
+                            bgcolor: theme.palette.background.default
+                        }}
+                    >
+                        <Toolbar sx={{ height: 'auto', alignItems: 'center', py: { xs: 1, md: 0 } }}>
+                            <CanvasHeader
+                                chatflow={chatflow}
+                                handleSaveFlow={handleSaveFlow}
+                                handleDeleteFlow={handleDeleteFlow}
+                                handleLoadFlow={handleLoadFlow}
+                                catalogLoading={getNodesApi.loading}
+                                catalogError={getNodesApi.error}
+                                onRetryCatalog={() => getNodesApi.request()}
+                                onApplyMigration={({ canvas, name }) => {
+                                    applyFlowiseCanvas(JSON.stringify(canvas))
+                                    if (!chatflowRef.current?.id && name) {
+                                        dispatch({ type: SET_CHATFLOW, chatflow: { name } })
+                                    }
+                                }}
+                                isAgentCanvas={isAgentCanvas}
+                                isHarnessCanvas={isHarnessCanvas}
+                                isEtlCanvas={isEtlCanvas}
+                                draftStatus={draftStatus}
+                                onDraftStatus={setDraftStatus}
+                                onChatflowUpdated={(next) => {
+                                    dispatch({ type: SET_CHATFLOW, chatflow: next })
+                                    if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
+                                }}
+                                onApplyCanvas={applyCanvasText}
+                                draftExpected={draftSave.expected}
+                                onDraftConflict={reviewPublishConflict}
+                            />
+                        </Toolbar>
+                    </AppBar>
+                    <Box sx={{ pt: { xs: '120px', md: '70px' }, height: '100vh', width: '100%' }}>
+                        <ReactFlowProvider>
+                            <CanvasPanelContext.Provider value={panelContext}>
+                                <div className='reactflow-parent-wrapper'>
+                                    <div className='reactflow-wrapper' ref={reactFlowWrapper} style={{ position: 'relative' }}>
+                                        <ReactFlow
+                                            nodes={nodes}
+                                            edges={edges}
+                                            onNodesChange={handleNodesChange}
+                                            onNodeClick={onNodeClick}
+                                            onPaneClick={() => setPanelNodeId(null)}
+                                            onEdgesChange={handleEdgesChange}
+                                            onDrop={onDrop}
+                                            onDragOver={onDragOver}
+                                            onNodeDragStart={onNodeDragStart}
+                                            onNodeDragStop={onNodeDragStop}
+                                            nodeTypes={nodeTypes}
+                                            edgeTypes={edgeTypes}
+                                            onConnect={onConnect}
+                                            onInit={setReactFlowInstance}
+                                            fitView
+                                            deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
+                                            minZoom={0.1}
+                                            snapGrid={[25, 25]}
+                                            snapToGrid={isSnappingEnabled}
+                                            className='chatflow-canvas'
                                         >
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => {
-                                                    setIsSnappingEnabled(!isSnappingEnabled)
+                                            <Controls
+                                                className={customization.isDarkMode ? 'dark-mode-controls' : ''}
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'row',
+                                                    left: '50%',
+                                                    transform: 'translate(-50%, -50%)'
                                                 }}
-                                                title='toggle snapping'
-                                                aria-label='toggle snapping'
                                             >
-                                                {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
-                                            </button>
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => {
-                                                    setIsBackgroundEnabled(!isBackgroundEnabled)
-                                                }}
-                                                title='toggle background'
-                                                aria-label='toggle background'
-                                            >
-                                                {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
-                                            </button>
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => setCanvasLook(sidePanelOn ? 'classic' : 'panel')}
-                                                title={
-                                                    sidePanelOn
-                                                        ? 'New card look (compact cards, settings in a side panel): on'
-                                                        : 'New card look (compact cards, settings in a side panel): off'
-                                                }
-                                                aria-label='toggle side panel'
-                                                aria-pressed={sidePanelOn}
-                                            >
-                                                {sidePanelOn ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
-                                            </button>
-                                            {isHarnessCanvas && (
-                                                <TidyLayoutButton
-                                                    nodes={nodes || []}
-                                                    edges={edges || []}
-                                                    setNodes={setNodes}
-                                                    isDirty={Boolean(canvasDataStore.isDirty)}
-                                                    onDirty={setDirty}
-                                                    enqueueSnackbar={enqueueSnackbar}
-                                                    closeSnackbar={closeSnackbar}
-                                                />
-                                            )}
-                                        </Controls>
-                                        {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
-                                        <AddNodes
-                                            isAgentCanvas={isAgentCanvas}
-                                            isHarnessCanvas={isHarnessCanvas}
-                                            isEtlCanvas={isEtlCanvas}
-                                            nodesData={getNodesApi.data}
-                                            onPlaceNode={onPlaceNode}
-                                            onOpenChange={setPaletteOpen}
-                                            buildKind={buildKind}
-                                            onBuilt={onBuilt}
-                                        />
-                                        <BuildLandingDialog
-                                            show={Boolean(builtResult)}
-                                            title={builtResult?.title}
-                                            onStartNew={startNewBuilt}
-                                            onReplace={replaceWithBuilt}
-                                            onCancel={() => setBuiltResult(null)}
-                                        />
-                                        {isSyncNodesButtonEnabled && (
-                                            <Fab
-                                                sx={{
-                                                    left: buildKind ? 60 : 40,
-                                                    top: 20,
-                                                    color: 'white',
-                                                    background: 'orange',
-                                                    '&:hover': {
-                                                        background: 'orange',
-                                                        backgroundImage: `linear-gradient(rgb(0 0 0/10%) 0 0)`
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => {
+                                                        setIsSnappingEnabled(!isSnappingEnabled)
+                                                    }}
+                                                    title='toggle snapping'
+                                                    aria-label='toggle snapping'
+                                                >
+                                                    {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
+                                                </button>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => {
+                                                        setIsBackgroundEnabled(!isBackgroundEnabled)
+                                                    }}
+                                                    title='toggle background'
+                                                    aria-label='toggle background'
+                                                >
+                                                    {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
+                                                </button>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => setCanvasLook(sidePanelOn ? 'classic' : 'panel')}
+                                                    title={
+                                                        sidePanelOn
+                                                            ? 'New card look (compact cards, settings in a side panel): on'
+                                                            : 'New card look (compact cards, settings in a side panel): off'
                                                     }
-                                                }}
-                                                size='small'
-                                                aria-label='sync'
-                                                title='Sync Nodes'
-                                                onClick={() => syncNodes()}
-                                            >
-                                                <IconRefreshAlert />
-                                            </Fab>
-                                        )}
-                                        {isEtlCanvas ? (
-                                            <EtlPanel
-                                                chatflowId={chatflow?.id}
-                                                getFlowData={getEtlFlowData}
-                                                isDirty={Boolean(canvasDataStore.isDirty)}
-                                                hasDraft={Boolean(draftStatus?.draft)}
-                                                onRestore={restoreEtlVersion}
-                                                savedAt={chatflow?.updatedDate}
-                                                starters={starterQuestionsOf(chatflow?.chatbotConfig)}
+                                                    aria-label='toggle side panel'
+                                                    aria-pressed={sidePanelOn}
+                                                >
+                                                    {sidePanelOn ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
+                                                </button>
+                                                {isHarnessCanvas && (
+                                                    <TidyLayoutButton
+                                                        nodes={nodes || []}
+                                                        edges={edges || []}
+                                                        setNodes={setNodes}
+                                                        isDirty={Boolean(canvasDataStore.isDirty)}
+                                                        onDirty={setDirty}
+                                                        enqueueSnackbar={enqueueSnackbar}
+                                                        closeSnackbar={closeSnackbar}
+                                                    />
+                                                )}
+                                            </Controls>
+                                            {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
+                                            <AddNodes
+                                                isAgentCanvas={isAgentCanvas}
+                                                isHarnessCanvas={isHarnessCanvas}
+                                                isEtlCanvas={isEtlCanvas}
+                                                nodesData={getNodesApi.data}
+                                                onPlaceNode={onPlaceNode}
+                                                onOpenChange={setPaletteOpen}
+                                                buildKind={buildKind}
+                                                onBuilt={onBuilt}
                                             />
-                                        ) : (
-                                            <>
-                                                {isUpsertButtonEnabled && <VectorStorePopUp chatflowid={chatflowId} />}
-                                                <ChatPopUp
-                                                    isAgentCanvas={isAgentCanvas}
-                                                    chatflowid={chatflow?.id || chatflowId}
-                                                    harnessName={isHarnessCanvas ? chatflow?.name || '' : ''}
-                                                    openOnLoad={Boolean(isHarnessCanvas && state?.openChat && chatflow?.id)}
-                                                    harnessBlock={
-                                                        isHarnessCanvas
-                                                            ? harnessChatBlock({
-                                                                  saved: Boolean(chatflow?.id || chatflowId),
-                                                                  flowReady:
-                                                                      !chatflowId ||
-                                                                      Boolean(getSpecificChatflowApi.data) ||
-                                                                      (Array.isArray(nodes) && nodes.length > 0),
-                                                                  nodes,
-                                                                  edges,
-                                                                  nodeDefinitions: getNodesApi.data
-                                                              })
-                                                            : ''
-                                                    }
+                                            <BuildLandingDialog
+                                                show={Boolean(builtResult)}
+                                                title={builtResult?.title}
+                                                onStartNew={startNewBuilt}
+                                                onReplace={replaceWithBuilt}
+                                                onCancel={() => setBuiltResult(null)}
+                                            />
+                                            {isSyncNodesButtonEnabled && (
+                                                <Fab
+                                                    sx={{
+                                                        left: buildKind ? 60 : 40,
+                                                        top: 20,
+                                                        color: 'white',
+                                                        background: 'orange',
+                                                        '&:hover': {
+                                                            background: 'orange',
+                                                            backgroundImage: `linear-gradient(rgb(0 0 0/10%) 0 0)`
+                                                        }
+                                                    }}
+                                                    size='small'
+                                                    aria-label='sync'
+                                                    title='Sync Nodes'
+                                                    onClick={() => syncNodes()}
+                                                >
+                                                    <IconRefreshAlert />
+                                                </Fab>
+                                            )}
+                                            {isEtlCanvas ? (
+                                                <EtlPanel
+                                                    chatflowId={chatflow?.id}
+                                                    getFlowData={getEtlFlowData}
+                                                    isDirty={Boolean(canvasDataStore.isDirty)}
+                                                    hasDraft={Boolean(draftStatus?.draft)}
+                                                    onRestore={restoreEtlVersion}
+                                                    savedAt={chatflow?.updatedDate}
+                                                    starters={starterQuestionsOf(chatflow?.chatbotConfig)}
                                                 />
-                                            </>
+                                            ) : (
+                                                <>
+                                                    {isUpsertButtonEnabled && <VectorStorePopUp chatflowid={chatflowId} />}
+                                                    <ChatPopUp
+                                                        isAgentCanvas={isAgentCanvas}
+                                                        chatflowid={chatflow?.id || chatflowId}
+                                                        harnessName={isHarnessCanvas ? chatflow?.name || '' : ''}
+                                                        openOnLoad={Boolean(isHarnessCanvas && state?.openChat && chatflow?.id)}
+                                                        harnessBlock={
+                                                            isHarnessCanvas
+                                                                ? harnessChatBlock({
+                                                                      saved: Boolean(chatflow?.id || chatflowId),
+                                                                      flowReady:
+                                                                          !chatflowId ||
+                                                                          Boolean(getSpecificChatflowApi.data) ||
+                                                                          (Array.isArray(nodes) && nodes.length > 0),
+                                                                      nodes,
+                                                                      edges,
+                                                                      nodeDefinitions: getNodesApi.data
+                                                                  })
+                                                                : ''
+                                                        }
+                                                    />
+                                                </>
+                                            )}
+                                        </ReactFlow>
+                                        {(!nodes || nodes.length === 0) && !paletteOpen && (
+                                            <Box
+                                                sx={{
+                                                    position: 'absolute',
+                                                    top: 72,
+                                                    left: 20,
+                                                    zIndex: 4,
+                                                    maxWidth: 460,
+                                                    pointerEvents: 'none',
+                                                    color: 'text.secondary',
+                                                    fontSize: '0.95rem',
+                                                    lineHeight: 1.45
+                                                }}
+                                            >
+                                                {isEtlCanvas
+                                                    ? 'Add a source, then a splitter, embeddings, and a vector store.'
+                                                    : isHarnessCanvas
+                                                    ? 'Add a Harness Prime and a Harness Specialist. Connect a chat model to Harness Prime, and connect each specialist to Harness Prime.'
+                                                    : isAgentCanvas
+                                                    ? 'Add an agent, then connect a chat model.'
+                                                    : 'Add a Chain, Agent, or Engine, then connect a chat model to it.'}
+                                            </Box>
                                         )}
-                                    </ReactFlow>
-                                    {(!nodes || nodes.length === 0) && !paletteOpen && (
-                                        <Box
-                                            sx={{
-                                                position: 'absolute',
-                                                top: 72,
-                                                left: 20,
-                                                zIndex: 4,
-                                                maxWidth: 460,
-                                                pointerEvents: 'none',
-                                                color: 'text.secondary',
-                                                fontSize: '0.95rem',
-                                                lineHeight: 1.45
+                                    </div>
+                                    {openPanelNode && (
+                                        <NodeSidePanel
+                                            node={openPanelNode}
+                                            onClose={() => setPanelNodeId(null)}
+                                            onDuplicate={() => {
+                                                const created = duplicateNode(openPanelNode.id)
+                                                if (created?.id) onDuplicated(created)
                                             }}
-                                        >
-                                            {isEtlCanvas
-                                                ? 'Add a source, then a splitter, embeddings, and a vector store.'
-                                                : isHarnessCanvas
-                                                ? 'Add a Harness Prime and a Harness Specialist. Connect a chat model to Harness Prime, and connect each specialist to Harness Prime.'
-                                                : isAgentCanvas
-                                                ? 'Add an agent, then connect a chat model.'
-                                                : 'Add a Chain, Agent, or Engine, then connect a chat model to it.'}
-                                        </Box>
-                                    )}
-                                    {draftStatusLoadError && (
-                                        <Box
-                                            sx={{
-                                                position: 'absolute',
-                                                inset: 0,
-                                                zIndex: 20,
-                                                display: 'grid',
-                                                placeContent: 'center',
-                                                gap: 2,
-                                                px: 3,
-                                                textAlign: 'center',
-                                                bgcolor: 'background.default'
-                                            }}
-                                        >
-                                            <Typography variant='h4'>The saved canvas could not be opened</Typography>
-                                            <Typography color='text.secondary'>
-                                                Draft status could not be loaded. Your canvas stays closed so a save cannot use the wrong
-                                                mode.
-                                            </Typography>
-                                            <Button variant='contained' onClick={() => getSpecificChatflowApi.request(chatflowId)}>
-                                                Retry
-                                            </Button>
-                                        </Box>
+                                            onDelete={() => deleteNode(openPanelNode.id)}
+                                        />
                                     )}
                                 </div>
-                                {openPanelNode && (
-                                    <NodeSidePanel
-                                        node={openPanelNode}
-                                        onClose={() => setPanelNodeId(null)}
-                                        onDuplicate={() => {
-                                            const created = duplicateNode(openPanelNode.id)
-                                            if (created?.id) onDuplicated(created)
-                                        }}
-                                        onDelete={() => deleteNode(openPanelNode.id)}
-                                    />
-                                )}
-                            </div>
-                        </CanvasPanelContext.Provider>
-                    </ReactFlowProvider>
+                            </CanvasPanelContext.Provider>
+                        </ReactFlowProvider>
+                    </Box>
+                    <ConfirmDialog />
+                    <DraftConflictDialog
+                        open={Boolean(draftSave.conflict)}
+                        conflict={draftSave.conflict}
+                        onReload={reloadSharedDraft}
+                        onSaveAnyway={() => {
+                            draftSave.dismiss()
+                            handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
+                        }}
+                        onApply={applyMergedDraft}
+                        onClose={draftSave.dismiss}
+                        normalize={normalizeForMerge}
+                    />
                 </Box>
-                <ConfirmDialog />
-                <DraftConflictDialog
-                    open={Boolean(draftSave.conflict)}
-                    conflict={draftSave.conflict}
-                    onReload={reloadSharedDraft}
-                    onSaveAnyway={() => {
-                        draftSave.dismiss()
-                        handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
-                    }}
-                    onApply={applyMergedDraft}
-                    onClose={draftSave.dismiss}
-                    normalize={normalizeForMerge}
-                />
-            </Box>
-        </>
+            </>
+        </CanvasLoadGuard>
     )
 }
 

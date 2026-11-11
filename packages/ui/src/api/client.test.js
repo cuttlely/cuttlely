@@ -108,6 +108,8 @@ describe('API client resilience', () => {
 
     test('aborting during backoff cancels without another attempt', async () => {
         const controller = new AbortController()
+        const counts = []
+        const unsubscribe = subscribeReconnect((count) => counts.push(count))
         let sleepStarted
         const started = new Promise((resolve) => (sleepStarted = resolve))
         setRetrySleep(
@@ -124,7 +126,67 @@ describe('API client resilience', () => {
         await started
         controller.abort()
         await expect(pending).rejects.toBeInstanceOf(axios.CanceledError)
+        unsubscribe()
         expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(1)
+        expect(counts).toEqual([1, 0])
+        expect(getReconnectCount()).toBe(0)
+    })
+
+    test('parallel retries stay counted until each logical request settles', async () => {
+        let slowAttempts = 0
+        let releaseSlow
+        let slowAttemptStarted
+        const slowStarted = new Promise((resolve) => (slowAttemptStarted = resolve))
+        apiClient.defaults.adapter = jest.fn(async (config) => {
+            if (config.url === '/slow') {
+                slowAttempts += 1
+                if (slowAttempts === 1) throw networkError(config)
+                slowAttemptStarted()
+                await new Promise((resolve) => (releaseSlow = resolve))
+                return response(config)
+            }
+            throw networkError(config)
+        })
+
+        const slow = apiClient.get('/slow', { signal: new AbortController().signal })
+        const exhausted = apiClient.get('/exhausted', { signal: new AbortController().signal })
+        await slowStarted
+        await expect(exhausted).rejects.toBeTruthy()
+        expect(getReconnectCount()).toBe(1)
+        releaseSlow()
+        await expect(slow).resolves.toMatchObject({ status: 200 })
+        expect(getReconnectCount()).toBe(0)
+    })
+
+    test('an exhausted request changes retry tracking exactly once each way', async () => {
+        const counts = []
+        const unsubscribe = subscribeReconnect((count) => counts.push(count))
+        apiClient.defaults.adapter = jest.fn(async (config) => {
+            throw networkError(config)
+        })
+
+        await expect(apiClient.get('/exhausted')).rejects.toBeTruthy()
+        unsubscribe()
+        expect(counts).toEqual([1, 0])
+        expect(getReconnectCount()).toBe(0)
+    })
+
+    test('retry tracking settles once after a session refresh', async () => {
+        const counts = []
+        const unsubscribe = subscribeReconnect((count) => counts.push(count))
+        let attempts = 0
+        apiClient.defaults.adapter = jest.fn(async (config) => {
+            attempts += 1
+            if (attempts === 1) throw networkError(config)
+            if (attempts === 2) throw httpError(config, 401, { message: 'Token Expired', retry: true })
+            return response(config)
+        })
+        const refresh = jest.spyOn(axios, 'post').mockResolvedValue({ data: { id: 'session' } })
+
+        await expect(apiClient.get('/refresh-after-retry')).resolves.toMatchObject({ status: 200 })
+        unsubscribe()
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(counts).toEqual([1, 0])
         expect(getReconnectCount()).toBe(0)
     })
 
