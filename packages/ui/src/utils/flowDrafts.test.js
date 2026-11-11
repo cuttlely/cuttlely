@@ -141,6 +141,12 @@ describe('canvas load and save', () => {
             name: 'Bakery'
         })
         expect(planCanvasSave({ mode: 'draft', name: 'New', savedName: '', flowData: draft, hasId: false }).create).toBe(true)
+        expect(planCanvasSave({ mode: undefined, name: 'Bakery', savedName: 'Bakery helper', flowData: draft, hasId: true })).toEqual({
+            create: false,
+            live: null,
+            draft: null,
+            modeUnknown: true
+        })
     })
 })
 

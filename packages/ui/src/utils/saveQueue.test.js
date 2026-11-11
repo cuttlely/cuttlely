@@ -355,6 +355,56 @@ describe('save queue core', () => {
         expect(queue.getState().state).toBe('idle')
     })
 
+    test('drops a queued creation after an unanswered creation request', async () => {
+        const request = deferred()
+        const firstSend = jest.fn().mockReturnValue(request.promise)
+        const queuedSend = jest.fn().mockResolvedValue({ data: { id: 'created-2' } })
+        const first = { kind: 'create', send: firstSend, onAck: jest.fn(), onError: jest.fn() }
+        const queued = { kind: 'create', send: queuedSend, onAck: jest.fn(), onError: jest.fn() }
+        const { queue, calls } = makeQueue()
+
+        queue.enqueue(first)
+        queue.enqueue(queued)
+        request.reject(noResponse())
+        await flush()
+        expect(firstSend).toHaveBeenCalledTimes(1)
+        expect(queuedSend).not.toHaveBeenCalled()
+        expect(queue.getState().state).toBe('idle')
+        expect(calls.onExhausted).not.toHaveBeenCalled()
+
+        queue.enqueue(queued)
+        await flush()
+        expect(queuedSend).toHaveBeenCalledTimes(1)
+    })
+
+    test('keeps a created flow pending until its save mode is known', async () => {
+        const unknown = new Error('mode pending')
+        unknown.saveModeUnknown = true
+        const afterCreate = jest.fn().mockRejectedValueOnce(unknown).mockResolvedValueOnce(null)
+        const create = {
+            kind: 'create',
+            send: jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: FLOW_A } }),
+            afterCreate,
+            onAck: jest.fn(),
+            onError: jest.fn()
+        }
+        const { queue, calls } = makeQueue()
+
+        queue.enqueue(create)
+        await flush()
+        expect(create.send).toHaveBeenCalledTimes(1)
+        expect(create.onAck).not.toHaveBeenCalled()
+        expect(queue.getState().state).toBe('waiting')
+        expect(calls.onExhausted).toHaveBeenCalledTimes(1)
+
+        queue.retry()
+        await flush()
+        expect(create.send).toHaveBeenCalledTimes(1)
+        expect(afterCreate).toHaveBeenCalledTimes(2)
+        expect(create.onAck).toHaveBeenCalledTimes(1)
+        expect(queue.getState().state).toBe('idle')
+    })
+
     test('uses one create and saves the latest queued snapshot to its returned id', async () => {
         const firstRequest = deferred()
         let editRev = 2
@@ -424,6 +474,35 @@ describe('save queue core', () => {
         expect(calls.putDraft).toHaveBeenCalledTimes(2)
         expect(calls.putDraft.mock.calls[1][1]).toBe(FLOW_B)
         expect(latest.onAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('acknowledges an internal settings continuation before clearing its revision', async () => {
+        const settingsRequest = deferred()
+        let dirty = true
+        const settingsSend = jest.fn().mockReturnValue(settingsRequest.promise)
+        const { queue } = makeQueue()
+        const first = entry({
+            onAck: jest.fn(() => {
+                queue.enqueue({
+                    kind: 'nonReplay',
+                    internal: true,
+                    send: settingsSend,
+                    onAck: jest.fn(() => {
+                        dirty = false
+                    }),
+                    onError: jest.fn()
+                })
+            })
+        })
+
+        queue.enqueue(first)
+        await flush()
+        expect(settingsSend).toHaveBeenCalledTimes(1)
+        expect(dirty).toBe(true)
+
+        settingsRequest.resolve({ data: { id: 'flow-1' } })
+        await flush()
+        expect(dirty).toBe(false)
     })
 
     test('stops callbacks and further attempts after disposal', async () => {

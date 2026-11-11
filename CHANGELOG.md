@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Draft and Live canvas saves on an existing flow are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action. Creation and name-only saves remain marked as unsaved and ask for another Save instead.
+-   Draft and Live canvas saves on an existing flow are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action. Creation and follow-up name or starter-question updates remain marked as unsaved and ask for another Save instead.
 
 -   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again.
 
@@ -15,6 +15,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A save that reached the server but lost its reply no longer appears to fail or writes the same canvas twice.
 
 -   Selecting Save again while a new flow is still being created now creates one flow and saves the latest canvas to its returned id.
+
+-   Starter questions from the canvas builder now stay queued with the canvas save and remain unsaved until their update is acknowledged.
 
 -   A save that finished while you kept editing no longer marks the later edits as saved.
 

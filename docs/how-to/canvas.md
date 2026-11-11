@@ -52,7 +52,7 @@ Cuttlely quietly retries loading options, credentials, and other read requests. 
 
 Canvas changes on an existing saved flow are kept and retried quietly when a draft or Live save gets no answer. If the connection stays down, you see **Your changes aren't saved yet. We'll keep trying.** Choose **Retry**, or wait for saving to resume when the connection is back. Your edits stay on the canvas and remain marked as unsaved. If someone else saved the draft meanwhile, the usual review screen opens instead of replacing their work.
 
-The first save of a new flow and a save that changes only its name are not retried automatically. If either gets no answer, your edits remain marked as unsaved and Cuttlely asks you to press **Save** again. These saves do not show the keep-trying message.
+The first save of a new flow is not retried automatically. On an existing flow, the canvas save is retried, but a follow-up update for its name or starter questions is not. If one of those updates gets no answer, your edits remain marked as unsaved and Cuttlely asks you to press **Save** again. These updates do not show the keep-trying message.
 
 When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. If that check still fails after the quiet retries, the saved canvas stays closed. Select **Retry** on the page after the connection is back. This prevents a save until Cuttlely knows the correct mode.
 

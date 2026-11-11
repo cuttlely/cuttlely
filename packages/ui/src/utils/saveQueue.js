@@ -113,6 +113,7 @@ export const createSaveQueue = ({
     let current = null
     let pending = null
     let continuations = []
+    let createdFlow = null
     let stopped = false
     let reconnecting = false
     let generation = 0
@@ -306,46 +307,60 @@ export const createSaveQueue = ({
         try {
             const response = await entry.send()
             const saved = response?.data ?? response
-            const details = entry.kind === 'create' ? { willContinue: Boolean(pending) || entry.needsPostCreate === true } : undefined
-            await entry.onAck?.(saved, details)
+            if (entry.kind === 'create') return { result: 'done', created: saved }
+            await entry.onAck?.(saved)
             finishResolved(entry)
-            return entry.kind === 'create' ? { result: 'done', created: saved } : { result: 'done' }
+            return { result: 'done' }
         } catch (error) {
             if (isNoResponse(error) && !isCancel(error)) {
                 await entry.onError?.(saveAgainError(error))
                 finishResolved(entry)
-                return { result: 'done' }
+                return { result: 'done', ambiguousCreate: entry.kind === 'create' }
             }
             throw error
         }
     }
 
     const createFollowup = async (entry, created) => {
-        let source = pending || entry
-        pending = null
-        let next = null
+        createdFlow = created
+        let source = pending?.kind === 'create' ? pending : entry.createSource || entry
+        if (source === pending) pending = null
 
         while (source) {
-            if (source !== entry && source.kind !== 'create') return source
+            let next = null
             try {
                 next = source.afterCreate ? await source.afterCreate(created, { fromPending: source !== entry }) : null
             } catch (error) {
-                await source.onError?.(isNoResponse(error) && !isCancel(error) ? saveAgainError(error) : error)
+                if ((isNoResponse(error) && !isCancel(error)) || error?.saveModeUnknown === true) {
+                    entry.created = created
+                    entry.createSource = source
+                    trackReconnect()
+                    return { result: 'waiting' }
+                }
+                await source.onError?.(error)
                 finishResolved(source)
-                next = null
+                return { result: 'done', dropPendingCreate: true }
             }
 
-            if (!pending) break
-            source = pending
-            pending = null
-            next = null
+            if (pending?.kind === 'create') {
+                source = pending
+                pending = null
+                continue
+            }
+
+            entry.createSource = null
+            await entry.onAck?.(created, { willContinue: Boolean(next || pending) })
+            finishResolved(entry)
+            return { result: 'done', next }
         }
-        return next
+        return { result: 'done' }
     }
 
     const settle = async (entry, result, runGeneration) => {
         if (stopped || generation !== runGeneration) return
         const outcome = typeof result === 'string' ? { result } : result || { result: 'done' }
+        if (outcome.ambiguousCreate && pending?.kind === 'create') pending = null
+        if (outcome.dropPendingCreate && pending?.kind === 'create') pending = null
         if (outcome.result === 'waiting') {
             stopReconnect()
             current = entry
@@ -354,8 +369,19 @@ export const createSaveQueue = ({
             return
         }
         current = null
-        let next = null
-        if (outcome.created) next = await createFollowup(entry, outcome.created)
+        let next = outcome.next || null
+        if (outcome.created) {
+            const followed = await createFollowup(entry, outcome.created)
+            if (followed.result === 'waiting') {
+                stopReconnect()
+                current = entry
+                state = 'waiting'
+                onExhausted(current)
+                return
+            }
+            if (followed.dropPendingCreate && pending?.kind === 'create') pending = null
+            next = followed.next || null
+        }
         if (stopped || generation !== runGeneration) return
         if (!next && continuations.length) next = continuations.shift()
         if (!next && pending) {
@@ -379,6 +405,8 @@ export const createSaveQueue = ({
                     ? await runDraft(entry, guarded)
                     : entry.kind === 'live'
                     ? await runLive(entry, guarded)
+                    : entry.kind === 'create' && entry.created
+                    ? { result: 'done', created: entry.created }
                     : await runNonReplay(entry)
             await settle(entry, result, runGeneration)
         } catch (error) {
@@ -392,6 +420,7 @@ export const createSaveQueue = ({
     const enqueue = (entry) => {
         if (stopped) return
         const captured = { ...entry, hasBase64: entry.hasBase64 ?? containsBase64Canvas(entry.flowData) }
+        if (captured.kind === 'create' && createdFlow) captured.created = createdFlow
         if (state === 'saving') {
             if (captured.internal) continuations.push(captured)
             else pending = captured
@@ -410,7 +439,7 @@ export const createSaveQueue = ({
     }
 
     const retry = () => {
-        if (stopped || state !== 'waiting' || !current || current.kind === 'create') return
+        if (stopped || state !== 'waiting' || !current || (current.kind === 'create' && !current.created)) return
         state = 'saving'
         execute(current, true)
     }

@@ -1,7 +1,7 @@
 /**
  * @jest-environment <rootDir>/src/__mocks__/jsdomCanvasEnvironment.js
  */
-import { createElement } from 'react'
+import { createElement, StrictMode } from 'react'
 import PropTypes from 'prop-types'
 import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
@@ -211,5 +211,62 @@ describe('save queue hook lifecycle', () => {
         expect(onStatus).not.toHaveBeenCalled()
         expect(afterCreate).not.toHaveBeenCalled()
         expect(mockDispatch).toHaveBeenCalledTimes(dispatchesAfterUnmount)
+    })
+
+    test('recreates the queue after an effect cleanup and setup', async () => {
+        const onAck = jest.fn()
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: { ...BASE, draft: { ...BASE.draft, hash: 'saved' } } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(StrictMode, null, createElement(Harness, { apiRef, dependencies }))))
+
+        apiRef.current.record(BASE, FLOW)
+        await act(async () => apiRef.current.saveDraft({ id: 'flow-1', rev: 1, flowData: FLOW, liveFlowData: '{}', onAck }))
+        await settleTimers()
+
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(1)
+        expect(onAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not expose a created id or write while its save mode is unknown', async () => {
+        const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: '{}', name: 'Created' } })
+        const queuedSend = jest.fn()
+        const onAck = jest.fn()
+        const latestAck = jest.fn()
+        flowDraftsApi.getStatus.mockResolvedValueOnce({ data: {} }).mockResolvedValueOnce({ data: { ...BASE, mode: 'draft' } })
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: { ...BASE, mode: 'draft', draft: { ...BASE.draft, hash: 'saved' } } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+
+        await act(async () => apiRef.current.saveCreate({ send, onAck }))
+        await settleTimers()
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(onAck).not.toHaveBeenCalled()
+        expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
+
+        await act(async () =>
+            apiRef.current.saveCreate({
+                send: queuedSend,
+                afterCreate: (created) => ({
+                    kind: 'draft',
+                    id: created.id,
+                    rev: 2,
+                    flowData: FLOW,
+                    liveFlowData: '{}',
+                    onAck: latestAck
+                })
+            })
+        )
+        await settleTimers()
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(queuedSend).not.toHaveBeenCalled()
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(2)
+        expect(onAck).toHaveBeenCalledTimes(1)
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(1)
+        expect(latestAck).toHaveBeenCalledTimes(1)
+        expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
     })
 })

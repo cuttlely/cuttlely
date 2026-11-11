@@ -77,7 +77,14 @@ import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { apiErrorMessage, canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
-import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
+import {
+    canvasIsEmpty,
+    missingCredentialsText,
+    starterQuestionsSaveEntry,
+    stashNewCanvas,
+    takeLanding,
+    withStarterQuestions
+} from '@/utils/buildWithAI'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 
@@ -328,7 +335,35 @@ const AgentflowCanvas = () => {
         draftSave.openConflict(chatflow.id, found, JSON.stringify(canvasSaveDocument(reactFlowInstance, { workflow: true })))
     }
 
-    const queueLiveSave = (body, saveRev, baseUpdatedDate) => {
+    const queueStarterQuestions = (savedFlow, questions, saveRev, finish) => {
+        if (!questions.length) {
+            finish(savedFlow)
+            return
+        }
+        const continuation = starterQuestionsSaveEntry({
+            savedFlow,
+            questions,
+            rev: saveRev,
+            save: chatflowsApi.updateChatflow,
+            isCurrent: () => builderStartersRef.current === questions,
+            clear: () => {
+                builderStartersRef.current = []
+            },
+            onAck: (saved) => {
+                dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                finish(saved)
+            },
+            onError: (error) => errorFailed(apiErrorMessage(error, 'Saving the starter questions failed'))
+        })
+        if (!continuation) {
+            if (builderStartersRef.current === questions) builderStartersRef.current = []
+            finish(savedFlow)
+            return
+        }
+        draftSave.runNonReplay(continuation, { internal: true })
+    }
+
+    const queueLiveSave = (body, saveRev, baseUpdatedDate, starterQuestions = []) => {
         draftSave.saveLive({
             id: chatflow.id,
             rev: saveRev,
@@ -336,8 +371,7 @@ const AgentflowCanvas = () => {
             baseUpdatedDate,
             onAck: (saved) => {
                 dispatch({ type: SET_CHATFLOW, chatflow: saved })
-                saveChatflowSuccess(undefined, saveRev)
-                saveBuilderStarters(saved)
+                queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(undefined, saveRev))
             },
             onChanged: async (stored) => {
                 const isConfirmed = await confirm({
@@ -346,13 +380,13 @@ const AgentflowCanvas = () => {
                     confirmButtonName: 'Confirm',
                     cancelButtonName: 'Cancel'
                 })
-                if (isConfirmed) queueLiveSave(body, saveRev, stored?.updatedDate)
+                if (isConfirmed) queueLiveSave(body, saveRev, stored?.updatedDate, starterQuestions)
             },
             onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
         })
     }
 
-    const createdLiveEntry = (created, body, saveRev, baseUpdatedDate) => ({
+    const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, starterQuestions = []) => ({
         kind: 'live',
         id: created.id,
         rev: saveRev,
@@ -360,8 +394,7 @@ const AgentflowCanvas = () => {
         baseUpdatedDate,
         onAck: (saved) => {
             dispatch({ type: SET_CHATFLOW, chatflow: saved })
-            saveChatflowSuccess(undefined, saveRev)
-            saveBuilderStarters(saved)
+            queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(undefined, saveRev))
         },
         onChanged: async (stored) => {
             const isConfirmed = await confirm({
@@ -370,12 +403,12 @@ const AgentflowCanvas = () => {
                 confirmButtonName: 'Confirm',
                 cancelButtonName: 'Cancel'
             })
-            if (isConfirmed) draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate))
+            if (isConfirmed) draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, starterQuestions))
         },
         onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
     })
 
-    const createdSnapshotEntry = (created, status, { flowData, name, saveRev }) => {
+    const createdSnapshotEntry = (created, status, { flowData, name, saveRev, starterQuestions = [] }) => {
         const plan = planCanvasSave({ mode: status?.mode, name, savedName: created.name, flowData, hasId: true })
         if (plan.draft) {
             return {
@@ -396,12 +429,9 @@ const AgentflowCanvas = () => {
                             // The stored canvas is still the saved result when it cannot be painted.
                         }
                     }
-                    const finish = () => {
-                        saveBuilderStarters(created)
-                        saveChatflowSuccess('Draft saved', saveRev)
-                    }
+                    const finish = () => saveChatflowSuccess('Draft saved', saveRev)
                     if (!plan.live?.name) {
-                        finish()
+                        queueStarterQuestions(created, starterQuestions, saveRev, finish)
                         return
                     }
                     draftSave.runNonReplay(
@@ -409,7 +439,7 @@ const AgentflowCanvas = () => {
                             send: () => chatflowsApi.updateChatflow(created.id, { name: plan.live.name }),
                             onAck: (saved) => {
                                 dispatch({ type: SET_CHATFLOW, chatflow: saved })
-                                finish()
+                                queueStarterQuestions(saved, starterQuestions, saveRev, finish)
                             },
                             onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
                         },
@@ -419,7 +449,13 @@ const AgentflowCanvas = () => {
                 onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
             }
         }
-        return createdLiveEntry(created, { name: plan.live.name, flowData: plan.live.flowData }, saveRev, created.updatedDate)
+        return createdLiveEntry(
+            created,
+            { name: plan.live.name, flowData: plan.live.flowData },
+            saveRev,
+            created.updatedDate,
+            starterQuestions
+        )
     }
 
     const handleSaveFlow = async (chatflowName, saveOptions) => {
@@ -432,6 +468,7 @@ const AgentflowCanvas = () => {
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
             const flowData = JSON.stringify(rfInstanceObject)
+            const starterQuestions = builderStartersRef.current
 
             if (!chatflow.id) {
                 const newChatflowBody = {
@@ -446,10 +483,17 @@ const AgentflowCanvas = () => {
                 if (chatbotConfig) newChatflowBody.chatbotConfig = chatbotConfig
                 draftSave.saveCreate({
                     send: () => chatflowsApi.createNewChatflow(newChatflowBody),
-                    onAck: (created, details) => createdChatflowSuccess(created, { saveRev, willContinue: details?.willContinue === true }),
+                    onAck: (created, details) =>
+                        createdChatflowSuccess(created, {
+                            saveRev,
+                            starterQuestions,
+                            willContinue: details?.willContinue === true
+                        }),
                     onStatus: (status) => setDraftStatus(status),
                     afterCreate: (created, status, details) =>
-                        details.fromPending ? createdSnapshotEntry(created, status, { flowData, name: chatflowName, saveRev }) : null,
+                        details.fromPending
+                            ? createdSnapshotEntry(created, status, { flowData, name: chatflowName, saveRev, starterQuestions })
+                            : null,
                     onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
                 })
             } else {
@@ -460,6 +504,10 @@ const AgentflowCanvas = () => {
                     flowData,
                     hasId: true
                 })
+                if (plan.modeUnknown) {
+                    errorFailed('Draft status is still unknown. Retry loading before you save.')
+                    return
+                }
                 if (plan.draft) {
                     draftSave.saveDraft({
                         id: chatflow.id,
@@ -483,12 +531,9 @@ const AgentflowCanvas = () => {
                                     // The saved response remains authoritative even when it cannot be painted.
                                 }
                             }
-                            const finish = () => {
-                                saveBuilderStarters(chatflow)
-                                saveChatflowSuccess('Draft saved', saveRev)
-                            }
+                            const finish = () => saveChatflowSuccess('Draft saved', saveRev)
                             if (!plan.live?.name) {
-                                finish()
+                                queueStarterQuestions(chatflow, starterQuestions, saveRev, finish)
                                 return
                             }
                             draftSave.runNonReplay(
@@ -496,7 +541,7 @@ const AgentflowCanvas = () => {
                                     send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
                                     onAck: (saved) => {
                                         dispatch({ type: SET_CHATFLOW, chatflow: saved })
-                                        finish()
+                                        queueStarterQuestions(saved, starterQuestions, saveRev, finish)
                                     },
                                     onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
                                 },
@@ -508,7 +553,7 @@ const AgentflowCanvas = () => {
                     return
                 }
                 if (plan.live?.flowData) {
-                    queueLiveSave({ name: plan.live.name, flowData: plan.live.flowData }, saveRev, chatflow.updatedDate)
+                    queueLiveSave({ name: plan.live.name, flowData: plan.live.flowData }, saveRev, chatflow.updatedDate, starterQuestions)
                     return
                 }
                 if (plan.live?.name) {
@@ -762,21 +807,6 @@ const AgentflowCanvas = () => {
         position: 'fixed'
     })
 
-    // Build with AI: starter questions join the chat settings on the first save of a flow that has none.
-    const saveBuilderStarters = async (savedFlow) => {
-        const questions = builderStartersRef.current
-        if (!savedFlow?.id || !questions.length) return
-        builderStartersRef.current = []
-        const chatbotConfig = withStarterQuestions(savedFlow.chatbotConfig, questions)
-        if (!chatbotConfig) return
-        try {
-            const res = await chatflowsApi.updateChatflow(savedFlow.id, { chatbotConfig })
-            dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-        } catch (error) {
-            errorFailed(apiErrorMessage(error, 'Saving the starter questions failed'))
-        }
-    }
-
     const builtMessage = (result, replaced) => {
         const missing = missingCredentialsText(result.missingCredentials)
         const name = result.title ? `"${result.title}"` : 'The workflow'
@@ -972,8 +1002,8 @@ const AgentflowCanvas = () => {
         setDraftStatusRetry((attempt) => attempt + 1)
     }
 
-    function createdChatflowSuccess(created, { saveRev, willContinue }) {
-        builderStartersRef.current = []
+    function createdChatflowSuccess(created, { saveRev, starterQuestions, willContinue }) {
+        if (builderStartersRef.current === starterQuestions) builderStartersRef.current = []
         dispatch({ type: SET_CHATFLOW, chatflow: created })
         if (!willContinue) saveChatflowSuccess(created.accessNotice, saveRev)
         window.history.replaceState(state, null, `/v2/agentcanvas/${created.id}`)

@@ -68,4 +68,4 @@ Cuttlely sent a request and got no answer. Read requests are retried quietly fir
 3. Otherwise, reload the page.
 4. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 
-The first save of a new flow and a save that changes only its name are not retried automatically. They do not show the keep-trying message. Your edits remain marked as unsaved, and Cuttlely asks you to press **Save** again. Work saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.
+The first save of a new flow is not retried automatically. On an existing flow, the canvas save is retried, but a follow-up update for its name or starter questions is not. These updates do not show the keep-trying message. Your edits remain marked as unsaved, and Cuttlely asks you to press **Save** again. Work saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.

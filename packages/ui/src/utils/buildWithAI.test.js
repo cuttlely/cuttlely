@@ -6,9 +6,11 @@ import {
     modelToRemember,
     recallModel,
     rememberModel,
+    starterQuestionsSaveEntry,
     withStarterQuestions,
     starterQuestionsOf
 } from './buildWithAI'
+import { createSaveQueue, SAVE_AGAIN_NOTICE } from './saveQueue'
 
 const memory = () => {
     const store = {}
@@ -62,6 +64,68 @@ describe('Build with AI', () => {
         expect(starterQuestionsOf({ starterPrompts: { 0: { prompt: ' Bags? ' }, 1: { prompt: '' } } })).toEqual(['Bags?'])
         expect(starterQuestionsOf('not json')).toEqual([])
         expect(starterQuestionsOf(undefined)).toEqual([])
+    })
+
+    test('keeps starter questions until their queued update is acknowledged', async () => {
+        const questions = ['One?']
+        let current = questions
+        const save = jest.fn().mockResolvedValue({ data: { id: 'flow-1' } })
+        const clear = jest.fn(() => {
+            current = []
+        })
+        const onAck = jest.fn()
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions,
+            save,
+            isCurrent: () => current === questions,
+            clear,
+            onAck,
+            rev: 4
+        })
+
+        const response = await entry.send()
+        expect(current).toBe(questions)
+        expect(save).toHaveBeenCalledWith('flow-1', {
+            chatbotConfig: JSON.stringify({ starterPrompts: { 0: { prompt: 'One?' } } })
+        })
+        await entry.onAck(response.data)
+        expect(clear).toHaveBeenCalledTimes(1)
+        expect(current).toEqual([])
+        expect(onAck).toHaveBeenCalledWith({ id: 'flow-1' })
+        expect(entry.rev).toBe(4)
+    })
+
+    test('keeps starter questions and requests another Save when their update gets no answer', async () => {
+        const questions = ['One?']
+        let current = questions
+        const onError = jest.fn()
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions,
+            save: jest.fn().mockRejectedValue({ request: {}, response: undefined }),
+            isCurrent: () => current === questions,
+            clear: () => {
+                current = []
+            },
+            onError,
+            rev: 5
+        })
+        const queue = createSaveQueue({
+            putDraft: jest.fn(),
+            getDraftStatus: jest.fn(),
+            putLive: jest.fn(),
+            getLive: jest.fn()
+        })
+
+        queue.enqueue(entry)
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(current).toBe(questions)
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
     })
 
     test('says what is missing and why a build failed in plain words', () => {

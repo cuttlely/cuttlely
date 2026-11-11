@@ -13,53 +13,58 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
     const draftSave = useDraftSave()
     const draftSaveRef = useRef(draftSave)
     const userIdRef = useRef(userId)
-    const mountedRef = useRef(true)
+    const mountedRef = useRef(false)
     const noticeOpenRef = useRef(false)
     const queueRef = useRef(null)
 
     draftSaveRef.current = draftSave
     userIdRef.current = userId
 
-    if (!queueRef.current) {
-        queueRef.current = createSaveQueue({
-            putDraft: flowDraftsApi.saveDraft,
-            getDraftStatus: flowDraftsApi.getStatus,
-            putLive: chatflowsApi.updateChatflow,
-            getLive: chatflowsApi.getSpecificChatflow,
-            beginReconnect,
-            endReconnect,
-            onExhausted: () => {
-                if (!mountedRef.current || noticeOpenRef.current) return
-                noticeOpenRef.current = true
-                dispatch(
-                    enqueueSnackbar({
-                        message: SAVE_RETRY_NOTICE,
-                        options: {
-                            key: NOTICE_KEY,
-                            variant: 'warning',
-                            persist: true,
-                            action: () =>
-                                createElement(
-                                    Button,
-                                    {
-                                        style: { color: 'white' },
-                                        onClick: () => queueRef.current?.retry()
-                                    },
-                                    'Retry'
-                                )
-                        }
-                    })
-                )
-            },
-            onResolved: () => {
-                if (!mountedRef.current || !noticeOpenRef.current) return
-                noticeOpenRef.current = false
-                dispatch(closeSnackbar(NOTICE_KEY))
-            }
-        })
-    }
+    const makeQueue = useCallback(
+        () =>
+            createSaveQueue({
+                putDraft: flowDraftsApi.saveDraft,
+                getDraftStatus: flowDraftsApi.getStatus,
+                putLive: chatflowsApi.updateChatflow,
+                getLive: chatflowsApi.getSpecificChatflow,
+                beginReconnect,
+                endReconnect,
+                onExhausted: () => {
+                    if (!mountedRef.current || noticeOpenRef.current) return
+                    noticeOpenRef.current = true
+                    dispatch(
+                        enqueueSnackbar({
+                            message: SAVE_RETRY_NOTICE,
+                            options: {
+                                key: NOTICE_KEY,
+                                variant: 'warning',
+                                persist: true,
+                                action: () =>
+                                    createElement(
+                                        Button,
+                                        {
+                                            style: { color: 'white' },
+                                            onClick: () => queueRef.current?.retry()
+                                        },
+                                        'Retry'
+                                    )
+                            }
+                        })
+                    )
+                },
+                onResolved: () => {
+                    if (!mountedRef.current || !noticeOpenRef.current) return
+                    noticeOpenRef.current = false
+                    dispatch(closeSnackbar(NOTICE_KEY))
+                }
+            }),
+        [chatflowsApi, closeSnackbar, dispatch, enqueueSnackbar, flowDraftsApi]
+    )
 
     useEffect(() => {
+        mountedRef.current = true
+        const queue = makeQueue()
+        queueRef.current = queue
         const online = () => queueRef.current?.retry()
         window.addEventListener('online', online)
         return () => {
@@ -67,9 +72,10 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
             if (mountedRef.current && noticeOpenRef.current) dispatch(closeSnackbar(NOTICE_KEY))
             noticeOpenRef.current = false
             mountedRef.current = false
-            queueRef.current?.dispose()
+            queue.dispose()
+            if (queueRef.current === queue) queueRef.current = null
         }
-    }, [closeSnackbar, dispatch])
+    }, [closeSnackbar, dispatch, makeQueue])
 
     const wrapDraft = useCallback((entry, recordedStatus) => {
         const snapshot = recordedStatus
@@ -145,33 +151,32 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
 
     const saveDraft = useCallback(
         (entry) => {
-            queueRef.current.enqueue(wrapDraft(entry))
+            queueRef.current?.enqueue(wrapDraft(entry))
         },
         [wrapDraft]
     )
 
     const saveLive = useCallback(
         (entry, options = {}) => {
-            queueRef.current.enqueue({ ...wrapLive(entry), internal: options.internal === true })
+            queueRef.current?.enqueue({ ...wrapLive(entry), internal: options.internal === true })
         },
         [wrapLive]
     )
 
     const saveCreate = useCallback(
         (entry) => {
-            queueRef.current.enqueue({
+            queueRef.current?.enqueue({
                 ...wrapNonReplay(entry),
                 kind: 'create',
                 needsPostCreate: entry.needsPostCreate === true,
                 afterCreate: async (created, details) => {
-                    let response
-                    try {
-                        response = await flowDraftsApi.getStatus(created.id)
-                    } catch (error) {
-                        if (!details.fromPending && entry.needsPostCreate !== true) return null
+                    const response = await flowDraftsApi.getStatus(created.id)
+                    const status = response?.data ?? response
+                    if (status?.mode !== 'draft' && status?.mode !== 'live') {
+                        const error = new Error('The save mode is still unknown.')
+                        error.saveModeUnknown = true
                         throw error
                     }
-                    const status = response?.data ?? response
                     if (!mountedRef.current) return null
                     draftSaveRef.current.record(status, status?.draft?.flowData || created.flowData)
                     await entry.onStatus?.(status, created)
@@ -185,7 +190,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
 
     const runNonReplay = useCallback(
         (entry, options = {}) => {
-            queueRef.current.enqueue({ ...wrapNonReplay(entry), internal: options.internal === true })
+            queueRef.current?.enqueue({ ...wrapNonReplay(entry), internal: options.internal === true })
         },
         [wrapNonReplay]
     )
