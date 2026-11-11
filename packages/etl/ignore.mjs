@@ -147,7 +147,8 @@ export function* walkFiles(
     root,
     { respectGitignore = true, useDefaults = true, exclude = [], include = [], gitignoreRoot = root, targetRel = '' } = {}
 ) {
-    const inherited = respectGitignore ? inheritedGitignoreRules(root, gitignoreRoot) : { prefix: '', rules: [] }
+    // Configured and default filters are repository-relative even when .gitignore handling is disabled.
+    const inherited = inheritedGitignoreRules(root, gitignoreRoot, respectGitignore)
     const baseRules = []
     if (useDefaults) baseRules.push(compileRules(DEFAULT_IGNORES, '', inherited.prefix))
     if (exclude.length) baseRules.push(compileRules(exclude, '', inherited.prefix))
@@ -162,13 +163,14 @@ export function* walkFiles(
     })
 }
 
-function inheritedGitignoreRules(root, gitignoreRoot) {
+function inheritedGitignoreRules(root, gitignoreRoot, loadRules = true) {
     const top = fs.realpathSync(gitignoreRoot)
     const walk = fs.realpathSync(root)
     const relative = path.relative(top, walk)
     if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return { prefix: '', rules: [] }
     const parts = relative.split(path.sep).filter(Boolean)
     const prefix = parts.join('/')
+    if (!loadRules) return { prefix, rules: [] }
     const rules = []
     let dir = top
     let base = ''

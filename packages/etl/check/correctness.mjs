@@ -55,10 +55,33 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     )
     const selectedByRepoGlob = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs' })].map((file) => file.rel)
     check('selected repo folder applies include globs from the repository root', selectedByRepoGlob.join() === 'docs/guide.md')
+    const selectedByRepoGlobWithoutGitignore = [
+        ...repoFiles(repo, { include: 'docs/**/*.md', respectGitignore: 'false' }, { subPath: 'docs' })
+    ].map((file) => file.rel)
+    check(
+        'selected repo folder keeps repository-root include globs when gitignore handling is off',
+        selectedByRepoGlobWithoutGitignore.join() === 'docs/drafts/private.md,docs/guide.md',
+        selectedByRepoGlobWithoutGitignore.join()
+    )
     const excludedFile = [...repoFiles(repo, { exclude: 'docs/**/*.md' }, { subPath: 'docs/guide.md' })]
     check('selected repo file still applies exclude globs', excludedFile.length === 0)
+    const excludedFileWithoutGitignore = [
+        ...repoFiles(repo, { exclude: 'docs/**/*.md', respectGitignore: 'false' }, { subPath: 'docs/guide.md' })
+    ]
+    check(
+        'selected repo file keeps repository-root exclude globs when gitignore handling is off',
+        excludedFileWithoutGitignore.length === 0
+    )
     const includedFile = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs/guide.md' })].map((file) => file.rel)
     check('selected repo file still applies include globs', includedFile.join() === 'docs/guide.md', includedFile.join())
+    const includedFileWithoutGitignore = [
+        ...repoFiles(repo, { include: 'docs/**/*.md', respectGitignore: 'false' }, { subPath: 'docs/guide.md' })
+    ].map((file) => file.rel)
+    check(
+        'selected repo file keeps repository-root include globs when gitignore handling is off',
+        includedFileWithoutGitignore.join() === 'docs/guide.md',
+        includedFileWithoutGitignore.join()
+    )
     const ignoredFile = [...repoFiles(repo, {}, { subPath: 'docs/drafts/private.md' })]
     check('selected repo file still applies ancestor gitignore rules', ignoredFile.length === 0)
 }
