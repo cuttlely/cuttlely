@@ -143,17 +143,22 @@ export function compareSegments(a, b) {
 
 // Depth-first over sorted entries, recursing into a directory where it sorts, so files come out in
 // compareSegments order and a resumed walk can skip everything up to the checkpoint path.
-export function* walkFiles(root, { respectGitignore = true, useDefaults = true, exclude = [], include = [], gitignoreRoot = root } = {}) {
-    const baseRules = []
-    if (useDefaults) baseRules.push(compileRules(DEFAULT_IGNORES))
-    if (exclude.length) baseRules.push(compileRules(exclude))
-    const includeRules = include.length ? compileRules(include) : null
+export function* walkFiles(
+    root,
+    { respectGitignore = true, useDefaults = true, exclude = [], include = [], gitignoreRoot = root, targetRel = '' } = {}
+) {
     const inherited = respectGitignore ? inheritedGitignoreRules(root, gitignoreRoot) : { prefix: '', rules: [] }
-    if (inherited.prefix && isIgnored('', true, inherited.rules)) return
-    yield* walkDir(root, '', [...baseRules, ...inherited.rules], {
+    const baseRules = []
+    if (useDefaults) baseRules.push(compileRules(DEFAULT_IGNORES, '', inherited.prefix))
+    if (exclude.length) baseRules.push(compileRules(exclude, '', inherited.prefix))
+    const includeRules = include.length ? compileRules(include, '', inherited.prefix) : null
+    const ruleSets = [...baseRules, ...inherited.rules]
+    if (inherited.prefix && isIgnored('', true, ruleSets)) return
+    yield* walkDir(root, '', ruleSets, {
         respectGitignore,
         includeRules,
-        gitignorePrefix: inherited.prefix
+        gitignorePrefix: inherited.prefix,
+        targetRel
     })
 }
 
@@ -200,6 +205,7 @@ function* walkDir(dir, rel, ruleSets, options) {
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     for (const entry of entries) {
         const childRel = rel ? `${rel}/${entry.name}` : entry.name
+        if (options.targetRel && childRel !== options.targetRel && !options.targetRel.startsWith(`${childRel}/`)) continue
         if (entry.isSymbolicLink()) continue
         const full = path.join(dir, entry.name)
         if (entry.isDirectory()) {

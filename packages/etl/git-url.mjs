@@ -35,8 +35,12 @@ function decodePath(value) {
 export function safeSubPath(raw) {
     const decoded = decodePath(String(raw || '').trim())
     if (decoded == null) throw new EtlError('bad_source', TRAVERSAL_HINT)
-    if (!decoded) return ''
-    const normalized = decoded.replace(/\\/g, '/')
+    return normalizeSubPath(decoded)
+}
+
+function normalizeSubPath(value) {
+    if (!value) return ''
+    const normalized = String(value).replace(/\\/g, '/')
     if (normalized.includes('\0') || normalized.startsWith('/') || normalized.startsWith('//')) {
         throw new EtlError('bad_source', TRAVERSAL_HINT)
     }
@@ -95,8 +99,10 @@ function inspectGithub(segments) {
     const restParts = segments.slice(3)
     if (!restParts.length) return bad(MISSING_BRANCH_HINT)
     try {
-        for (const part of restParts) safeSubPath(part)
-        const rest = safeSubPath(restParts.join('/'))
+        // inspectGitUrl decoded the URL pathname before splitting it. Validate that text without decoding it again,
+        // so a literal percent escape in a repository filename keeps its exact name.
+        for (const part of restParts) normalizeSubPath(part)
+        const rest = normalizeSubPath(restParts.join('/'))
         if (!rest) return bad(MISSING_BRANCH_HINT)
         return { ok: true, hint: '', kind: page, cloneUrl, rest, subPath: '' }
     } catch (error) {
@@ -124,14 +130,14 @@ export function parseRemoteRefs(stdout) {
     return refs
 }
 
-export function resolveRest(rest, { branch = '', refs = null } = {}) {
-    const path = safeSubPath(rest)
+export function resolveRest(rest, { branch = '', refs = null, decoded = false } = {}) {
+    const path = decoded ? normalizeSubPath(rest) : safeSubPath(rest)
     if (!path) throw new EtlError('bad_source', MISSING_BRANCH_HINT)
     const segments = path.split('/')
     const chosen = String(branch || '').trim()
     if (chosen) {
         if (chosen.startsWith('-')) throw new EtlError('bad_source', `Branch "${chosen}" is not a branch name.`)
-        const prefix = safeSubPath(chosen).split('/').filter(Boolean)
+        const prefix = normalizeSubPath(chosen).split('/').filter(Boolean)
         if (prefix.length && startsWithSegments(segments, prefix)) {
             return { branch: chosen, subPath: segments.slice(prefix.length).join('/') }
         }
@@ -181,8 +187,8 @@ export async function resolveGitSource({ gitUrl, branch = '', listRefs } = {}) {
     const chosen = String(branch || '').trim()
     if (chosen.startsWith('-')) throw new EtlError('bad_source', `Branch "${chosen}" is not a branch name.`)
     let refs = null
-    const restSegments = safeSubPath(inspected.rest).split('/').filter(Boolean)
-    const chosenSegments = chosen ? safeSubPath(chosen).split('/').filter(Boolean) : []
+    const restSegments = normalizeSubPath(inspected.rest).split('/').filter(Boolean)
+    const chosenSegments = chosen ? normalizeSubPath(chosen).split('/').filter(Boolean) : []
     const needsRefs = inspected.rest.includes('/') && (!chosen || !startsWithSegments(restSegments, chosenSegments))
     if (needsRefs) {
         try {
@@ -191,7 +197,7 @@ export async function resolveGitSource({ gitUrl, branch = '', listRefs } = {}) {
             throw new EtlError('bad_source', LIST_REFS_HINT)
         }
     }
-    const resolved = resolveRest(inspected.rest, { branch: chosen, refs })
+    const resolved = resolveRest(inspected.rest, { branch: chosen, refs, decoded: true })
     if (inspected.kind === 'blob' && !resolved.subPath) {
         throw new EtlError('bad_source', 'This file link is missing a path inside the repository.')
     }

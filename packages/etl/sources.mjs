@@ -432,24 +432,26 @@ function confinedRepoPath(root, subPath) {
 // whatever the node says, and the data folder is left out.
 export function repoFiles(root, inputs, { checkout = false, subPath = '' } = {}) {
     const walkRoot = subPath ? confinedRepoPath(root, subPath) : root
-    if (subPath && fs.statSync(walkRoot).isFile()) {
-        const stat = fs.statSync(walkRoot)
-        return [{ abs: walkRoot, rel: subPath, size: stat.size, mtimeMs: Math.floor(stat.mtimeMs) }]
-    }
-    const files = walkFiles(walkRoot, {
+    const options = {
         respectGitignore: checkout || boolInput(inputs.respectGitignore, true),
         useDefaults: checkout || boolInput(inputs.defaultIgnores, true),
         include: splitList(inputs.include),
         exclude: [...splitList(inputs.exclude), ...(checkout ? repoDataExcludes(root) : [])],
         gitignoreRoot: root
-    })
+    }
+    if (subPath && fs.statSync(walkRoot).isFile()) {
+        const parentSubPath = subPath.includes('/') ? subPath.slice(0, subPath.lastIndexOf('/')) : ''
+        const files = walkFiles(path.dirname(walkRoot), { ...options, targetRel: path.basename(walkRoot) })
+        return prefixRepoRels(files, parentSubPath)
+    }
+    const files = walkFiles(walkRoot, options)
     if (!subPath) return files
     return prefixRepoRels(files, subPath)
 }
 
 function* prefixRepoRels(files, subPath) {
     for (const file of files) {
-        yield { ...file, rel: `${subPath}/${file.rel}` }
+        yield { ...file, rel: subPath ? `${subPath}/${file.rel}` : file.rel }
     }
 }
 

@@ -50,6 +50,19 @@ describe('inspectGitUrl', () => {
         assert.equal(got.rest, 'main/README.md')
     })
 
+    it('decodes each URL path component once', async () => {
+        const percent = await resolveGitSource({
+            gitUrl: 'https://github.com/org/repo/blob/main/100%25.md',
+            listRefs: async () => new Set(['main'])
+        })
+        assert.equal(percent.subPath, '100%.md')
+        const escapedText = await resolveGitSource({
+            gitUrl: 'https://github.com/org/repo/blob/main/literal%2520name.md',
+            listRefs: async () => new Set(['main'])
+        })
+        assert.equal(escapedText.subPath, 'literal%20name.md')
+    })
+
     it('treats www.github.com as github.com and ignores query and hash', () => {
         const got = inspectGitUrl('https://www.github.com/org/repo/tree/main/docs?tab=readme#anchor')
         assert.equal(got.ok, true)

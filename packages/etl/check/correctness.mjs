@@ -53,6 +53,14 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
         selectedWalk.join() === 'docs/.gitignore,docs/guide.md,docs/keep.tmp',
         selectedWalk.join()
     )
+    const selectedByRepoGlob = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs' })].map((file) => file.rel)
+    check('selected repo folder applies include globs from the repository root', selectedByRepoGlob.join() === 'docs/guide.md')
+    const excludedFile = [...repoFiles(repo, { exclude: 'docs/**/*.md' }, { subPath: 'docs/guide.md' })]
+    check('selected repo file still applies exclude globs', excludedFile.length === 0)
+    const includedFile = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs/guide.md' })].map((file) => file.rel)
+    check('selected repo file still applies include globs', includedFile.join() === 'docs/guide.md', includedFile.join())
+    const ignoredFile = [...repoFiles(repo, {}, { subPath: 'docs/drafts/private.md' })]
+    check('selected repo file still applies ancestor gitignore rules', ignoredFile.length === 0)
 }
 
 // Same content keeps its id; a change does not. Positional metadata does not affect it.
