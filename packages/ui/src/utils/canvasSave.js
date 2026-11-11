@@ -59,6 +59,12 @@ export function saveCompletionForRoute(pending, routeFlowId) {
     return pending
 }
 
+// currentOnly clears both values when a new request starts. That render is not a completion and must not consume
+// the route/revision token that the eventual success or failure needs.
+export function saveApiResultReady(data, error) {
+    return Boolean(data || error)
+}
+
 // The first draft save returns true only when it established status. False/undefined outcomes need a status read so
 // an ambiguous or failed write cannot strand the created canvas. Null is reserved for a stale route and does nothing.
 export function firstDraftNeedsStatus(result) {

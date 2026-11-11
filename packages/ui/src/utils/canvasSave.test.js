@@ -4,6 +4,7 @@ import {
     firstDraftNeedsStatus,
     liveSavePreflightForRoute,
     liveSaveUpdateForRoute,
+    saveApiResultReady,
     saveCompletionForRoute
 } from './canvasSave'
 import { planCanvasSave } from './flowDrafts'
@@ -211,6 +212,12 @@ describe('Live save preflight route identity', () => {
         expect(saveCompletionForRoute({ flowId: 'flow-a', rev: 5 }, 'flow-b')).toBeNull()
         expect(saveCompletionForRoute({ flowId: null, rev: 1 }, undefined)).toEqual({ flowId: null, rev: 1 })
         expect(saveCompletionForRoute({ flowId: null, rev: 1 }, 'flow-b')).toBeNull()
+    })
+
+    test('does not consume a pending save while a current-only request clears its old result', () => {
+        expect(saveApiResultReady(null, null)).toBe(false)
+        expect(saveApiResultReady({ id: 'flow-a' }, null)).toBe(true)
+        expect(saveApiResultReady(null, new Error('write failed'))).toBe(true)
     })
 
     test('reads created status after every first-draft outcome except success or a stale route', () => {

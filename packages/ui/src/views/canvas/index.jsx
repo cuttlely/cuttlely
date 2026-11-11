@@ -95,6 +95,7 @@ import {
     firstDraftNeedsStatus,
     liveSavePreflightForRoute,
     liveSaveUpdateForRoute,
+    saveApiResultReady,
     saveCompletionForRoute
 } from '@/utils/canvasSave'
 import { draftSaveWasTurnedOff, planHarnessDraftFallback, planNewHarnessSave } from '@/utils/harnessSave'
@@ -1125,6 +1126,7 @@ const Canvas = () => {
 
     // Create new chatflow successful
     useEffect(() => {
+        if (!saveApiResultReady(createNewChatflowApi.data, createNewChatflowApi.error)) return
         const pendingSave = pendingCreateSaveRef.current
         pendingCreateSaveRef.current = undefined
         if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return

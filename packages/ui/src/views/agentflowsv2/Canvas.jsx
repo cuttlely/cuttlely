@@ -81,7 +81,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
-import { canvasSaveDocument, saveCompletionForRoute } from '@/utils/canvasSave'
+import { canvasSaveDocument, saveApiResultReady, saveCompletionForRoute } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
@@ -899,6 +899,7 @@ const AgentflowCanvas = () => {
 
     // Create new chatflow successful
     useEffect(() => {
+        if (!saveApiResultReady(createNewChatflowApi.data, createNewChatflowApi.error)) return
         const pendingSave = pendingCreateSaveRef.current
         pendingCreateSaveRef.current = undefined
         if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
@@ -920,6 +921,7 @@ const AgentflowCanvas = () => {
 
     // Update chatflow successful
     useEffect(() => {
+        if (!saveApiResultReady(updateChatflowApi.data, updateChatflowApi.error)) return
         const pendingSave = pendingUpdateSaveRef.current
         pendingUpdateSaveRef.current = undefined
         if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return

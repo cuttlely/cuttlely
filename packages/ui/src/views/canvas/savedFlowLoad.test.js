@@ -162,10 +162,20 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toMatch(
             /const pendingSave = pendingUpdateSaveRef\.current[\s\S]*?pendingUpdateSaveRef\.current = undefined\s+if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
         )
+        expect(source).toMatch(
+            /if \(!saveApiResultReady\(createNewChatflowApi\.data, createNewChatflowApi\.error\)\) return\s+const pendingSave = pendingCreateSaveRef\.current\s+pendingCreateSaveRef\.current = undefined/
+        )
         expect(source).toContain('pendingCreateSaveRef.current = undefined')
         expect(source).toContain('pendingUpdateSaveRef.current = undefined')
         expect(source).not.toContain('pendingCreateSaveRevRef')
         expect(source).not.toContain('pendingUpdateSaveRevRef')
+    })
+
+    test('agentflow Live updates keep their pending token until a result arrives', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'agentflowsv2', 'Canvas.jsx'), 'utf8')
+        expect(source).toMatch(
+            /if \(!saveApiResultReady\(updateChatflowApi\.data, updateChatflowApi\.error\)\) return\s+const pendingSave = pendingUpdateSaveRef\.current\s+pendingUpdateSaveRef\.current = undefined/
+        )
     })
 
     test('a first-draft outcome that did not establish status always reads the created flow status', () => {
