@@ -55,6 +55,7 @@ Saves are not retried automatically yet. If Save cannot reach the server, the me
 Publish is never sent twice on its own. If Publish gets no answer, the publish may still have gone through, so Cuttlely reads the flow's publish status again:
 
 -   If Live now has your draft, you see the usual **Published** message.
+-   If Live has your draft but the canvas cannot refresh it, the dialog says **Published, but the canvas could not refresh Live**. Close it and reopen the flow when the connection is back.
 -   If it does not, the dialog says **Publish did not go through. Nothing was published.** Select **Publish** to try again.
 -   If the check cannot tell, for example because it also gets no answer, the dialog says **Publish not confirmed**. When the connection is back, reopen the flow and check its Live version before you publish again.
 
