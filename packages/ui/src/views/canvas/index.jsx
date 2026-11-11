@@ -829,9 +829,10 @@ const Canvas = () => {
             saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
             return true
         } catch (draftError) {
-            // A draft write that got no answer may have landed. Do not follow it with a Live write: report it and keep
-            // the edits unsaved. The Live fallback is only for a server that answered (for example, drafts are off).
-            if (draftError?.response === undefined && (draftError?.isAxiosError || draftError?.request)) {
+            // A failed draft write may have landed. Do not follow it with a Live write unless the server specifically
+            // says drafts are off; gateway and other server errors keep the cards unsaved on this canvas.
+            const draftsOff = draftSaveWasTurnedOff(draftError)
+            if (!draftsOff) {
                 errorFailed(saveFailureMessage(draftError))
                 return
             }
@@ -839,7 +840,7 @@ const Canvas = () => {
                 ? planHarnessDraftFallback({
                       flowData: draft,
                       nodeDefinitions: canvas.componentNodes,
-                      draftsOff: draftSaveWasTurnedOff(draftError)
+                      draftsOff
                   })
                 : null
             if (retained?.error) {
