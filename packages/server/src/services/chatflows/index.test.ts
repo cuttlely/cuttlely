@@ -152,7 +152,14 @@ jest.mock('../../schedule/ScheduleBeat', () => ({
         })
     }
 }))
-jest.mock('@cuttlely/components', () => ({ removeFolderFromStorage: jest.fn().mockResolvedValue({ totalSize: 0 }) }), { virtual: true })
+jest.mock(
+    '@cuttlely/components',
+    () => ({
+        removeFolderFromStorage: jest.fn().mockResolvedValue({ totalSize: 0 }),
+        resolveShowToolEvents: jest.requireActual('../../../../components/src/streaming').resolveShowToolEvents
+    }),
+    { virtual: true }
+)
 jest.mock('uuid', () => ({ validate: jest.fn().mockReturnValue(true) }))
 jest.mock('../flow-versions', () => ({
     __esModule: true,
@@ -1011,6 +1018,7 @@ describe('getSinglePublicChatbotConfig', () => {
             [
                 'botMessage',
                 'chatFeedback',
+                'showToolEvents',
                 'isTTSEnabled',
                 'starterPrompts',
                 'textInput',
@@ -1068,6 +1076,24 @@ describe('getSinglePublicChatbotConfig', () => {
         expect(serialized).not.toContain('user:pw@')
         expect(serialized).not.toContain('utm_apikey')
     })
+
+    it.each([undefined, 'CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS'])(
+        'publishes resolved settings for %s without exposing flow details',
+        async (type) => {
+            for (const status of [undefined, true, false]) {
+                mockRepo.findOneBy.mockResolvedValue({
+                    id: 'flow-1',
+                    type,
+                    textToSpeech: null,
+                    chatbotConfig: status === undefined ? null : JSON.stringify({ showToolEvents: { status } })
+                })
+                const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
+                expect(result.showToolEvents).toEqual({ status: status ?? ['AGENTFLOW', 'MULTIAGENT', 'HARNESS'].includes(type || '') })
+                expect(result).not.toHaveProperty('type')
+                expect(result).not.toHaveProperty('flowData')
+            }
+        }
+    )
 
     it('answers 404 for a missing chatflow', async () => {
         mockRepo.findOneBy.mockResolvedValue(null)

@@ -3,12 +3,15 @@ import PropTypes from 'prop-types'
 import { Box, Card, IconButton, Stack, Typography, useTheme } from '@mui/material'
 import { IconCopy } from '@tabler/icons-react'
 
+import { errorSummary, errorSummaryText } from '@/utils/errorSummary'
+
 const ErrorBoundary = ({ error }) => {
     const theme = useTheme()
 
+    const summary = errorSummary(error)
+
     const copyToClipboard = () => {
-        const errorMessage = `Status: ${error.response.status}\n${error.response.data.message}`
-        navigator.clipboard.writeText(errorMessage)
+        navigator.clipboard?.writeText(errorSummaryText(error))
     }
 
     return (
@@ -28,9 +31,9 @@ const ErrorBoundary = ({ error }) => {
                             <IconCopy />
                         </IconButton>
                         <pre style={{ margin: 0, overflowWrap: 'break-word', whiteSpace: 'pre-wrap', textAlign: 'center' }}>
-                            <code>{`Status: ${error.response.status}`}</code>
+                            <code>{summary.status}</code>
                             <br />
-                            <code>{error.response?.data?.message}</code>
+                            <code>{summary.message}</code>
                         </pre>
                     </Box>
                 </Card>

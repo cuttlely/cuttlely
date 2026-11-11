@@ -2,6 +2,7 @@
 // so a flow with drafts off (mode "live") keeps today's save path.
 
 import { canvasStartType } from './publishCheck'
+import { NO_ANSWER_MESSAGE } from './errorSummary'
 import { describeDiff, relativeTime } from './versionHistory'
 
 export const STALE_DRAFT_WARNING =
@@ -276,6 +277,9 @@ export const apiErrorMessage = (error, fallback) => {
     const data = error?.response?.data
     if (data && typeof data === 'object' && typeof data.message === 'string' && data.message) return data.message
     if (typeof data === 'string' && data) return data
+    // A request that got no answer has no response at all. Say so instead of the generic fallback.
+    if (error && error.response === undefined && (error.isAxiosError || error.request))
+        return `${String(fallback).replace(/[.!?]?$/, '.')} ${NO_ANSWER_MESSAGE}`
     return fallback
 }
 

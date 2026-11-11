@@ -48,12 +48,14 @@ Commits need a git identity (`user.name` and `user.email`). On a machine without
 
 ```bash
 pnpm install
-pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no build, no key, no network
+pnpm --filter @cuttlely/versioning build   # prerequisite when built package output is absent
+pnpm --filter @cuttlely/components build   # the harness credential reader uses this output
+pnpm harness:check             # packages/harness/check.mjs plus the harness node --test files (pinned, category, tidy samples) — offline, no key, no network
 pnpm etl:check                 # node packages/etl/check.mjs — the retriever and splitter cases need the components build
 node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
 ```
 
-`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. One case runs the built Calculator node and prints `skip` when components are not built.
+`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. The model-error masking case requires the built components credential reader, whose imports also require the versioning build. A Calculator case prints `skip` when its built node is absent.
 
 ## Local verify
 
@@ -164,6 +166,8 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `CUTTLELY_LOCAL_ADMIN`                                      | unset                                       | `true` enables the older owner compatibility route. While Local is selected it creates an ordinary Local session; under another active method it uses recovery treatment. `/owner-recovery` stays available independently                                                                       |
 | `CUTTLELY_LOCAL_USERS`                                      | off                                         | `true` lets an active user with a password sign in while Local is the durable selected method. Restart to apply. WorkOS and generic OIDC leave `POST /api/v1/auth/local/login` at 404                                                                                                           |
 | `TRUST_PROXY`                                               | unset (trust none)                          | Proxy hop count in front of the server (D20)                                                                                                                                                                                                                                                    |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS`                                | `65000`                                     | Idle HTTP connection reuse timeout. Whole milliseconds from 1000 to 600000. Keep the proxy's upstream idle timeout below it                                                                                                                                                                     |
+| `HTTP_HEADERS_TIMEOUT_MS`                                   | keep-alive plus `1000`                      | Complete request-header timeout. It must be above keep-alive and no more than 601000                                                                                                                                                                                                            |
 | `MODEL_LIST_CONFIG_JSON`                                    | unset                                       | `bundled` turns off the daily model list fetch (D32)                                                                                                                                                                                                                                            |
 | `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                                                                                                                                                                                                                        |
 | `CUTTLELY_DRAIN_TIMEOUT_MS`                                 | `25000`                                     | How long running answers and streams may finish after SIGTERM before they get a `503`. Kept from 0 to 300000. 0 does not wait. A saved value applies on the next shutdown (D76, D81)                                                                                                            |
@@ -320,7 +324,7 @@ Run `CI=true node --test scripts/settings-no-way-in.test.cjs scripts/settings-wo
 
 A mixed WorkOS/local-users upgrade keeps WorkOS selected with an informational `configuration-ambiguous` warning. With matching active identity and exact AuthKit test proof, clearing an obsolete unlocked local-login flag is allowed without switching methods. The save retains the warning; mismatch, missing proof/link and unknown stored warnings still refuse readiness. Do not switch away and back merely to clear this informational warning.
 
-## Local 1.7.0 release preparation
+## Historical local 1.7.0 release preparation
 
 The four product manifests are 1.7.0. Public docs describe the security-exception release features in present tense; the FAQ uses a stable changelog link. Keep the exact `## [1.7.0] - Unreleased` heading for the release tool. `docker-compose.yml` and `.env.example` use `ghcr.io/cuttlely/cuttlely:1.7.0` as the release image pin. Tag, image and npm availability require separate release checks. The approved security exception requires explicit upgrade warnings, backups and operator onboarding/recovery. Only the designated operator changes service settings; host-log proof comes from the hosting dashboard or Docker/Compose logs. Enforcement stays default Off. Public captures under `docs/images/access-keys/` are from product 1.6.1 at feature head `5c08b125`; AK02/06/08/09 remain uncaptured action-only shots.
 
@@ -332,10 +336,32 @@ nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify
 
 Retain the creation command, session, stdout/stderr, exit code and a copy of `.verify/verify-report.json` under untracked `.agent-run/`. The report must name the exact final committed HEAD and pass all 27 steps; rerun after the last write. Normal commit hooks stay enabled. Under a local-only task boundary, block the handoff facts script's fetch/GitHub calls and label cached refs and unavailable remote/CI facts explicitly. Before editing handoff files, hash and count all ten required files, read every line in contiguous numbered pages, and retain each observed page's text plus its source hash, inclusive line/byte span and tool-result reference in the external read ledger. Split and reread any truncated page. Confirm 100% coverage, then collect local facts and reconcile each file's Updated/Unchanged reason against the full text. Keep before/after facts provenance as STATUS describes. No push, PR, tag, publish, merge, remote operation, Docker image build, live setting/operator/key change or live model call belongs to this preparation.
 
-## Local 1.7.1 maintenance preparation
+## Historical local 1.7.1 maintenance preparation
 
 The four product manifests are prepared at 1.7.1 with an Unreleased changelog. Publication and availability checks remain separate; enforcement stays default Off and the 1.7.0 upgrade/recovery instructions still apply. `docs/how-to/access-keys.md` documents presets, server prerequisite validation, private copies and current local fixture figures.
 
 Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.test.cjs` for SQLite/execution/UI regressions. For real Postgres, use a disposable local test service and the standard `CUTTLELY_TEST_PG_HOST`, `CUTTLELY_TEST_PG_PORT`, `CUTTLELY_TEST_PG_USER` and test-password inputs, then run `CUTTLELY_TEST_PG_REQUIRED=1 node --test scripts/access-keys-postgres.test.cjs`. The script creates and drops its own test database, runs the real migrations and exercises the delete route plus rollback; it never reads deployment database settings. An entity-synchronized database alone cannot reproduce the historical UUID/varchar mismatch. No Docker image build is needed.
 
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
+
+## Proxy-safe HTTP timeouts
+
+The proxy-safe HTTP timeout fix landed on `main` as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
+
+## Canvas error page after no response
+
+The canvas no-response error-handling fix landed on `main` as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). Keep this fix under `## [Unreleased]`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
+
+## Import target-handle types
+
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Keep this fix under `## [Unreleased]`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+
+## Historical local 1.7.2 release preparation
+
+1.7.2 was prepared after a normal merge of `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization, and landed on main as `712cb85d`. The four product manifests and current docs pins are 1.7.2. That release's notes are dated `## [1.7.2] - 2026-11-10` and retain #450 with `76c5a7ee`. The prep included the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
+
+That local preparation used focused release, documentation and runtime checks, then an exact-head full gate. Publication, deployment and enforcement activation remained separate authorized steps; the 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+
+Same-server nested flow and Harness calls reuse the parent principal; see [Calls between flows and Harnesses](../../docs/how-to/access-keys.md#calls-between-flows-and-harnesses).
+
+For per-chat nested caller changes, run `pnpm harness:check` before and after, plus the gateway/queue nested tests and `node --test scripts/hermes-analyst-scope.test.mjs`. Run the server nested authorization and access-key route suites, the real SQLite execution fixtures above, and `node --test scripts/harness-per-run-auth.test.cjs` after building components. Set `CUTTLELY_REQUIRE_HERMES_RUNTIME=1` with an importable runtime Python to require the actual MCP handler check. A scoped tool call must resolve only its own Harness/chat binding; missing scope must never fall through to a card credential. An active chat collision refuses the new run while the original chat keeps its binding. Follow a task's assigned full-gate slot; focused checks do not replace the final committed-head gate.

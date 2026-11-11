@@ -58,3 +58,13 @@ Notes
 ## Can a macOS or Windows source install save agent profiles?
 
 No. Native macOS and Windows source installs cannot save or compile agent profiles. Run Cuttlely with Docker there.
+
+## What does "The server could not be reached" mean?
+
+Cuttlely sent a request, such as loading a list or saving a canvas, and got no answer. The connection may have dropped, the request may have timed out, or something between your browser and the server, such as a proxy, may have blocked it.
+
+1. Check that your network connection works.
+2. Reload the page.
+3. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
+
+Work you saved before the message is kept. Changes you made after your last save may need to be made again.

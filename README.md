@@ -31,9 +31,11 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
+**1.7.2 makes tool status optional and fixes access dialogs and calls between flows.** Chatflows start with **Show tool events** Off; agentflows and Harnesses keep it On. Access-key checks also cover calls between flows and external workers. The setup steps now explain what the first-account code does.
+
 **1.7.1 makes access keys easier to use and fixes private-flow access.** Flow-first presets include prediction prerequisites and referenced Harness grants, saved Private access reloads correctly, copies start private, and PostgreSQL flow deletion cleans up grants atomically. [Create a working key](./docs/how-to/access-keys.md).
 
-**1.7.0 adds scoped API keys and host-backed service administration.** This security-exception release requires upgrade action. Back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment to avoid browser administration lockout. Only actual verified host CLI bindings grandfather automatically. Legacy installs without one claim explicitly from Server settings with a one-time host-log code. Routine transfer/revoke and fresh-proof rebind are in the panel; the CLI is emergency recovery only. Only the designated instance operator can change service-wide settings; other owners gain nothing. Read host-log proof in the hosting dashboard or Docker/Compose logs. Host JSON `CUTTLELY_INSTANCE_OPERATOR` overrides the file and `none` revokes browser administration. Fresh setup requires host-configured sign-in; a setup code cannot configure the service. Access-key enforcement stays off by default. [Upgrade warnings](./docs/upgrading.md) · [Changelog](./CHANGELOG.md). To select 1.7.1, pin image `1.7.1` or install `cuttlely@1.7.1`.
+**1.7.0 adds scoped API keys and host-backed service administration.** This security-exception release requires upgrade action. Back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment to avoid browser administration lockout. Only actual verified host CLI bindings grandfather automatically. Legacy installs without one claim explicitly from Server settings with a one-time host-log code. Routine transfer/revoke and fresh-proof rebind are in the panel; the CLI is emergency recovery only. Only the designated instance operator can change service-wide settings; other owners gain nothing. Read host-log proof in the hosting dashboard or Docker/Compose logs. Host JSON `CUTTLELY_INSTANCE_OPERATOR` overrides the file and `none` revokes browser administration. Fresh setup requires host-configured sign-in. The setup code creates only the first account, and only when local sign-in is already on at the host (Docker and `npx cuttlely start` turn this on by default). It cannot configure the service, and it does not designate the instance operator — that is a separate step. [Sign in](./docs/how-to/sign-in.md) · [Instance operator](./docs/how-to/instance-operator.md). Access-key enforcement stays off by default. [Upgrade warnings](./docs/upgrading.md) · [Changelog](./CHANGELOG.md). To select 1.7.2, pin image `1.7.2` or install `cuttlely@1.7.2`.
 
 ## Contents
 
@@ -231,7 +233,7 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     No Docker? [Build from source](./docs/how-to/from-source.md) with Node 24 (`.nvmrc` pins 24.15.0). Native macOS and Windows source installs cannot save or compile agent profiles. Run Cuttlely with Docker there.
 
-2. When it is up, the server prints a ready block with a one-time setup link and a setup code. Show it with:
+2. When it is up, the server prints a ready block with a one-time setup link and a setup code. That code creates only the first account, and only when local sign-in is already on at the host. Docker and `npx cuttlely start` turn this on by default. Show the code with:
 
     ```bash
     docker compose logs cuttlely | grep "Setup code"
@@ -239,9 +241,9 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     Started with `npx cuttlely start`? Run `npx cuttlely logs` instead. Times in the server log, including the setup code expiry, are in UTC.
 
-    Nothing yet? It is still starting. Run the command again in a few seconds.
+    Nothing yet? It is still starting. Run the command again in a few seconds. If sign-in is not on at the host, see [Sign in](./docs/how-to/sign-in.md).
 
-3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**.
+3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**. This creates only that first account; it does not designate the instance operator. Claiming the operator is a later, separate step: [Designate the instance operator](./docs/how-to/instance-operator.md).
 4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer, operations and policy specialists, which run in parallel, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
 
     ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations and policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)

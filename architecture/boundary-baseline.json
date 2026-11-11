@@ -44,6 +44,21 @@
     ],
     "r3Edges": [
         {
+            "from": "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "to": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "to": "packages/components/src/agents.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
             "from": "packages/components/nodes/chatmodels/chatModelTemperature.test.ts",
             "to": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
             "reason": "Chat model nodes share the finite number input helper, and one table-driven test covers their temperature settings"
@@ -311,6 +326,16 @@
             "reason": "the test drives the inherited evaluation runner's chatflow id check"
         },
         {
+            "from": "packages/components/src/handler.streaming.test.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/src/handler.streaming.test.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
             "from": "packages/components/src/httpSecurity.localhost.test.ts",
             "to": "packages/components/src/httpSecurity.ts",
             "reason": "The test drives the inherited HTTP guard with the localhost switch on and off"
@@ -358,6 +383,16 @@
         {
             "from": "packages/components/src/storage/multerLimits.test.ts",
             "to": "packages/components/src/storage/LocalStorageProvider.ts"
+        },
+        {
+            "from": "packages/components/src/streaming.test.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/components/src/streaming.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
         },
         {
             "from": "packages/components/src/toolArtifactNote.test.ts",
@@ -1003,6 +1038,11 @@
         },
         {
             "from": "packages/server/src/services/accessKeys/authorization.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
+        },
+        {
+            "from": "packages/server/src/services/accessKeys/authorization.ts",
             "to": "packages/server/src/utils/apiKey.ts",
             "reason": "Access keys owns inbound principals, credentials, grants and management; its adapters retain the existing flow, runtime, request and storage integration boundaries."
         },
@@ -1512,6 +1552,11 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/utils/nestedFlowCall.ts",
+            "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
+        },
+        {
             "from": "packages/server/src/services/harnesses/schedules.ts",
             "to": "packages/server/src/errors/utils.ts",
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
@@ -1743,6 +1788,31 @@
             "from": "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
             "to": "packages/server/src/utils/buildChatflow.ts",
             "reason": "The caller test runs the real utilBuildChatflow in queue mode"
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.toolEvents.test.ts",
+            "to": "packages/server/src/utils/buildChatflow.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.toolEvents.test.ts",
+            "to": "packages/server/src/utils/index.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.toolEvents.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/chatflowStream.test.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/server/src/utils/chatflowStream.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
         },
         {
             "from": "packages/server/src/utils/chatUploadStorage.test.ts",
@@ -2032,6 +2102,16 @@
             "to": "packages/ui/src/api/client.js"
         },
         {
+            "from": "packages/ui/src/api/client.test.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
+            "from": "packages/ui/src/api/client.test.js",
+            "to": "packages/ui/src/utils/authUtils.js",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
             "from": "packages/ui/src/api/demo.js",
             "to": "packages/ui/src/api/client.js"
         },
@@ -2069,6 +2149,11 @@
             "reason": "The Usage page uses the shared page header, card, and API client."
         },
         {
+            "from": "packages/ui/src/ErrorBoundary.test.js",
+            "to": "packages/ui/src/ErrorBoundary.jsx",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
@@ -2088,6 +2173,11 @@
             "from": "packages/ui/src/routes/DefaultRedirect.test.js",
             "to": "packages/ui/src/routes/DefaultRedirect.jsx",
             "reason": "DefaultRedirect.test.js renders DefaultRedirect to check the landing order"
+        },
+        {
+            "from": "packages/ui/src/store/context/ErrorContext.test.js",
+            "to": "packages/ui/src/store/context/ErrorContext.jsx",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
         },
         {
             "from": "packages/ui/src/themes/compStyleOverride.test.js",
@@ -2200,6 +2290,36 @@
         {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/ui-component/switch/Switch.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/store/actions.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/ui-component/button/StyledButton.jsx",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/ui-component/switch/Switch.jsx",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/ShowToolEvents.test.js",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Flow tool-event settings reuse existing streamer types, agent execution fixtures and configuration controls to gate live status delivery."
         },
         {
             "from": "packages/ui/src/ui-component/flow/FromDevBanner.jsx",
@@ -2823,6 +2943,11 @@
             "from": "scripts/components-package-alias.test.mjs",
             "to": "packages/components/src/index.ts",
             "reason": "compatibility test for the earlier components package specifier"
+        },
+        {
+            "from": "scripts/harness-per-run-auth.test.cjs",
+            "to": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
+            "reason": "Production fixture loads the real Chatflow Tool so concurrent Harness chats can be checked against actual nested-target admission, not a stand-in."
         }
     ],
     "r4Edges": [
@@ -3102,6 +3227,14 @@
         {
             "path": "packages/components/src/missingModelCredential.test.ts",
             "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
+        },
+        {
+            "path": "packages/components/src/nestedFlow.test.ts",
+            "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
+        },
+        {
+            "path": "packages/components/src/nestedFlow.ts",
+            "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
         },
         {
             "path": "packages/components/src/pinnedQueryKey.test.ts",
@@ -4228,6 +4361,10 @@
             "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
         },
         {
+            "path": "packages/server/src/utils/buildAgentflow.nested-iteration.test.ts",
+            "reason": "The iteration regression stays beside the agentflow engine and exercises its recursive nested-call path."
+        },
+        {
             "path": "packages/server/src/utils/buildAgentflow.resume-usage.test.ts",
             "reason": "The loop resume usage test stays next to the agentflow runner it exercises."
         },
@@ -4254,6 +4391,14 @@
         {
             "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
             "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
+        },
+        {
+            "path": "packages/server/src/utils/nestedFlowCall.test.ts",
+            "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
+        },
+        {
+            "path": "packages/server/src/utils/nestedFlowCall.ts",
+            "reason": "Same-server nested flow and Harness calls reuse one parent-principal runner under utils and components; Harness services import that runner, and access-key nested grant checks return the Harness caller type from Interface."
         },
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",

@@ -28,7 +28,7 @@ An empty rollout value leaves the saved mode effective and unlocked; an empty ig
 
 With Node.js 20 or newer and Docker running:
 
-The version pin in these examples selects the `1.7.1` maintenance release. The 1.7.0 security-exception upgrade requirements still apply.
+The version pin in these examples selects the `1.7.2` maintenance release. The 1.7.0 security-exception upgrade requirements still apply.
 
 ```bash
 npx cuttlely start
@@ -41,10 +41,10 @@ npx cuttlely stop
 npx cuttlely status
 npx cuttlely logs
 npx cuttlely upgrade
-npx cuttlely start --port 8080 --tag 1.7.1 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.7.2 --env-file .env --no-open
 ```
 
-`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.7.1` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
+`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version; `latest` follows the newest release, and a version such as `1.7.2` pins one). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
 
 If Docker is missing or not running, the command says so and links to this page. The first account is the same as Compose: the one-time setup link is in `npx cuttlely logs`.
 
@@ -73,7 +73,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest release is also `:latest`. The [changelog](../../CHANGELOG.md) lists what changed in each one.
 
--   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:X.Y.Z` in `.env`, for example `ghcr.io/cuttlely/cuttlely:1.5.0`, then run `docker compose up -d`.
+-   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:X.Y.Z` in `.env`, for example `ghcr.io/cuttlely/cuttlely:1.7.2`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium, optional node packs, or the geolocation database out of that build.
 
@@ -176,6 +176,8 @@ Copy `.env.example` to `.env` only to change a default. `.env` is gitignored.
 | `CUTTLELY_LOCAL_ADMIN`             | `true`                             | Enables the owner account endpoint. The owner password form appears while Local is the durable active method and local users are off. Blank keeps the setting on. Set `false` for a WorkOS deployment. [Sign in](./sign-in.md).                                                          |
 | `CUTTLELY_INSTALL`                 | `docker`                           | Set by Compose so the start script knows this is Docker and keeps the local account on by default. Leave it as it is.                                                                                                                                                                    |
 | `CUTTLELY_SERVICE_NAME`            | `cuttlely`                         | Compose service name the setup page uses in `docker compose logs`. Leave it as the service name in this file.                                                                                                                                                                            |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS`       | `65000`                            | Idle HTTP connections stay open for proxy reuse. Keep a proxy's upstream idle timeout below this value. [Reverse proxy guide](./reverse-proxy.md).                                                                                                                                       |
+| `HTTP_HEADERS_TIMEOUT_MS`          | `66000`                            | Time allowed for request headers. It must stay above the keep-alive timeout.                                                                                                                                                                                                             |
 | `FLOWISE_SECRETKEY_OVERWRITE`      | unset                              | Leave unset unless you want your own key. Never commit it.                                                                                                                                                                                                                               |
 | `CUTTLELY_SECRETKEY_OVERWRITE`     | unset                              | The same key. If both are set and the values differ, Cuttlely refuses to start. Never commit it.                                                                                                                                                                                         |
 | `CUTTLELY_IMAGE`                   | `ghcr.io/cuttlely/cuttlely:latest` | The image Compose pulls, and the tag a local build gets. Pin a release with `:X.Y.Z`.                                                                                                                                                                                                    |

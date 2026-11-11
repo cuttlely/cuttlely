@@ -46,7 +46,7 @@ export async function executeModule(binding, input, options = {}) {
 
 export async function prepareModule(binding, input, options = {}) {
     if (!binding?.nodeName) {
-        throw new HarnessError('bad_binding', 'A harness module binding needs a Flowise node name.')
+        throw new HarnessError('bad_binding', 'A harness module binding needs a Cuttlely node name.')
     }
     const cache = options.nodeCache instanceof Map ? options.nodeCache : new Map()
     const flowOptions = options.flowOptions || {}
@@ -426,7 +426,7 @@ export async function loadFlowiseNode(nodeName) {
     if (match.endsWith('.ts')) {
         throw new HarnessError(
             'module_unavailable',
-            `Harness cannot run module "${nodeName}": the Flowise node is TypeScript and the components package has not been built (${path.relative(
+            `Harness cannot run module "${nodeName}": the Cuttlely node is TypeScript and the components package has not been built (${path.relative(
                 repoRoot(),
                 match
             )}).`

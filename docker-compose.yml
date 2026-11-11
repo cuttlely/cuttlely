@@ -11,7 +11,7 @@
 #   INCLUDE_BROWSER=0 docker compose up -d --build   same build, without Chromium
 #   INCLUDE_NODE_PACKS=0 docker compose up -d --build   same build, without optional node packs
 #   CUTTLELY_OMIT_GEOIP=true docker compose up -d --build   same build, without the geolocation database
-#   CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.7.1    pin the 1.7.0 release image (see .env.example)
+#   CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.7.2    pin the 1.7.2 release image (see .env.example)
 #   docker compose pull && docker compose up -d      upgrade to the newest published image
 
 name: cuttlely
@@ -88,6 +88,8 @@ services:
             # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
             METRICS_SERVICE_NAME: ${METRICS_SERVICE_NAME:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
+            HTTP_KEEP_ALIVE_TIMEOUT_MS: ${HTTP_KEEP_ALIVE_TIMEOUT_MS:-}
+            HTTP_HEADERS_TIMEOUT_MS: ${HTTP_HEADERS_TIMEOUT_MS:-}
             APP_URL: ${APP_URL:-}
             CUTTLELY_OIDC_CLIENT_SECRET: ${CUTTLELY_OIDC_CLIENT_SECRET:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}

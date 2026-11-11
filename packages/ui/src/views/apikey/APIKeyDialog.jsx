@@ -33,6 +33,7 @@ import { useTheme } from '@mui/material/styles'
 
 // Icons
 import { IconCopy, IconKey, IconX } from '@tabler/icons-react'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
 // API
 import apikeyApi from '@/api/apikey'
@@ -637,11 +638,11 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                     <div className='apikey-editor'>
                         {dialogProps.type === 'ADD' && (
                             <Box>
-                                <Typography variant='h5'>Start with a preset</Typography>
                                 <TextField
                                     select
                                     fullWidth
                                     label='What will this key do?'
+                                    InputLabelProps={{ shrink: true }}
                                     value={preset}
                                     onChange={(event) => {
                                         const next = event.target.value
@@ -731,7 +732,9 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                             />
                         </Box>
                         <Accordion defaultExpanded={dialogProps.type === 'EDIT'} sx={{ mt: 2 }}>
-                            <AccordionSummary>Advanced: permissions, API operations and resources</AccordionSummary>
+                            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                                Advanced: permissions, API operations and resources
+                            </AccordionSummary>
                             <AccordionDetails>
                                 <div className='permissions-container'>
                                     <p>

@@ -73,7 +73,7 @@ import {
 import {
     abortGatewayProfile,
     clearCallerWorkspace,
-    noteCallerWorkspace,
+    noteCallerFlowOptions,
     setGatewayContext,
     offeredPinnedTools,
     invokeOfferedPinnedTool,
@@ -367,8 +367,6 @@ async function runHarnessTurn({
             { workspace: harness.workspaceId }
         )
     } finally {
-        // TEMP tables the analyst made in its own store last for this turn only.
-        await endAnalystRun(analystScope).catch(() => {})
         releaseTurn(turnLock)
     }
 }
@@ -419,7 +417,7 @@ async function runTurn(
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
     const callerWorkspace = typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : ''
-    if (callerWorkspace) noteCallerWorkspace(harness.name, callerWorkspace)
+    const callerContextToken = callerWorkspace ? noteCallerFlowOptions(harness.name, flowOptions, chatId) : undefined
     try {
         return await runTurnBody(harness, {
             name,
@@ -445,7 +443,9 @@ async function runTurn(
             recordInterpretationDiagnostic
         })
     } finally {
-        if (callerWorkspace) clearCallerWorkspace(harness.name)
+        // Only an admitted run owns this chat's TEMP tables; a refused collision must leave the active run alone.
+        await endAnalystRun(analystScopeKey(name, chatId)).catch(() => {})
+        if (callerWorkspace) clearCallerWorkspace(harness.name, callerContextToken)
     }
 }
 
@@ -2773,7 +2773,7 @@ async function runStep(context, step) {
             // A pin the node does not offer this turn (auto storage, a stale stamp, another team) is a miss; today's path
             // then reports it the usual way.
             try {
-                pinOptions = await pinnedCallContext(context.roster, context.moduleOptions)
+                pinOptions = await pinnedCallContext(context.roster, context.moduleOptions, context.chatId)
                 offered = await offeredPinnedTools(context.roster, specialist.name, pinOptions, specialist.profileName)
             } catch {
                 offered = []

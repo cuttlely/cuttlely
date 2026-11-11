@@ -65,3 +65,32 @@ it('shows an unavailable grant as remove-only and matches resource type as well 
     expect(screen.getByRole('checkbox', { name: 'Bakery' }).checked).toBe(true)
     expect(screen.getByText(/1 selected resources/)).toBeTruthy()
 })
+
+it('retains duration choices and shows Custom after a manual expiry edit', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-09T12:00:00.000Z'))
+    try {
+        render(<Editor />)
+        const duration = screen.getByLabelText('Duration preset')
+        const expiry = screen.getByLabelText('Expires at (UTC)')
+        expect(duration.textContent).toBe('Custom')
+        for (const days of [30, 90]) {
+            fireEvent.mouseDown(duration)
+            fireEvent.click(screen.getByRole('option', { name: `${days} days` }))
+            expect(duration.textContent).toBe(`${days} days`)
+            expect(expiry.value).toBe(new Date(Date.now() + days * 86400000).toISOString())
+        }
+        fireEvent.change(expiry, { target: { value: '2027-06-01T00:00:00.000Z' } })
+        expect(duration.textContent).toBe('Custom')
+        expect(expiry.value).toBe('2027-06-01T00:00:00.000Z')
+        fireEvent.mouseDown(duration)
+        fireEvent.click(screen.getByRole('option', { name: 'No expiry' }))
+        expect(duration.textContent).toBe('No expiry')
+        expect(expiry.value).toBe('')
+        fireEvent.change(expiry, { target: { value: '2027-06-02T00:00:00.000Z' } })
+        expect(duration.textContent).toBe('Custom')
+        fireEvent.change(expiry, { target: { value: '' } })
+        expect(duration.textContent).toBe('No expiry')
+    } finally {
+        jest.useRealTimers()
+    }
+})

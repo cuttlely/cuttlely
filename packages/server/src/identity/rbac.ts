@@ -18,6 +18,7 @@
  */
 
 import { Request, RequestHandler, Response } from 'express'
+import type { DataSource } from 'typeorm'
 import { TeamAccess, teamAccess } from './sqlStore'
 
 export interface TeamPermissionLookup {
@@ -122,7 +123,8 @@ async function decide(req: Request, required: string[], mode: 'all' | 'any'): Pr
     return holds(listed(user.permissions), required, mode) ? 200 : 403
 }
 
-export async function resolveTeamAccess(userId: string, workspaceId: string): Promise<TeamAccess> {
+export async function resolveTeamAccess(userId: string, workspaceId: string, dataSource?: DataSource): Promise<TeamAccess> {
+    if (dataSource) return teamAccess(dataSource, userId, workspaceId)
     if (installed) return installed.accessFor(userId, workspaceId)
     const { getDataSource } = await import('../DataSource')
     return teamAccess(getDataSource(), userId, workspaceId)

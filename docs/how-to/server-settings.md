@@ -114,6 +114,8 @@ The picture is from a local demo install. The account is a made-up owner. It sho
 
 The full list of startup options, with the default, the range, where each one can be set, and whether a restart is needed, is [Startup options](../reference/startup-options.md). Secret values and host-only values are named and marked not shown.
 
+On **Security & network**, under **Network**, **Idle connection timeout** (`HTTP_KEEP_ALIVE_TIMEOUT_MS`) defaults to 65000 milliseconds. **Request headers timeout** (`HTTP_HEADERS_TIMEOUT_MS`) defaults to 1000 milliseconds more and must stay above it. Both apply after a restart. Keep a reverse proxy's upstream idle timeout below the idle connection timeout. See [Run Cuttlely behind a reverse proxy](./reverse-proxy.md).
+
 ## Let HTTP building blocks call localhost
 
 On **Security & network**, under **Building blocks**, **Allow HTTP building blocks to call localhost** (`HTTP_ALLOW_LOCALHOST`) is off by default. HTTP building blocks, such as **HTTP**, **Execute Flow**, the API loader and the request tools, refuse loopback addresses while it is off.

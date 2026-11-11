@@ -1,3 +1,4 @@
+import { resolveShowToolEvents, isAgentStyleEvent } from '@/utils/toolEvents'
 import { useState, useRef, useEffect, useCallback, Fragment, useContext, memo } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import PropTypes from 'prop-types'
@@ -210,6 +211,7 @@ const getTestChatflow = async (chatflowid) => {
 const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setPreviews, harnessBlock, harnessName }) => {
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
+    const canvasChatflow = useSelector((state) => state.canvas?.chatflow)
 
     const ps = useRef()
 
@@ -270,6 +272,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     // follow-up prompts
     const [followUpPromptsStatus, setFollowUpPromptsStatus] = useState(false)
     const [enhancedStatusMessages, setEnhancedStatusMessages] = useState(true)
+    const configuredFlow = canvasChatflow?.id === chatflowid ? canvasChatflow : getChatflowConfig.data
+    const showToolEvents = resolveShowToolEvents(configuredFlow?.chatbotConfig, configuredFlow?.type)
     const [followUpPrompts, setFollowUpPrompts] = useState([])
 
     // thinking/reasoning state
@@ -610,7 +614,9 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     const updateLastMessage = (text) => {
         setMessages((prevMessages) => {
             let allMessages = [...cloneDeep(prevMessages)]
-            if (allMessages[allMessages.length - 1].type === 'userMessage') return allMessages
+            if (!allMessages.length || allMessages[allMessages.length - 1].type === 'userMessage') {
+                return [...allMessages, { message: text, type: 'apiMessage', feedback: null }]
+            }
             allMessages[allMessages.length - 1].message += text
             allMessages[allMessages.length - 1].feedback = null
             return allMessages
@@ -1312,6 +1318,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     updateHarnessEvent(payload.data || {})
                     return
                 }
+                if (!showToolEvents && isAgentStyleEvent(payload.event)) return
                 switch (payload.event) {
                     case 'start':
                         setMessages((prevMessages) => {
@@ -2766,29 +2773,33 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                                 enhancedStatus={enhancedStatusMessages}
                                             />
                                         ) : null}
-                                        {message.agentReasoning && message.agentReasoning.length > 0 && !message.harnessTrace && (
-                                            <div style={{ display: 'block', flexDirection: 'row', width: '100%' }}>
-                                                {message.agentReasoning.map((agent, index) => (
-                                                    <AgentReasoningCard
-                                                        key={index}
-                                                        agent={agent}
-                                                        index={index}
-                                                        customization={customization}
-                                                        chatflowid={chatflowid}
-                                                        isDialog={isDialog}
-                                                        onSourceDialogClick={onSourceDialogClick}
-                                                        renderArtifacts={renderArtifacts}
-                                                        agentReasoningArtifacts={agentReasoningArtifacts}
-                                                        getAgentIcon={getAgentIcon}
-                                                        removeDuplicateURL={removeDuplicateURL}
-                                                        isValidURL={isValidURL}
-                                                        onURLClick={onURLClick}
-                                                        getLabel={getLabel}
-                                                    />
-                                                ))}
-                                            </div>
-                                        )}
-                                        {message.agentFlowExecutedData &&
+                                        {showToolEvents &&
+                                            message.agentReasoning &&
+                                            message.agentReasoning.length > 0 &&
+                                            !message.harnessTrace && (
+                                                <div style={{ display: 'block', flexDirection: 'row', width: '100%' }}>
+                                                    {message.agentReasoning.map((agent, index) => (
+                                                        <AgentReasoningCard
+                                                            key={index}
+                                                            agent={agent}
+                                                            index={index}
+                                                            customization={customization}
+                                                            chatflowid={chatflowid}
+                                                            isDialog={isDialog}
+                                                            onSourceDialogClick={onSourceDialogClick}
+                                                            renderArtifacts={renderArtifacts}
+                                                            agentReasoningArtifacts={agentReasoningArtifacts}
+                                                            getAgentIcon={getAgentIcon}
+                                                            removeDuplicateURL={removeDuplicateURL}
+                                                            isValidURL={isValidURL}
+                                                            onURLClick={onURLClick}
+                                                            getLabel={getLabel}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        {showToolEvents &&
+                                            message.agentFlowExecutedData &&
                                             Array.isArray(message.agentFlowExecutedData) &&
                                             message.agentFlowExecutedData.length > 0 && (
                                                 <AgentExecutedDataCard
@@ -2798,7 +2809,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                                     sessionId={chatId}
                                                 />
                                             )}
-                                        {message.calledTools && (
+                                        {showToolEvents && message.calledTools && (
                                             <div
                                                 style={{
                                                     display: 'block',
@@ -2834,7 +2845,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                                 })}
                                             </div>
                                         )}
-                                        {message.usedTools && (
+                                        {showToolEvents && message.usedTools && (
                                             <div
                                                 style={{
                                                     display: 'block',

@@ -93,6 +93,8 @@ describe('the harness caller for a flow run with no person signed in', () => {
         await utilBuildChatflow(mcpRequest('keyed'), true, ChatType.MCP)
         expect(getApiKeyById).toHaveBeenCalledWith('key-1')
         expect(jobs[0].harnessCaller).toEqual({ via: 'api_key', apiKeyId: 'key-1', harnesses: ['bakery'] })
+        expect(jobs[0].nestedFlowCaller).toEqual({ via: 'api_key', apiKeyId: 'key-1' })
+        expect(jobs[0].nestedFlowDepth).toBe(0)
     })
 
     it('gives a key that is gone an empty list, so its Harness cards are refused', async () => {
@@ -104,8 +106,10 @@ describe('the harness caller for a flow run with no person signed in', () => {
     it('runs a keyless flow as itself, and only an explicit person as a session', async () => {
         await utilBuildChatflow(mcpRequest('open'), true, ChatType.MCP)
         expect(jobs[0].harnessCaller).toEqual({ via: 'flow' })
+        expect(jobs[0].nestedFlowCaller).toEqual({ via: 'flow' })
         await utilBuildChatflow(mcpRequest('keyed'), true, undefined, { harnessCaller: { via: 'session' } })
         expect(jobs[1].harnessCaller).toEqual({ via: 'session' })
+        expect(jobs[1].nestedFlowCaller).toEqual({ via: 'session' })
         expect(getApiKeyById).not.toHaveBeenCalled()
     })
 })

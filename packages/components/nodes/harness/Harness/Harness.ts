@@ -888,7 +888,10 @@ const FLOW_OPTION_KEYS = [
     'usageCacheManager',
     'updateStorageUsage',
     'checkStorage',
-    'harnessCaller'
+    'harnessCaller',
+    'nestedFlowCaller',
+    'nestedFlowDepth',
+    'runNestedFlow'
 ] as const
 
 function pickFlowOptions(options: ICommonObject): HarnessFlowOptions {
