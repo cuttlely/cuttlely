@@ -3,14 +3,13 @@
 // describes one on demand, and runs only SELECT statements whose every relation is ticked.
 //
 // Enforcement runs inside the query's own transaction, before the statement:
-//   1. The statement is wrapped as a temporary view. Postgres parses and resolves it exactly as it will run.
-//   2. The view's stored rule tree (pg_rewrite.ev_action) lists every relation id, function id and operator id
-//      the statement uses, including CTEs, subqueries, system catalogs and built-in functions, which pg_depend
-//      does not record. A relation that is not ticked, a function or operator outside pg_catalog, or a built-in
-//      that runs SQL from text or reads data outside a relation is refused.
-//   3. The view is dropped and that transaction rolls back. The statement then runs in a new BEGIN READ ONLY transaction.
-// The check transaction opens READ WRITE, so a login whose role defaults to read-only transactions can still create the
-// view. It only creates the view and reads the catalog, never runs the statement, and always rolls back.
+//   1. Postgres prepares the statement without running it and returns the resolved parse tree as a client message.
+//   2. The tree lists every relation id, function id and operator id the statement uses, including CTEs, subqueries,
+//      system catalogs and built-in functions. A relation that is not ticked, a function or operator outside
+//      pg_catalog, or a built-in that runs SQL from text or reads data outside a relation is refused.
+//   3. The prepared statement is released and the read-only check transaction rolls back. The statement then runs
+//      in a new BEGIN READ ONLY transaction.
+// The check performs no DDL and never runs the statement.
 // A ticked view is the gate: it may read relations that are not ticked. For the PostgreSQL MCP node, the functions,
 // operators and types inside every view it reads are checked too.
 
@@ -23,11 +22,7 @@ export const RELATION_KINDS = { r: 'table', p: 'table', f: 'foreign table', v: '
 export const SCOPE_ONLY_SELECT =
     'This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.'
 export const SCOPE_UNCHECKABLE =
-    'Cuttlely could not check this query against the table selection: the temporary view the check uses could not be read. Queries are refused while a selection is set.'
-export const SCOPE_NO_TEMP =
-    'Cuttlely could not check this query against the table selection: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses. Run GRANT TEMPORARY ON DATABASE <database> TO <role>. Queries are refused while a selection is set.'
-export const VALIDATION_STANDBY =
-    'Cuttlely could not check this query: the database is a read-only standby (in recovery), and the check needs a server where it can create a temporary view, which it always rolls back. Point the credential at the primary. The query did not run.'
+    'Cuttlely could not check this query against the table selection because Postgres did not return its parsed query tree. Queries are refused while a selection is set.'
 export function scopeRiskyDomains(names) {
     return `Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: ${refusedList(
         names
@@ -35,7 +30,6 @@ export function scopeRiskyDomains(names) {
 }
 export const SCOPE_NONE_LEFT = 'None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.'
 
-const SCOPE_VIEW = 'cuttlely_scope_check'
 const SCOPE_STATEMENT_NAME = 'cuttlely_scope_check'
 // The pg client remembers each statement name it prepared, so a second check on one connection (describe samples
 // several columns) needs a name of its own.
@@ -392,10 +386,8 @@ async function inSavepoint(client, name, fn) {
     }
 }
 
-// A sample is a query, so it passes the same checks a query does: the risky-domain check and the temporary-view
-// check on its own statement (D87, D88). A column whose statement does not pass is not sampled. Call this last in
-// a read-write transaction: the checks need a temporary view, then the transaction turns read only for the samples
-// and keeps the shorter timeout.
+// A sample is a query, so it passes the same catalog and parsed-tree checks as a query (D87, D88). A column whose
+// statement does not pass is not sampled. The transaction is read only before samples run and uses a shorter timeout.
 export async function sampleRelationValues(client, runner, relation, relations, { isRowQuery, cacheKey = '', followViews = false }) {
     if (!SAMPLED_KINDS.has(relation.kind) || !relations.length) return null
     const candidates = (await runner.all(COLUMNS_SQL, [relation.oid])).filter((column) => column.textual).slice(0, SAMPLE_COLUMNS)
@@ -860,25 +852,7 @@ function refusedList(names) {
     return names.length > REFUSED_LIST ? `${shown}, and ${names.length - REFUSED_LIST} more` : shown
 }
 
-// Why the check could not create its temporary view: 'standby' for a server in recovery (the check transaction is
-// READ WRITE, so a read-only refusal there means the server itself is read only), 'no-temp' for a login without the
-// TEMP privilege, '' for anything else.
-export function validationFailure(error, { inRecovery = false } = {}) {
-    const code = String(error?.code || '')
-    const message = String(error?.message || '')
-    if (inRecovery || code === '25006' || (code === '0A000' && /during recovery/i.test(message))) return 'standby'
-    if (code === '42501' && /temporary/i.test(message)) return 'no-temp'
-    return ''
-}
-
-function uncheckableRefusal(error) {
-    const failure = validationFailure(error)
-    if (failure === 'standby') return new ScopeRefusal(VALIDATION_STANDBY)
-    if (failure === 'no-temp') return new ScopeRefusal(SCOPE_NO_TEMP)
-    return null
-}
-
-// Runs inside a read-write transaction that the caller rolls back. The statement runs later, in its own read-only one.
+// Runs inside a read-only transaction that the caller rolls back. The statement runs later, in its own read-only one.
 export async function checkStatementScope(
     client,
     runner,
@@ -995,89 +969,63 @@ export const SAFE_VOLATILE = new Set([
 
 const nodeDenied = (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name)
 
-// Parses the statement into a temporary view, inside the caller's transaction (which rolls back), and returns the
-// relations, functions, operators and types its query tree names. Nothing in the statement runs.
-async function parsedStatementIds(client, runner, statement, cacheKey) {
-    const risky = await riskyDomains(runner, cacheKey)
-    if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
-    if (runner.batchedGuard) return parsedStatementIdsBatched(client, runner, statement)
+function parseTreeNotice(notice) {
+    const message = String(notice?.message || '')
+    const marker = 'parse tree:'
+    const at = message.indexOf(marker)
+    if (at < 0) return ''
+    // Postgres sends the tree in the LOG message's DETAIL field. Keep the message fallback for proxies that combine
+    // the fields before forwarding them.
+    return String(notice?.detail || '').trim() || message.slice(at + marker.length).trim()
+}
+
+// PREPARE analyzes and resolves the statement without planning or running it. debug_print_parse sends that resolved
+// tree to this client as a LOG message. PREPARE and DEALLOCATE are session commands, not DDL, so event triggers cannot
+// fire during the check. The outer command uses the extended protocol, which refuses a second injected command.
+async function preparedStatementTree(client, runner, statement) {
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
     const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
+    const parseName = `${statementName}_parse`
+    const trees = []
+    const onNotice = (notice) => {
+        const tree = parseTreeNotice(notice)
+        if (tree) trees.push(tree)
+    }
+    let prepared = false
     try {
-        // The node parses the statement with the login's path behind pg_catalog, and runs its own queries without it.
-        if (runner.statementSearchPath)
+        if (runner.batchedGuard && runner.pathSetByBatch) runner.pathSetByBatch = false
+        else if (runner.statementSearchPath)
             await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        // A named statement is sent with the extended protocol, which refuses a second command.
+        await client.query('SET LOCAL client_min_messages = log; SET LOCAL debug_pretty_print = off; SET LOCAL debug_print_parse = on')
+        client.on('notice', onNotice)
         await client.query({
-            name: statementName,
-            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
+            name: parseName,
+            text: `PREPARE ${statementName} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
         })
-    } catch (error) {
-        throw uncheckableRefusal(error) ?? error
+        prepared = true
     } finally {
-        await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-        // After a failed parse the transaction is aborted and rolls back, which resets the path anyway.
+        client.removeListener('notice', onNotice)
+        // Turning debug output off is the first command. This cleanup is fixed text and cannot run user SQL.
+        await client
+            .query(
+                `SET LOCAL debug_print_parse = off; DEALLOCATE ${statementName}; DEALLOCATE ${parseName}; SET LOCAL client_min_messages = notice; SET LOCAL debug_pretty_print = on`
+            )
+            .catch(() => {})
         if (runner.statementSearchPath)
             await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
     }
-    const rule = await runner.get(
-        `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`
-    )
-    if (!rule?.tree) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-    const ids = treeObjectIds(rule.tree)
-    ids.tree = String(rule.tree || '')
-    // pg_depend adds relations named only by a regclass constant. It skips built-in objects, which the tree has.
-    const depends = await runner.all(
-        "SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid WHERE r.ev_class = ?::oid AND d.refclassid = 'pg_class'::regclass",
-        [rule.view]
-    )
-    await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`)
-    for (const row of depends) ids.relations.add(Number(row.oid))
-    ids.relations.delete(Number(rule.view))
-    return ids
+    if (!prepared || !trees.length) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
+    return trees.at(-1)
 }
 
-const SCOPE_RULE_SQL = `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`
-const SCOPE_DEPENDS_SQL = `SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass AND d.refclassid = 'pg_class'::regclass`
-
-async function parsedStatementIdsBatched(client, runner, statement) {
-    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
-    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
-    let parsed = false
-    try {
-        if (runner.pathSetByBatch) runner.pathSetByBatch = false
-        else if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        // Alone and named: the user text is never sent in a simple-protocol batch.
-        await client.query({
-            name: statementName,
-            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
-        })
-        parsed = true
-    } catch (error) {
-        throw uncheckableRefusal(error) ?? error
-    } finally {
-        if (!parsed) {
-            // Preserve the legacy swallowing cleanup on an aborted parse transaction.
-            await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-            if (runner.statementSearchPath)
-                await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
-        }
-    }
-    await runner.prefetch([
-        { exec: `DEALLOCATE ${statementName}` },
-        ...(runner.statementSearchPath ? [{ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" }] : []),
-        { sql: SCOPE_RULE_SQL },
-        { sql: SCOPE_DEPENDS_SQL },
-        { exec: `DROP VIEW pg_temp.${SCOPE_VIEW}` }
-    ])
-    const rule = await runner.get(SCOPE_RULE_SQL)
-    if (!rule?.tree) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-    const ids = treeObjectIds(rule.tree)
-    ids.tree = String(rule.tree || '')
-    const depends = await runner.all(SCOPE_DEPENDS_SQL)
-    for (const row of depends) ids.relations.add(Number(row.oid))
-    ids.relations.delete(Number(rule.view))
+// Returns the relations, functions, operators and types in the resolved query tree. Nothing in the statement runs.
+async function parsedStatementIds(client, runner, statement, cacheKey) {
+    const risky = await riskyDomains(runner, cacheKey)
+    if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
+    const tree = await preparedStatementTree(client, runner, statement)
+    const ids = treeObjectIds(tree)
+    ids.tree = tree
+    if (!runner.batchedGuard) return ids
     // Predictions use the same Set iteration and builders as the eventual JS consumers. If a body adds
     // ids, or the scoped reg* exception removes types, the later lookup misses the exact key and reads
     // the catalog normally. JS still decides in order.
@@ -1091,37 +1039,12 @@ async function parsedStatementIdsBatched(client, runner, statement) {
     return ids
 }
 
-// Returns the stored rule tree text for a parsed statement (fresh temp view), then drops it.
-async function statementTree(client, runner, statement) {
-    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
-    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
-    try {
-        if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        await client.query({
-            name: statementName,
-            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
-        })
-    } catch (error) {
-        throw uncheckableRefusal(error) ?? error
-    } finally {
-        await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-        if (runner.statementSearchPath)
-            await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
-    }
-    const row = await runner.get(`SELECT r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`)
-    await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`).catch(() => {})
-    return String(row?.tree || '')
-}
-
 // Without a table selection, the PostgreSQL MCP node still resolves every function, operator function and cast
 // function the statement calls through the catalog first, and refuses anything outside pg_catalog that is not on
 // ALLOWED_ROUTINES, any denied built-in, and any type whose input or output is not built in.
 export const ALLOWED_ROUTINES = new Set()
 export const SCOPE_UNCHECKABLE_ANY =
-    'Cuttlely could not check which functions this query calls: the temporary view the check uses could not be read. The query did not run.'
-export const SCOPE_NO_TEMP_ANY =
-    'Cuttlely could not check which functions this query calls: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses. Run GRANT TEMPORARY ON DATABASE <database> TO <role>. The query did not run.'
+    'Cuttlely could not check which functions this query calls because Postgres did not return its parsed query tree. The query did not run.'
 
 export async function checkStatementRoutines(client, runner, statement, isRowQuery, cacheKey = '') {
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
@@ -1131,7 +1054,6 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
         ids = await parsedStatementIds(client, runner, statement, cacheKey)
     } catch (error) {
         if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
-        if (error instanceof ScopeRefusal && error.message === SCOPE_NO_TEMP) throw new ScopeRefusal(SCOPE_NO_TEMP_ANY)
         throw error
     }
     const bodies = await followRelations(runner, ids)
@@ -1287,19 +1209,16 @@ WHERE c.relkind = 'f' AND EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid =
 UNION
 -- Every other catalog object that calls a function outside pg_catalog: a cast to json or jsonb, which to_json
 -- and to_jsonb look up without it appearing in the statement (other casts and operators appear in the statement
--- and are checked per query), an index expression or predicate the planner can simplify, a domain or table constraint, an event
--- trigger that fires on the check's temporary view, a range, operator or text search object. Views and policies
--- are followed per query instead, and triggers and column defaults do not run on a read. A domain constraint
+-- and are checked per query), an index expression or predicate the planner can simplify, a domain or table constraint,
+-- a range, operator or text search object. Views and policies are followed per query instead. Event triggers cannot
+-- run because the check performs no DDL, and row triggers and column defaults do not run on a read. A domain constraint
 -- calling a volatile built-in such as nextval is refused too, since parsing a literal runs it.
 SELECT pg_describe_object(d.classid, d.objid, d.objsubid)
 FROM pg_depend d JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace pn ON pn.oid = p.pronamespace
 WHERE d.refclassid = 'pg_proc'::regclass AND d.deptype IN ('n', 'a')
-  AND d.classid NOT IN ('pg_rewrite'::regclass, 'pg_policy'::regclass, 'pg_trigger'::regclass, 'pg_attrdef'::regclass, 'pg_proc'::regclass, 'pg_operator'::regclass)
+  AND d.classid NOT IN ('pg_rewrite'::regclass, 'pg_policy'::regclass, 'pg_trigger'::regclass, 'pg_event_trigger'::regclass, 'pg_attrdef'::regclass, 'pg_proc'::regclass, 'pg_operator'::regclass)
   AND (d.classid <> 'pg_cast'::regclass OR EXISTS (SELECT 1 FROM pg_cast c WHERE c.oid = d.objid AND c.casttarget IN ('json'::regtype, 'jsonb'::regtype)))
   AND (pn.nspname <> 'pg_catalog' OR (p.provolatile = 'v' AND d.classid = 'pg_constraint'::regclass))
-UNION
-SELECT 'event trigger ' || quote_ident(e.evtname) FROM pg_event_trigger e WHERE e.evtenabled <> 'D'
-UNION
 -- A function or operator with a built-in's name can win overload resolution over the built-in (an exact argument
 -- match beats an implicit cast, whatever the search path order), so a name the check read as the built-in could
 -- reach it instead.

@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   PostgreSQL MCP queries now work on databases with enabled event triggers, including Supabase and other managed Postgres services. The safety check prepares the query without running it and performs no DDL, so event-trigger functions do not run during the check.
+
 -   Self-hosted installs behind a reverse proxy or cloud gateway now keep idle server connections open for 65 seconds by default, instead of 5 seconds, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`; see the [reverse proxy guide](./docs/how-to/reverse-proxy.md). Follow-up to #455.
 
 -   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. The page now says the server could not be reached and asks you to check your connection, then reload. Loading or saving a canvas in that state shows the same message in a notification. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.

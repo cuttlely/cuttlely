@@ -53,8 +53,6 @@ import {
     selectedRelationsRead,
     guardCheckReads,
     guardDefinitionReads,
-    validationFailure,
-    VALIDATION_STANDBY,
     ROUTINE_STAMP_SQL
 } from './analyst-relations.mjs'
 
@@ -2080,17 +2078,6 @@ function urlSecrets(postgresUrl) {
     return secrets
 }
 
-// After a READ WRITE check transaction failed to start: true when the server is a standby in recovery. The failed
-// BEGIN left no transaction open, so the read runs on its own.
-async function inRecovery(client, error) {
-    if (validationFailure(error) === 'standby') return true
-    try {
-        return (await client.query('SELECT pg_catalog.pg_is_in_recovery() AS r')).rows?.[0]?.r === true
-    } catch {
-        return false
-    }
-}
-
 // One transaction holds the settings and the work, so a transaction-pooling proxy such as PgBouncer cannot run
 // them on different server sessions. Nothing is ever committed.
 async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, readOnly = true } = {}) {
@@ -2110,18 +2097,7 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
         await client.connect()
         if (side) side.connectMs += performance.now() - connecting
         // One round trip. A multi-statement simple query stops at the first error, as separate calls would.
-        // READ WRITE is explicit, so a role that defaults to read-only transactions can still create the sample checks'
-        // temporary views. On a standby it cannot start; the call then runs read only and the samples are left out.
-        try {
-            await client.query(
-                `${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN TRANSACTION READ WRITE'}; SET LOCAL statement_timeout = ${ms}`
-            )
-        } catch (error) {
-            // Clear any transaction the failed BEGIN may have left aborted before asking again.
-            await client.query('ROLLBACK').catch(() => {})
-            if (readOnly || !(await inRecovery(client, error))) throw error
-            await client.query(`BEGIN TRANSACTION READ ONLY; SET LOCAL statement_timeout = ${ms}`)
-        }
+        await client.query(`${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN'}; SET LOCAL statement_timeout = ${ms}`)
         return await fn(client, postgresRunner(client, { transaction: true }))
     } catch (error) {
         const outcome = analystErrorOutcome(error)
@@ -2132,9 +2108,9 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
     }
 }
 
-// Every query runs in BEGIN READ ONLY. With a table selection, the scope check first creates its temporary view in
-// its own short transaction on the same connection, which always rolls back. The query transaction then starts
-// read only and confirms transaction_read_only is on just before the query runs.
+// Every query runs in BEGIN READ ONLY. With a table selection, the scope check first prepares the statement without
+// running it in its own read-only transaction on the same connection, which always rolls back. The query transaction
+// then starts read only and confirms transaction_read_only is on just before the query runs.
 // binds: [] with no pin and no check text is the free-SQL path and keeps today's options.
 const hasCallerBinds = (binds) => binds != null && !(Array.isArray(binds) && binds.length === 0)
 // A type suggestion's entry has temporary text parameters. Its check text uses untyped NULLs at the compiled spans,
@@ -2257,9 +2233,7 @@ async function runUrlPostgres(
     const pathEntry = () => (guard.statementPathSql ? [{ exec: guard.statementPathSql }] : [])
     const begin = async (readOnly) => {
         guard.clearPrefetch?.()
-        // The check transaction is READ WRITE even for a role that defaults to read-only transactions: it only creates
-        // the temporary view and reads the catalog, and it always rolls back. The query transaction is READ ONLY.
-        const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN TRANSACTION READ WRITE', `SET LOCAL statement_timeout = ${ms}`]
+        const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN', `SET LOCAL statement_timeout = ${ms}`]
         settings.push('SET LOCAL standard_conforming_strings = on')
         // Keep the check transaction's release before the query transaction's BEGIN.
         if (guard.batchedGuard && carryRollback) settings.unshift('ROLLBACK')
@@ -2305,16 +2279,7 @@ async function runUrlPostgres(
             setStatementPath(String(login?.p || ''))
         }
     }
-    // A standby cannot start a READ WRITE transaction; that gets its own message instead of the raw error.
-    const beginCheck = async () => {
-        try {
-            await begin(false)
-        } catch (error) {
-            await rollback()
-            if (await inRecovery(client, error)) throw new AnalystToolError(VALIDATION_STANDBY, 'expected')
-            throw error
-        }
-    }
+    const beginCheck = () => begin(true)
     const preparse = async () => {
         if (!guard.batchedGuard) return
         // Other callers can cache the domain scan. Do not speculate that cached read again.
@@ -2700,8 +2665,7 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
         typeof input === 'string'
             ? input
             : ['name', 'relation', 'table', 'view'].map((key) => input?.[key]).find((value) => typeof value === 'string')
-    // Read-write only so the sample checks can create their temporary view. Nothing before them writes, the samples
-    // run read only, and the transaction always rolls back.
+    // Catalog checks and samples share one read-only transaction that always rolls back.
     return withUrlClient(
         postgresUrl,
         async (client, runner) => {
@@ -2731,7 +2695,7 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
             if (values) body.values = values
             return body
         },
-        { ...options, readOnly: false }
+        { ...options, readOnly: true }
     )
 }
 

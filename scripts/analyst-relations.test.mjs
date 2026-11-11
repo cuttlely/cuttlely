@@ -1154,7 +1154,7 @@ describe('analyst relations: describe and query leave no side effects', () => {
     })
 })
 
-describe('analyst relations: describe samples on a login without TEMP', () => {
+describe('analyst relations: queries and describe samples on a login without TEMP', () => {
     const db = riskyDatabase(
         'notemp',
         `
@@ -1162,11 +1162,12 @@ describe('analyst relations: describe samples on a login without TEMP', () => {
     `
     )
 
-    it('leaves values out, the same way query refuses, and still describes the columns', async (t) => {
+    it('runs the query and includes sample values without creating temporary objects', async (t) => {
         if (db.skipped(t)) return
-        await refusal(queryAnalystUrl(db.url, 'SELECT name FROM stores', { relations: ['public.stores'] }), /could not check this query/)
+        const result = await queryAnalystUrl(db.url, 'SELECT name FROM stores ORDER BY id', { relations: ['public.stores'] })
+        assert.deepEqual(result.rows, [{ name: 'Riverside' }, { name: 'Old Town' }])
         const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
-        assert.equal(stores.values, undefined)
+        assert.ok(stores.values)
         assert.deepEqual(stores.columns, ['id integer not null', 'name text not null'])
     })
 })
@@ -1636,11 +1637,6 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
                 `CREATE FUNCTION public.lower(varchar) RETURNS text LANGUAGE sql AS 'SELECT pg_catalog.lower($1::text)'`,
                 /public\.lower \(named like a built-in\)/,
                 'DROP FUNCTION public.lower(varchar)'
-            ],
-            [
-                `CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS 'BEGIN END'; CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`,
-                /event trigger (public\.)?watch_ddl/,
-                'DROP EVENT TRIGGER watch_ddl; DROP FUNCTION public.on_ddl()'
             ]
         ]
         for (const [create, expected, drop] of cases) {
@@ -1655,6 +1651,26 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
         const ok = await queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true })
         assert.equal(ok.rows[0].v, 1)
+    })
+
+    it('runs queries with an enabled event trigger without firing its function during the safety check', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE SEQUENCE public.ddl_watch_calls;
+            CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS
+            'BEGIN PERFORM nextval(''public.ddl_watch_calls''); END';
+            CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`)
+        resetRiskyDomainCacheForTests()
+        try {
+            const result = await queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true })
+            assert.deepEqual(result.rows, [{ v: 1 }])
+            const counter = await owner.query('SELECT last_value::int AS calls, is_called FROM public.ddl_watch_calls')
+            assert.deepEqual(counter.rows, [{ calls: 1, is_called: false }])
+        } finally {
+            await owner.query(`DROP EVENT TRIGGER IF EXISTS watch_ddl;
+                DROP FUNCTION IF EXISTS public.on_ddl();
+                DROP SEQUENCE IF EXISTS public.ddl_watch_calls`)
+            resetRiskyDomainCacheForTests()
+        }
     })
 
     it('checks TABLESAMPLE methods and refuses foreign tables', async (t) => {
@@ -1837,14 +1853,12 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         assert.equal(ok.rows[0].n, 3)
     })
 
-    it('refuses an unscoped query when the login cannot create a temporary view to check it', async (t) => {
+    it('runs an unscoped query without TEMP privilege', async (t) => {
         if (skipped(t)) return
         await owner.query(`REVOKE TEMPORARY ON DATABASE "${dbName}" FROM PUBLIC`)
         try {
-            await refusal(
-                queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true }),
-                /no TEMP privilege on the database, so it cannot create the temporary view/
-            )
+            const result = await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items LIMIT 1', { readOnlySql: true })
+            assert.deepEqual(result.rows, [{ n: 3 }])
         } finally {
             await owner.query(`GRANT TEMPORARY ON DATABASE "${dbName}" TO PUBLIC`)
         }

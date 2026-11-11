@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
+import { EventEmitter } from 'node:events'
 import { after, before, describe, it } from 'node:test'
 import {
     checkStatementScope,
@@ -725,8 +726,8 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
             Client.prototype.query = async function (...args) {
                 const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
                 if (text.split(/\n;\n|; /).some((part) => /^BEGIN/.test(part))) begins++
-                // CREATE TEMP VIEW parses the statement without executing it during the check transaction.
-                const user = !/^CREATE TEMP VIEW/.test(text) && text.includes(statement)
+                // PREPARE parses the statement without executing it during the check transaction.
+                const user = !/^PREPARE cuttlely_scope_check_/.test(text) && text.includes(statement)
                 const parts = text.split('\n;\n')
                 const index = parts.findIndex(
                     (part) => fault.match.test(part) && (!fault.params || fault.params.test(JSON.stringify(args[1] ?? []) + part))
@@ -770,7 +771,7 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
                 if (fault.postStatement) assert.equal(userSent, true, 'The post-statement stamp follows the user query')
                 if (!fault.postStatement && !fault.allowed)
                     assert.equal(
-                        sent.some((text) => !/^CREATE TEMP VIEW/.test(text) && text.includes(statement)),
+                        sent.some((text) => !/^PREPARE cuttlely_scope_check_/.test(text) && text.includes(statement)),
                         false,
                         'Failure precedes sending the user statement'
                     )
@@ -1109,7 +1110,7 @@ describe('analyst guard catalog batch failures', () => {
         { name: 'B4', match: (text) => text.split('\n;\n').some((part) => part.startsWith('BEGIN TRANSACTION READ ONLY')) },
         {
             name: 'B5',
-            match: (text) => text.includes("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5"),
+            match: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT md5')) && text.endsWith('ROLLBACK'),
             post: true
         }
     ]
@@ -1122,7 +1123,7 @@ describe('analyst guard catalog batch failures', () => {
                 const original = Client.prototype.query
                 Client.prototype.query = function (...args) {
                     const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
-                    if (!text.startsWith('CREATE TEMP VIEW') && text.includes(statement)) userSent = true
+                    if (!text.startsWith('PREPARE cuttlely_scope_check_') && text.includes(statement)) userSent = true
                     return original.apply(this, args)
                 }
                 setGuardBatchHookForTests((text, results) => {
@@ -1188,7 +1189,7 @@ describe('analyst guard catalog batch failures', () => {
             Client.prototype.query = function (...args) {
                 const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
                 if (text.startsWith('SELECT o.oprname AS name') && args[1]?.[0]?.length > 1) fallback = true
-                if (!text.startsWith('CREATE TEMP VIEW') && text.includes(sql)) userSent = true
+                if (!text.startsWith('PREPARE cuttlely_scope_check_') && text.includes(sql)) userSent = true
                 return original.apply(this, args)
             }
             const current = await decision(state.url, sql, config, false)
@@ -1263,8 +1264,8 @@ describe('analyst guard benchmark catalog shape', () => {
         assert.ok(calls.length <= 20, calls.map((text, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
         assert.match(calls.at(-1), /SELECT md5[\s\S]*\n;\nROLLBACK$/, 'Final rollback ends the stamp batch')
         assert.equal(transactionStatus, 'I', 'The final stamp batch leaves no open transaction')
-        const create = calls.find((text) => text.startsWith('CREATE TEMP VIEW'))
-        assert.ok(create && !create.includes('\n;\n'))
+        const prepare = calls.find((text) => text.startsWith('PREPARE cuttlely_scope_check_'))
+        assert.ok(prepare && !prepare.includes('\n;\n'))
         await noEffects(state)
     })
 })
@@ -1301,8 +1302,6 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
                 depends: ['65']
             }))
         if (/FROM unnest\(.*::text\[\]\) WITH ORDINALITY/s.test(sql)) return selected
-        if (/^SELECT r.ev_class/.test(sql)) return [{ view: '999', tree }]
-        if (/^SELECT d.refobjid.*pg_rewrite/.test(sql)) return [{ oid: '101' }, { oid: '102' }]
         if (sql.startsWith('SELECT c.relkind AS kind'))
             return [
                 { kind: 'r', name: names[0] },
@@ -1329,7 +1328,7 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         if (sql.startsWith('SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc')) return []
         if (sql.includes('guard_mock_user')) return [{ id: 1 }]
         if (
-            /^(BEGIN|SET LOCAL|SELECT pg_catalog.set_config|DEALLOCATE|DROP VIEW|LOCK TABLE|CREATE TEMP VIEW|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|SELECT 1 FROM ONLY)/.test(
+            /^(BEGIN|SET LOCAL|SELECT pg_catalog.set_config|DEALLOCATE|PREPARE|LOCK TABLE|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|SELECT 1 FROM ONLY)/.test(
                 sql
             )
         )
@@ -1342,7 +1341,8 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         const text = typeof query === 'string' ? query : query.text
         calls.push({ text, named: typeof query === 'object' && Boolean(query.name) })
         if (text.split(/\n;\n|; /).some((part) => part.startsWith('BEGIN'))) transaction++
-        const parts = text.split(text.includes('\n;\n') ? '\n;\n' : text.startsWith('BEGIN') ? '; ' : /$^/)
+        if (text.startsWith('PREPARE cuttlely_scope_check_')) this.emit('notice', { message: 'parse tree:', detail: tree })
+        const parts = text.split(text.includes('\n;\n') ? '\n;\n' : /; /)
         const results = parts.map((sql) => ({ rows: rows(sql, params) }))
         return results.length === 1 ? results[0] : results
     }
@@ -1374,10 +1374,10 @@ describe('analyst guard transaction orchestration (offline)', () => {
                             assert.equal(result.ok, true, result.message)
                             captures.push(catalogLookups(reads))
                             assert.equal(calls.at(-1).text.split('\n;\n').at(-1), 'ROLLBACK')
-                            const creates = calls.filter(({ text }) => text.startsWith('CREATE TEMP VIEW'))
-                            assert.equal(creates.length, 1)
-                            assert.equal(creates[0].named, true)
-                            assert.ok(!creates[0].text.includes('\n;\n'))
+                            const prepares = calls.filter(({ text }) => text.startsWith('PREPARE cuttlely_scope_check_'))
+                            assert.equal(prepares.length, 1)
+                            assert.equal(prepares[0].named, true)
+                            assert.ok(!prepares[0].text.includes('\n;\n'))
                             if (!legacy) {
                                 t.diagnostic(`mock 19 selections, 5 domains: ${calls.length} queries`)
                                 assert.ok(calls.length <= 20)
@@ -1406,13 +1406,14 @@ describe('analyst guard transaction orchestration (offline)', () => {
 describe('analyst guard broader callers (offline)', () => {
     it('keeps the separate parse queries for a runner without batchedGuard', async () => {
         const calls = []
-        const client = {
+        const client = Object.assign(new EventEmitter(), {
             async query(query, params) {
                 const text = typeof query === 'string' ? query : query.text
                 calls.push({ query, text, params })
-                return { rows: text.startsWith('SELECT r.ev_class') ? [{ view: '999', tree: '{QUERY}' }] : [] }
+                if (text.startsWith('PREPARE cuttlely_scope_check_')) this.emit('notice', { message: 'parse tree:', detail: '{QUERY}' })
+                return { rows: [] }
             }
-        }
+        })
         const runner = postgresRunner(client)
         const reads = []
         runner.logicalRead = (sql, params) => reads.push({ sql, params })
@@ -1420,19 +1421,18 @@ describe('analyst guard broader callers (offline)', () => {
         assert.equal(runner.batchedGuard, undefined)
         assert.equal(runner.legacyRoundTrips, undefined)
         await checkStatementScope(client, runner, 'SELECT 1', [{ oid: 101 }], () => true)
-        const start = calls.findIndex(({ text }) => text.startsWith('CREATE TEMP VIEW'))
-        const parse = calls.slice(start, start + 6)
-        assert.equal(parse.length, 6)
-        assert.ok(parse[0].query.name, 'CREATE TEMP VIEW uses a named statement')
-        assert.equal(parse[1].text, `DEALLOCATE ${parse[0].query.name}`)
-        assert.equal(parse[2].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
-        assert.match(parse[3].text, /^SELECT r.ev_class.*FROM pg_rewrite/)
-        assert.match(parse[4].text, /^SELECT d.refobjid.*WHERE r.ev_class = \$1::oid/)
-        assert.deepEqual(parse[4].params, ['999'])
-        const depend = reads.find(({ sql }) => sql.startsWith('SELECT d.refobjid'))
-        assert.match(depend.sql, /WHERE r.ev_class = \?::oid/)
-        assert.deepEqual(depend.params, ['999'])
-        assert.match(parse[5].text, /^DROP VIEW pg_temp\./)
+        const start = calls.findIndex(({ text }) => text.startsWith('SET LOCAL client_min_messages'))
+        const parse = calls.slice(start, start + 4)
+        assert.equal(parse.length, 4)
+        assert.match(parse[0].text, /debug_print_parse = on/)
+        assert.ok(parse[1].query.name, 'PREPARE uses a named statement')
+        assert.match(parse[1].text, /^PREPARE cuttlely_scope_check_\d+ AS SELECT 1 FROM \(\n/)
+        assert.match(parse[2].text, /^SET LOCAL debug_print_parse = off; DEALLOCATE/)
+        assert.equal(parse[3].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+        assert.equal(
+            reads.some(({ sql }) => sql.includes('pg_rewrite')),
+            false
+        )
         assert.ok(
             calls.every(({ text }) => !text.includes('\n;\n')),
             'no catalog queries are batched'
@@ -1465,7 +1465,7 @@ describe('analyst guard failure orchestration (offline)', () => {
         B2: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT DISTINCT format_type')),
         B3: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind')),
         B4: (text) => text.split('\n;\n').some((part) => part.startsWith('BEGIN TRANSACTION READ ONLY')),
-        B5: (text) => text.includes("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5")
+        B5: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT md5')) && text.endsWith('ROLLBACK')
     }
     for (const [batch, match] of Object.entries(batchMatchers))
         for (const short of [true, false])
@@ -1479,12 +1479,12 @@ describe('analyst guard failure orchestration (offline)', () => {
                         throw new Error('Injected batch failure')
                     })
                     const result = await decision('postgresql://127.0.0.1:55440/mock', statement, options, false)
-                    assert.equal(result.ok, false)
+                    assert.equal(result.ok, false, calls.map(({ text }, i) => `${i + 1}: ${text.slice(0, 160)}`).join('\n'))
                     assert.ok(hit)
                     if (batch === 'B5') assert.match(result.message, /changed while it was being checked/)
                     else if (short) assert.equal(result.message, GUARD_BATCH_MESSAGE)
                     assert.equal(
-                        calls.some(({ text }) => !text.startsWith('CREATE TEMP VIEW') && text.includes(statement)),
+                        calls.some(({ text }) => !text.startsWith('PREPARE cuttlely_scope_check_') && text.includes(statement)),
                         batch === 'B5'
                     )
                     assert.equal(calls.at(-1).text, 'ROLLBACK')
@@ -1502,7 +1502,7 @@ describe('analyst guard failure orchestration (offline)', () => {
                 assert.equal(result.ok, false)
                 assert.match(result.message, /row-security policy reads could not be locked/)
                 assert.equal(
-                    calls.some(({ text }) => !text.startsWith('CREATE TEMP VIEW') && text.includes(statement)),
+                    calls.some(({ text }) => !text.startsWith('PREPARE cuttlely_scope_check_') && text.includes(statement)),
                     false
                 )
             },

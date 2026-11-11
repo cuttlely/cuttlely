@@ -1,3 +1,9 @@
+## PostgreSQL MCP checks with event triggers
+
+The PostgreSQL MCP node's safety check now prepares a query without running it and reads the parsed tree returned by Postgres. The check uses a read-only transaction and performs no DDL, so enabled event triggers are allowed and their functions do not run during the check. The login no longer needs `TEMP`, and the check can run on a read-only standby. Every other database-wide risky-object refusal is unchanged.
+
+`scripts/analyst-relations.test.mjs` enables the existing `watch_ddl` fixture with a sequence counter, runs a read-only query, and confirms that the counter was not called. `scripts/analyst-readonly-role.test.mjs` covers a login without `TEMP` and checks that the safety and query transactions remain read only. The `analyst-postgres` CI matrix runs these checks on Postgres 14, 15, 16, 17 and 18.
+
 ## Product name in user-facing text
 
 This branch is `chore/product-name-in-ui-text` from `origin/main` at `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Display text that still named this product incorrectly now says Cuttlely. Identifiers, package names, API and environment names, stored keys, attribution, import-format labels, and historical changelog entries are unchanged. `CHANGELOG.md` records the wording under `## [Unreleased]`.
