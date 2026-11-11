@@ -30,6 +30,7 @@ import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 
 import './CreateEditRoleDialog.css'
 import { enabledPermissionKeys, togglePermission } from './rolePermissions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const portalElement = document.getElementById('portal')
@@ -219,7 +220,7 @@ const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed : ${typeof error.response.data === 'object' ? error.response.data.message : error.response.data}`,
+                message: `Failed : ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

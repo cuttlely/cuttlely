@@ -25,6 +25,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // const
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 const CSVFORMAT = `Only the first 2 columns will be considered:
 ----------------------------
 | Input      | Output      |
@@ -96,9 +97,7 @@ const UploadCSVFileDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to add new row in the Dataset: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new row in the Dataset: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

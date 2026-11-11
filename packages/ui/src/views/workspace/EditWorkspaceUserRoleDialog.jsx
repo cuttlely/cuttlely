@@ -37,6 +37,7 @@ import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 import useApi from '@/hooks/useApi'
 import { autocompleteClasses } from '@mui/material/Autocomplete'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const StyledPopper = styled(Popper)({
     boxShadow: '0px 8px 10px -5px rgb(0 0 0 / 20%), 0px 16px 24px 2px rgb(0 0 0 / 14%), 0px 6px 30px 5px rgb(0 0 0 / 12%)',
@@ -135,9 +136,7 @@ const EditWorkspaceUserRoleDialog = ({ show, dialogProps, onCancel, onConfirm })
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to update WorkspaceUser: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to update WorkspaceUser: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

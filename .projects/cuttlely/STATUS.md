@@ -6,7 +6,7 @@ Current work on `fix/silent-retry-ui` builds on the no-response guard. Safe GET 
 
 The classic canvas and agentflow v2 do not choose Live when draft status cannot be loaded. The whole canvas route, including its header, is replaced by a per-flow Retry and Back screen, and stays there during a retry until the status is known. The canvas reducer increments `editRev` on every dirty action. A save success carries the revision it started with, so a late reply cannot clear edits made while that save was running. A future save queue remains separate work.
 
-Node option, credential, hint, and nested configuration loads use the shared client and abort when their field unmounts. Unit tests cover the client, the retry helpers, the draft-status decision, the dirty reducer, the dropdown client path and the analyst lookup. The save queue is the next pull request.
+Node option, credential, hint, and nested configuration loads use the shared client and abort when their field unmounts. Unit tests cover the client, the retry helpers, the draft-status decision, the dirty reducer, the dropdown client path and the analyst lookup. The save queue is the next pull request. Every UI error handler now reads `error.response` only after checking it (`requestFailureMessage`), and `utils/responseReads.test.js` scans the UI source so the unguarded pattern cannot return.
 
 ## Canvas error page after a request gets no answer
 

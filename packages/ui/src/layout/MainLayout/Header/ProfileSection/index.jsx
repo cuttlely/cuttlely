@@ -56,6 +56,7 @@ import exportImportApi from '@/api/exportimport'
 import useApi from '@/hooks/useApi'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import { getErrorMessage } from '@/utils/errorHandler'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const dataToExport = [
     'Agentflows',
@@ -344,7 +345,7 @@ const ProfileSection = ({ handleLogout }) => {
             let errMsg = 'Invalid Imported File'
             let error = importAllApi.error
             if (error?.response?.data) {
-                errMsg = typeof error.response.data === 'object' ? error.response.data.message : error.response.data
+                errMsg = requestFailureMessage(error)
             }
             errorFailed(`Failed to import: ${errMsg}`)
         }
@@ -377,7 +378,7 @@ const ProfileSection = ({ handleLogout }) => {
             let errMsg = 'Internal Server Error'
             let error = exportAllApi.error
             if (error?.response?.data) {
-                errMsg = typeof error.response.data === 'object' ? error.response.data.message : error.response.data
+                errMsg = requestFailureMessage(error)
             }
             errorFailed(`Failed to export: ${errMsg}`)
         }

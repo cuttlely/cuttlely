@@ -16,6 +16,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const ChatFeedback = ({ dialogProps, onConfirm }) => {
     const dispatch = useDispatch()
@@ -61,9 +62,7 @@ const ChatFeedback = ({ dialogProps, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Chat Feedback Settings: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to save Chat Feedback Settings: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

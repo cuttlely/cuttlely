@@ -51,6 +51,7 @@ import roles_emptySVG from '@/assets/images/roles_empty.svg'
 
 import { useError } from '@/store/context/ErrorContext'
 import { isFixedRole, roleLabel } from '@/utils/roleLabel'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const StyledTableCell = styled(TableCell)(({ theme }) => ({
     borderColor: theme.palette.grey[900] + 25,
@@ -503,9 +504,7 @@ const Roles = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete Role: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete Role: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
