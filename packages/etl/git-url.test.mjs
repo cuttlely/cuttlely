@@ -211,6 +211,39 @@ describe('parseRemoteRefs and resolveGitSource', () => {
         assert.equal(got.subPath, 'docs')
     })
 
+    it('uses a full commit permalink without listing branch names', async () => {
+        const commit = '0123456789abcdef0123456789abcdef01234567'
+        let calls = 0
+        const file = await resolveGitSource({
+            gitUrl: `https://github.com/org/repo/blob/${commit}/docs/guide.md`,
+            listRefs: async () => {
+                calls += 1
+                return new Set(['main'])
+            }
+        })
+        assert.equal(calls, 0)
+        assert.deepEqual(file, {
+            cloneUrl: 'https://github.com/org/repo.git',
+            branch: commit,
+            subPath: 'docs/guide.md',
+            kind: 'blob',
+            commit: true
+        })
+
+        const overridden = await resolveGitSource({
+            gitUrl: `https://github.com/org/repo/tree/${commit}/docs`,
+            branch: 'main',
+            listRefs: async () => {
+                calls += 1
+                return new Set(['main'])
+            }
+        })
+        assert.equal(calls, 0)
+        assert.equal(overridden.branch, 'main')
+        assert.equal(overridden.subPath, 'docs')
+        assert.equal(overridden.commit, undefined)
+    })
+
     it('hints when listing refs fails', async () => {
         await assert.rejects(
             () =>

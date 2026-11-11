@@ -210,9 +210,9 @@ A **Code Repository** source can also read the Cuttlely checkout itself while `C
 
 Add a **Code Repository** node when the source is a git repository. Set **Folder Path** to a checkout on the server, or set **Git URL** to a public https repository.
 
-You can paste a GitHub folder or file link, such as `https://github.com/hashicorp/web-unified-docs/tree/main/content/`. With **Branch** empty, the node clones the repository on the branch in that link and loads only that folder or file. Include and exclude globs, default ignores, and repository `.gitignore` files still apply from the repository root. A plain repository URL or a `.git` URL still works. SSH URLs are not cloned; use the https address instead.
+You can paste a GitHub folder or file link, such as `https://github.com/hashicorp/web-unified-docs/tree/main/content/`. With **Branch** empty, the node checks out the branch, tag, or full commit in that link and loads only that folder or file. This includes a link made with GitHub's **Copy permalink** action. Include and exclude globs, default ignores, and repository `.gitignore` files still apply from the repository root. A plain repository URL or a `.git` URL still works. SSH URLs are not cloned; use the https address instead.
 
-Any non-empty **Branch** value overrides the branch in a pasted link, but keeps the link's folder or file path. For example, a link to `/tree/develop/guides` with **Branch** set to `main` loads `guides` from `main`, not from `develop`. Clear **Branch** to use `develop` from the link. The node checks the repository's branch names so a slash branch such as `release/1.7.2` is kept separate from the selected path.
+Any non-empty **Branch** value overrides the branch, tag, or commit in a pasted link, but keeps the link's folder or file path. For example, a link to `/tree/develop/guides` with **Branch** set to `main` loads `guides` from `main`, not from `develop`. Clear **Branch** to use `develop` from the link. The node checks the repository's branch names so a slash branch such as `release/1.7.2` is kept separate from the selected path.
 
 An unsupported or malformed URL shows a short hint on the node. Repository access and branch errors appear when you preview or run the pipeline.
 

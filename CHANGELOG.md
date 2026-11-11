@@ -10,7 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   The Code Repository source on an ETL pipeline accepts a GitHub folder or file link, such as a `/tree/` or `/blob/` URL. It clones the repository on that branch and loads only that path while keeping repository ignore and filter rules. A non-empty Branch field overrides the link's branch while keeping its path. An unsupported or malformed link shows a short hint on the node; access and branch errors appear during a preview or run. Fixes #461.
+-   The Code Repository source on an ETL pipeline accepts a GitHub folder or file link, such as a `/tree/` or `/blob/` URL, including a full-commit permalink. It checks out the link's branch, tag, or commit and loads only that path while keeping repository ignore and filter rules. A non-empty Branch field overrides the link's revision while keeping its path. An unsupported or malformed link shows a short hint on the node; access and branch errors appear during a preview or run. Fixes #461.
 
 -   Self-hosted installs behind a reverse proxy or cloud gateway now keep idle server connections open for 65 seconds by default, instead of 5 seconds, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`; see the [reverse proxy guide](./docs/how-to/reverse-proxy.md). Follow-up to #455.
 

@@ -19,6 +19,7 @@ export const LIST_REFS_HINT =
 export const WEB_PAGE_HINT = 'Use a git repository URL, not a web page. GitHub folder and file links are supported.'
 
 const PRIVATE_HOST = /^(localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[?f[cd])/i
+const COMMIT_REF = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com'])
 function bad(hint) {
     return { ok: false, hint }
@@ -117,6 +118,10 @@ export function gitUrlHint(raw) {
     return inspectGitUrl(text).hint
 }
 
+export function isCommitRef(value) {
+    return COMMIT_REF.test(String(value || '').trim())
+}
+
 export function parseRemoteRefs(stdout) {
     const refs = new Set()
     for (const line of String(stdout || '').split('\n')) {
@@ -190,7 +195,10 @@ export async function resolveGitSource({ gitUrl, branch = '', listRefs } = {}) {
     let refs = null
     // A slash can belong to the link's branch or its selected path. Resolve the link's longest
     // remote ref first, even when Branch is a matching prefix, then apply Branch as an override.
-    const needsRefs = inspected.rest.includes('/')
+    // GitHub's Copy permalink action puts a full object id in the branch slot. It is already
+    // unambiguous, so do not require it to appear in the advertised head/tag names.
+    const linkRef = inspected.rest.split('/')[0]
+    const needsRefs = inspected.rest.includes('/') && !isCommitRef(linkRef)
     if (needsRefs) {
         try {
             refs = await (listRefs || listRemoteRefs)(inspected.cloneUrl)
@@ -202,5 +210,11 @@ export async function resolveGitSource({ gitUrl, branch = '', listRefs } = {}) {
     if (inspected.kind === 'blob' && !resolved.subPath) {
         throw new EtlError('bad_source', 'This file link is missing a path inside the repository.')
     }
-    return { cloneUrl: inspected.cloneUrl, branch: resolved.branch, subPath: resolved.subPath, kind: inspected.kind }
+    return {
+        cloneUrl: inspected.cloneUrl,
+        branch: resolved.branch,
+        subPath: resolved.subPath,
+        kind: inspected.kind,
+        ...(!chosen && isCommitRef(linkRef) ? { commit: true } : {})
+    }
 }

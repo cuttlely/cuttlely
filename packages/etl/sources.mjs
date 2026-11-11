@@ -373,9 +373,12 @@ function looksBinary(file) {
 }
 
 // `--` ends git's options, so a branch or URL that starts with `-` (say `--upload-pack=...`) is never read as one.
-export function gitSyncArgs({ dir, url, branch, existing }) {
+export function gitSyncArgs({ dir, url, branch, existing, commit = false }) {
     if (branch.startsWith('-')) throw new EtlError('bad_source', `Branch "${branch}" is not a branch name.`)
     if (existing) return ['-C', dir, 'fetch', '--depth', '1', 'origin', '--', branch || 'HEAD']
+    // A raw commit is not a branch that `git clone --branch` can select. Make the shallow
+    // checkout first, then ensureRepo fetches that exact reachable object and resets to it.
+    if (commit) return ['clone', '--depth', '1', '--no-checkout', '--', url, dir]
     return ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), '--', url, dir]
 }
 
@@ -393,14 +396,19 @@ async function ensureRepo(source, ctx) {
     const resolved = await resolveGitSource({ gitUrl: inputs.gitUrl, branch: inputs.branch })
     const url = resolved.cloneUrl
     const branch = resolved.branch
+    const commit = resolved.commit === true
     const dir = path.join(etlDir(), 'repos', `${ctx.pipelineId || 'preview'}-${source.nodeId}`.replace(/[^A-Za-z0-9_.-]/g, '_'))
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
     if (fs.existsSync(path.join(dir, '.git'))) {
-        await run('git', gitSyncArgs({ dir, url, branch, existing: true }), { env, timeout: 600000 })
+        await run('git', gitSyncArgs({ dir, url, branch, existing: true, commit }), { env, timeout: 600000 })
         await run('git', ['-C', dir, 'reset', '--hard', 'FETCH_HEAD'], { env, timeout: 120000 })
     } else {
         fs.mkdirSync(path.dirname(dir), { recursive: true })
-        await run('git', gitSyncArgs({ dir, url, branch, existing: false }), { env, timeout: 600000 })
+        await run('git', gitSyncArgs({ dir, url, branch, existing: false, commit }), { env, timeout: 600000 })
+        if (commit) {
+            await run('git', gitSyncArgs({ dir, url, branch, existing: true, commit }), { env, timeout: 600000 })
+            await run('git', ['-C', dir, 'reset', '--hard', 'FETCH_HEAD'], { env, timeout: 120000 })
+        }
     }
     return {
         root: dir,

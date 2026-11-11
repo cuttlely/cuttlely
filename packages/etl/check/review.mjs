@@ -811,6 +811,28 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
         synced = String(error.stderr || error.message)
     }
     check('git clone and fetch still work with --', synced === true && fs.existsSync(path.join(dest, '.git')), String(synced))
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(G, 'src'), encoding: 'utf8' }).trim()
+    const commitDest = path.join(G, 'commit-dest')
+    const hexBranchClone = gitSyncArgs({ dir: 'd', url: source, branch: commit, existing: false })
+    check(
+        'a hex-shaped Branch field is still passed to clone as a branch unless the link identified a commit',
+        hexBranchClone.includes('--branch') && hexBranchClone.includes(commit) && !hexBranchClone.includes('--no-checkout'),
+        json(hexBranchClone)
+    )
+    let commitSynced = true
+    try {
+        git(gitSyncArgs({ dir: commitDest, url: source, branch: commit, existing: false, commit: true }))
+        git(gitSyncArgs({ dir: commitDest, url: source, branch: commit, existing: true, commit: true }))
+        git(['-C', commitDest, 'reset', '--hard', 'FETCH_HEAD'])
+    } catch (error) {
+        commitSynced = String(error.stderr || error.message)
+    }
+    const commitHead = commitSynced === true ? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: commitDest, encoding: 'utf8' }).trim() : ''
+    check(
+        'a Code Repository commit permalink fetches and checks out that exact commit',
+        commitSynced === true && commitHead === commit,
+        json({ commitSynced, commitHead, commit })
+    )
 
     const { resolveGitSource, gitUrlHint, SSH_HINT } = await import('../git-url.mjs')
     const tree = await resolveGitSource({
