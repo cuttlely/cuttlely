@@ -738,11 +738,20 @@ describe('Publish that gets no answer reads the status back instead of publishin
         const container = document.createElement('div')
         document.body.appendChild(container)
         const root = createRoot(container)
-        await act(async () => {
-            root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(PublishDialog, props)))
-        })
+        const render = async (isOpen, chatflow = props.chatflow) => {
+            await act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(PublishDialog, { ...props, open: isOpen, chatflow })
+                    )
+                )
+            })
+        }
+        await render(true)
         flowDraftsApi.getStatus.mockReset()
-        return { root, props }
+        return { root, props, render }
     }
 
     test.each([
@@ -795,7 +804,7 @@ describe('Publish that gets no answer reads the status back instead of publishin
         act(() => view.root.unmount())
     })
 
-    test('an unchanged status cannot confirm an ambiguous publish or allow an immediate repeat', async () => {
+    test('an unchanged status blocks another publish until the flow is reopened', async () => {
         const view = await open()
         flowDraftsApi.publish.mockRejectedValueOnce(noAnswer())
         const pending = {
@@ -811,6 +820,16 @@ describe('Publish that gets no answer reads the status back instead of publishin
         expect(view.props.onChatflowUpdated).not.toHaveBeenCalled()
         const publish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
         expect(publish.disabled).toBe(true)
+
+        await view.render(false)
+        await view.render(true)
+        const reopenedDialogPublish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
+        expect(reopenedDialogPublish.disabled).toBe(true)
+        expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
+
+        await view.render(true, { ...view.props.chatflow, id: 'flow-2' })
+        const reopenedFlowPublish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
+        expect(reopenedFlowPublish.disabled).toBe(false)
         act(() => view.root.unmount())
     })
 

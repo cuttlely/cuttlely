@@ -178,9 +178,12 @@ const PublishDialog = ({
         setReplaceLiveChanges(false)
         setError('')
         setBusy(false)
-        setPublishAgainBlocked(false)
         setPublishConflict(null)
     }, [open])
+
+    useEffect(() => {
+        setPublishAgainBlocked(false)
+    }, [chatflow?.id])
 
     const onStatus = useRef(onDraftStatus)
     onStatus.current = onDraftStatus
