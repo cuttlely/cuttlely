@@ -13,6 +13,7 @@ import NodeInputHandler from '../canvas/NodeInputHandler'
 
 // API
 import nodesApi from '@/api/nodes'
+import { isCancel } from '@/api/resilience'
 
 // const
 import { initNode, showHideInputParams, initializeDefaultNodeData } from '@/utils/genericHelper'
@@ -82,86 +83,100 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
 
     // Load initial component data when the component mounts
     useEffect(() => {
+        const controller = new AbortController()
+        let active = true
         const loadComponentData = async () => {
-            // Get the node name from inputs
-            const nodeName = data.inputs[inputParam.name]
-            const node = await nodesApi.getSpecificNode(nodeName)
+            try {
+                // Get the node name from inputs
+                const nodeName = data.inputs[inputParam.name]
+                const node = await nodesApi.getSpecificNode(nodeName, { signal: controller.signal })
 
-            if (!node.data) return
+                if (!node.data || !active) return
 
-            // Initialize component node with basic data
-            const componentNodeData = cloneDeep(initNode(node.data, `${node.data.nodeName}_0`))
+                // Initialize component node with basic data
+                const componentNodeData = cloneDeep(initNode(node.data, `${node.data.nodeName}_0`))
 
-            // Helper function to check if array-based configuration exists
-            const isArray = () => {
-                return parentParamForArray && data.inputs[parentParamForArray.name]
-            }
+                // Helper function to check if array-based configuration exists
+                const isArray = () => {
+                    return parentParamForArray && data.inputs[parentParamForArray.name]
+                }
 
-            const hasArrayConfig = () => {
-                return (
-                    parentParamForArray &&
-                    data.inputs[parentParamForArray.name] &&
-                    Array.isArray(data.inputs[parentParamForArray.name]) &&
-                    data.inputs[parentParamForArray.name][arrayIndex] &&
-                    data.inputs[parentParamForArray.name][arrayIndex][`${inputParam.name}Config`]
-                )
-            }
+                const hasArrayConfig = () => {
+                    return (
+                        parentParamForArray &&
+                        data.inputs[parentParamForArray.name] &&
+                        Array.isArray(data.inputs[parentParamForArray.name]) &&
+                        data.inputs[parentParamForArray.name][arrayIndex] &&
+                        data.inputs[parentParamForArray.name][arrayIndex][`${inputParam.name}Config`]
+                    )
+                }
 
-            // Helper function to get current input value
-            const getCurrentInputValue = () => {
-                return hasArrayConfig() ? data.inputs[parentParamForArray.name][arrayIndex][inputParam.name] : data.inputs[inputParam.name]
-            }
+                // Helper function to get current input value
+                const getCurrentInputValue = () => {
+                    return hasArrayConfig()
+                        ? data.inputs[parentParamForArray.name][arrayIndex][inputParam.name]
+                        : data.inputs[inputParam.name]
+                }
 
-            // Helper function to get config data
-            const getConfigData = () => {
-                return hasArrayConfig()
-                    ? data.inputs[parentParamForArray.name][arrayIndex][`${inputParam.name}Config`]
-                    : data.inputs[`${inputParam.name}Config`]
-            }
+                // Helper function to get config data
+                const getConfigData = () => {
+                    return hasArrayConfig()
+                        ? data.inputs[parentParamForArray.name][arrayIndex][`${inputParam.name}Config`]
+                        : data.inputs[`${inputParam.name}Config`]
+                }
 
-            // Update component inputs based on configuration
-            if (hasArrayConfig() || data.inputs[`${inputParam.name}Config`]) {
-                const configData = getConfigData()
-                const currentValue = getCurrentInputValue()
+                // Update component inputs based on configuration
+                if (hasArrayConfig() || data.inputs[`${inputParam.name}Config`]) {
+                    const configData = getConfigData()
+                    const currentValue = getCurrentInputValue()
 
-                // If stored config value doesn't match current input, reset to defaults
-                if (configData[inputParam.name] !== currentValue) {
-                    const defaultInput = initializeDefaultNodeData(componentNodeData.inputParams)
-                    componentNodeData.inputs = { ...defaultInput, [inputParam.name]: currentValue }
+                    // If stored config value doesn't match current input, reset to defaults
+                    if (configData[inputParam.name] !== currentValue) {
+                        const defaultInput = initializeDefaultNodeData(componentNodeData.inputParams)
+                        componentNodeData.inputs = { ...defaultInput, [inputParam.name]: currentValue }
+                    } else {
+                        // Use existing config with current input value
+                        componentNodeData.inputs = { ...configData, [inputParam.name]: currentValue }
+                    }
                 } else {
-                    // Use existing config with current input value
-                    componentNodeData.inputs = { ...configData, [inputParam.name]: currentValue }
+                    const currentValue = isArray()
+                        ? data.inputs[parentParamForArray.name][arrayIndex][inputParam.name]
+                        : data.inputs[inputParam.name]
+                    componentNodeData.inputs = {
+                        ...componentNodeData.inputs,
+                        [inputParam.name]: currentValue
+                    }
                 }
-            } else {
-                const currentValue = isArray()
-                    ? data.inputs[parentParamForArray.name][arrayIndex][inputParam.name]
-                    : data.inputs[inputParam.name]
-                componentNodeData.inputs = {
-                    ...componentNodeData.inputs,
-                    [inputParam.name]: currentValue
-                }
+
+                // Update input parameters visibility based on current inputs
+                componentNodeData.inputParams = showHideInputParams({
+                    ...componentNodeData,
+                    inputs: componentNodeData.inputs
+                })
+
+                const credential = componentNodeData.inputs.credential || componentNodeData.inputs[FLOWISE_CREDENTIAL_ID]
+                componentNodeData.credential = credential ? credential : undefined
+
+                if (!active) return
+                setSelectedComponentNodeData(componentNodeData)
+
+                // Store the processed inputs to track changes
+                setLastProcessedInputs({
+                    mainValue: data.inputs[inputParam.name],
+                    configValue: data.inputs[`${inputParam.name}Config`],
+                    arrayValue: parentParamForArray ? data.inputs[parentParamForArray.name] : null
+                })
+            } catch (error) {
+                if (!isCancel(error)) return undefined
             }
-
-            // Update input parameters visibility based on current inputs
-            componentNodeData.inputParams = showHideInputParams({
-                ...componentNodeData,
-                inputs: componentNodeData.inputs
-            })
-
-            const credential = componentNodeData.inputs.credential || componentNodeData.inputs[FLOWISE_CREDENTIAL_ID]
-            componentNodeData.credential = credential ? credential : undefined
-
-            setSelectedComponentNodeData(componentNodeData)
-
-            // Store the processed inputs to track changes
-            setLastProcessedInputs({
-                mainValue: data.inputs[inputParam.name],
-                configValue: data.inputs[`${inputParam.name}Config`],
-                arrayValue: parentParamForArray ? data.inputs[parentParamForArray.name] : null
-            })
         }
 
         loadComponentData()
+
+        return () => {
+            active = false
+            controller.abort()
+        }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])

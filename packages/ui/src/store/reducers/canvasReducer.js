@@ -3,6 +3,7 @@ import * as actionTypes from '../actions'
 
 export const initialState = {
     isDirty: false,
+    editRev: 0,
     chatflow: null,
     canvasDialogShow: false,
     componentNodes: [],
@@ -17,9 +18,11 @@ const canvasReducer = (state = initialState, action) => {
         case actionTypes.SET_DIRTY:
             return {
                 ...state,
-                isDirty: true
+                isDirty: true,
+                editRev: (state.editRev || 0) + 1
             }
         case actionTypes.REMOVE_DIRTY:
+            if (action.rev !== undefined && action.rev !== state.editRev) return state
             return {
                 ...state,
                 isDirty: false

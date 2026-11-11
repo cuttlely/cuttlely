@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useError } from '@/store/context/ErrorContext'
+import { isCancel } from '@/api/resilience'
 
 export default (apiFunc) => {
     const [data, setData] = useState(null)
@@ -15,6 +16,7 @@ export default (apiFunc) => {
             setError(null)
             setApiError(null)
         } catch (err) {
+            if (isCancel(err)) return
             handleError(err || 'Unexpected Error!')
             setApiError(err || 'Unexpected Error!')
         } finally {

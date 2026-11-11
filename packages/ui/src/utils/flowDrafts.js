@@ -99,6 +99,8 @@ export const canvasFlowText = (chatflow, status) => {
     return typeof chatflow?.flowData === 'string' ? chatflow.flowData : ''
 }
 
+export const draftStatusOpenDecision = (response, error) => (error ? { paint: false, error } : { paint: true, status: response?.data })
+
 // The flow the canvas test chat runs: the draft when there is one (the server runs it there too), otherwise Live.
 // A flow saved only as a draft has an empty Live, and the test chat must not call it unready.
 export const testChatFlow = (chatflow, status) => (chatflow ? { ...chatflow, flowData: canvasFlowText(chatflow, status) } : chatflow)

@@ -46,6 +46,14 @@ When a chat model card has a model list, such as OpenAI, Anthropic or xAI Grok, 
 
 The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle. With it off, a **Reasoning Effort** saved earlier is not sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, except Codex and `-pro` models. Those, gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort, so they reason at the provider's default: off does not turn reasoning off on a model that does not accept `none`. **Reasoning Effort** also has a **None** option. GPT-6 models send their Reasoning Effort and Summary in the request's `reasoning` field, and gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses. Calls on the Responses API keep a forced tool choice (`required`, `auto`, `none` or a named function). gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. On Azure, Responses API calls go to the resource's `/openai/v1/responses` endpoint with the deployment name as the model.
 
+## If your connection drops
+
+Cuttlely quietly retries loading options, credentials, and other read requests. You may see **Reconnecting…** for a few seconds. The chip does not block clicks, and your edits stay on the canvas.
+
+Saves are not retried automatically yet. If Save cannot reach the server, your edits stay on the canvas and still show as unsaved. Press **Save** again after the connection is back. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes.
+
+When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. If that check still fails after the quiet retries, the saved canvas stays closed. Select **Retry** on the page after the connection is back. This prevents a save until Cuttlely knows the correct mode.
+
 ## Switch between compact and classic cards
 
 Two places turn **Classic cards** on or off. They change the same setting.

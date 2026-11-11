@@ -16,7 +16,7 @@ import {
 import { cloneDeep } from 'lodash'
 
 // material-ui
-import { Toolbar, Box, AppBar, Button, Fab } from '@mui/material'
+import { Toolbar, Box, AppBar, Button, Fab, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
 // project imports
@@ -74,7 +74,7 @@ import {
 import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
-import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
+import { apiErrorMessage, canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
@@ -109,9 +109,12 @@ const AgentflowCanvas = () => {
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
+    const [draftStatusLoadError, setDraftStatusLoadError] = useState(null)
     const draftStatusRef = useRef(null)
     const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
+    const pendingCreateSaveRevRef = useRef()
+    const pendingUpdateSaveRevRef = useRef()
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -261,7 +264,7 @@ const AgentflowCanvas = () => {
                 navigate('/agentflows')
             } catch (error) {
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -318,6 +321,11 @@ const AgentflowCanvas = () => {
     }
 
     const handleSaveFlow = async (chatflowName, saveOptions) => {
+        if (draftStatusLoadError) {
+            errorFailed('Draft status is still unknown. Retry loading before you save.')
+            return
+        }
+        const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
@@ -334,6 +342,7 @@ const AgentflowCanvas = () => {
                 }
                 const chatbotConfig = withStarterQuestions(undefined, builderStartersRef.current)
                 if (chatbotConfig) newChatflowBody.chatbotConfig = chatbotConfig
+                pendingCreateSaveRevRef.current = saveRev
                 createNewChatflowApi.request(newChatflowBody)
             } else {
                 const plan = planCanvasSave({
@@ -355,6 +364,7 @@ const AgentflowCanvas = () => {
                     }
                 }
                 if (plan.live?.flowData) {
+                    pendingUpdateSaveRevRef.current = saveRev
                     updateChatflowApi.request(chatflow.id, { name: plan.live.name, flowData: plan.live.flowData })
                     return
                 }
@@ -367,7 +377,7 @@ const AgentflowCanvas = () => {
                         return
                     }
                 }
-                if (plan.draft) saveChatflowSuccess('Draft saved')
+                if (plan.draft) saveChatflowSuccess('Draft saved', saveRev)
             }
         }
     }
@@ -693,8 +703,8 @@ const AgentflowCanvas = () => {
         }, 50)
     }
 
-    const saveChatflowSuccess = (message = `${canvasTitle} saved`) => {
-        dispatch({ type: REMOVE_DIRTY })
+    const saveChatflowSuccess = (message = `${canvasTitle} saved`, rev) => {
+        dispatch({ type: REMOVE_DIRTY, rev })
         enqueueSnackbar({
             message,
             options: {
@@ -762,6 +772,7 @@ const AgentflowCanvas = () => {
             let cancelled = false
             const paint = (status) => {
                 if (cancelled) return
+                setDraftStatusLoadError(null)
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
                 draftSave.record(status, text)
@@ -784,8 +795,14 @@ const AgentflowCanvas = () => {
             }
             flowDraftsApi
                 .getStatus(loaded.id)
-                .then((res) => paint(res.data))
-                .catch(() => paint({ enabled: false, mode: 'live', reason: 'off', draft: null }))
+                .then((res) => {
+                    const decision = draftStatusOpenDecision(res)
+                    if (decision.paint) paint(decision.status)
+                })
+                .catch((error) => {
+                    const decision = draftStatusOpenDecision(undefined, error)
+                    if (!cancelled && !decision.paint) setDraftStatusLoadError(decision.error)
+                })
             return () => {
                 cancelled = true
             }
@@ -802,7 +819,9 @@ const AgentflowCanvas = () => {
             const chatflow = createNewChatflowApi.data
             builderStartersRef.current = []
             dispatch({ type: SET_CHATFLOW, chatflow })
-            saveChatflowSuccess(chatflow.accessNotice)
+            const saveRev = pendingCreateSaveRevRef.current
+            pendingCreateSaveRevRef.current = undefined
+            saveChatflowSuccess(chatflow.accessNotice, saveRev)
             flowDraftsApi
                 .getStatus(chatflow.id)
                 .then((res) => {
@@ -812,6 +831,7 @@ const AgentflowCanvas = () => {
                 .catch(() => undefined)
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
         } else if (createNewChatflowApi.error) {
+            pendingCreateSaveRevRef.current = undefined
             errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(createNewChatflowApi.error)}`)
         }
 
@@ -822,9 +842,12 @@ const AgentflowCanvas = () => {
     useEffect(() => {
         if (updateChatflowApi.data) {
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-            saveChatflowSuccess()
+            const saveRev = pendingUpdateSaveRevRef.current
+            pendingUpdateSaveRevRef.current = undefined
+            saveChatflowSuccess(undefined, saveRev)
             saveBuilderStarters(updateChatflowApi.data)
         } else if (updateChatflowApi.error) {
+            pendingUpdateSaveRevRef.current = undefined
             errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(updateChatflowApi.error)}`)
         }
 
@@ -1066,7 +1089,7 @@ const AgentflowCanvas = () => {
                     <ReactFlowProvider>
                         <CanvasPanelContext.Provider value={panelContext}>
                             <div className='reactflow-parent-wrapper'>
-                                <div className='reactflow-wrapper' ref={reactFlowWrapper}>
+                                <div className='reactflow-wrapper' ref={reactFlowWrapper} style={{ position: 'relative' }}>
                                     <ReactFlow
                                         nodes={nodes}
                                         edges={edges}
@@ -1191,6 +1214,30 @@ const AgentflowCanvas = () => {
                                         )}
                                         {!chatPopupOpen && <ValidationPopUp isAgentCanvas={true} chatflowid={chatflowId} />}
                                     </ReactFlow>
+                                    {draftStatusLoadError && (
+                                        <Box
+                                            sx={{
+                                                position: 'absolute',
+                                                inset: 0,
+                                                zIndex: 20,
+                                                display: 'grid',
+                                                placeContent: 'center',
+                                                gap: 2,
+                                                px: 3,
+                                                textAlign: 'center',
+                                                bgcolor: 'background.default'
+                                            }}
+                                        >
+                                            <Typography variant='h4'>The saved canvas could not be opened</Typography>
+                                            <Typography color='text.secondary'>
+                                                Draft status could not be loaded. Your canvas stays closed so a save cannot use the wrong
+                                                mode.
+                                            </Typography>
+                                            <Button variant='contained' onClick={() => getSpecificChatflowApi.request(chatflowId)}>
+                                                Retry
+                                            </Button>
+                                        </Box>
+                                    )}
                                 </div>
                                 {panelOpen && (
                                     <EditNodeDialog

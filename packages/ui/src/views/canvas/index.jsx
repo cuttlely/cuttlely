@@ -15,7 +15,7 @@ import {
 import { cloneDeep } from 'lodash'
 
 // material-ui
-import { Toolbar, Box, AppBar, Button, Fab } from '@mui/material'
+import { Toolbar, Box, AppBar, Button, Fab, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
 // project imports
@@ -87,7 +87,7 @@ import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canv
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
-import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
+import { apiErrorMessage, canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
 import { applyCredentialInput, canvasSaveDocument } from '@/utils/canvasSave'
 import { draftSaveWasTurnedOff, planHarnessDraftFallback, planNewHarnessSave } from '@/utils/harnessSave'
 import {
@@ -160,10 +160,13 @@ const Canvas = () => {
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
+    const [draftStatusLoadError, setDraftStatusLoadError] = useState(null)
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
     const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
+    const pendingCreateSaveRevRef = useRef()
+    const pendingUpdateSaveRevRef = useRef()
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -389,7 +392,7 @@ const Canvas = () => {
                 navigate(isEtlCanvas ? '/etl' : isHarnessCanvas ? '/harnesses' : isAgentCanvas ? '/agentflows' : '/')
             } catch (error) {
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -441,6 +444,11 @@ const Canvas = () => {
     const normalizeForMerge = (flow) => normalizeCanvasFlow(flow, canvasSpecs())
 
     const handleSaveFlow = async (chatflowName, saveOptions) => {
+        if (draftStatusLoadError) {
+            errorFailed('Draft status is still unknown. Retry loading before you save.')
+            return
+        }
+        const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance)
@@ -496,6 +504,7 @@ const Canvas = () => {
                     if (planned.draftFlowData) newChatflowBody.draftFlowData = planned.draftFlowData
                     pendingHarnessNoteRef.current = planned.notice || ''
                 }
+                pendingCreateSaveRevRef.current = saveRev
                 createNewChatflowApi.request(newChatflowBody)
             } else {
                 const plan = planCanvasSave({
@@ -532,6 +541,7 @@ const Canvas = () => {
                     }
                     setChatflowName(plan.live.name)
                     setFlowData(plan.live.flowData)
+                    pendingUpdateSaveRevRef.current = saveRev
                     getHasChatflowChangedApi.request(chatflow.id, lastUpdatedDateTime)
                     return
                 }
@@ -545,7 +555,7 @@ const Canvas = () => {
                         return
                     }
                 }
-                if (plan.draft) saveChatflowSuccess('Draft saved')
+                if (plan.draft) saveChatflowSuccess('Draft saved', saveRev)
                 if (isChatCanvas) saveBuilderStarters(chatflow)
             }
         }
@@ -672,8 +682,8 @@ const Canvas = () => {
         setIsSyncNodesButtonEnabled(false)
     }
 
-    const saveChatflowSuccess = (message = `${canvasTitle} saved`) => {
-        dispatch({ type: REMOVE_DIRTY })
+    const saveChatflowSuccess = (message = `${canvasTitle} saved`, rev) => {
+        dispatch({ type: REMOVE_DIRTY, rev })
         enqueueSnackbar({
             message,
             options: {
@@ -779,12 +789,12 @@ const Canvas = () => {
 
     // The first save of a built chatflow: Live stays empty and the built cards become the draft, so the test chat
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
-    const saveFirstDraft = async (created, draft, notice) => {
+    const saveFirstDraft = async (created, draft, notice, rev) => {
         try {
             const res = await draftSave.save(created.id, draft)
             if (res?.conflict) return
             setDraftStatus(res.data)
-            saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.')
+            saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
         } catch (draftError) {
             const retained = isHarnessCanvas
                 ? planHarnessDraftFallback({
@@ -804,7 +814,7 @@ const Canvas = () => {
             try {
                 const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
                 dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                saveChatflowSuccess(retained?.notice)
+                saveChatflowSuccess(retained?.notice, rev)
             } catch (error) {
                 errorFailed(apiErrorMessage(error, 'Save failed'))
             }
@@ -954,6 +964,7 @@ const Canvas = () => {
             let cancelled = false
             const paint = (status) => {
                 if (cancelled) return
+                setDraftStatusLoadError(null)
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
                 draftSave.record(status, text)
@@ -982,8 +993,14 @@ const Canvas = () => {
             // The canvas shows the draft. Harness runs and pipeline runs keep serving Live until Publish.
             flowDraftsApi
                 .getStatus(loaded.id)
-                .then((res) => paint(res.data))
-                .catch(() => paint({ enabled: false, mode: 'live', reason: 'off', draft: null }))
+                .then((res) => {
+                    const decision = draftStatusOpenDecision(res)
+                    if (decision.paint) paint(decision.status)
+                })
+                .catch((error) => {
+                    const decision = draftStatusOpenDecision(undefined, error)
+                    if (!cancelled && !decision.paint) setDraftStatusLoadError(decision.error)
+                })
             return () => {
                 cancelled = true
             }
@@ -1012,10 +1029,12 @@ const Canvas = () => {
             pendingDraftRef.current = null
             const harnessNote = pendingHarnessNoteRef.current
             pendingHarnessNoteRef.current = ''
+            const saveRev = pendingCreateSaveRevRef.current
+            pendingCreateSaveRevRef.current = undefined
             if (draft) {
-                saveFirstDraft(chatflow, draft, harnessNote)
+                saveFirstDraft(chatflow, draft, harnessNote, saveRev)
             } else {
-                saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined)
+                saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined, saveRev)
             }
             if (!draft) {
                 flowDraftsApi
@@ -1034,6 +1053,7 @@ const Canvas = () => {
                 }`
             )
         } else if (createNewChatflowApi.error) {
+            pendingCreateSaveRevRef.current = undefined
             errorFailed(apiErrorText(createNewChatflowApi.error))
         }
 
@@ -1047,9 +1067,12 @@ const Canvas = () => {
             pendingHarnessLiveSaveRef.current = null
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
             setLasUpdatedDateTime(updateChatflowApi.data.updatedDate)
-            saveChatflowSuccess(retained?.notice)
+            const saveRev = pendingUpdateSaveRevRef.current
+            pendingUpdateSaveRevRef.current = undefined
+            saveChatflowSuccess(retained?.notice, saveRev)
         } else if (updateChatflowApi.error) {
             pendingHarnessLiveSaveRef.current = null
+            pendingUpdateSaveRevRef.current = undefined
             errorFailed(apiErrorText(updateChatflowApi.error))
         }
 
@@ -1536,6 +1559,30 @@ const Canvas = () => {
                                                 : isAgentCanvas
                                                 ? 'Add an agent, then connect a chat model.'
                                                 : 'Add a Chain, Agent, or Engine, then connect a chat model to it.'}
+                                        </Box>
+                                    )}
+                                    {draftStatusLoadError && (
+                                        <Box
+                                            sx={{
+                                                position: 'absolute',
+                                                inset: 0,
+                                                zIndex: 20,
+                                                display: 'grid',
+                                                placeContent: 'center',
+                                                gap: 2,
+                                                px: 3,
+                                                textAlign: 'center',
+                                                bgcolor: 'background.default'
+                                            }}
+                                        >
+                                            <Typography variant='h4'>The saved canvas could not be opened</Typography>
+                                            <Typography color='text.secondary'>
+                                                Draft status could not be loaded. Your canvas stays closed so a save cannot use the wrong
+                                                mode.
+                                            </Typography>
+                                            <Button variant='contained' onClick={() => getSpecificChatflowApi.request(chatflowId)}>
+                                                Retry
+                                            </Button>
                                         </Box>
                                     )}
                                 </div>

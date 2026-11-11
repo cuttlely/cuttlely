@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **Canvas error page after no response.** Current work on `fix/canvas-save-crash` from `95c64dab` for [#455](https://github.com/cuttlely/cuttlely/issues/455). A request that gets no answer shows a reachable-server message instead of the route error page, and a page error stays with the page that failed. The exact-head full gate result for this branch is in the pull request's Checker record.
+-   **Silent canvas read retries.** Current work on `fix/silent-retry-ui` retries safe reads and opted-in node load requests, adds cancellation and in-flight sharing, keeps an unknown draft status from opening as Live, and keeps later edits dirty after a save reply. Saves remain single-attempt.
+
+-   **Next: save queue.** Keep draft and Live save replay, reconciliation, and queued snapshots in a separate change. Reuse the retry primitives, but do not enable generic save retries.
 
 -   **Import handle types (done).** Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection.
 

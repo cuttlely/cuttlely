@@ -28,6 +28,7 @@ import {
     draftVersion,
     draftConflictFrom,
     draftConflictMessage,
+    draftStatusOpenDecision,
     DRAFT_CONFLICT_TITLE,
     DRAFT_CONFLICT_RELOAD,
     DRAFT_CONFLICT_SAVE_ANYWAY
@@ -117,6 +118,12 @@ describe('canvas load and save', () => {
         expect(canvasFlowText(chatflow, { mode: 'draft', draft: { flowData: draft } })).toBe(draft)
         expect(canvasFlowText(chatflow, { mode: 'live', reason: 'off', draft: null })).toBe(live)
         expect(canvasFlowText(chatflow, null)).toBe(live)
+    })
+
+    test('does not choose Live when draft status could not be loaded', () => {
+        const error = new Error('connection lost')
+        expect(draftStatusOpenDecision(undefined, error)).toEqual({ paint: false, error })
+        expect(draftStatusOpenDecision({ data: { mode: 'draft' } })).toEqual({ paint: true, status: { mode: 'draft' } })
     })
 
     test('sends the canvas to the draft, and the name to Live without the canvas', () => {

@@ -4,7 +4,7 @@
 // set up). Any failure, including an older server without the
 // lookup, is 'unknown', and 'unknown' shows nothing. Display only: nothing here is saved or changes a run.
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import nodesApi from '@/api/nodes'
 import { baseURL } from '@/store/constant'
 import { CREDENTIAL_INPUT } from '@/utils/canvasSave'
 import { POSTGRES_NODE, wiredPostgres } from '@/utils/nodeDisplayNames'
@@ -23,7 +23,9 @@ export function modeFrom(list) {
     return ANALYST_MODES.includes(name) ? name : 'unknown'
 }
 
-export async function fetchAnalystMode(nodeData, post = axios.post) {
+const sharedPost = (_url, body, config) => nodesApi.executeNodeLoadMethod(POSTGRES_NODE, body, config)
+
+export async function fetchAnalystMode(nodeData, post = sharedPost) {
     try {
         const response = await post(
             `${baseURL}/api/v1/node-load-method/${POSTGRES_NODE}`,

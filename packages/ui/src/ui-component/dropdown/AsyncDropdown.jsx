@@ -1,7 +1,6 @@
 import { useState, useEffect, useContext, Fragment } from 'react'
 import { useSelector } from 'react-redux'
 import PropTypes from 'prop-types'
-import axios from 'axios'
 
 // Material
 import Autocomplete, { autocompleteClasses } from '@mui/material/Autocomplete'
@@ -10,6 +9,7 @@ import { useTheme, styled } from '@mui/material/styles'
 
 // API
 import credentialsApi from '@/api/credentials'
+import nodesApi from '@/api/nodes'
 
 // const
 import { baseURL } from '@/store/constant'
@@ -18,6 +18,7 @@ import { getAvailableNodesForVariable } from '@/utils/genericHelper'
 import { selectedOptionDescriptions } from '@/utils/postgresCredentialHint'
 import { splitOptions } from '@/utils/checkboxList'
 import { LoadMessages, LOAD_FAILED } from '@/ui-component/alert/LoadMessages'
+import { isCancel } from '@/api/resilience'
 
 const StyledPopper = styled(Popper)({
     boxShadow: '0px 8px 10px -5px rgb(0 0 0 / 20%), 0px 16px 24px 2px rgb(0 0 0 / 14%), 0px 6px 30px 5px rgb(0 0 0 / 12%)',
@@ -31,7 +32,7 @@ const StyledPopper = styled(Popper)({
     }
 })
 
-export const fetchList = async ({ name, nodeData, previousNodes, currentNode }) => {
+export const fetchList = async ({ name, nodeData, previousNodes, currentNode }, config = {}) => {
     const selectedParam = nodeData.inputParams.find((param) => param.name === name)
     const loadMethod = selectedParam?.loadMethod
 
@@ -40,27 +41,12 @@ export const fetchList = async ({ name, nodeData, previousNodes, currentNode }) 
         credentialId = nodeData.inputs.credential || nodeData.inputs?.['FLOWISE_CREDENTIAL_ID']
     }
 
-    let config = {
-        headers: {
-            'x-request-from': 'internal',
-            'Content-type': 'application/json'
-        },
-        withCredentials: true
-    }
-
-    let lists = await axios
-        .post(
-            `${baseURL}/api/v1/node-load-method/${nodeData.name}`,
-            { ...nodeData, loadMethod, previousNodes, currentNode, credential: credentialId },
-            config
-        )
-        .then(async function (response) {
-            return response.data
-        })
-        .catch(function (error) {
-            console.error(error)
-        })
-    return lists
+    const response = await nodesApi.executeNodeLoadMethod(
+        nodeData.name,
+        { ...nodeData, loadMethod, previousNodes, currentNode, credential: credentialId },
+        config
+    )
+    return response.data
 }
 
 export const AsyncDropdown = ({
@@ -107,28 +93,24 @@ export const AsyncDropdown = ({
     let [internalValue, setInternalValue] = useState(value ?? 'choose an option')
     const { reactFlowInstance } = useContext(flowContext)
 
-    const fetchCredentialList = async () => {
-        try {
-            let names = ''
-            if (credentialNames.length > 1) {
-                names = credentialNames.join('&credentialName=')
-            } else {
-                names = credentialNames[0]
-            }
-            const resp = await credentialsApi.getCredentialsByName(names)
-            if (resp.data) {
-                const returnList = []
-                for (let i = 0; i < resp.data.length; i += 1) {
-                    const data = {
-                        label: resp.data[i].name,
-                        name: resp.data[i].id
-                    }
-                    returnList.push(data)
+    const fetchCredentialList = async (config) => {
+        let names = ''
+        if (credentialNames.length > 1) {
+            names = credentialNames.join('&credentialName=')
+        } else {
+            names = credentialNames[0]
+        }
+        const resp = await credentialsApi.getCredentialsByName(names, config)
+        if (resp.data) {
+            const returnList = []
+            for (let i = 0; i < resp.data.length; i += 1) {
+                const data = {
+                    label: resp.data[i].name,
+                    name: resp.data[i].id
                 }
-                return returnList
+                returnList.push(data)
             }
-        } catch (error) {
-            console.error(error)
+            return returnList
         }
     }
 
@@ -136,12 +118,14 @@ export const AsyncDropdown = ({
     const [messages, setMessages] = useState([])
 
     useEffect(() => {
+        const controller = new AbortController()
+        let active = true
         setLoading(true)
         ;(async () => {
-            const fetchData = async () => {
+            try {
                 let response = []
                 if (credentialNames.length) {
-                    response = await fetchCredentialList()
+                    response = await fetchCredentialList({ signal: controller.signal })
                 } else {
                     const body = {
                         name,
@@ -170,12 +154,11 @@ export const AsyncDropdown = ({
                         body.previousNodes = previousNodes
                     }
 
-                    response = await fetchList(body)
-                    // A failed request answers nothing; show it as a message with Retry instead of an empty list.
-                    if (!Array.isArray(response)) response = [LOAD_FAILED]
+                    response = await fetchList(body, { signal: controller.signal })
                 }
                 if (!Array.isArray(response)) response = []
                 const split = splitOptions(response)
+                if (!active) return
                 setMessages(split.messages)
                 response = split.choices
                 for (let j = 0; j < response.length; j += 1) {
@@ -187,9 +170,19 @@ export const AsyncDropdown = ({
                 if (isCreateNewOption) setOptions([...response, ...addNewOption])
                 else setOptions([...response])
                 setLoading(false)
+            } catch (error) {
+                if (!active || isCancel(error)) return
+                const split = splitOptions([LOAD_FAILED])
+                setMessages(split.messages)
+                setOptions([])
+                setLoading(false)
             }
-            fetchData()
         })()
+
+        return () => {
+            active = false
+            controller.abort()
+        }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [attempt])

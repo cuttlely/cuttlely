@@ -1,3 +1,13 @@
+## Silent retries while editing a canvas
+
+Current work on `fix/silent-retry-ui` builds on the no-response guard. Safe GET and HEAD requests retry no-response failures and HTTP 502, 503, and 504 up to three times after the first attempt. Non-GET requests stay single-attempt unless they opt in; node load-method POST requests opt in. Saves, creates, publishing, uploads, and other writes do not opt in. The token refresh uses bare axios with its own bounded retry and one shared refresh promise.
+
+`packages/ui/src/api/resilience.js` owns retry classification, backoff, cancellation, and stable dedupe keys. `packages/ui/src/api/connectionState.js` owns the retry count used by the delayed, click-through **Reconnecting…** chip. Identical GET and opted-in load POST requests share only the in-flight promise; signal-carrying requests stay independent, and each caller receives its own response object.
+
+The classic canvas and agentflow v2 do not choose Live when draft status cannot be loaded. They leave the saved canvas closed behind a Retry state, and Save refuses to run until the status is known. The canvas reducer increments `editRev` on every dirty action. A save success carries the revision it started with, so a late reply cannot clear edits made while that save was running. A future save queue remains separate work.
+
+Node option, credential, hint, and nested configuration loads use the shared client and abort when their field unmounts. Unit tests cover the client, the retry helpers, the draft-status decision, the dirty reducer, the dropdown client path and the analyst lookup. The save queue is the next pull request.
+
 ## Canvas error page after a request gets no answer
 
 This branch is `fix/canvas-save-crash` from `origin/main` at `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). It fixes [#455](https://github.com/cuttlely/cuttlely/issues/455). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.

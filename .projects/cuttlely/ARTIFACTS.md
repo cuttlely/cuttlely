@@ -6,6 +6,15 @@
 -   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx`: malformed `chatbotConfig` falls back to an empty object; `ShowToolEvents.test.js` covers it.
 -   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Unreleased notes in `CHANGELOG.md`.
 
+## Silent canvas read retries
+
+-   `packages/ui/src/api/resilience.js` and `resilience.test.js`: safe-method policy, no-response and gateway-status classification, three jittered delays, abortable sleep, stable request keys, response cloning, and the in-flight map.
+-   `packages/ui/src/api/client.js` and `client.test.js`: four-attempt limit, retry opt-in, cancellation, in-flight sharing and eviction, shared token refresh, refresh-only retry, and connection-state cleanup.
+-   `packages/ui/src/api/connectionState.js`, `store/context/ConnectionContext.jsx`, and `ui-component/connection/`: the count store and delayed app-shell **Reconnecting…** chip.
+-   `packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx`, `utils/analystStatus.js`, `views/canvas/CredentialInputHandler.jsx`, and `views/agentflowsv2/ConfigInput.jsx`: shared-client node loads and field-lifetime cancellation.
+-   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
+-   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [Unreleased]`.
+
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
