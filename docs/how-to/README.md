@@ -2,6 +2,13 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.3
+
+-   A request that gets no answer no longer replaces the page with **Something went wrong**. The page says the server could not be reached and asks you to reload. See [What does "The server could not be reached" mean?](../faq.md#what-does-the-server-could-not-be-reached-mean). Importing a chatflow keeps a connection when only the handle type name changed.
+-   **PR-1 (pending merge):** Brief connection drops while you edit are retried quietly. A save no longer marks later edits as saved. A canvas whose draft status cannot be loaded stays closed with Retry. [Canvas cards](./canvas.md).
+-   **PR-2 (pending merge):** Self-hosted installs behind a reverse proxy keep idle connections open longer. The reverse proxy guide lands with that change. [Install with Docker](./docker.md).
+-   **PR-3 (pending merge):** Saves are kept and retried when a request gets no answer.
+
 ## New in 1.7.2
 
 -   [Choose what chat shows](./share-and-embed.md#what-the-chat-shows) with **Show tool events**. Chatflows start with it Off; Harness run cards stay visible. The shared link and website embed show answers, sources, attachments and Harness run cards, without other live tool or step status cards.

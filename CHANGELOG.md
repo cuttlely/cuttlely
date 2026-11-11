@@ -2,13 +2,25 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.3] - Unreleased
+
+### Changed
+
+-   **PR-1 (squash SHA pending — replace with the merge SHA before cutting 1.7.3):** Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again.
+
+-   **PR-3 (squash SHA pending — replace with the merge SHA before cutting 1.7.3; wording drafted from the in-flight plan — finalize from that PR's own CHANGELOG after it merges):** Saves are kept and retried when a request gets no answer, so you can keep editing and the canvas keeps trying to save.
 
 ### Fixed
 
 -   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. The page now says the server could not be reached and asks you to check your connection, then reload. Loading or saving a canvas in that state shows the same message in a notification. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
--   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
+-   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone. Fixes #436.
+
+-   **PR-1 (squash SHA pending — replace with the merge SHA before cutting 1.7.3):** A save that finished while you kept editing no longer marks the later edits as saved.
+
+-   **PR-1 (squash SHA pending — replace with the merge SHA before cutting 1.7.3):** Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays closed with a Retry action until its save mode is known.
+
+-   **PR-2 (squash SHA pending — replace with the merge SHA before cutting 1.7.3):** Self-hosted installs behind a reverse proxy or cloud gateway now keep idle server connections open for 65 seconds by default, instead of 5 seconds, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`. The reverse proxy guide lands with this change. Follow-up to #455.
 
 ## [1.7.2] - 2026-11-10
 
@@ -958,6 +970,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...HEAD
+[1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...HEAD
 [1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...v1.7.0

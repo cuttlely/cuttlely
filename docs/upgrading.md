@@ -4,6 +4,16 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.3
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.3 server and widget versions. This patch adds no schema migration and preserves the existing enforcement mode.
+
+If a request gets no answer, the page stays in place and says the server could not be reached, instead of showing **Something went wrong**. Importing a saved chatflow keeps a connection that still points at the same input when only the handle type name changed.
+
+**PR-1, PR-2 and PR-3 (pending merge — finalize after they land):** Brief connection drops while you edit are retried quietly. A save that finished while you kept editing no longer marks later edits as saved. Saves are kept and retried when a request gets no answer. Self-hosted installs behind a reverse proxy keep idle connections open for 65 seconds by default; tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions. Enforcement remains **Off** by default; preparing or installing this patch does not activate it.
+
 ## Upgrading to 1.7.2
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.2 server and widget versions. This patch adds no schema migration and preserves the existing enforcement mode.

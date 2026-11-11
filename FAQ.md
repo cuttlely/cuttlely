@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.2)
+# Cuttlely FAQ (1.7.3)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,17 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.2?
+### What's new in 1.7.3?
+
+-   A request that gets no answer no longer replaces the page with **Something went wrong**. The page stays put and says the server could not be reached. Check your connection and reload. See [What does "The server could not be reached" mean?](./docs/faq.md#what-does-the-server-could-not-be-reached-mean).
+-   Importing a chatflow keeps a connection that still points at the same input when only the handle type name changed. A connection is still dropped when either end is gone.
+-   **PR-1 (pending merge — finalize after it lands):** Brief connection drops while you edit are retried quietly for reads and option loads. A **Reconnecting…** chip can appear while Cuttlely tries again. A save that finished while you kept editing no longer marks the later edits as saved. Opening a saved flow stays closed with Retry until its draft status is known, instead of showing Live.
+-   **PR-2 (pending merge — finalize after it lands):** Self-hosted installs behind a reverse proxy keep idle server connections open for 65 seconds by default, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`. See the reverse proxy guide after that change lands.
+-   **PR-3 (pending merge — finalize from that PR's docs after it lands):** Saves are kept and retried when a request gets no answer, so you can keep editing and the canvas keeps trying to save.
+
+Use matching 1.7.3 server and widget packages. The [changelog](./CHANGELOG.md) lists the patch fixes; the [1.7.0 upgrade requirements](./docs/upgrading.md#170-security-exception-upgrade) still apply.
+
+### What changed in 1.7.2?
 
 -   **Show tool events** lets you choose live tool and step status in the app chat. Chatflows start Off; agentflows, multiagent flows and Harness canvases start On. Answers, sources, attachments and Harness run cards stay visible. Shared links and website embeds keep those results and Harness run cards, without live tool or step status cards. See [Share and embed a chat](./docs/how-to/share-and-embed.md#what-the-chat-shows).
 -   Publish and access-key dialogs have clearer labels, duration controls and Advanced settings.
