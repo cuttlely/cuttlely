@@ -389,7 +389,7 @@ export class App {
             }
             await Promise.all(removePromises)
         } catch (e) {
-            logger.error(`❌[server]: Flowise Server shut down error: ${e}`)
+            logger.error(`❌[server]: Cuttlely Server shut down error: ${e}`)
         }
     }
 }

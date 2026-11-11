@@ -34,7 +34,7 @@ function notBuilt() {
     return {
         ready: false,
         built: false,
-        reason: 'Flowise is not built. Run pnpm build before this worker serves live chat models.'
+        reason: 'Cuttlely is not built. Run pnpm build before this worker serves live chat models.'
     }
 }
 
@@ -51,7 +51,7 @@ function contextFrom(loaded) {
     const componentNodes = loaded.componentNodes || {}
     const count = Object.keys(componentNodes).length
     if (!count) {
-        return { ready: false, built: false, reason: 'The Flowise node pool loaded no nodes. Run pnpm build and restart the worker.' }
+        return { ready: false, built: false, reason: 'The Cuttlely node pool loaded no nodes. Run pnpm build and restart the worker.' }
     }
     const baseURL = process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`
     return {

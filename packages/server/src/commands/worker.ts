@@ -25,7 +25,7 @@ export default class Worker extends BaseCommand {
     scheduleWorkerId: string
 
     async run(): Promise<void> {
-        logger.info('Starting Flowise Worker...')
+        logger.info('Starting Cuttlely Worker...')
         registerCuttlelyTraces()
         installHttpLocalhostReader()
 
@@ -131,7 +131,7 @@ export default class Worker extends BaseCommand {
             logger.info(`Shutting down Cuttlely Schedule Worker ${this.scheduleWorkerId}...`)
             await scheduleWorker.close()
         } catch (error) {
-            logger.error('There was an error shutting down Flowise Worker...', error)
+            logger.error('There was an error shutting down Cuttlely Worker...', error)
             await this.failExit()
         }
 

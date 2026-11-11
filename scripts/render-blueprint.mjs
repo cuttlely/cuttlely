@@ -161,7 +161,7 @@ export function validateBlueprint(doc, rawText = '') {
 
         const databaseType = env.get('DATABASE_TYPE')
         if (!databaseType || databaseType.value !== 'postgres') errors.push('DATABASE_TYPE must be postgres')
-        if (env.has('DATABASE_URL')) errors.push('Flowise does not read DATABASE_URL; use DATABASE_HOST and the other DATABASE_* fields')
+        if (env.has('DATABASE_URL')) errors.push('Cuttlely does not read DATABASE_URL; use DATABASE_HOST and the other DATABASE_* fields')
 
         const mount = web.disk && web.disk.mountPath
         for (const key of DISK_PATH_KEYS) {

@@ -6,6 +6,12 @@ A Code Repository source on an ETL pipeline treated a GitHub folder or file link
 
 The parser is `packages/etl/git-url.mjs`. Tests are in `packages/etl/git-url.test.mjs`, `packages/etl/check/correctness.mjs`, and `packages/ui/src/utils/gitSourceUrl.test.js`. The Code Repository node is version 1.1. The how-to is in `docs/how-to/etl.md`.
 
+## Product name in user-facing text
+
+This work landed on `origin/main` as `05701570` ([#463](https://github.com/cuttlely/cuttlely/pull/463)). Display text that still named this product incorrectly now says Cuttlely. Identifiers, package names, API and environment names, stored keys, attribution, import-format labels, and historical changelog entries are unchanged. `CHANGELOG.md` records the wording under `## [Unreleased]`.
+
+The ETL Pipeline panel warning for an unverified embeddings node now says it is called through its Cuttlely node. Harness worker readiness and module-binding errors, server start and shutdown logs, the API documentation listen line, the Render blueprint `DATABASE_URL` check, and the local start-script worker line use the same product name. No user-doc, README, FAQ, or website file needed a wording change beyond those operator messages: remaining mentions in docs name an import format, an environment variable, a URL path, or an attribution credit.
+
 ## Proxy-safe HTTP timeouts
 
 Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)), from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).

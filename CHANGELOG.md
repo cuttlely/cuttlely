@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Node warnings and operator messages now use the product name Cuttlely. The ETL Pipeline panel says an embeddings model is called through its Cuttlely node. Server start, stop, worker, and blueprint-check messages use the same product name.
+
 ### Fixed
 
 -   The Code Repository source on an ETL pipeline accepts a GitHub folder or file link, such as a `/tree/` or `/blob/` URL. It clones the repository on that branch and loads only that path. An unsupported or malformed link shows a short hint on the node; access and branch errors appear during a preview or run. Fixes #461.
