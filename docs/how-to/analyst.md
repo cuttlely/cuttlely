@@ -330,6 +330,8 @@ The selection is checked by Postgres, on the server, for every query and every `
 6. Cuttlely releases the prepared statement and rolls back the check transaction.
 7. The statement runs in a new `BEGIN READ ONLY` transaction on the same connection. Cuttlely confirms `transaction_read_only` is `on` and that the transaction is on the same server session as the check (a transaction-pooling proxy such as PgBouncer could switch it). It takes an `ACCESS SHARE` lock on each ticked table and view, so none can be dropped, renamed or replaced until the query ends, and confirms each still has the id the check allowed. `LOCK TABLE` does not accept a materialized view or some foreign tables, so Cuttlely reads no rows from each of those (`SELECT 1 FROM ONLY ... LIMIT 0`), which takes the same `ACCESS SHARE` lock until the query ends, and checks its id too. If anything differs, the query is refused with `the selected tables or views changed while it was being checked. Run it again.` That transaction also ends with a rollback.
 
+To return the parsed tree to Cuttlely without creating an object, the check briefly turns on Postgres's parse-debug message for its own session. Postgres writes that tree at `LOG` level to its server log by default. The tree can contain literal values from the query in Postgres's internal form. Treat database logs as sensitive: restrict who can read them, set an appropriate retention period, and do not put passwords, API keys or other secrets in query text. This does not send the tree to Cuttlely's server log.
+
 ### Checks before connecting
 
 The Postgres (MCP) node's **QUERY** checks the SQL text before it opens a connection, with or without a table selection:

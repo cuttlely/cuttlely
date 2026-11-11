@@ -980,8 +980,10 @@ function parseTreeNotice(notice) {
 }
 
 // PREPARE analyzes and resolves the statement without planning or running it. debug_print_parse sends that resolved
-// tree to this client as a LOG message. PREPARE and DEALLOCATE are session commands, not DDL, so event triggers cannot
-// fire during the check. The outer command uses the extended protocol, which refuses a second injected command.
+// tree to this client as a LOG message. PostgreSQL also writes that LOG message to its server log by default, so the
+// docs tell operators that parsed query literals can be retained there. PREPARE and DEALLOCATE are session commands,
+// not DDL, so event triggers cannot fire during the check. The outer command uses the extended protocol, which refuses
+// a second injected command.
 async function preparedStatementTree(client, runner, statement) {
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
     const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
@@ -1219,6 +1221,7 @@ WHERE d.refclassid = 'pg_proc'::regclass AND d.deptype IN ('n', 'a')
   AND d.classid NOT IN ('pg_rewrite'::regclass, 'pg_policy'::regclass, 'pg_trigger'::regclass, 'pg_event_trigger'::regclass, 'pg_attrdef'::regclass, 'pg_proc'::regclass, 'pg_operator'::regclass)
   AND (d.classid <> 'pg_cast'::regclass OR EXISTS (SELECT 1 FROM pg_cast c WHERE c.oid = d.objid AND c.casttarget IN ('json'::regtype, 'jsonb'::regtype)))
   AND (pn.nspname <> 'pg_catalog' OR (p.provolatile = 'v' AND d.classid = 'pg_constraint'::regclass))
+UNION
 -- A function or operator with a built-in's name can win overload resolution over the built-in (an exact argument
 -- match beats an implicit cast, whatever the search path order), so a name the check read as the built-in could
 -- reach it instead.

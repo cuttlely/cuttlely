@@ -18,6 +18,7 @@ import {
     columnList,
     deniedFunction,
     describeRefusal,
+    guardCheckReads,
     resetRiskyDomainCacheForTests,
     routineCatalogStamp,
     scanFunctionBody,
@@ -83,6 +84,12 @@ const wide = {
 const tokens = (text) => Math.ceil(String(text).length / 4)
 
 describe('analyst relations: pure helpers', () => {
+    it('keeps every risky-object scan branch joined after the event-trigger refusal is removed', () => {
+        const riskyObjects = guardCheckReads({ readOnlySql: true })[0].sql
+        assert.match(riskyObjects, /d\.classid = 'pg_constraint'::regclass\)\)\nUNION\n-- A function or operator with a built-in's name/)
+        assert.doesNotMatch(riskyObjects, /SELECT 'event trigger '/)
+    })
+
     it('reads a string function body: computes values, or refuses writes, dynamic SQL and table reads', () => {
         const ok = (src, lang = 'plpgsql') => {
             const scan = scanFunctionBody(src, lang, { backslashLiteral: true })

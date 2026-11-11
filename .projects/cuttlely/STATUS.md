@@ -1,6 +1,6 @@
 ## PostgreSQL MCP checks with event triggers
 
-The PostgreSQL MCP node's safety check now prepares a query without running it and reads the parsed tree returned by Postgres. The check uses a read-only transaction and performs no DDL, so enabled event triggers are allowed and their functions do not run during the check. The login no longer needs `TEMP`, and the check can run on a read-only standby. Every other database-wide risky-object refusal is unchanged.
+The PostgreSQL MCP node's safety check now prepares a query without running it and reads the parsed tree returned by Postgres. The check uses a read-only transaction and performs no DDL, so enabled event triggers are allowed and their functions do not run during the check. The login no longer needs `TEMP`, and the check can run on a read-only standby. Every other database-wide risky-object refusal is unchanged. Postgres writes the parsed tree at `LOG` level to its server log by default, and it can contain literal values in an internal form. The user docs tell operators to restrict access and retention and to keep secrets out of query text.
 
 `scripts/analyst-relations.test.mjs` enables the existing `watch_ddl` fixture with a sequence counter, runs a read-only query, and confirms that the counter was not called. `scripts/analyst-readonly-role.test.mjs` covers a login without `TEMP` and checks that the safety and query transactions remain read only. The `analyst-postgres` CI matrix runs these checks on Postgres 14, 15, 16, 17 and 18.
 
