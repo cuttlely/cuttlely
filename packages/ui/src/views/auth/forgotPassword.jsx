@@ -25,6 +25,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // Icons
 import { IconCircleCheck, IconExclamationCircle } from '@tabler/icons-react'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| ForgotPasswordPage ||============================== //
 
@@ -83,10 +84,12 @@ const ForgotPasswordPage = () => {
 
     useEffect(() => {
         if (forgotPasswordApi.error) {
-            const errMessage =
-                typeof forgotPasswordApi.error.response.data === 'object'
-                    ? forgotPasswordApi.error.response.data.message
-                    : forgotPasswordApi.error.response.data
+            const data = forgotPasswordApi.error.response?.data
+            const errMessage = forgotPasswordApi.error.response
+                ? typeof data === 'object'
+                    ? data?.message
+                    : data
+                : requestFailureMessage(forgotPasswordApi.error)
             setResponseMsg({
                 type: 'error',
                 msg: errMessage ?? 'Failed to send instructions, please contact your administrator.'

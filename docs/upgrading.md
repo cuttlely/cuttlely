@@ -4,6 +4,16 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.2
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.2 server and widget versions. This patch adds no schema migration and preserves the existing enforcement mode.
+
+**Show tool events** starts Off on chatflows and On on agentflows, multiagent flows and Harness canvases. Choose it in **Configuration > Chat** and select **Save** for that flow. Answers, sources, attachments and Harness run cards remain visible. Shared links and website embeds do not display the other live tool or step status cards; see [Share and embed a chat](./how-to/share-and-embed.md#what-the-chat-shows).
+
+Same-server calls between flows and Harnesses use the parent caller's permissions. With access-key enforcement On, grant every target and its required scopes rather than relying on a saved card credential. Calls from an external Harness worker recheck the key and permissions against the application database. Remote Base URL overrides keep their configured HTTP credential path.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions. Enforcement remains **Off** by default; preparing or installing this patch does not activate it.
+
 ## Upgrading to 1.7.1
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.1 server and widget versions. No new schema migration is needed for the PostgreSQL delete fix. Existing bearer values, grants, quotas and enforcement mode are preserved.

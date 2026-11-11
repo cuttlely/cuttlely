@@ -390,6 +390,10 @@
             "packages/ui/src/routes/RouteErrorPage.test.js",
             "packages/ui/src/utils/chunkReload.js",
             "packages/ui/src/utils/chunkReload.test.js",
+            "packages/ui/src/utils/errorSummary.js",
+            "packages/ui/src/ErrorBoundary.test.js",
+            "packages/ui/src/api/client.test.js",
+            "packages/ui/src/store/context/ErrorContext.test.js",
             "packages/ui/src/ui-component/checkbox/CheckboxList.jsx",
             "packages/ui/src/utils/saveFlowPlaceholder.js",
             "packages/ui/src/utils/saveFlowPlaceholder.test.js",
@@ -444,7 +448,17 @@
             "packages/ui/src/views/chatflows/APICodeDialog.test.js",
             "packages/ui/src/views/users/index.test.js",
             "packages/ui/src/views/users/userActions.js",
-            "packages/ui/src/views/users/userActions.test.js"
+            "packages/ui/src/views/users/userActions.test.js",
+            "packages/components/src/streaming.ts",
+            "packages/components/src/streaming.test.ts",
+            "packages/components/src/handler.streaming.test.ts",
+            "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+            "packages/server/src/utils/chatflowStream.test.ts",
+            "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+            "packages/ui/src/ui-component/extended/ShowToolEvents.test.js",
+            "packages/ui/src/utils/toolEvents.js",
+            "packages/ui/src/views/chatmessage/ChatMessage.events.test.js",
+            "packages/server/src/utils/buildChatflow.toolEvents.test.ts"
         ],
         "inherited": [
             "packages/server/**",
@@ -1252,6 +1266,10 @@
                 "packages/ui/src/routes/RouteErrorPage.test.js",
                 "packages/ui/src/utils/chunkReload.js",
                 "packages/ui/src/utils/chunkReload.test.js",
+                "packages/ui/src/utils/errorSummary.js",
+                "packages/ui/src/ErrorBoundary.test.js",
+                "packages/ui/src/api/client.test.js",
+                "packages/ui/src/store/context/ErrorContext.test.js",
                 "packages/ui/src/ui-component/checkbox/CheckboxList.jsx",
                 "packages/ui/src/utils/saveFlowPlaceholder.js",
                 "packages/ui/src/utils/saveFlowPlaceholder.test.js",
@@ -1349,6 +1367,7 @@
                 "packages/ui/src/utils/postgresCredentialHint.js",
                 "packages/ui/src/utils/checkboxList.js",
                 "packages/ui/src/utils/safeJsonParse.js",
+                "packages/ui/src/utils/errorSummary.js",
                 "packages/ui/src/routes/RouteErrorPage.jsx",
                 "packages/ui/src/utils/chunkReload.js",
                 "packages/ui/src/ui-component/checkbox/CheckboxList.jsx",
@@ -1416,6 +1435,26 @@
                 "packages/server/src/services/accessKeys/credentials.ts",
                 "packages/server/src/services/accessKeys/managementBoundary.ts",
                 "packages/server/src/services/accessKeys/legacyBinding.ts"
+            ]
+        },
+        {
+            "name": "Chat tool events",
+            "paths": [
+                "packages/components/src/streaming.ts",
+                "packages/components/src/streaming.test.ts",
+                "packages/components/src/handler.streaming.test.ts",
+                "packages/components/nodes/agents/ToolAgent/ToolAgent.test.ts",
+                "packages/server/src/utils/chatflowStream.test.ts",
+                "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+                "packages/ui/src/ui-component/extended/ShowToolEvents.test.js",
+                "packages/ui/src/utils/toolEvents.js",
+                "packages/ui/src/views/chatmessage/ChatMessage.events.test.js",
+                "packages/server/src/utils/buildChatflow.toolEvents.test.ts"
+            ],
+            "entryPoints": [
+                "packages/components/src/streaming.ts",
+                "packages/ui/src/ui-component/extended/ShowToolEvents.jsx",
+                "packages/ui/src/utils/toolEvents.js"
             ]
         }
     ]

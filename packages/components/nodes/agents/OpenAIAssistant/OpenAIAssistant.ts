@@ -1,3 +1,4 @@
+import { streamChatflowSafe } from '../../../src/streaming'
 import {
     ICommonObject,
     IDatabaseEntity,
@@ -198,7 +199,7 @@ class OpenAIAssistant_Agents implements INode {
         const parallelToolCalls = nodeData.inputs?.parallelToolCalls as boolean
 
         const shouldStreamResponse = options.shouldStreamResponse
-        const sseStreamer: IServerSideEventStreamer = options.sseStreamer as IServerSideEventStreamer
+        const sseStreamer: IServerSideEventStreamer = streamChatflowSafe(options.sseStreamer as IServerSideEventStreamer, options)
         const chatId = options.chatId
         const checkStorage = options.checkStorage
             ? (options.checkStorage as (orgId: string, subscriptionId: string, usageCacheManager: any) => Promise<void>)

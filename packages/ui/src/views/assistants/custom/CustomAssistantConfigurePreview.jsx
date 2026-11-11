@@ -57,6 +57,7 @@ import { SET_CHATFLOW, closeSnackbar as closeSnackbarAction, enqueueSnackbar as 
 import { initNode, showHideInputParams } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
 import { toolAgentFlow } from './toolAgentFlow'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ===========================|| CustomAssistantConfigurePreview ||=========================== //
 
@@ -816,7 +817,7 @@ const CustomAssistantConfigurePreview = () => {
             const chatflow = getSpecificChatflowApi.data
             dispatch({ type: SET_CHATFLOW, chatflow })
         } else if (getSpecificChatflowApi.error) {
-            setError(`Failed to retrieve: ${getSpecificChatflowApi.error.response.data.message}`)
+            setError(`Failed to retrieve: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

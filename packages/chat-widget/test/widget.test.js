@@ -30,6 +30,23 @@ async function type(t, text) {
 }
 
 describe('chat widget', () => {
+    it('ignores tool and step events when disabled and keeps the Harness run card', async () => {
+        const t = setup({ config: () => json(200, { showToolEvents: { status: false } }) })
+        await until(() => t.widget.config)
+        const bot = { text: '' }
+        const touch = () => {}
+        for (const event of ['usedTools', 'calledTools', 'agentReasoning', 'agent_trace', 'agentFlowEvent', 'nextAgent', 'tool']) {
+            t.widget.onEvent(bot, { event, data: [{ tool: 'query' }] }, touch)
+        }
+        t.widget.onEvent(bot, { event: 'agentFlowExecutedData', data: [{ data: { output: { content: 'hidden step output' } } }] }, touch)
+        assert.deepEqual(bot, { text: '' })
+        t.widget.onEvent(bot, { event: 'harness.route', data: { harness: 'bakery', phase: 'start' } }, touch)
+        t.widget.onEvent(bot, { event: 'token', data: 'Answer' }, touch)
+        assert.ok(bot.run)
+        assert.equal(bot.text, 'Answer')
+        t.widget.destroy()
+    })
+
     it('sorts completed answer tables locally and keeps links, original answer and independent tables intact', async () => {
         const answer =
             '| Account | ACV | Risk score |\n| --- | ---: | ---: |\n| [Alpha](https://example.com/alpha) | $10,000.00 | 0.19 |\n| Bravo | $900.00 | 0.58 |\n| Charlie | Unknown | Unknown |\n\n| Other | Value |\n| --- | --- |\n| First | 2 |\n| Second | 1 |'

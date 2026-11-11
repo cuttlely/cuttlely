@@ -1,3 +1,4 @@
+import { streamChatflowSafe } from '../../../src/streaming'
 import { flatten } from 'lodash'
 import { Tool } from '@langchain/core/tools'
 import { BaseMessage } from '@langchain/core/messages'
@@ -117,7 +118,7 @@ class ToolAgent_Agents implements INode {
         const enableDetailedStreaming = nodeData.inputs?.enableDetailedStreaming as boolean
 
         const shouldStreamResponse = options.shouldStreamResponse
-        const sseStreamer: IServerSideEventStreamer = options.sseStreamer as IServerSideEventStreamer
+        const sseStreamer: IServerSideEventStreamer = streamChatflowSafe(options.sseStreamer as IServerSideEventStreamer, options)
         const chatId = options.chatId
 
         if (moderations && moderations.length > 0) {
@@ -142,7 +143,7 @@ class ToolAgent_Agents implements INode {
         let customStreamingHandler = null
 
         if (enableDetailedStreaming && shouldStreamResponse) {
-            customStreamingHandler = new CustomStreamingHandler(sseStreamer, chatId)
+            customStreamingHandler = new CustomStreamingHandler(sseStreamer, chatId, options)
         }
 
         let res: ChainValues = {}

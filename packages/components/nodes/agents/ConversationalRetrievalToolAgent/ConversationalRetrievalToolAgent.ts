@@ -1,3 +1,4 @@
+import { streamChatflowSafe } from '../../../src/streaming'
 import { flatten } from 'lodash'
 import { BaseMessage } from '@langchain/core/messages'
 import { ChainValues } from '@langchain/core/utils/types'
@@ -132,7 +133,7 @@ class ConversationalRetrievalToolAgent_Agents implements INode {
         const moderations = nodeData.inputs?.inputModeration as Moderation[]
 
         const shouldStreamResponse = options.shouldStreamResponse
-        const sseStreamer: IServerSideEventStreamer = options.sseStreamer as IServerSideEventStreamer
+        const sseStreamer: IServerSideEventStreamer = streamChatflowSafe(options.sseStreamer as IServerSideEventStreamer, options)
         const chatId = options.chatId
 
         if (moderations && moderations.length > 0) {

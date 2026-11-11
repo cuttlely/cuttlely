@@ -6,6 +6,36 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. The page now says the server could not be reached and asks you to check your connection, then reload. Loading or saving a canvas in that state shows the same message in a notification. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
+
+-   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
+
+## [1.7.2] - 2026-11-10
+
+### Added
+
+-   **Show tool events** in each flow's Configuration controls live tool and step status in chat. Chatflows default to Off; agentflows, multiagent flows and Harness canvases default to On. Saved choices override these defaults. Harness run cards remain visible.
+
+### Fixed
+
+-   The share-and-embed guide now says the shared link and website embed do not show live tool or step status cards. They still show the answer, sources, attachments and any Harness run card. The Cuttlely app chat is the view that follows **Show tool events** for those cards.
+
+-   The README banner and “Your first 10 minutes” (#438) now say that the setup code creates only the first account, needs local sign-in already on at the host (Docker does this by default), and that claiming the instance operator is a separate step. See [Sign in](./docs/how-to/sign-in.md) and [Designate the instance operator](./docs/how-to/instance-operator.md).
+
+-   **#450 (`76c5a7ee`):** Same-server calls between chatflows, agentflows, and Harnesses now run in process as the parent caller, including Harness specialists calling flows and flows calling Private Harnesses. Targets require the same workspace and, for access keys, their own grants and required scopes (including the same legacy replacement-binding rule as HTTP prediction); remote Base URL overrides keep their configured HTTP credential path.
+
+-   Concurrent chats with the same agent team keep their own access permissions when calling another flow. A signed-in test chat cannot lend its permissions to an access-key run, and missing chat scope refuses the nested call without using a saved card credential.
+
+-   Same-server calls made with migrated legacy keys enforce the owner's current target permissions, matching HTTP prediction. Agentflow iterations preserve nesting depth so cycles through an iteration stop at the eight-level limit.
+
+-   Access-key calls to another flow from an external Harness worker recheck the key and permissions against the application database. Authorized same-server nested Harness canvas calls also run on the worker's own runtime instead of failing because the web process is separate.
+
+-   Tool callbacks resolve real tool names from serialized metadata instead of showing `unknown-tool`. Disabling tool events hides live tool and status events and chat cards while preserving saved tool details, sources, attachments and actions.
+
+-   With Show tool events Off, Post Processing no longer appends a transformed answer to terminal text that already streamed. Unstreamed Iteration answers still deliver their final content.
+
+-   Access-key dialogs keep preset labels clear, retain the selected duration, show Custom for a manually edited expiry, and make Advanced controls easier to expand and collapse.
+
 -   Publish dialog API access selector: the floating label no longer overlaps the selected value, and the saved-access line and key-action links use clearer spacing.
 
 ## [1.7.1] - 2026-11-09
@@ -927,7 +957,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/cuttlely/cuttlely/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/cuttlely/cuttlely/compare/v1.6.0...v1.6.1

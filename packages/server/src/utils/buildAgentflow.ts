@@ -1,3 +1,4 @@
+import { resolveShowToolEvents, streamChatflowSafe } from '@cuttlely/components'
 import { DataSource } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { cloneDeep, get } from 'lodash'
@@ -85,6 +86,7 @@ import { StatusCodes } from 'http-status-codes'
 import { pinOwnedMemorySession } from './sessionOwnership'
 import { fileDownloadUrl } from './fileLinkSignature'
 import { recordCompletedRun } from '../services/usage'
+import { nestedFlowCallerFromHarness, nestedFlowNodeOptions } from './nestedFlowCall'
 
 interface IWaitingNode {
     nodeId: string
@@ -189,12 +191,14 @@ interface IExecuteNodeParams {
     productId: string
     replay?: boolean
     harnessCaller?: IHarnessCaller
+    nestedFlowOptions?: ICommonObject
     // Filled by a Harness node an Agent calls as a tool, so the chat saves that harness trace with the reply.
     harnessToolPayloads?: Record<string, any>[]
 }
 
 interface IExecuteAgentFlowParams extends Omit<IExecuteFlowParams, 'incomingInput'> {
     incomingInput: IncomingAgentflowInput
+    nestedFlowOptions?: ICommonObject
 }
 
 // A publish check replay keeps its run in memory instead of the executions table.
@@ -1121,6 +1125,7 @@ const executeNode = async ({
     productId,
     replay,
     harnessCaller,
+    nestedFlowOptions,
     harnessToolPayloads
 }: IExecuteNodeParams): Promise<{
     result: any
@@ -1307,6 +1312,8 @@ const executeNode = async ({
 
         // Prepare run parameters
         const runParams = {
+            showToolEvents: resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type),
+            chatflowType: chatflow.type,
             orgId,
             workspaceId,
             subscriptionId,
@@ -1343,6 +1350,7 @@ const executeNode = async ({
             // A harness tool on this canvas records against the agentflow. The tool closes over these params.
             recordTokenUsage: recordCompletedRun,
             ...harnessNodeOptions(harnessCaller),
+            ...(nestedFlowOptions || {}),
             ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
             // An Agent initializes its tools with no input; a Harness tool routes this message instead of the agent task.
             harnessUserMessage: typeof finalInput === 'string' ? finalInput : ''
@@ -1430,7 +1438,8 @@ const executeNode = async ({
                             subscriptionId,
                             productId,
                             replay,
-                            harnessCaller
+                            harnessCaller,
+                            nestedFlowOptions
                         })
 
                         // Store the result
@@ -1778,6 +1787,32 @@ async function agentflowContinuation(
 }
 
 export const executeAgentFlow = async (params: IExecuteAgentFlowParams): Promise<any> => {
+    if (!params.nestedFlowOptions) {
+        const caller = params.nestedFlowCaller ?? nestedFlowCallerFromHarness(params.harnessCaller)
+        if (caller) {
+            const depth = Number.isInteger(params.nestedFlowDepth) && (params.nestedFlowDepth as number) >= 0 ? params.nestedFlowDepth! : 0
+            params = {
+                ...params,
+                nestedFlowOptions: nestedFlowNodeOptions({
+                    parentFlowId: params.chatflow.id,
+                    parentWorkspaceId: params.workspaceId,
+                    caller,
+                    depth,
+                    baseURL: params.baseURL,
+                    orgId: params.orgId,
+                    subscriptionId: params.subscriptionId,
+                    productId: params.productId,
+                    signal: params.signal,
+                    componentNodes: params.componentNodes,
+                    appDataSource: params.appDataSource,
+                    telemetry: params.telemetry,
+                    cachePool: params.cachePool,
+                    usageCacheManager: params.usageCacheManager,
+                    sseStreamer: params.sseStreamer
+                })
+            }
+        }
+    }
     // A publish check replay exports no spans, including the nodes it still runs.
     if (!params.isRecursive && params.replay) return silenceRunTraces(() => runAgentFlow(params))
     // When traces are off this is one environment check and the body runs once.
@@ -1828,8 +1863,32 @@ const runAgentFlow = async ({
     productId,
     sessionToken,
     replay,
-    harnessCaller
+    harnessCaller,
+    nestedFlowOptions
 }: IExecuteAgentFlowParams) => {
+    const showToolEvents = resolveShowToolEvents(chatflow.chatbotConfig, chatflow.type)
+    sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
+    // When tool/status events are hidden, some terminal paths (e.g. Iteration + Direct Reply)
+    // only used to surface the answer via agentFlowExecutedData. Track live answer tokens so
+    // we can emit the aggregated text once at the end without duplicating an already-streamed answer.
+    // Concatenate live answer tokens so a terminal Iteration aggregate can still be
+    // delivered when an earlier sibling branch already streamed a different answer.
+    let streamedAnswerText = ''
+    if (sseStreamer) {
+        const answerStream = sseStreamer
+        sseStreamer = new Proxy(answerStream, {
+            get(target, property) {
+                if (property === 'streamTokenEvent') {
+                    return (id: string, token: string) => {
+                        if (token) streamedAnswerText += token
+                        return target.streamTokenEvent(id, token)
+                    }
+                }
+                const value = Reflect.get(target, property)
+                return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+            }
+        }) as typeof answerStream
+    }
     logger.debug('\n🚀 Starting flow execution')
 
     const question = incomingInput.question
@@ -2295,6 +2354,8 @@ const runAgentFlow = async ({
         logger.debug(`   Queue: [${nodeExecutionQueue.map((n) => n.nodeId).join(', ')}]`)
 
         if (iterations === 0 && !isRecursive) {
+            // Chat clients need an answer placeholder when step-status events are hidden.
+            if (!showToolEvents) sseStreamer?.streamStartEvent(chatId, '')
             sseStreamer?.streamAgentFlowEvent(chatId, 'INPROGRESS')
         }
 
@@ -2363,6 +2424,7 @@ const runAgentFlow = async ({
                 productId,
                 replay,
                 harnessCaller,
+                nestedFlowOptions,
                 harnessToolPayloads
             })
 
@@ -2533,6 +2595,7 @@ const runAgentFlow = async ({
     // check if last agentFlowExecutedData.data.output contains the key "content"
     const lastNodeOutput = agentFlowExecutedData[agentFlowExecutedData.length - 1].data?.output as ICommonObject | undefined
     let content = (lastNodeOutput?.content as string) ?? ' '
+    const rawContentWasStreamed = typeof content === 'string' && content.length > 0 && streamedAnswerText.endsWith(content)
 
     /* Check for post-processing settings */
     let chatflowConfig: ICommonObject = {}
@@ -2745,6 +2808,19 @@ const runAgentFlow = async ({
         },
         orgId
     )
+
+    // Tool-event Off hides agentFlowExecutedData; deliver the saved answer as ordinary tokens
+    // unless its raw or final content was already streamed (e.g. a last-node Direct Reply / LLM
+    // before post-processing, or after earlier terminal siblings streamed their own answers).
+    if (
+        !showToolEvents &&
+        typeof content === 'string' &&
+        content.trim() &&
+        !rawContentWasStreamed &&
+        !streamedAnswerText.endsWith(content)
+    ) {
+        sseStreamer?.streamTokenEvent(chatId, content)
+    }
 
     /*** Prepare response ***/
     let result: ICommonObject = {}

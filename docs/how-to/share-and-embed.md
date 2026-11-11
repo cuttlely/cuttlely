@@ -35,6 +35,7 @@ On a phone the chat fills the screen.
 -   **Thumbs up and down** under each answer when **Chat Feedback** is on for the chatflow, and a copy button on every answer.
 -   **Image uploads** (picker, paste or drag) when the chatflow accepts images.
 -   **File uploads**: the paperclip also picks documents when **File Upload** is on for the chatflow (**Configuration** > **Media & Files** > **File Upload**). It offers the document types that setting allows, up to 25 MB each and up to 4 attachments per message, and sends the files with the question. The flow reads them the same way as files attached in the canvas chat.
+-   **Show tool events**: in **Configuration > Chat**, choose whether the Cuttlely app chat shows live tool and step status while the flow works, then select **Save**. Chatflows start with it Off; agentflows, multiagent flows and Harness canvases start with it On. Turning it off keeps the streamed answer, sources, attachments and any Harness run card. Saved tool details remain available through the API. The shared link and the website embed do not show live tool or step status cards, even when the setting is On. They still show the answer, sources and attachments, and they still show a Harness run card when this flow is a Harness or calls a Harness — including when a chatflow has the setting Off.
 -   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made. While the run works, the card shows a live status line and a timer, plus optional playful lines during long steps when the chatflow's **Enhanced Status Messages** setting is on (the default). See [While a run works](./harnesses.md#while-a-run-works).
 
 ![A chatflow that runs the bakery-demo harness, in dark mode. The question Compare sourdough and rye loaves: sourdough 120, rye 75 is answered under a Run complete card. The answer is a table titled Loaves compared, with Sourdough 120 and Rye 75.](../images/share-and-embed/harness-chart.png)
@@ -60,7 +61,7 @@ A private chatflow does not open for visitors. With access-key enforcement on, *
 The chat uses Cuttlely's colors and type by default. The chatflow's share settings change it:
 
 -   **Share Chatbot** tab: **Title**, **Title Avatar Link**, **Welcome Message**, **Error Message**, **Font Size**, **TextInput Placeholder**, the title, message and input colors, the send button color, and **Start new session when chatbot link is opened or refreshed**.
--   **Configuration** (the settings button on the canvas): **Starter Prompts**, **Follow-up Prompts**, **Chat Feedback**, **Enhanced Status Messages**, and **Allowed Domains**.
+-   **Configuration** (the settings button on the canvas): **Starter Prompts**, **Follow-up Prompts**, **Chat Feedback**, **Show tool events**, **Enhanced Status Messages**, and **Allowed Domains**.
 
 A color you leave at the dialog's default keeps Cuttlely's theme. Colors are used as you pick them; check that text stays readable on your background.
 
@@ -99,7 +100,7 @@ The React tabs give a component that loads the same script. **Show Embed Chat Co
 npm install @cuttlely/chat
 ```
 
-The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.7.1` for a 1.7.1 server.
+The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.7.2` for a 1.7.2 server.
 
 ```js
 import { mount } from '@cuttlely/chat'

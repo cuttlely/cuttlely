@@ -1,3 +1,4 @@
+import { resolveShowToolEvents, streamChatflowSafe } from '@cuttlely/components'
 import {
     ICommonObject,
     IMultiAgentNode,
@@ -147,6 +148,8 @@ export const buildAgentGraph = async ({
     orgId: string
     workspaceId?: string
 }): Promise<any> => {
+    const showToolEvents = resolveShowToolEvents(agentflow.chatbotConfig, agentflow.type)
+    sseStreamer = streamChatflowSafe(sseStreamer, { showToolEvents })
     try {
         const chatflowid = flowConfig.chatflowid
         const chatId = flowConfig.chatId
@@ -178,6 +181,8 @@ export const buildAgentGraph = async ({
         }
         applyCarriedUsage(chatflowTokenUsage, seededAction)
         const options = {
+            showToolEvents,
+            chatflowType: agentflow.type,
             orgId,
             workspaceId,
             chatId,
@@ -361,7 +366,7 @@ export const buildAgentGraph = async ({
                                 if (!isStreamingStarted) {
                                     isStreamingStarted = true
                                     if (sseStreamer) {
-                                        sseStreamer.streamStartEvent(chatId, agentReasoning)
+                                        sseStreamer.streamStartEvent(chatId, showToolEvents ? agentReasoning : '')
                                     }
                                 }
 

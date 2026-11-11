@@ -5,7 +5,7 @@ import {
     withAccessKeyWrite
 } from '../accessKeys/legacyBinding'
 import { randomBytes } from 'crypto'
-import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
+import { ICommonObject, removeFolderFromStorage, resolveShowToolEvents } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { In, IsNull, Not, QueryRunner, type DataSource, type EntityManager, type FindOptionsWhere } from 'typeorm'
 import { validate as isValidUUID } from 'uuid'
@@ -1191,32 +1191,28 @@ const getSinglePublicChatbotConfig = async (chatflowId: string): Promise<any> =>
             throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         }
         const uploadsConfig = await utilGetUploadsConfig(chatflowId)
-        // even if chatbotConfig is not set but uploads are enabled
-        // send uploadsConfig to the chatbot
-        if (dbResponse.chatbotConfig || uploadsConfig) {
-            try {
-                const parsedConfig = dbResponse.chatbotConfig ? JSON.parse(dbResponse.chatbotConfig) : {}
-                const ttsConfig =
-                    typeof dbResponse.textToSpeech === 'string' ? JSON.parse(dbResponse.textToSpeech) : dbResponse.textToSpeech
+        // Public clients need the resolved default when this flow has no saved display settings.
+        try {
+            const parsedConfig = dbResponse.chatbotConfig ? JSON.parse(dbResponse.chatbotConfig) : {}
+            const ttsConfig = typeof dbResponse.textToSpeech === 'string' ? JSON.parse(dbResponse.textToSpeech) : dbResponse.textToSpeech
 
-                let isTTSEnabled = false
-                if (ttsConfig) {
-                    Object.keys(ttsConfig).forEach((provider) => {
-                        if (provider !== 'none' && ttsConfig?.[provider]?.status) {
-                            isTTSEnabled = true
-                        }
-                    })
-                }
-                return {
-                    ...publicChatbotDisplayConfig(parsedConfig),
-                    uploads: uploadsConfig,
-                    isTTSEnabled
-                }
-            } catch (e) {
-                throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error parsing Chatbot Config for Chatflow ${chatflowId}`)
+            let isTTSEnabled = false
+            if (ttsConfig) {
+                Object.keys(ttsConfig).forEach((provider) => {
+                    if (provider !== 'none' && ttsConfig?.[provider]?.status) {
+                        isTTSEnabled = true
+                    }
+                })
             }
+            return {
+                ...publicChatbotDisplayConfig(parsedConfig),
+                showToolEvents: { status: resolveShowToolEvents(parsedConfig, dbResponse.type) },
+                uploads: uploadsConfig,
+                isTTSEnabled
+            }
+        } catch (e) {
+            throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error parsing Chatbot Config for Chatflow ${chatflowId}`)
         }
-        return 'OK'
     } catch (error) {
         if (error instanceof AppError && error.statusCode === StatusCodes.NOT_FOUND) throw error
         throw new AppError(

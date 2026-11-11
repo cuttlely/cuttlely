@@ -82,6 +82,7 @@ import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 
 // const
 import { AGENTFLOW_ICONS, uiBaseURL } from '@/store/constant'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const nodeTypes = { agentFlow: CanvasNode, stickyNote: StickyNote, iteration: IterationNode }
 const edgeTypes = { agentFlow: AgentFlowEdge }
@@ -789,7 +790,7 @@ const AgentflowCanvas = () => {
                 cancelled = true
             }
         } else if (getSpecificChatflowApi.error) {
-            errorFailed(`Failed to retrieve ${canvasTitle}: ${getSpecificChatflowApi.error.response.data.message}`)
+            errorFailed(`Failed to retrieve ${canvasTitle}: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -811,7 +812,7 @@ const AgentflowCanvas = () => {
                 .catch(() => undefined)
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
         } else if (createNewChatflowApi.error) {
-            errorFailed(`Failed to save ${canvasTitle}: ${createNewChatflowApi.error.response.data.message}`)
+            errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(createNewChatflowApi.error)}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -824,7 +825,7 @@ const AgentflowCanvas = () => {
             saveChatflowSuccess()
             saveBuilderStarters(updateChatflowApi.data)
         } else if (updateChatflowApi.error) {
-            errorFailed(`Failed to save ${canvasTitle}: ${updateChatflowApi.error.response.data.message}`)
+            errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(updateChatflowApi.error)}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

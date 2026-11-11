@@ -79,6 +79,8 @@ export function normalizeConfig(raw, overrides = {}) {
         newSessionEachVisit: Boolean(cfg.generateNewSession),
         // Optional playful lines on the run card during long steps. On unless the flow turned it off.
         enhancedStatus: cfg.enhancedStatusMessages?.status !== false,
+        // The public endpoint resolves the flow-type default even without saved settings.
+        showToolEvents: cfg.showToolEvents?.status === true,
         imageUpload: uploads.isImageUploadAllowed && images.types.length ? images : null,
         // Documents the flow takes whole (Chatbot settings, File upload). Extensions with the dot; the server cap is 25 MB.
         fileUpload: uploads.isFullFileUploadAllowed && fileTypes.length ? { types: fileTypes, maxMB: 25 } : null,

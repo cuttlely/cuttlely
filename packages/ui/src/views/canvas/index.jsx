@@ -107,6 +107,7 @@ import {
 
 // const
 import { uiBaseURL } from '@/store/constant'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const nodeTypes = { customNode: CanvasNode, stickyNote: StickyNote }
 const edgeTypes = { buttonedge: ButtonEdge }
@@ -687,12 +688,7 @@ const Canvas = () => {
         })
     }
 
-    const apiErrorText = (error) => {
-        const data = error?.response?.data
-        if (data && typeof data === 'object' && data.message) return data.message
-        if (typeof data === 'string' && data) return data
-        return error?.message || 'Save failed'
-    }
+    const apiErrorText = (error) => (error ? requestFailureMessage(error) : 'Save failed')
 
     const errorFailed = (message) => {
         enqueueSnackbar({
@@ -992,7 +988,7 @@ const Canvas = () => {
                 cancelled = true
             }
         } else if (getSpecificChatflowApi.error) {
-            errorFailed(`Failed to retrieve ${canvasTitle}: ${getSpecificChatflowApi.error.response.data.message}`)
+            errorFailed(`Failed to retrieve ${canvasTitle}: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
