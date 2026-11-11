@@ -805,6 +805,12 @@ const Canvas = () => {
             setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
             saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
         } catch (draftError) {
+            // A draft write that got no answer may have landed. Do not follow it with a Live write: report it and keep
+            // the edits unsaved. The Live fallback is only for a server that answered (for example, drafts are off).
+            if (draftError?.response === undefined && (draftError?.isAxiosError || draftError?.request)) {
+                errorFailed(saveFailureMessage(draftError))
+                return
+            }
             const retained = isHarnessCanvas
                 ? planHarnessDraftFallback({
                       flowData: draft,
