@@ -287,6 +287,24 @@ describe('save queue hook lifecycle', () => {
         expect(apiRef.current.expected()).toEqual({ expectedDraftHash: 'flow-b-saved' })
     })
 
+    test('a saved-route change ignores a late internal name result', async () => {
+        const request = deferred()
+        const onAck = jest.fn()
+        const send = jest.fn().mockReturnValue(request.promise)
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies, routeKey: 'flow-a' })))
+        await act(async () => apiRef.current.runNonReplay({ id: 'flow-a', send, onAck }, { internal: true }))
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies, routeKey: 'flow-b' })))
+        await act(async () => request.resolve({ data: { id: 'flow-a', name: 'Renamed A' } }))
+        await settleTimers()
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(onAck).not.toHaveBeenCalled()
+    })
+
     test('keeps the create id private until Retry finishes its status read', async () => {
         const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: '{}', name: 'Created' } })
         const queuedSend = jest.fn()
