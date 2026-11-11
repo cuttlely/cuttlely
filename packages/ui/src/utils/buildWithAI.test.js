@@ -128,6 +128,27 @@ describe('Build with AI', () => {
         expect(queue.getState().state).toBe('idle')
     })
 
+    test('does not acknowledge older starter questions after a newer set is queued', async () => {
+        const questions = ['One?']
+        let current = ['Two?']
+        const clear = jest.fn()
+        const onAck = jest.fn()
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions,
+            save: jest.fn(),
+            isCurrent: () => current === questions,
+            clear,
+            onAck,
+            rev: 6
+        })
+
+        await entry.onAck({ id: 'flow-1' })
+        expect(clear).not.toHaveBeenCalled()
+        expect(onAck).not.toHaveBeenCalled()
+        expect(current).toEqual(['Two?'])
+    })
+
     test('says what is missing and why a build failed in plain words', () => {
         expect(missingCredentialsText([])).toBe('')
         expect(missingCredentialsText([{ part: 'Researcher: Serp API', credential: 'Serp API' }])).toBe(

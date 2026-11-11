@@ -158,4 +158,17 @@ describe('Canvas header discard', () => {
         expect(props.onRetryCatalog).toBe(retry)
         act(() => view.root.unmount())
     })
+
+    test('blocks name and publish writes while a canvas save is active', async () => {
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { saveQueueBusy: true })
+        const publish = document.body.querySelector('[data-testid="publish-button"]')
+        expect(publish.disabled).toBe(true)
+        expect(publish.getAttribute('title')).toBe('Save your changes first')
+
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const saveName = document.body.querySelector('[title="Saving…"]')
+        expect(saveName.disabled).toBe(true)
+        act(() => view.root.unmount())
+    })
 })

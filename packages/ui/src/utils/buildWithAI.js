@@ -102,7 +102,8 @@ export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurren
         rev,
         send: () => save(savedFlow.id, { chatbotConfig }),
         onAck: async (saved) => {
-            if (!isCurrent || isCurrent()) clear?.()
+            if (isCurrent && !isCurrent()) return
+            clear?.()
             await onAck?.(saved)
         },
         onError

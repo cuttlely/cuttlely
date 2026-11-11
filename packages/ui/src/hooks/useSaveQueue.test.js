@@ -269,4 +269,20 @@ describe('save queue hook lifecycle', () => {
         expect(latestAck).toHaveBeenCalledTimes(1)
         expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
     })
+
+    test('reports busy until the queued write settles', async () => {
+        const request = deferred()
+        flowDraftsApi.saveDraft.mockReturnValue(request.promise)
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+        apiRef.current.record(BASE, FLOW)
+
+        await act(async () => apiRef.current.saveDraft({ id: 'flow-1', rev: 1, flowData: FLOW, liveFlowData: '{}', onAck: jest.fn() }))
+        expect(apiRef.current.busy).toBe(true)
+        await act(async () => request.resolve({ data: { ...BASE, draft: { ...BASE.draft, hash: 'saved' } } }))
+        await settleTimers()
+        expect(apiRef.current.busy).toBe(false)
+    })
 })

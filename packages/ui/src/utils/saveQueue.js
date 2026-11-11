@@ -28,6 +28,60 @@ const withoutServerCanvasFields = (canvas) => {
     return next
 }
 
+const DATA_URL = /^data:[^;]+;base64,/i
+const STORED_FILE = 'FILE-STORAGE::'
+
+const savedFileName = (value) =>
+    String(value || '')
+        .split(/[\\/]/)
+        .pop()
+        .replace(/^draft-[0-9a-f]{8}-/i, '')
+
+const dataFileName = (value) => {
+    if (typeof value !== 'string' || !DATA_URL.test(value)) return null
+    const match = value.match(/,filename:([^,]+)$/i)
+    return match?.[1] ? savedFileName(match[1]) : null
+}
+
+const fileNamesInInput = (value) => {
+    if (typeof value !== 'string' || !value) return null
+    if (value.startsWith(STORED_FILE)) {
+        const raw = value.slice(STORED_FILE.length)
+        try {
+            const parsed = JSON.parse(raw)
+            const names = Array.isArray(parsed) ? parsed : [parsed]
+            return names.length && names.every((name) => typeof name === 'string') ? names.map(savedFileName) : null
+        } catch {
+            return raw ? [savedFileName(raw)] : null
+        }
+    }
+    const direct = dataFileName(value)
+    if (direct) return [direct]
+    if (!value.startsWith('[')) return null
+    try {
+        const parsed = JSON.parse(value)
+        if (!Array.isArray(parsed) || !parsed.length) return null
+        const names = parsed.map(dataFileName)
+        return names.every(Boolean) ? names : null
+    } catch {
+        return null
+    }
+}
+
+const withoutFileBodies = (canvas) => {
+    const next = withoutServerCanvasFields(canvas)
+    for (const node of next.nodes) {
+        const inputs = node?.data?.inputs
+        if (!inputs || Object.getPrototypeOf(inputs) !== Object.prototype) continue
+        node.data.inputs = { ...inputs }
+        for (const [key, value] of Object.entries(node.data.inputs)) {
+            const names = fileNamesInInput(value)
+            if (names) node.data.inputs[key] = { savedFileNames: names }
+        }
+    }
+    return next
+}
+
 // Draft storage may add node-pack metadata. That metadata does not make the stored graph a different canvas.
 export const sameSavedCanvas = (left, right) => {
     if (left === right) return true
@@ -37,22 +91,33 @@ export const sameSavedCanvas = (left, right) => {
     return JSON.stringify(withoutServerCanvasFields(a)) === JSON.stringify(withoutServerCanvasFields(b))
 }
 
+export const sameLiveCanvas = (left, right) => {
+    if (sameSavedCanvas(left, right)) return true
+    const a = parseCanvas(left)
+    const b = parseCanvas(right)
+    if (!a || !b) return false
+    return JSON.stringify(withoutFileBodies(a)) === JSON.stringify(withoutFileBodies(b))
+}
+
 export const containsBase64Canvas = (flowData) => {
     const parsed = parseCanvas(flowData)
     if (!parsed) return false
-    const file = /^data.*;base64/i
-    for (const node of parsed.nodes) {
-        if (node?.data?.category !== 'Document Loaders') continue
-        for (const input of Object.values(node?.data?.inputs || {})) {
-            if (typeof input !== 'string') continue
-            if (file.test(input)) return true
-            if (!input.startsWith('[')) continue
+    const containsDataUrl = (value) => {
+        if (typeof value === 'string') {
+            if (DATA_URL.test(value)) return true
+            if (!value.startsWith('[') && !value.startsWith('{')) return false
             try {
-                if (JSON.parse(input).some((item) => typeof item === 'string' && file.test(item))) return true
+                return containsDataUrl(JSON.parse(value))
             } catch {
-                // This input is not a file list.
+                return false
             }
         }
+        if (Array.isArray(value)) return value.some(containsDataUrl)
+        if (value && typeof value === 'object') return Object.values(value).some(containsDataUrl)
+        return false
+    }
+    for (const node of parsed.nodes) {
+        if (containsDataUrl(node?.data?.inputs)) return true
     }
     return false
 }
@@ -64,13 +129,22 @@ const dateValue = (value) => {
 
 export const draftSaveLanded = (status, entry) => {
     const stored = status?.draft
-    if (!stored) return sameSavedCanvas(entry.flowData, entry.liveFlowData)
+    if (!stored) return false
     if (stored.hash === entry.expectedDraftHash || stored.updatedBy !== entry.userId) return false
 
     const updated = dateValue(stored.updatedDate)
-    // Allow two minutes for clock differences between the browser and the server. A stored draft
-    // outside this window may belong to another tab, even when it is newer than the loaded base.
-    if (updated === null || updated < entry.sentAt - SAVE_CLOCK_SKEW_MS) return false
+    const firstSent = entry.firstAttemptSentAt ?? entry.sentAt
+    const lastSettled = entry.lastAttemptSettledAt
+    // The two-minute allowance covers browser/server clock differences. Both bounds are required so
+    // a later save from another tab cannot be mistaken for this attempt.
+    if (
+        updated === null ||
+        !Number.isFinite(firstSent) ||
+        !Number.isFinite(lastSettled) ||
+        updated < firstSent - SAVE_CLOCK_SKEW_MS ||
+        updated > lastSettled + SAVE_CLOCK_SKEW_MS
+    )
+        return false
 
     // Uploaded data is rewritten into stored paths, so its content cannot be compared reliably here.
     if (entry.hasBase64) return true
@@ -107,7 +181,8 @@ export const createSaveQueue = ({
     beginReconnect = () => undefined,
     endReconnect = () => undefined,
     onExhausted = () => undefined,
-    onResolved = () => undefined
+    onResolved = () => undefined,
+    onBusyChange = () => undefined
 }) => {
     let state = 'idle'
     let current = null
@@ -118,6 +193,7 @@ export const createSaveQueue = ({
     let reconnecting = false
     let generation = 0
     const timers = new Set()
+    let busy = false
     const wait =
         sleep ||
         ((delay) =>
@@ -133,6 +209,14 @@ export const createSaveQueue = ({
         if (reconnecting) return
         reconnecting = true
         beginReconnect()
+    }
+
+    const setState = (next) => {
+        state = next
+        const nextBusy = next === 'saving' || next === 'waiting'
+        if (nextBusy === busy) return
+        busy = nextBusy
+        if (!stopped) onBusyChange(nextBusy)
     }
 
     const stopReconnect = () => {
@@ -164,8 +248,8 @@ export const createSaveQueue = ({
         try {
             response = await getDraftStatus(entry.id)
         } catch (error) {
-            if (isNoResponse(error)) return { result: 'waiting' }
-            throw error
+            if (isCancel(error)) throw error
+            return { result: 'waiting', readFailure: isNoResponse(error) ? 'no-response' : 'http' }
         }
         const status = response?.data ?? response
         if (draftSaveLanded(status, entry)) return { result: 'landed', status }
@@ -179,7 +263,6 @@ export const createSaveQueue = ({
     }
 
     const runDraft = async (entry, guarded) => {
-        if (entry.sentAt === undefined) entry.sentAt = now()
         if (guarded) {
             const checked = await reconcileDraft(entry)
             if (checked.result === 'landed') return ackDraft(entry, checked.status, true)
@@ -190,14 +273,26 @@ export const createSaveQueue = ({
         for (let attempt = 0; attempt <= 3 && !stopped; attempt += 1) {
             if (attempt > 0) await waitForRetry(attempt)
             if (stopped) return 'done'
+            const attemptSentAt = now()
+            const attemptTiming = { sentAt: attemptSentAt, settledAt: null }
+            if (!Array.isArray(entry.attempts)) entry.attempts = []
+            entry.attempts.push(attemptTiming)
+            if (entry.firstAttemptSentAt === undefined) {
+                entry.firstAttemptSentAt = attemptSentAt
+                entry.sentAt = attemptSentAt
+            }
             try {
                 const response = await putDraft(entry.id, entry.flowData, {
                     expectedDraftHash: entry.expectedDraftHash,
                     ...(entry.overwriteDraftChanges === true ? { overwriteDraftChanges: true } : {})
                 })
+                attemptTiming.settledAt = now()
+                entry.lastAttemptSettledAt = attemptTiming.settledAt
                 await ackDraft(entry, response?.data ?? response)
                 return 'done'
             } catch (error) {
+                attemptTiming.settledAt = now()
+                entry.lastAttemptSettledAt = attemptTiming.settledAt
                 const conflict = draftConflictFrom(error)
                 if (conflict) {
                     await openDraftConflict(entry, conflict)
@@ -215,7 +310,8 @@ export const createSaveQueue = ({
                     await openDraftConflict(entry, null, checked.status)
                     return 'done'
                 }
-                if (checked.result === 'waiting') return 'waiting'
+                if (checked.result === 'waiting' && (entry.hasBase64 || checked.readFailure !== 'no-response' || attempt === 3))
+                    return 'waiting'
             }
         }
         return 'waiting'
@@ -232,13 +328,14 @@ export const createSaveQueue = ({
             const response = await getLive(entry.id)
             return { result: 'read', stored: response?.data ?? response }
         } catch (error) {
-            if (isNoResponse(error)) return { result: 'waiting' }
-            throw error
+            if (isCancel(error)) throw error
+            return { result: 'waiting' }
         }
     }
 
     const runLive = async (entry, guarded) => {
         let retried = false
+        let guardedWriteUsed = false
         if (!guarded && entry.beforeWrite && !entry.preflightDone) {
             try {
                 const allowed = await entry.beforeWrite()
@@ -256,7 +353,7 @@ export const createSaveQueue = ({
         if (guarded) {
             const checked = await readLive(entry)
             if (checked.result === 'waiting') return 'waiting'
-            if (checked.stored?.name === entry.body.name && sameSavedCanvas(checked.stored?.flowData, entry.body.flowData)) {
+            if (checked.stored?.name === entry.body.name && sameLiveCanvas(checked.stored?.flowData, entry.body.flowData)) {
                 await ackLive(entry, checked.stored, true)
                 return 'done'
             }
@@ -267,6 +364,8 @@ export const createSaveQueue = ({
             }
         }
         while (!stopped) {
+            if (guarded && guardedWriteUsed) return 'waiting'
+            if (guarded) guardedWriteUsed = true
             try {
                 const response = await putLive(entry.id, entry.body)
                 await ackLive(entry, response?.data ?? response)
@@ -277,11 +376,12 @@ export const createSaveQueue = ({
                 const checked = await readLive(entry)
                 if (checked.result === 'waiting') return 'waiting'
                 const stored = checked.stored
-                if (stored?.name === entry.body.name && sameSavedCanvas(stored?.flowData, entry.body.flowData)) {
+                if (stored?.name === entry.body.name && sameLiveCanvas(stored?.flowData, entry.body.flowData)) {
                     await ackLive(entry, stored, true)
                     return 'done'
                 }
                 if (stored?.updatedDate === entry.baseUpdatedDate) {
+                    if (guarded) return 'waiting'
                     if (!retried) {
                         retried = true
                         continue
@@ -364,8 +464,8 @@ export const createSaveQueue = ({
         if (outcome.result === 'waiting') {
             stopReconnect()
             current = entry
-            state = 'waiting'
-            onExhausted(current)
+            setState('waiting')
+            if (entry.kind !== 'create') onExhausted(current)
             return
         }
         current = null
@@ -375,8 +475,8 @@ export const createSaveQueue = ({
             if (followed.result === 'waiting') {
                 stopReconnect()
                 current = entry
-                state = 'waiting'
-                onExhausted(current)
+                setState('waiting')
+                if (entry.kind !== 'create') onExhausted(current)
                 return
             }
             if (followed.dropPendingCreate && pending?.kind === 'create') pending = null
@@ -389,11 +489,11 @@ export const createSaveQueue = ({
             pending = null
         }
         if (next) {
-            state = 'saving'
+            setState('saving')
             current = next
             await execute(next, false)
         } else {
-            state = 'idle'
+            setState('idle')
         }
     }
 
@@ -429,18 +529,18 @@ export const createSaveQueue = ({
         if (state === 'waiting') {
             if (captured.internal) continuations.push(captured)
             else pending = captured
-            state = 'saving'
+            setState('saving')
             execute(current, true)
             return
         }
-        state = 'saving'
+        setState('saving')
         current = captured
         execute(captured, false)
     }
 
     const retry = () => {
         if (stopped || state !== 'waiting' || !current || (current.kind === 'create' && !current.created)) return
-        state = 'saving'
+        setState('saving')
         execute(current, true)
     }
 

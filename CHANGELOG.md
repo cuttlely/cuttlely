@@ -12,7 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   A save that reached the server but lost its reply no longer appears to fail or writes the same canvas twice.
+-   When the stored draft shows that a save already landed, a lost reply no longer makes that save appear to fail or write the same canvas twice.
 
 -   Selecting Save again while a new flow is still being created now creates one flow and saves the latest canvas to its returned id.
 

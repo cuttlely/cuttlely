@@ -362,27 +362,30 @@ const AgentflowCanvas = () => {
         draftSave.runNonReplay(continuation, { internal: true })
     }
 
-    const queueLiveSave = (body, saveRev, baseUpdatedDate, starterQuestions = []) => {
-        draftSave.saveLive({
-            id: chatflow.id,
-            rev: saveRev,
-            body,
-            baseUpdatedDate,
-            onAck: (saved) => {
-                dispatch({ type: SET_CHATFLOW, chatflow: saved })
-                queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(undefined, saveRev))
+    const queueLiveSave = (body, saveRev, baseUpdatedDate, starterQuestions = [], internal = false) => {
+        draftSave.saveLive(
+            {
+                id: chatflow.id,
+                rev: saveRev,
+                body,
+                baseUpdatedDate,
+                onAck: (saved) => {
+                    dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                    queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(undefined, saveRev))
+                },
+                onChanged: async (stored) => {
+                    const isConfirmed = await confirm({
+                        title: `Confirm Change`,
+                        description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                        confirmButtonName: 'Confirm',
+                        cancelButtonName: 'Cancel'
+                    })
+                    if (isConfirmed) queueLiveSave(body, saveRev, stored?.updatedDate, starterQuestions, true)
+                },
+                onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
             },
-            onChanged: async (stored) => {
-                const isConfirmed = await confirm({
-                    title: `Confirm Change`,
-                    description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
-                    confirmButtonName: 'Confirm',
-                    cancelButtonName: 'Cancel'
-                })
-                if (isConfirmed) queueLiveSave(body, saveRev, stored?.updatedDate, starterQuestions)
-            },
-            onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
-        })
+            { internal }
+        )
     }
 
     const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, starterQuestions = []) => ({
@@ -402,7 +405,8 @@ const AgentflowCanvas = () => {
                 confirmButtonName: 'Confirm',
                 cancelButtonName: 'Cancel'
             })
-            if (isConfirmed) draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, starterQuestions))
+            if (isConfirmed)
+                draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, starterQuestions), { internal: true })
         },
         onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
     })
@@ -1271,6 +1275,7 @@ const AgentflowCanvas = () => {
                                 onApplyCanvas={applyCanvasText}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}
+                                saveQueueBusy={draftSave.busy}
                             />
                         </Toolbar>
                     </AppBar>

@@ -162,6 +162,7 @@ const CanvasHeader = ({
     onApplyCanvas = () => undefined,
     draftExpected = () => ({}),
     onDraftConflict = () => undefined,
+    saveQueueBusy = false,
     catalogLoading = false,
     catalogError = null,
     onRetryCatalog
@@ -320,6 +321,7 @@ const CanvasHeader = ({
     }
 
     const submitFlowName = () => {
+        if (saveQueueBusy) return
         if (chatflow.id) {
             const next = flowNameRef.current.value
             if (isHarnessCanvas) {
@@ -728,7 +730,12 @@ const CanvasHeader = ({
                                         }
                                     }}
                                 />
-                                <ButtonBase title='Save Name' sx={{ borderRadius: '50%' }}>
+                                <ButtonBase
+                                    title={saveQueueBusy ? 'Saving…' : 'Save Name'}
+                                    disabled={saveQueueBusy}
+                                    onClick={submitFlowName}
+                                    sx={{ borderRadius: '50%' }}
+                                >
                                     <Avatar
                                         variant='rounded'
                                         sx={{
@@ -744,7 +751,6 @@ const CanvasHeader = ({
                                             }
                                         }}
                                         color='inherit'
-                                        onClick={submitFlowName}
                                     >
                                         <IconCheck stroke={1.5} size='1.3rem' />
                                     </Avatar>
@@ -867,7 +873,8 @@ const CanvasHeader = ({
                                 variant='contained'
                                 size='small'
                                 data-testid='publish-button'
-                                disabled={!draftStatus?.draft}
+                                title={saveQueueBusy ? 'Save your changes first' : 'Publish'}
+                                disabled={!draftStatus?.draft || saveQueueBusy}
                                 onClick={() => setPublishOpen(true)}
                                 sx={{ mr: 2, borderRadius: 2, textTransform: 'none', whiteSpace: 'nowrap' }}
                             >
@@ -933,7 +940,13 @@ const CanvasHeader = ({
                     action={
                         <Available permission={draftPermission}>
                             <Stack direction='row' spacing={1}>
-                                <Button color='inherit' size='small' onClick={() => setPublishOpen(true)}>
+                                <Button
+                                    color='inherit'
+                                    size='small'
+                                    title={saveQueueBusy ? 'Save your changes first' : 'Review'}
+                                    disabled={saveQueueBusy}
+                                    onClick={() => setPublishOpen(true)}
+                                >
                                     Review
                                 </Button>
                                 <Button color='inherit' size='small' onClick={discardDraft}>
@@ -1037,6 +1050,7 @@ const CanvasHeader = ({
                 chatflow={chatflow}
                 draftStatus={draftStatus}
                 isDirty={Boolean(canvas.isDirty)}
+                saveQueueBusy={saveQueueBusy}
                 onClose={() => setPublishOpen(false)}
                 onDraftStatus={onDraftStatus}
                 onChatflowUpdated={onChatflowUpdated}
@@ -1071,6 +1085,7 @@ CanvasHeader.propTypes = {
     onApplyCanvas: PropTypes.func,
     draftExpected: PropTypes.func,
     onDraftConflict: PropTypes.func,
+    saveQueueBusy: PropTypes.bool,
     catalogLoading: PropTypes.bool,
     catalogError: PropTypes.any,
     onRetryCatalog: PropTypes.func

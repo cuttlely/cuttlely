@@ -473,29 +473,33 @@ const Canvas = () => {
         draftSave.runNonReplay(continuation, { internal: true })
     }
 
-    const queueLiveSave = ({ body, saveRev, baseUpdatedDate, notice, beforeWrite, starterQuestions = [] }) => {
-        draftSave.saveLive({
-            id: chatflow.id,
-            rev: saveRev,
-            body,
-            baseUpdatedDate,
-            beforeWrite,
-            onAck: (saved) => {
-                dispatch({ type: SET_CHATFLOW, chatflow: saved })
-                setLasUpdatedDateTime(saved.updatedDate)
-                queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice, saveRev))
+    const queueLiveSave = ({ body, saveRev, baseUpdatedDate, notice, beforeWrite, starterQuestions = [], internal = false }) => {
+        draftSave.saveLive(
+            {
+                id: chatflow.id,
+                rev: saveRev,
+                body,
+                baseUpdatedDate,
+                beforeWrite,
+                onAck: (saved) => {
+                    dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                    setLasUpdatedDateTime(saved.updatedDate)
+                    queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice, saveRev))
+                },
+                onChanged: async (stored) => {
+                    const isConfirmed = await confirm({
+                        title: `Confirm Change`,
+                        description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                        confirmButtonName: 'Confirm',
+                        cancelButtonName: 'Cancel'
+                    })
+                    if (isConfirmed)
+                        queueLiveSave({ body, saveRev, baseUpdatedDate: stored?.updatedDate, notice, starterQuestions, internal: true })
+                },
+                onError: (error) => errorFailed(apiErrorText(error))
             },
-            onChanged: async (stored) => {
-                const isConfirmed = await confirm({
-                    title: `Confirm Change`,
-                    description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
-                    confirmButtonName: 'Confirm',
-                    cancelButtonName: 'Cancel'
-                })
-                if (isConfirmed) queueLiveSave({ body, saveRev, baseUpdatedDate: stored?.updatedDate, notice, starterQuestions })
-            },
-            onError: (error) => errorFailed(apiErrorText(error))
-        })
+            { internal }
+        )
     }
 
     const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, notice, starterQuestions = []) => ({
@@ -516,7 +520,10 @@ const Canvas = () => {
                 confirmButtonName: 'Confirm',
                 cancelButtonName: 'Cancel'
             })
-            if (isConfirmed) draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, notice, starterQuestions))
+            if (isConfirmed)
+                draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, notice, starterQuestions), {
+                    internal: true
+                })
         },
         onError: (error) => errorFailed(apiErrorText(error))
     })
@@ -1530,6 +1537,7 @@ const Canvas = () => {
                                 onApplyCanvas={applyCanvasText}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}
+                                saveQueueBusy={draftSave.busy}
                             />
                         </Toolbar>
                     </AppBar>

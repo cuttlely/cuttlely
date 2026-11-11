@@ -1,4 +1,12 @@
-import { containsBase64Canvas, createSaveQueue, draftSaveLanded, sameSavedCanvas, SAVE_AGAIN_NOTICE, SAVE_CLOCK_SKEW_MS } from './saveQueue'
+import {
+    containsBase64Canvas,
+    createSaveQueue,
+    draftSaveLanded,
+    sameLiveCanvas,
+    sameSavedCanvas,
+    SAVE_AGAIN_NOTICE,
+    SAVE_CLOCK_SKEW_MS
+} from './saveQueue'
 
 const FLOW_A = JSON.stringify({ nodes: [{ id: 'a', data: { name: 'card' } }], edges: [] })
 const FLOW_B = JSON.stringify({ nodes: [{ id: 'b', data: { name: 'card' } }], edges: [] })
@@ -32,6 +40,8 @@ const entry = (overrides = {}) => ({
     baseDraftUpdatedDate: new Date(NOW - 60_000).toISOString(),
     userId: 'me',
     sentAt: NOW,
+    firstAttemptSentAt: NOW,
+    lastAttemptSettledAt: NOW,
     onAck: jest.fn(),
     onConflict: jest.fn(),
     onError: jest.fn(),
@@ -153,8 +163,8 @@ describe('save queue core', () => {
         expect(save.onConflict).toHaveBeenCalledTimes(1)
     })
 
-    test('accepts a cleared draft when the sent canvas equals Live', () => {
-        expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }), NOW)).toBe(true)
+    test('does not call a missing draft landed without save metadata', () => {
+        expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }), NOW)).toBe(false)
     })
 
     test('requires the clock allowance even when the stored draft is newer than the base', async () => {
@@ -168,6 +178,25 @@ describe('save queue core', () => {
             putDraft: jest.fn().mockRejectedValue(noResponse()),
             getDraftStatus: jest.fn().mockResolvedValue({ data: tooOld })
         })
+        queue.enqueue(save)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(save.onAck).not.toHaveBeenCalled()
+        expect(save.onConflict).toHaveBeenCalledTimes(1)
+    })
+
+    test('rejects a matching file draft saved after the attempt window', async () => {
+        const fileFlow = JSON.stringify({
+            nodes: [{ id: 'a', data: { inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
+            edges: []
+        })
+        const later = status('later', fileFlow, { updatedDate: new Date(NOW + SAVE_CLOCK_SKEW_MS + 1).toISOString() })
+        const save = entry({ flowData: fileFlow, hasBase64: true })
+        const { queue, calls } = makeQueue({
+            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            getDraftStatus: jest.fn().mockResolvedValue({ data: later })
+        })
+
         queue.enqueue(save)
         await flush()
         expect(calls.putDraft).toHaveBeenCalledTimes(1)
@@ -204,6 +233,57 @@ describe('save queue core', () => {
         expect(calls.putDraft).toHaveBeenCalledTimes(1)
         expect(calls.getDraftStatus).toHaveBeenCalledTimes(1)
         expect(save.onAck).toHaveBeenCalledWith(stored, expect.objectContaining({ reconciled: true, hasBase64: true }))
+    })
+
+    test('finds file data in every node input', () => {
+        const nested = JSON.stringify({
+            nodes: [{ id: 'a', data: { category: 'Chat Models', inputs: { options: { file: 'data:text/plain;base64,QQ==' } } } }],
+            edges: []
+        })
+        expect(containsBase64Canvas(nested)).toBe(true)
+        expect(containsBase64Canvas(FLOW_A)).toBe(false)
+    })
+
+    test('waits after a file reconciliation read gets no response', async () => {
+        const fileFlow = JSON.stringify({
+            nodes: [{ id: 'a', data: { inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
+            edges: []
+        })
+        const { queue, calls } = makeQueue({
+            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            getDraftStatus: jest.fn().mockRejectedValue(noResponse())
+        })
+        queue.enqueue(entry({ flowData: fileFlow }))
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(queue.getState().state).toBe('waiting')
+    })
+
+    test('continues a canvas retry burst when reconciliation reads get no response', async () => {
+        const save = entry()
+        const { queue, calls } = makeQueue({
+            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            getDraftStatus: jest.fn().mockRejectedValue(noResponse())
+        })
+        queue.enqueue(save)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(4)
+        expect(calls.getDraftStatus).toHaveBeenCalledTimes(4)
+        expect(queue.getState().state).toBe('waiting')
+    })
+
+    test('keeps an ambiguous draft waiting after a reconciliation HTTP error', async () => {
+        const save = entry()
+        const { queue, calls } = makeQueue({
+            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            getDraftStatus: jest.fn().mockRejectedValue(httpError(500))
+        })
+        queue.enqueue(save)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(save.onError).not.toHaveBeenCalled()
+        expect(calls.onExhausted).toHaveBeenCalledTimes(1)
+        expect(queue.getState().state).toBe('waiting')
     })
 
     test('resumes only while the draft base is unchanged', async () => {
@@ -290,6 +370,36 @@ describe('save queue core', () => {
         expect(changed.onChanged).toHaveBeenCalledTimes(1)
     })
 
+    test('matches a Live file write after storage replaces its body', async () => {
+        const sent = JSON.stringify({
+            nodes: [{ id: 'a', data: { inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
+            edges: []
+        })
+        const stored = JSON.stringify({
+            nodes: [{ id: 'a', data: { inputs: { file: 'FILE-STORAGE::["a.txt"]' } } }],
+            edges: []
+        })
+        expect(sameLiveCanvas(sent, stored)).toBe(true)
+        const liveEntry = {
+            kind: 'live',
+            id: 'flow-1',
+            body: { name: 'Name', flowData: sent },
+            baseUpdatedDate: 'base',
+            onAck: jest.fn(),
+            onChanged: jest.fn(),
+            onError: jest.fn()
+        }
+        const { queue, calls } = makeQueue({
+            putLive: jest.fn().mockRejectedValue(noResponse()),
+            getLive: jest.fn().mockResolvedValue({ data: { name: 'Name', flowData: stored, updatedDate: 'saved' } })
+        })
+        queue.enqueue(liveEntry)
+        await flush()
+        expect(calls.putLive).toHaveBeenCalledTimes(1)
+        expect(liveEntry.onAck).toHaveBeenCalledTimes(1)
+        expect(liveEntry.onChanged).not.toHaveBeenCalled()
+    })
+
     test('keeps an unresolved Live write waiting and reconciles before resume', async () => {
         const liveEntry = {
             kind: 'live',
@@ -321,6 +431,29 @@ describe('save queue core', () => {
         await flush()
         expect(order).toEqual(['get', 'put'])
         expect(liveEntry.onAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('allows one Live write after each guarded read', async () => {
+        const liveEntry = {
+            kind: 'live',
+            id: 'flow-1',
+            body: { name: 'Name', flowData: FLOW_A },
+            baseUpdatedDate: 'base',
+            onAck: jest.fn(),
+            onChanged: jest.fn(),
+            onError: jest.fn()
+        }
+        const { queue, calls } = makeQueue({
+            putLive: jest.fn().mockRejectedValue(noResponse()),
+            getLive: jest.fn().mockResolvedValue({ data: { name: 'Old', flowData: FLOW_B, updatedDate: 'base' } })
+        })
+        queue.enqueue(liveEntry)
+        await flush()
+        expect(calls.putLive).toHaveBeenCalledTimes(2)
+        queue.retry()
+        await flush()
+        expect(calls.putLive).toHaveBeenCalledTimes(3)
+        expect(queue.getState().state).toBe('waiting')
     })
 
     test('keeps a Live snapshot waiting when its preflight gets no response', async () => {
@@ -395,7 +528,7 @@ describe('save queue core', () => {
         expect(create.send).toHaveBeenCalledTimes(1)
         expect(create.onAck).not.toHaveBeenCalled()
         expect(queue.getState().state).toBe('waiting')
-        expect(calls.onExhausted).toHaveBeenCalledTimes(1)
+        expect(calls.onExhausted).not.toHaveBeenCalled()
 
         queue.retry()
         await flush()
@@ -473,6 +606,59 @@ describe('save queue core', () => {
         expect(nameSend).toHaveBeenCalledTimes(1)
         expect(calls.putDraft).toHaveBeenCalledTimes(2)
         expect(calls.putDraft.mock.calls[1][1]).toBe(FLOW_B)
+        expect(latest.onAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('runs a confirmed Live write before a newer pending snapshot', async () => {
+        const firstWrite = deferred()
+        const order = []
+        const latest = {
+            kind: 'live',
+            id: 'flow-1',
+            body: { name: 'Latest', flowData: FLOW_C },
+            baseUpdatedDate: 'changed',
+            onAck: jest.fn(),
+            onChanged: jest.fn(),
+            onError: jest.fn()
+        }
+        let queue
+        const old = {
+            kind: 'live',
+            id: 'flow-1',
+            body: { name: 'Old', flowData: FLOW_A },
+            baseUpdatedDate: 'base',
+            onAck: jest.fn(),
+            onError: jest.fn(),
+            onChanged: jest.fn(() => {
+                queue.enqueue({
+                    ...old,
+                    internal: true,
+                    baseUpdatedDate: 'changed',
+                    onChanged: jest.fn()
+                })
+            })
+        }
+        const made = makeQueue({
+            putLive: jest
+                .fn()
+                .mockReturnValueOnce(firstWrite.promise)
+                .mockImplementationOnce(async () => {
+                    order.push('confirmed')
+                    return { data: { ...old.body, updatedDate: 'confirmed' } }
+                })
+                .mockImplementationOnce(async () => {
+                    order.push('latest')
+                    return { data: { ...latest.body, updatedDate: 'latest' } }
+                }),
+            getLive: jest.fn().mockResolvedValue({ data: { name: 'Other', flowData: FLOW_B, updatedDate: 'changed' } })
+        })
+        queue = made.queue
+        queue.enqueue(old)
+        queue.enqueue(latest)
+        firstWrite.reject(noResponse())
+        await flush()
+        await flush()
+        expect(order).toEqual(['confirmed', 'latest'])
         expect(latest.onAck).toHaveBeenCalledTimes(1)
     })
 

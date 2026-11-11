@@ -1,4 +1,4 @@
-import { createElement, useCallback, useEffect, useRef } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@mui/material'
 import { useSelector } from 'react-redux'
 
@@ -16,6 +16,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
     const mountedRef = useRef(false)
     const noticeOpenRef = useRef(false)
     const queueRef = useRef(null)
+    const [busy, setBusy] = useState(false)
 
     draftSaveRef.current = draftSave
     userIdRef.current = userId
@@ -56,6 +57,9 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
                     if (!mountedRef.current || !noticeOpenRef.current) return
                     noticeOpenRef.current = false
                     dispatch(closeSnackbar(NOTICE_KEY))
+                },
+                onBusyChange: (next) => {
+                    if (mountedRef.current) setBusy(next)
                 }
             }),
         [chatflowsApi, closeSnackbar, dispatch, enqueueSnackbar, flowDraftsApi]
@@ -63,6 +67,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
 
     useEffect(() => {
         mountedRef.current = true
+        setBusy(false)
         const queue = makeQueue()
         queueRef.current = queue
         const online = () => queueRef.current?.retry()
@@ -201,6 +206,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
         saveLive,
         saveCreate,
         runNonReplay,
-        retry: () => queueRef.current?.retry()
+        retry: () => queueRef.current?.retry(),
+        busy
     }
 }
