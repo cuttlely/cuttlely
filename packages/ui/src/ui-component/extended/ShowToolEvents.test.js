@@ -79,3 +79,21 @@ it.each([undefined, 'CHATFLOW', 'AGENTFLOW', 'MULTIAGENT', 'HARNESS'])(
         expect(getSectionStatus('showToolEvents', flow)).toBe(!expectedDefault)
     }
 )
+
+it.each([
+    ['an object', { welcomeMessage: 'Hi', showToolEvents: { status: true } }, true],
+    ['malformed JSON', '{"welcomeMessage":', false],
+    ['a JSON array', '[1,2]', false],
+    ['a JSON null', 'null', false]
+])('opens without crashing when the saved settings are %s', async (_label, chatbotConfig, expected) => {
+    await act(async () =>
+        root.render(
+            createElement(
+                ThemeProvider,
+                { theme: createTheme() },
+                createElement(ShowToolEvents, { dialogProps: { chatflow: { id: 'flow', type: 'CHATFLOW', chatbotConfig } } })
+            )
+        )
+    )
+    expect(document.querySelector('input').checked).toBe(expected)
+})

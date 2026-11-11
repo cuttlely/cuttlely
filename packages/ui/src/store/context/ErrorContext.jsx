@@ -1,7 +1,7 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { redirectWhenUnauthorized } from '@/utils/genericHelper'
 import PropTypes from 'prop-types'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { store } from '@/store'
 import { logoutSuccess } from '@/store/reducers/authSlice'
 import { ErrorMessage } from '../constant'
@@ -9,9 +9,25 @@ import { ErrorMessage } from '../constant'
 const ErrorContext = createContext()
 
 export const ErrorProvider = ({ children }) => {
-    const [error, setError] = useState(null)
+    const [pageError, setPageError] = useState(null)
     const [authRateLimitError, setAuthRateLimitError] = useState(null)
     const navigate = useNavigate()
+    const location = useLocation()
+    const currentVisit = useRef(location)
+    currentVisit.current = location
+
+    // The page error belongs to one route visit: the router location of the page whose request
+    // failed. A callback captured on an earlier visit (for example a canvas request that fails or
+    // succeeds after you left) is ignored, so it cannot replace, clear or later bring back an error,
+    // even when you return to the same path.
+    const setError = useCallback(
+        (err) => {
+            if (currentVisit.current !== location) return
+            setPageError(err ? { error: err, visit: location } : null)
+        },
+        [location]
+    )
+    const error = pageError && pageError.visit === location ? pageError.error : null
 
     const handleError = async (err) => {
         console.error(err)

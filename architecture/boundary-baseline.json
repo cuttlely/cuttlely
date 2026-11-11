@@ -2102,6 +2102,16 @@
             "to": "packages/ui/src/api/client.js"
         },
         {
+            "from": "packages/ui/src/api/client.test.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
+            "from": "packages/ui/src/api/client.test.js",
+            "to": "packages/ui/src/utils/authUtils.js",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
             "from": "packages/ui/src/api/demo.js",
             "to": "packages/ui/src/api/client.js"
         },
@@ -2139,6 +2149,11 @@
             "reason": "The Usage page uses the shared page header, card, and API client."
         },
         {
+            "from": "packages/ui/src/ErrorBoundary.test.js",
+            "to": "packages/ui/src/ErrorBoundary.jsx",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
@@ -2158,6 +2173,11 @@
             "from": "packages/ui/src/routes/DefaultRedirect.test.js",
             "to": "packages/ui/src/routes/DefaultRedirect.jsx",
             "reason": "DefaultRedirect.test.js renders DefaultRedirect to check the landing order"
+        },
+        {
+            "from": "packages/ui/src/store/context/ErrorContext.test.js",
+            "to": "packages/ui/src/store/context/ErrorContext.jsx",
+            "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
         },
         {
             "from": "packages/ui/src/themes/compStyleOverride.test.js",
