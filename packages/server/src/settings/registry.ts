@@ -1182,6 +1182,35 @@ export const SETTINGS: SettingDef[] = [
         hostHint: 'Render (render.yaml)'
     },
     {
+        key: 'HTTP_KEEP_ALIVE_TIMEOUT_MS',
+        section: 'security',
+        group: 'Network',
+        label: 'Idle connection timeout',
+        help: 'How long the server keeps an idle HTTP connection open for reuse. 1000 to 600000 milliseconds.',
+        type: 'number',
+        unit: 'ms',
+        min: 1000,
+        max: 600000,
+        integer: true,
+        defaultLabel: '65000 ms',
+        defaultValue: '65000',
+        risk: 'low'
+    },
+    {
+        key: 'HTTP_HEADERS_TIMEOUT_MS',
+        section: 'security',
+        group: 'Network',
+        label: 'Request headers timeout',
+        help: 'Time allowed for complete request headers. It must be greater than the idle connection timeout and no more than 601000 milliseconds.',
+        type: 'number',
+        unit: 'ms',
+        min: 1001,
+        max: 601000,
+        integer: true,
+        defaultLabel: 'Idle connection timeout plus 1000 ms',
+        risk: 'low'
+    },
+    {
         key: 'APP_URL',
         section: 'security',
         group: 'Network',

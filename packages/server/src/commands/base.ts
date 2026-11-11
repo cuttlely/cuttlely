@@ -125,6 +125,8 @@ export abstract class BaseCommand extends Command {
         HTTP_SECURITY_CHECK: Flags.string(),
         PATH_TRAVERSAL_SAFETY: Flags.string(),
         TRUST_PROXY: Flags.string(),
+        HTTP_KEEP_ALIVE_TIMEOUT_MS: Flags.string(),
+        HTTP_HEADERS_TIMEOUT_MS: Flags.string(),
         OAUTH2_SECURITY_CHECK: Flags.string(),
         OAUTH2_ALLOWED_TOKEN_DOMAINS: Flags.string(),
 

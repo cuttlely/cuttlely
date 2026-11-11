@@ -1,6 +1,12 @@
+## Proxy-safe HTTP timeouts
+
+This branch is `fix/proxy-safe-timeouts` from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
+
+The HTTP server keeps idle connections open for 65 seconds instead of Node's 5-second default. `HTTP_KEEP_ALIVE_TIMEOUT_MS` accepts whole numbers from 1000 to 600000. `HTTP_HEADERS_TIMEOUT_MS` defaults to the keep-alive value plus 1000, must be greater than keep-alive, and is capped at 601000. Invalid values warn and use the applicable default. Startup applies only `keepAliveTimeout` and `headersTimeout`; Node's `requestTimeout` is unchanged. `docs/how-to/reverse-proxy.md` covers upstream reuse, stream timeouts and buffering, upload size, gateway idle time, and `TRUST_PROXY`.
+
 ## Canvas error page after a request gets no answer
 
-This branch is `fix/canvas-save-crash` from `origin/main` at `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). It fixes [#455](https://github.com/cuttlely/cuttlely/issues/455). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.
+Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It fixes the client-side failure from [#455](https://github.com/cuttlely/cuttlely/issues/455). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.
 
 A request that gets no HTTP response (dropped connection, timeout, blocked proxy) used to crash the route. The API client's response interceptor read `error.response.status` without a guard and threw a `TypeError`. `useApi` passed that to the shared page error, and the next page to mount rendered `ErrorBoundary`, which read `error.response.status` again while rendering. The route then showed **Something went wrong**. A browser run that aborts requests during canvas edits, then goes back to the list, reproduced the same minified stack as the reported one.
 

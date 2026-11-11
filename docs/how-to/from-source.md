@@ -2,6 +2,8 @@
 
 Use this guide to build Cuttlely from its source code, run it, and change it with a dev server that reloads as you edit. It's the way to work on Cuttlely itself, or to run it on a machine without Docker. For a ready-made install, use [Docker](./docker.md). For a hosted install, use [Render](./render.md).
 
+If another server accepts public traffic first, follow the [reverse proxy guide](./reverse-proxy.md).
+
 When you finish the install, Cuttlely runs at [http://localhost:43117](http://localhost:43117), with the agent runtime beside it for harness specialists. While you change the code, the dev server runs the same app at [http://localhost:8080](http://localhost:8080). The app database is SQLite, and you have one local account to sign in with. A database you already run can replace SQLite. See [Use Postgres](#use-postgres).
 
 The steps, in order:
