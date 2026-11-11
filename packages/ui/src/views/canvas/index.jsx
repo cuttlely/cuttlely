@@ -250,8 +250,8 @@ const Canvas = () => {
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true, localNoAnswer: true })
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
+    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true, localUnavailable: true })
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localUnavailable: true })
     // currentOnly: a new flow request clears the previous result, and a late reply for an earlier request is dropped.
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow, { currentOnly: true })
     // The flow id of the latest saved-flow request; a result counts only while it matches the route (flowLoadAction).
@@ -260,7 +260,7 @@ const Canvas = () => {
         requestedFlowIdRef.current = id
         getSpecificChatflowApi.request(id)
     }
-    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true, localNoAnswer: true })
+    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true, localUnavailable: true })
 
     // ==============================|| Events & Actions ||============================== //
 

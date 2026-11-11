@@ -12,6 +12,11 @@ export const isRetryableStatus = (errorOrStatus) => {
     return status === 502 || status === 503 || status === 504
 }
 
+// A write is never replayed automatically, but these outcomes are all ambiguous: the browser either received
+// no response or received a gateway response that does not prove whether the application handled the write.
+export const isConnectionUnavailable = (error) =>
+    isRetryableStatus(error) || Boolean(isNoResponse(error) && (error?.isAxiosError || error?.request))
+
 export const retryEnabled = (config = {}) => {
     if (config.retry === false) return false
     const method = String(config.method || 'get').toLowerCase()

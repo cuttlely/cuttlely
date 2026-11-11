@@ -1,3 +1,5 @@
+import { isConnectionUnavailable } from '@/api/resilience'
+
 // What the page error card shows. An API error carries an HTTP status and the server's message.
 // A request that got no answer (network drop, timeout, proxy or CORS failure) has no status, so the
 // card says the server could not be reached instead of reading a status that is not there.
@@ -33,14 +35,14 @@ export const requestFailureMessage = (error) => {
     return typeof error?.message === 'string' && error.message ? error.message : NO_ANSWER_MESSAGE
 }
 
-// Canvas writes are deliberately not retried. A write that gets no answer may still have reached the server, so a
-// no-answer publish says its result is unknown instead of claiming nothing changed. A failed request leaves the editor mounted and dirty, so do not
-// tell the person to reload and discard the edits they can save again.
+// Canvas writes are deliberately not retried. A write that gets no application answer may still have reached the
+// server, so Publish reconciles before claiming what changed. A failed request leaves the editor mounted and dirty,
+// so do not tell the person to reload and discard the edits they can save again.
 const writeFailureMessage = (error, fallback, noAnswerMessage) => {
+    if (isConnectionUnavailable(error)) return noAnswerMessage
     const data = error?.response?.data
     if (typeof data === 'string' && data) return data
     if (typeof data?.message === 'string' && data.message) return data.message
-    if (error?.response === undefined && (error?.isAxiosError || error?.request)) return noAnswerMessage
     return typeof error?.message === 'string' && error.message ? error.message : fallback
 }
 

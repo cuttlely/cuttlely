@@ -18,6 +18,10 @@ describe('request failure messages', () => {
     test('keeps canvas edits and asks the person to save again after a failed save', () => {
         expect(saveFailureMessage(noAnswer())).toBe(SAVE_NO_ANSWER_MESSAGE)
         expect(saveFailureMessage(noAnswer())).not.toContain('reload')
+        for (const status of [502, 503, 504]) {
+            expect(saveFailureMessage({ response: { status, data: '<html>gateway</html>' } })).toBe(SAVE_NO_ANSWER_MESSAGE)
+            expect(publishFailureMessage({ response: { status, data: '<html>gateway</html>' } })).toBe(PUBLISH_NO_ANSWER_MESSAGE)
+        }
     })
 
     test('prefers a server save message and otherwise uses the supplied fallback', () => {

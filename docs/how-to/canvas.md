@@ -48,7 +48,7 @@ The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle
 
 ## If your connection drops
 
-Cuttlely quietly retries loading options, credentials, and other read requests. You may see **Reconnecting…** for a few seconds. The chip does not block clicks, and your edits stay on the canvas. If Cuttlely still cannot check a saved canvas before opening it, the whole canvas stays closed. Choose **Retry** when the connection is back, or **Back** to leave without changing anything.
+Cuttlely quietly retries loading options, credentials, and other eligible read requests. You may see **Reconnecting…** while Cuttlely waits and tries again. The chip does not block clicks, and your edits stay on the canvas. If Cuttlely still cannot check a saved canvas before opening it, the whole canvas stays closed. Choose **Retry** when the connection is back, or **Back** to leave without changing anything.
 
 Saves are not retried automatically yet. If Save cannot reach the server, the message says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits still show as unsaved. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes.
 

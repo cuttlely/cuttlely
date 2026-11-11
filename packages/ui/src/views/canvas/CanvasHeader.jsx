@@ -209,9 +209,9 @@ const CanvasHeader = ({
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localUnavailable: true })
     const getScheduleStatusApi = useApi(chatflowsApi.getScheduleStatus)
-    const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled, { currentOnly: true, localNoAnswer: true })
+    const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled, { currentOnly: true, localUnavailable: true })
     const canvas = useSelector((state) => state.canvas)
     const isDark = useSelector((state) => state.customization.isDarkMode)
     const nodeSpecsReady = Array.isArray(canvas.componentNodes) && canvas.componentNodes.length > 0

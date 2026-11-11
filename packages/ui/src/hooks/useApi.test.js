@@ -18,7 +18,7 @@ jest.mock('@/store/context/ErrorContext', () => ({
 const noAnswer = () => Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
 
 function SaveResultProbe({ apiFunc, apiRef, onSuccess, onError }) {
-    const api = useApi(apiFunc, { currentOnly: true, localNoAnswer: true })
+    const api = useApi(apiFunc, { currentOnly: true, localUnavailable: true })
     apiRef.current = api
 
     useEffect(() => {
@@ -109,6 +109,21 @@ describe('useApi current request results', () => {
     test('a save with no answer is left to the canvas message and is not reported as a page error', async () => {
         const failed = jest.fn()
         await renderProbe(jest.fn().mockRejectedValue(noAnswer()), failed)
+        await act(async () => {
+            await apiRef.current.request()
+        })
+        expect(failed).toHaveBeenCalledTimes(1)
+        expect(mockHandleError).not.toHaveBeenCalled()
+    })
+
+    test.each([502, 503, 504])('a save with gateway status %s stays with the canvas message', async (status) => {
+        const failed = jest.fn()
+        const gatewayError = Object.assign(new Error('Gateway unavailable'), {
+            isAxiosError: true,
+            request: {},
+            response: { status, data: '<html>gateway</html>' }
+        })
+        await renderProbe(jest.fn().mockRejectedValue(gatewayError), failed)
         await act(async () => {
             await apiRef.current.request()
         })

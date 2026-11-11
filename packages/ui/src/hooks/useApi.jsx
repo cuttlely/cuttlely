@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react'
 import { useError } from '@/store/context/ErrorContext'
-import { isCancel, isNoResponse } from '@/api/resilience'
+import { isCancel, isConnectionUnavailable } from '@/api/resilience'
 
 // currentOnly: each request starts clean and a late reply from an older request is ignored.
-// localNoAnswer: the caller shows its own message when the request gets no answer, so that failure is not
-// reported as a page error (whose text asks the person to reload and would discard unsaved canvas edits).
-export default (apiFunc, { currentOnly = false, localNoAnswer = false } = {}) => {
+// localUnavailable: the caller shows its own action-specific message when a request gets no answer or a
+// 502/503/504 gateway response, so that ambiguous write failure is not also reported as a reload page error.
+export default (apiFunc, { currentOnly = false, localUnavailable = false } = {}) => {
     const [data, setData] = useState(null)
     const [loading, setLoading] = useState(false)
     const [error, setApiError] = useState(null)
@@ -28,7 +28,7 @@ export default (apiFunc, { currentOnly = false, localNoAnswer = false } = {}) =>
         } catch (err) {
             if (isCancel(err)) return
             if (currentOnly && requestId !== latestRequestId.current) return
-            if (!(localNoAnswer && isNoResponse(err))) handleError(err || 'Unexpected Error!')
+            if (!(localUnavailable && isConnectionUnavailable(err))) handleError(err || 'Unexpected Error!')
             setApiError(err || 'Unexpected Error!')
         } finally {
             if (!currentOnly || requestId === latestRequestId.current) setLoading(false)
