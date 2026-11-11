@@ -1,4 +1,10 @@
-import { canvasSaveDocument, duplicateFlowData, liveSavePreflightForRoute, liveSaveUpdateForRoute } from './canvasSave'
+import {
+    canvasSaveDocument,
+    duplicateFlowData,
+    liveSavePreflightForRoute,
+    liveSaveUpdateForRoute,
+    saveCompletionForRoute
+} from './canvasSave'
 import { planCanvasSave } from './flowDrafts'
 import { missingNodeInfo } from './missingNode'
 import { normalizeCanvasFlow } from './normalizeCanvasFlow'
@@ -197,5 +203,12 @@ describe('Live save preflight route identity', () => {
             rev: 4
         })
         expect(liveSaveUpdateForRoute(preflight, 'flow-b')).toBeNull()
+    })
+
+    test('accepts every save completion only on the route that started it', () => {
+        expect(saveCompletionForRoute({ flowId: 'flow-a', rev: 5 }, 'flow-a')).toEqual({ flowId: 'flow-a', rev: 5 })
+        expect(saveCompletionForRoute({ flowId: 'flow-a', rev: 5 }, 'flow-b')).toBeNull()
+        expect(saveCompletionForRoute({ flowId: null, rev: 1 }, undefined)).toEqual({ flowId: null, rev: 1 })
+        expect(saveCompletionForRoute({ flowId: null, rev: 1 }, 'flow-b')).toBeNull()
     })
 })

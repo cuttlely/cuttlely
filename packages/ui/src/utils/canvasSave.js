@@ -51,3 +51,10 @@ export function liveSaveUpdateForRoute(preflight, routeFlowId) {
         rev: current.rev
     }
 }
+
+// A mounted canvas can move to another route while any write is waiting. Accept its completion only while the
+// address still names the flow (or blank new-canvas route) that started it.
+export function saveCompletionForRoute(pending, routeFlowId) {
+    if (!pending || pending.flowId !== (routeFlowId || null)) return null
+    return pending
+}

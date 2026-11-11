@@ -61,12 +61,12 @@ No. Native macOS and Windows source installs cannot save or compile agent profil
 
 ## What does "The server could not be reached" mean?
 
-Cuttlely sent a request and the application did not answer. Eligible read requests are retried quietly first, including when a self-hosted gateway returns 502, 503, or 504, so this message appears only after those attempts fail. Sign-in callbacks and other one-time reads are not retried. Canvas saves and publishing also use this message for those gateway responses, but remain single-attempt. Other changes are not retried automatically. Error handlers updated by this change show the same safe connection message for a 502, 503, or 504 instead of showing a gateway page. The connection may have dropped or the request may have timed out.
+Cuttlely sent a request and the application did not answer. Eligible read requests are retried quietly first, including when a self-hosted gateway returns 502, 503, or 504, so this message appears only after those attempts fail. Sign-in callbacks and other one-time reads are not retried. Canvas saves and publishing also use this message for those gateway responses, but remain single-attempt. Other changes are not retried automatically. Error handlers updated by this change show the same safe connection message for a 502, 503, or 504 instead of showing a gateway page. Canvas configuration saves ask you to try that setting again without reloading and losing unsaved edits. The connection may have dropped or the request may have timed out.
 
 1. Check that your network connection works.
 2. If you have unsaved canvas edits, keep the page open. A failed save says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits remain marked as unsaved.
 3. If Publish gets no answer, Cuttlely checks whether it went through. If it did and Live refreshes, you see the usual **Published** message. If publication went through but the Live canvas cannot refresh, the dialog says **Published, but the canvas could not refresh Live**; close it and reopen the flow when the connection is back. If the check does not prove that the request finished, including when the status still looks unchanged or the check also gets no answer, it says **Publish not confirmed** and disables Publish. Then reopen the flow when the connection is back and check whether its Live version changed before you publish again.
-4. Otherwise, reload the page.
+4. For a page-level load failure, reload the page. For a canvas configuration save, keep the canvas open and try that setting again.
 5. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 
 Work you saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.

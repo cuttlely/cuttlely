@@ -50,7 +50,7 @@ The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle
 
 Cuttlely quietly retries loading options, credentials, and other eligible read requests. You may see **Reconnecting…** while Cuttlely waits and tries again. The chip does not block clicks, and your edits stay on the canvas. If Cuttlely still cannot check a saved canvas before opening it, the whole canvas stays closed. Choose **Retry** when the connection is back, or **Back** to leave without changing anything.
 
-Saves are not retried automatically yet. If Save cannot reach the server, the message says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits still show as unsaved. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes.
+Saves are not retried automatically yet. If Save cannot reach the server, the message says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits still show as unsaved. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes. If you move to another flow while a save is still waiting, its late result does not change the flow now on screen or show a message there.
 
 Publish is never sent twice on its own. If Publish gets no answer, the publish may still have gone through, so Cuttlely reads the flow's publish status again:
 
@@ -58,7 +58,7 @@ Publish is never sent twice on its own. If Publish gets no answer, the publish m
 -   If Live has your draft but the canvas cannot refresh it, the dialog says **Published, but the canvas could not refresh Live**. Close it and reopen the flow when the connection is back.
 -   If the check does not prove that it finished, including when the status still looks unchanged or the check also gets no answer, the dialog says **Publish not confirmed** and disables Publish. When the connection is back, reopen the flow and check its Live version before you publish again.
 
-Draft-setting failures ask you to try that setting again instead of telling you to press Save.
+Draft-setting and canvas-configuration failures ask you to try that setting again instead of telling you to press Save or reload the page.
 
 When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. The page says whether the server could not be reached or answered with an error, such as a flow that no longer exists. Select **Retry** after the connection is back, or **Back** to leave. This prevents a save or edit until Cuttlely knows the correct mode. If you move to another saved flow while one is still opening, only the flow you moved to opens.
 

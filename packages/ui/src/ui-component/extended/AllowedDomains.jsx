@@ -16,7 +16,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const AllowedDomains = ({ dialogProps, onConfirm, hideTitle = false }) => {
     const dispatch = useDispatch()
@@ -77,7 +77,7 @@ const AllowedDomains = ({ dialogProps, onConfirm, hideTitle = false }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Allowed Origins: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Allowed Origins'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

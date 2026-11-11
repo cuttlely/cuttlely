@@ -81,7 +81,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
-import { canvasSaveDocument } from '@/utils/canvasSave'
+import { canvasSaveDocument, saveCompletionForRoute } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
@@ -120,13 +120,15 @@ const AgentflowCanvas = () => {
     const draftStatusRef = useRef(null)
     const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
-    const pendingCreateSaveRevRef = useRef()
-    const pendingUpdateSaveRevRef = useRef()
+    const pendingCreateSaveRef = useRef()
+    const pendingUpdateSaveRef = useRef()
     // A flow this canvas just created. Its new URL must not reload it from the server over newer edits.
     const createdFlowIdRef = useRef(null)
     // The flow this canvas is on. chatflowId is read from the address on every render, and create sets the new
     // address before its state updates render; createdFlowIdRef also covers a render that reads the address first.
     const routeFlowId = chatflowId || createdFlowIdRef.current
+    const activeRouteFlowIdRef = useRef(chatflowId || null)
+    activeRouteFlowIdRef.current = chatflowId || null
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -362,9 +364,10 @@ const AgentflowCanvas = () => {
                 }
                 const chatbotConfig = withStarterQuestions(undefined, builderStartersRef.current)
                 if (chatbotConfig) newChatflowBody.chatbotConfig = chatbotConfig
-                pendingCreateSaveRevRef.current = saveRev
+                pendingCreateSaveRef.current = { flowId: chatflowId || null, rev: saveRev }
                 createNewChatflowApi.request(newChatflowBody)
             } else {
+                const pendingSave = { flowId: chatflow.id, rev: saveRev }
                 const plan = planCanvasSave({
                     mode: draftStatusRef.current?.mode,
                     name: chatflowName,
@@ -375,28 +378,33 @@ const AgentflowCanvas = () => {
                 if (plan.draft) {
                     try {
                         const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         if (res?.conflict) return
                         setDraftStatus(res.data)
-                        saveBuilderStarters(chatflow)
+                        saveBuilderStarters(chatflow, pendingSave)
                     } catch (error) {
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         errorFailed(saveFailureMessage(error))
                         return
                     }
                 }
                 if (plan.live?.flowData) {
-                    pendingUpdateSaveRevRef.current = saveRev
+                    pendingUpdateSaveRef.current = pendingSave
                     updateChatflowApi.request(chatflow.id, { name: plan.live.name, flowData: plan.live.flowData })
                     return
                 }
                 if (plan.live?.name) {
                     try {
                         const res = await chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name })
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         dispatch({ type: SET_CHATFLOW, chatflow: res.data })
                     } catch (error) {
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         errorFailed(saveFailureMessage(error))
                         return
                     }
                 }
+                if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                 if (plan.draft) saveChatflowSuccess('Draft saved', saveRev)
             }
         }
@@ -639,7 +647,7 @@ const AgentflowCanvas = () => {
     })
 
     // Build with AI: starter questions join the chat settings on the first save of a flow that has none.
-    const saveBuilderStarters = async (savedFlow) => {
+    const saveBuilderStarters = async (savedFlow, pendingSave = { flowId: savedFlow?.id }) => {
         const questions = builderStartersRef.current
         if (!savedFlow?.id || !questions.length) return
         builderStartersRef.current = []
@@ -647,8 +655,10 @@ const AgentflowCanvas = () => {
         if (!chatbotConfig) return
         try {
             const res = await chatflowsApi.updateChatflow(savedFlow.id, { chatbotConfig })
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
             dispatch({ type: SET_CHATFLOW, chatflow: res.data })
         } catch (error) {
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
             errorFailed(saveFailureMessage(error, 'Saving the starter questions failed'))
         }
     }
@@ -857,11 +867,15 @@ const AgentflowCanvas = () => {
         flowDraftsApi
             .getStatus(created.id)
             .then((res) => {
+                if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
                 setDraftStatus(res.data)
                 setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
                 draftSave.record(res.data, canvasFlowText(created, res.data))
             })
-            .catch((error) => setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' }))
+            .catch((error) => {
+                if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
+                setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' })
+            })
 
     const retryDraftStatusLoad = () => {
         setDraftStatus(null)
@@ -885,16 +899,17 @@ const AgentflowCanvas = () => {
 
     // Create new chatflow successful
     useEffect(() => {
+        const pendingSave = pendingCreateSaveRef.current
+        pendingCreateSaveRef.current = undefined
+        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
         if (createNewChatflowApi.error) {
-            pendingCreateSaveRevRef.current = undefined
             errorFailed(saveFailureMessage(createNewChatflowApi.error))
         } else if (createNewChatflowApi.data) {
             const chatflow = createNewChatflowApi.data
+            activeRouteFlowIdRef.current = chatflow.id
             builderStartersRef.current = []
             dispatch({ type: SET_CHATFLOW, chatflow })
-            const saveRev = pendingCreateSaveRevRef.current
-            pendingCreateSaveRevRef.current = undefined
-            saveChatflowSuccess(chatflow.accessNotice, saveRev)
+            saveChatflowSuccess(chatflow.accessNotice, pendingSave.rev)
             loadCreatedStatus(chatflow)
             createdFlowIdRef.current = chatflow.id
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
@@ -905,15 +920,15 @@ const AgentflowCanvas = () => {
 
     // Update chatflow successful
     useEffect(() => {
+        const pendingSave = pendingUpdateSaveRef.current
+        pendingUpdateSaveRef.current = undefined
+        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
         if (updateChatflowApi.error) {
-            pendingUpdateSaveRevRef.current = undefined
             errorFailed(saveFailureMessage(updateChatflowApi.error))
         } else if (updateChatflowApi.data) {
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-            const saveRev = pendingUpdateSaveRevRef.current
-            pendingUpdateSaveRevRef.current = undefined
-            saveChatflowSuccess(undefined, saveRev)
-            saveBuilderStarters(updateChatflowApi.data)
+            saveChatflowSuccess(undefined, pendingSave.rev)
+            saveBuilderStarters(updateChatflowApi.data, pendingSave)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -996,6 +1011,8 @@ const AgentflowCanvas = () => {
     }, [])
 
     useEffect(() => {
+        pendingCreateSaveRef.current = undefined
+        pendingUpdateSaveRef.current = undefined
         // A flow created on this canvas already has its cards and draft status; reloading it would replace newer edits.
         const action = createdFlowRouteAction(createdFlowIdRef.current, chatflowId)
         if (action !== 'load') return

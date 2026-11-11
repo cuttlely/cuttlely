@@ -149,5 +149,22 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toMatch(
             /if \(createdFlowIdRef\.current === routeFlowId && draftStatusLoad\.request === 'status'\) \{\s+\/\/[^\n]*\n\s+loadCreatedStatus\(/
         )
+        // Every save records the route that started it. Awaited draft/name writes and API-hook completions check the
+        // current route before changing canvas state, clearing dirty, or showing a result.
+        expect(source).toContain('const activeRouteFlowIdRef = useRef(chatflowId || null)')
+        expect(source).toContain('pendingCreateSaveRef.current = { flowId: chatflowId || null, rev: saveRev }')
+        expect(source).toMatch(
+            /await draftSave\.save\([\s\S]*?if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
+        )
+        expect(source).toMatch(
+            /await chatflowsApi\.updateChatflow\([\s\S]*?if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
+        )
+        expect(source).toMatch(
+            /const pendingSave = pendingUpdateSaveRef\.current[\s\S]*?pendingUpdateSaveRef\.current = undefined\s+if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
+        )
+        expect(source).toContain('pendingCreateSaveRef.current = undefined')
+        expect(source).toContain('pendingUpdateSaveRef.current = undefined')
+        expect(source).not.toContain('pendingCreateSaveRevRef')
+        expect(source).not.toContain('pendingUpdateSaveRevRef')
     })
 })

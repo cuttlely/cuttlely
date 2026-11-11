@@ -38,7 +38,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const analyticProviders = [
     {
@@ -255,7 +255,7 @@ const AnalyseFlow = ({ dialogProps }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Analytic Configuration: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Analytic Configuration'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

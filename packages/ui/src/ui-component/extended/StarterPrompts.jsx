@@ -15,7 +15,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const StarterPrompts = ({ dialogProps, onConfirm }) => {
     const dispatch = useDispatch()
@@ -83,7 +83,7 @@ const StarterPrompts = ({ dialogProps, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Conversation Starter Prompts: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Conversation Starter Prompts'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

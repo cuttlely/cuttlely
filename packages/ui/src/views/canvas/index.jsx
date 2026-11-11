@@ -89,7 +89,13 @@ import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
-import { applyCredentialInput, canvasSaveDocument, liveSavePreflightForRoute, liveSaveUpdateForRoute } from '@/utils/canvasSave'
+import {
+    applyCredentialInput,
+    canvasSaveDocument,
+    liveSavePreflightForRoute,
+    liveSaveUpdateForRoute,
+    saveCompletionForRoute
+} from '@/utils/canvasSave'
 import { draftSaveWasTurnedOff, planHarnessDraftFallback, planNewHarnessSave } from '@/utils/harnessSave'
 import {
     asSavedCards,
@@ -167,7 +173,7 @@ const Canvas = () => {
     const fitOnOpenRef = useRef(false)
     const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
-    const pendingCreateSaveRevRef = useRef()
+    const pendingCreateSaveRef = useRef()
     const pendingUpdateSaveRef = useRef()
     // A Live save waiting on its change check retains its originating flow, payload and edit revision. It moves to
     // pendingUpdateSaveRef only when that exact route sends the update, so a late check cannot write into another flow.
@@ -177,6 +183,8 @@ const Canvas = () => {
     // The flow this canvas is on. chatflowId is read from the address on every render, and create sets the new
     // address before its state updates render; createdFlowIdRef also covers a render that reads the address first.
     const routeFlowId = chatflowId || createdFlowIdRef.current
+    const activeRouteFlowIdRef = useRef(chatflowId || null)
+    activeRouteFlowIdRef.current = chatflowId || null
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -520,9 +528,10 @@ const Canvas = () => {
                     if (planned.draftFlowData) newChatflowBody.draftFlowData = planned.draftFlowData
                     pendingHarnessNoteRef.current = planned.notice || ''
                 }
-                pendingCreateSaveRevRef.current = saveRev
+                pendingCreateSaveRef.current = { flowId: chatflowId || null, rev: saveRev }
                 createNewChatflowApi.request(newChatflowBody)
             } else {
+                const pendingSave = { flowId: chatflow.id, rev: saveRev }
                 const plan = planCanvasSave({
                     mode: draftStatusRef.current?.mode,
                     name: chatflowName,
@@ -533,9 +542,11 @@ const Canvas = () => {
                 if (plan.draft) {
                     try {
                         const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         if (res?.conflict) return
                         setDraftStatus(res.data)
                     } catch (error) {
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         errorFailed(saveFailureMessage(error))
                         return
                     }
@@ -567,15 +578,18 @@ const Canvas = () => {
                 if (plan.live?.name) {
                     try {
                         const res = await chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name })
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         dispatch({ type: SET_CHATFLOW, chatflow: res.data })
                         setLasUpdatedDateTime(res.data.updatedDate)
                     } catch (error) {
+                        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                         errorFailed(saveFailureMessage(error))
                         return
                     }
                 }
+                if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
                 if (plan.draft) saveChatflowSuccess('Draft saved', saveRev)
-                if (isChatCanvas) saveBuilderStarters(chatflow)
+                if (isChatCanvas) saveBuilderStarters(chatflow, pendingSave)
             }
         }
     }
@@ -814,22 +828,29 @@ const Canvas = () => {
         flowDraftsApi
             .getStatus(created.id)
             .then((res) => {
+                if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
                 setDraftStatus(res.data)
                 setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
                 draftSave.record(res.data, canvasFlowText(created, res.data))
             })
-            .catch((error) => setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' }))
+            .catch((error) => {
+                if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
+                setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' })
+            })
 
     // Resolves true when the draft save set the draft status; otherwise the caller reads it.
     const saveFirstDraft = async (created, draft, notice, rev) => {
+        const pendingSave = { flowId: created.id, rev }
         try {
             const res = await draftSave.save(created.id, draft)
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return undefined
             if (res?.conflict) return false
             setDraftStatus(res.data)
             setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
             saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
             return true
         } catch (draftError) {
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return undefined
             // A failed draft write may have landed. Do not follow it with a Live write unless the server specifically
             // says drafts are off; gateway and other server errors keep the cards unsaved on this canvas.
             const draftsOff = draftSaveWasTurnedOff(draftError)
@@ -854,16 +875,18 @@ const Canvas = () => {
             }
             try {
                 const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
+                if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return undefined
                 dispatch({ type: SET_CHATFLOW, chatflow: res.data })
                 saveChatflowSuccess(retained?.notice, rev)
             } catch (error) {
+                if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return undefined
                 errorFailed(saveFailureMessage(error))
             }
         }
     }
 
     // Starter questions from a build join the chat settings on the next save of a flow that has none.
-    const saveBuilderStarters = async (savedFlow) => {
+    const saveBuilderStarters = async (savedFlow, pendingSave = { flowId: savedFlow?.id }) => {
         const questions = builderStartersRef.current
         if (!savedFlow?.id || !questions.length) return
         builderStartersRef.current = []
@@ -871,8 +894,10 @@ const Canvas = () => {
         if (!chatbotConfig) return
         try {
             const res = await chatflowsApi.updateChatflow(savedFlow.id, { chatbotConfig })
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
             dispatch({ type: SET_CHATFLOW, chatflow: res.data })
         } catch (error) {
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
             errorFailed(saveFailureMessage(error, 'Saving the starter questions failed'))
         }
     }
@@ -1099,11 +1124,14 @@ const Canvas = () => {
 
     // Create new chatflow successful
     useEffect(() => {
+        const pendingSave = pendingCreateSaveRef.current
+        pendingCreateSaveRef.current = undefined
+        if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
         if (createNewChatflowApi.error) {
-            pendingCreateSaveRevRef.current = undefined
             errorFailed(apiErrorText(createNewChatflowApi.error))
         } else if (createNewChatflowApi.data) {
             const chatflow = createNewChatflowApi.data
+            activeRouteFlowIdRef.current = chatflow.id
             dispatch({ type: SET_CHATFLOW, chatflow })
             builderStartersRef.current = []
             firstSaveAsDraftRef.current = false
@@ -1111,11 +1139,12 @@ const Canvas = () => {
             pendingDraftRef.current = null
             const harnessNote = pendingHarnessNoteRef.current
             pendingHarnessNoteRef.current = ''
-            const saveRev = pendingCreateSaveRevRef.current
-            pendingCreateSaveRevRef.current = undefined
+            const saveRev = pendingSave.rev
             if (draft) {
                 saveFirstDraft(chatflow, draft, harnessNote, saveRev).then((known) => {
-                    if (!known) loadCreatedStatus(chatflow)
+                    if (known === false && saveCompletionForRoute({ flowId: chatflow.id }, activeRouteFlowIdRef.current)) {
+                        loadCreatedStatus(chatflow)
+                    }
                 })
             } else {
                 saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined, saveRev)
@@ -1137,20 +1166,20 @@ const Canvas = () => {
     // Update chatflow successful
     useEffect(() => {
         if (updateChatflowApi.error) {
-            const pending = pendingUpdateSaveRef.current
+            const pendingSave = pendingUpdateSaveRef.current
             pendingHarnessLiveSaveRef.current = null
             pendingUpdateSaveRef.current = undefined
-            if (!liveSavePreflightForRoute(pending, chatflowId)) return
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
             errorFailed(apiErrorText(updateChatflowApi.error))
         } else if (updateChatflowApi.data) {
-            const pending = pendingUpdateSaveRef.current
+            const pendingSave = pendingUpdateSaveRef.current
             const retained = pendingHarnessLiveSaveRef.current
             pendingHarnessLiveSaveRef.current = null
             pendingUpdateSaveRef.current = undefined
-            if (!liveSavePreflightForRoute(pending, chatflowId)) return
+            if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
             setLasUpdatedDateTime(updateChatflowApi.data.updatedDate)
-            saveChatflowSuccess(retained?.notice, pending.rev)
+            saveChatflowSuccess(retained?.notice, pendingSave.rev)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1159,7 +1188,7 @@ const Canvas = () => {
     // check if chatflow has changed before saving
     useEffect(() => {
         const checkIfHasChanged = async () => {
-            const preflight = liveSavePreflightForRoute(pendingPreflightSaveRef.current, chatflowId)
+            const preflight = liveSavePreflightForRoute(pendingPreflightSaveRef.current, activeRouteFlowIdRef.current)
             if (!preflight) {
                 pendingPreflightSaveRef.current = undefined
                 return
@@ -1179,7 +1208,7 @@ const Canvas = () => {
                 }
             }
             if (pendingPreflightSaveRef.current !== preflight) return
-            const update = liveSaveUpdateForRoute(preflight, chatflowId)
+            const update = liveSaveUpdateForRoute(preflight, activeRouteFlowIdRef.current)
             if (!update) return
             pendingUpdateSaveRef.current = update
             pendingPreflightSaveRef.current = undefined
@@ -1187,7 +1216,7 @@ const Canvas = () => {
         }
 
         if (getHasChatflowChangedApi.error) {
-            const preflight = liveSavePreflightForRoute(pendingPreflightSaveRef.current, chatflowId)
+            const preflight = liveSavePreflightForRoute(pendingPreflightSaveRef.current, activeRouteFlowIdRef.current)
             pendingPreflightSaveRef.current = undefined
             if (!preflight) return
             errorFailed(saveFailureMessage(getHasChatflowChangedApi.error))
@@ -1279,6 +1308,7 @@ const Canvas = () => {
     }, [])
 
     useEffect(() => {
+        pendingCreateSaveRef.current = undefined
         pendingPreflightSaveRef.current = undefined
         pendingUpdateSaveRef.current = undefined
         pendingHarnessLiveSaveRef.current = null
