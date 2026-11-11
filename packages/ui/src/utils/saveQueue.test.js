@@ -165,12 +165,12 @@ describe('save queue core', () => {
         expect(save.onConflict).toHaveBeenCalledTimes(1)
     })
 
-    test('does not infer landing when draft metadata is absent', () => {
-        expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }))).toBe(false)
+    test('accepts a cleared draft only when the saved canvas equals Live', () => {
+        expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }))).toBe(true)
         expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_A, liveFlowData: FLOW_C }))).toBe(false)
     })
 
-    test('keeps an absent draft on the guarded replay path', async () => {
+    test('reconciles a cleared draft equal to Live without another write', async () => {
         const save = entry({ expectedDraftHash: null, flowData: FLOW_C, liveFlowData: FLOW_C })
         const cleared = status(null)
         const { queue, calls } = makeQueue({
@@ -179,10 +179,10 @@ describe('save queue core', () => {
         })
         queue.enqueue(save)
         await flush()
-        expect(calls.putDraft).toHaveBeenCalledTimes(4)
-        expect(save.onAck).not.toHaveBeenCalled()
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(save.onAck).toHaveBeenCalledWith(cleared, expect.objectContaining({ reconciled: true }))
         expect(save.onConflict).not.toHaveBeenCalled()
-        expect(calls.onExhausted).toHaveBeenCalledTimes(1)
+        expect(calls.onExhausted).not.toHaveBeenCalled()
     })
 
     test('requires the clock allowance even when the stored draft is newer than the base', async () => {

@@ -2686,6 +2686,11 @@
         },
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Publish reconciliation reads the current Live flow after an ambiguous write."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/hooks/useAuth.jsx",
             "reason": "The Publish dialog hides Run the test set unless the person can view datasets and evaluators."
         },
@@ -2696,6 +2701,11 @@
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.test.js",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Publish reconciliation reads the current Live flow after an ambiguous write."
         },
         {
             "from": "packages/ui/src/views/canvas/savedFlowLoad.test.js",

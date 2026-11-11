@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { backoffDelay, dedupeKey, isNoResponse, isRetryableStatus, shouldRetry } from './resilience'
+import { backoffDelay, dedupeKey, isConnectionUnavailable, isNoResponse, isRetryableStatus, shouldRetry } from './resilience'
 
 describe('request resilience helpers', () => {
     test('backoff uses the three delays and stays within the jitter bounds', () => {
@@ -17,6 +17,13 @@ describe('request resilience helpers', () => {
     test('only gateway failure statuses are retryable', () => {
         expect([502, 503, 504].every(isRetryableStatus)).toBe(true)
         expect([400, 404, 500].some(isRetryableStatus)).toBe(false)
+    })
+
+    test('only real request failures are connection-unavailable outcomes for writes', () => {
+        expect(isConnectionUnavailable({ isAxiosError: true, request: {} })).toBe(true)
+        expect(isConnectionUnavailable({ response: { status: 503 } })).toBe(true)
+        expect(isConnectionUnavailable({})).toBe(false)
+        expect(isConnectionUnavailable(new Error('local failure'))).toBe(false)
     })
 
     test('safe methods and opted-in load posts retry', () => {

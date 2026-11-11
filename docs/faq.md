@@ -61,7 +61,7 @@ No. Native macOS and Windows source installs cannot save or compile agent profil
 
 ## What does "The server could not be reached" mean?
 
-Cuttlely sent a request and got no answer. Read requests are retried quietly first, so for a read this message appears only after those attempts fail. Canvas saves use the rules below. Other changes are not retried automatically. The connection may have dropped, the request may have timed out, or a reverse proxy or cloud gateway in front of a self-hosted install may have blocked it.
+Cuttlely sent a request and the application did not provide a usable answer. Eligible read requests are retried quietly first, so for one of those reads this message appears only after those attempts fail. Sign-in callbacks and other one-time reads are not retried. Canvas saves use the rules below. Other changes are not retried automatically. The connection may have dropped, the request may have timed out, or a reverse proxy or cloud gateway in front of a self-hosted install may have returned 502, 503, or 504.
 
 1. Check that your network connection works.
 2. If you have unsaved canvas edits, keep the page open. Canvas changes on an existing saved flow stay on the canvas and are retried quietly for draft and Live saves. If the connection stays down, you see **Your changes aren't saved yet. We'll keep trying.** Choose **Retry**, or wait for saving to resume when the connection is back. If someone else saved the draft, the usual review screen opens instead of replacing their work.

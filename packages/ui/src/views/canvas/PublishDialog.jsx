@@ -17,6 +17,8 @@ import {
 } from '@mui/material'
 
 import flowDraftsApi from '@/api/flowDrafts'
+import chatflowsApi from '@/api/chatflows'
+import { isConnectionUnavailable } from '@/api/resilience'
 import useConfirm from '@/hooks/useConfirm'
 import { useAuth } from '@/hooks/useAuth'
 import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
@@ -315,13 +317,23 @@ const PublishDialog = ({
         } catch (err) {
             const found = draftConflictFrom(err)
             if (found) setPublishConflict(found)
-            else if (err?.response === undefined && (err?.isAxiosError || err?.request)) {
-                // No answer: the publish may have landed. Read the status back (a retried GET) instead of sending it again.
+            else if (isConnectionUnavailable(err)) {
+                // No application answer: the publish may have landed. Read the status back (a retried GET) instead of sending it again.
                 // dedupe: false so a status read started before the publish (when the dialog opened) is never reused.
                 const { outcome, status } = await recheckPublish(() => flowDraftsApi.getStatus(chatflow.id, { dedupe: false }), before)
                 if (!mounted.current) return
                 if (outcome === 'published') {
-                    finish({ status })
+                    try {
+                        // The status proves the draft moved to Live, but it is not the updated flow record. Fetch a fresh,
+                        // non-deduped copy so later Live checks and test runs use the version that was just published.
+                        const refreshed = await chatflowsApi.getSpecificChatflow(chatflow.id, { dedupe: false })
+                        if (!mounted.current) return
+                        finish({ status, chatflow: refreshed.data })
+                    } catch {
+                        if (!mounted.current) return
+                        if (status) onDraftStatus(status)
+                        setError('Published, but the canvas could not refresh Live. Close and reopen the flow when the connection is back.')
+                    }
                     return
                 }
                 if (status) onDraftStatus(status)

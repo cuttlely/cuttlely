@@ -256,7 +256,6 @@ const Canvas = () => {
         requestedFlowIdRef.current = id
         getSpecificChatflowApi.request(id)
     }
-
     // ==============================|| Events & Actions ||============================== //
 
     const onConnect = (params) => {
