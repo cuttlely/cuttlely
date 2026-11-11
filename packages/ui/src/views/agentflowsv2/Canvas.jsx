@@ -81,7 +81,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
-import { canvasSaveDocument } from '@/utils/canvasSave'
+import { canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
     missingCredentialsText,
@@ -141,6 +141,8 @@ const AgentflowCanvas = () => {
     // The flow this canvas is on. chatflowId is read from the address on every render, and create sets the new
     // address before its state updates render; createdFlowIdRef also covers a render that reads the address first.
     const routeFlowId = chatflowId || createdFlowIdRef.current
+    const routeFlowIdRef = useRef(routeFlowId)
+    routeFlowIdRef.current = routeFlowId
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -379,27 +381,41 @@ const AgentflowCanvas = () => {
         draftSave.runNonReplay(continuation, { internal: true })
     }
 
-    const queueLiveSave = (body, saveRev, baseUpdatedDate, starterQuestions = [], internal = false) => {
+    const queueLiveSave = (
+        body,
+        saveRev,
+        baseUpdatedDate,
+        starterQuestions = [],
+        internal = false,
+        flowId = chatflow.id,
+        flowName = chatflow.name
+    ) => {
+        const isStartingRoute = () => Boolean(liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current))
         draftSave.saveLive(
             {
-                id: chatflow.id,
+                id: flowId,
                 rev: saveRev,
                 body,
                 baseUpdatedDate,
                 onAck: (saved) => {
+                    if (!isStartingRoute()) return
                     dispatch({ type: SET_CHATFLOW, chatflow: saved })
                     queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(undefined, saveRev))
                 },
                 onChanged: async (stored) => {
+                    if (!isStartingRoute()) return
                     const isConfirmed = await confirm({
                         title: `Confirm Change`,
-                        description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                        description: `${canvasTitle} ${flowName} has changed since you have opened, overwrite changes?`,
                         confirmButtonName: 'Confirm',
                         cancelButtonName: 'Cancel'
                     })
-                    if (isConfirmed) queueLiveSave(body, saveRev, stored?.updatedDate, starterQuestions, true)
+                    if (isConfirmed && isStartingRoute())
+                        queueLiveSave(body, saveRev, stored?.updatedDate, starterQuestions, true, flowId, flowName)
                 },
-                onError: (error) => errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
+                onError: (error) => {
+                    if (isStartingRoute()) errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(error)}`)
+                }
             },
             { internal }
         )

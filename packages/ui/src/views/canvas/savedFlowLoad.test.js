@@ -162,4 +162,15 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toMatch(/onChanged: async \(stored\) => \{\s+if \(!isStartingRoute\(\)\) return/)
         expect(source).toMatch(/onError: \(error\) => \{\s+if \(isStartingRoute\(\)\)/)
     })
+
+    test('the v2 queued Live save ignores a late acknowledgement after the route changes', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'agentflowsv2', 'Canvas.jsx'), 'utf8')
+        expect(source).toContain('const routeFlowIdRef = useRef(routeFlowId)')
+        expect(source).toContain('routeFlowIdRef.current = routeFlowId')
+        expect(source).toContain('id: flowId')
+        expect(source).toMatch(/onAck: \(saved\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onChanged: async \(stored\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onError: \(error\) => \{\s+if \(isStartingRoute\(\)\)/)
+        expect(source).toMatch(/if \(isConfirmed && isStartingRoute\(\)\)[\s\S]*?flowId, flowName\)/)
+    })
 })
