@@ -26,7 +26,7 @@ import AgentFlowEdge from './AgentFlowEdge'
 import ConnectionLine from './ConnectionLine'
 import StickyNote from './StickyNote'
 import CanvasHeader from '@/views/canvas/CanvasHeader'
-import CanvasLoadGuard from '@/views/canvas/CanvasLoadGuard'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest } from '@/views/canvas/CanvasLoadGuard'
 import AddNodes from '@/views/canvas/AddNodes'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import DraftConflictDialog from '@/ui-component/dialog/DraftConflictDialog'
@@ -75,7 +75,7 @@ import {
 import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
-import { apiErrorMessage, canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
+import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
 import { templateSettingsMessage } from '@/utils/templateSettingsNote'
@@ -83,7 +83,7 @@ import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 
 // const
 import { AGENTFLOW_ICONS, uiBaseURL } from '@/store/constant'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { requestFailureMessage, saveFailureMessage } from '@/utils/errorSummary'
 
 const nodeTypes = { agentFlow: CanvasNode, stickyNote: StickyNote, iteration: IterationNode }
 const edgeTypes = { agentFlow: AgentFlowEdge }
@@ -110,10 +110,9 @@ const AgentflowCanvas = () => {
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
-    const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, loading: false, error: null })
+    const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, known: false, loading: false, error: null })
     const [draftStatusRetry, setDraftStatusRetry] = useState(0)
-    const draftStatusLoadError =
-        draftStatusLoad.flowId === chatflowId ? draftStatusLoad.error || (draftStatusLoad.retrying ? 'retrying' : null) : null
+    const canvasBlocked = canvasLoadBlocked(chatflowId, draftStatusLoad)
     const draftStatusRef = useRef(null)
     const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
@@ -325,7 +324,7 @@ const AgentflowCanvas = () => {
     }
 
     const handleSaveFlow = async (chatflowName, saveOptions) => {
-        if (draftStatusLoadError) {
+        if (canvasBlocked) {
             errorFailed('Draft status is still unknown. Retry loading before you save.')
             return
         }
@@ -363,7 +362,7 @@ const AgentflowCanvas = () => {
                         setDraftStatus(res.data)
                         saveBuilderStarters(chatflow)
                     } catch (error) {
-                        errorFailed(apiErrorMessage(error, 'Save failed'))
+                        errorFailed(saveFailureMessage(error))
                         return
                     }
                 }
@@ -377,7 +376,7 @@ const AgentflowCanvas = () => {
                         const res = await chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name })
                         dispatch({ type: SET_CHATFLOW, chatflow: res.data })
                     } catch (error) {
-                        errorFailed(apiErrorMessage(error, 'Save failed'))
+                        errorFailed(saveFailureMessage(error))
                         return
                     }
                 }
@@ -633,7 +632,7 @@ const AgentflowCanvas = () => {
             const res = await chatflowsApi.updateChatflow(savedFlow.id, { chatbotConfig })
             dispatch({ type: SET_CHATFLOW, chatflow: res.data })
         } catch (error) {
-            errorFailed(apiErrorMessage(error, 'Saving the starter questions failed'))
+            errorFailed(saveFailureMessage(error, 'Saving the starter questions failed'))
         }
     }
 
@@ -777,13 +776,15 @@ const AgentflowCanvas = () => {
             setDraftStatus(null)
             setDraftStatusLoad((previous) => ({
                 flowId: loaded.id,
+                known: false,
                 loading: true,
                 error: null,
+                request: 'status',
                 retrying: previous.flowId === loaded.id && Boolean(previous.retrying || previous.error)
             }))
             const paint = (status) => {
                 if (cancelled) return
-                setDraftStatusLoad({ flowId: loaded.id, loading: false, error: null })
+                setDraftStatusLoad({ flowId: loaded.id, known: true, loading: false, error: null })
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
                 draftSave.record(status, text)
@@ -813,14 +814,20 @@ const AgentflowCanvas = () => {
                 .catch((error) => {
                     const decision = draftStatusOpenDecision(undefined, error)
                     if (!cancelled && !decision.paint) {
-                        setDraftStatusLoad({ flowId: loaded.id, loading: false, error: decision.error })
+                        setDraftStatusLoad({ flowId: loaded.id, known: false, loading: false, error: decision.error, request: 'status' })
                     }
                 })
             return () => {
                 cancelled = true
             }
         } else if (getSpecificChatflowApi.error) {
-            errorFailed(`Failed to retrieve ${canvasTitle}: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
+            setDraftStatusLoad({
+                flowId: chatflowId,
+                known: false,
+                loading: false,
+                error: getSpecificChatflowApi.error,
+                request: 'flow'
+            })
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -828,8 +835,19 @@ const AgentflowCanvas = () => {
 
     const retryDraftStatusLoad = () => {
         setDraftStatus(null)
-        setDraftStatusLoad({ flowId: chatflowId, loading: true, error: null, retrying: true })
-        setDraftStatusRetry((attempt) => attempt + 1)
+        setDraftStatusLoad({
+            flowId: chatflowId,
+            known: false,
+            loading: true,
+            error: null,
+            retrying: true,
+            request: draftStatusLoad.request
+        })
+        if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
+            getSpecificChatflowApi.request(chatflowId)
+        } else {
+            setDraftStatusRetry((attempt) => attempt + 1)
+        }
     }
 
     // Create new chatflow successful
@@ -845,13 +863,14 @@ const AgentflowCanvas = () => {
                 .getStatus(chatflow.id)
                 .then((res) => {
                     setDraftStatus(res.data)
+                    setDraftStatusLoad({ flowId: chatflow.id, known: true, loading: false, error: null })
                     draftSave.record(res.data, canvasFlowText(chatflow, res.data))
                 })
-                .catch(() => undefined)
+                .catch((error) => setDraftStatusLoad({ flowId: chatflow.id, known: false, loading: false, error, request: 'status' }))
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
         } else if (createNewChatflowApi.error) {
             pendingCreateSaveRevRef.current = undefined
-            errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(createNewChatflowApi.error)}`)
+            errorFailed(saveFailureMessage(createNewChatflowApi.error))
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -867,7 +886,7 @@ const AgentflowCanvas = () => {
             saveBuilderStarters(updateChatflowApi.data)
         } else if (updateChatflowApi.error) {
             pendingUpdateSaveRevRef.current = undefined
-            errorFailed(`Failed to save ${canvasTitle}: ${requestFailureMessage(updateChatflowApi.error)}`)
+            errorFailed(saveFailureMessage(updateChatflowApi.error))
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -886,9 +905,7 @@ const AgentflowCanvas = () => {
     // Initialization
     useEffect(() => {
         setIsSyncNodesButtonEnabled(false)
-        if (chatflowId) {
-            getSpecificChatflowApi.request(chatflowId)
-        } else {
+        if (!chatflowId) {
             let importedName = ''
             const storedFlow = localStorage.getItem('duplicatedFlowData')
             if (storedFlow) {
@@ -952,11 +969,20 @@ const AgentflowCanvas = () => {
     }, [])
 
     useEffect(() => {
+        if (!chatflowId) return
+        setDraftStatus(null)
+        setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
+        getSpecificChatflowApi.request(chatflowId)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatflowId])
+
+    useEffect(() => {
         setCanvasDataStore(canvas)
     }, [canvas])
 
     useEffect(() => {
         function handlePaste(e) {
+            if (canvasBlocked) return
             const pasteData = e.clipboardData.getData('text')
             //TODO: prevent paste event when input focused, temporary fix: catch chatflow syntax
             if (pasteData.includes('{"nodes":[') && pasteData.includes('],"edges":[')) {
@@ -971,7 +997,7 @@ const AgentflowCanvas = () => {
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [canvasBlocked])
 
     useEffect(() => {
         if (templateFlowData && templateFlowData.includes('"nodes":[') && templateFlowData.includes('],"edges":[')) {
@@ -1131,7 +1157,7 @@ const AgentflowCanvas = () => {
                                             onConnect={onConnect}
                                             onInit={setReactFlowInstance}
                                             fitView
-                                            deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
+                                            deleteKeyCode={canvasBlocked || canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
                                             minZoom={0.5}
                                             snapGrid={[25, 25]}
                                             snapToGrid={isSnappingEnabled}

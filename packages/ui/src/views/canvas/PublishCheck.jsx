@@ -21,6 +21,7 @@ import datasetsApi from '@/api/dataset'
 import evaluatorsApi from '@/api/evaluators'
 import { useAuth } from '@/hooks/useAuth'
 import { apiErrorMessage, datasetGateBlock } from '@/utils/flowDrafts'
+import { saveFailureMessage } from '@/utils/errorSummary'
 import {
     canPickQuestionIds,
     checkKind,
@@ -1528,7 +1529,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
             setSaved(next.enabled ? 'Publish waits for a passing test set.' : 'Publish no longer waits for a test set.')
         } catch (err) {
             setOn(Boolean(gate?.enabled))
-            setError(apiErrorMessage(err, 'That setting could not be saved.'))
+            setError(saveFailureMessage(err, 'That setting could not be saved.'))
         }
     }
 

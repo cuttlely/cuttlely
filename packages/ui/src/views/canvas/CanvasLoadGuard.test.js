@@ -4,7 +4,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import CanvasLoadGuard, { canvasLoadBlocked } from './CanvasLoadGuard'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest } from './CanvasLoadGuard'
 
 const theme = createTheme()
 
@@ -36,6 +36,7 @@ const canvasInert = () => Boolean(document.getElementById('save').closest('[aria
 
 describe('CanvasLoadGuard', () => {
     afterEach(() => {
+        jest.useRealTimers()
         document.body.innerHTML = ''
     })
 
@@ -63,35 +64,60 @@ describe('CanvasLoadGuard', () => {
         act(() => view.root.unmount())
     })
 
-    test('a status failure from another flow does not block this flow', async () => {
+    test('a failed saved-canvas request offers the same retry screen with an accurate message', async () => {
+        const view = await renderGuard({ flowId: 'flow-1', request: 'flow', error: new Error('offline') })
+
+        expect(document.body.textContent).toContain('The saved canvas could not be loaded')
+        expect(document.body.textContent).toContain('Retry')
+        expect(canvasInert()).toBe(true)
+        act(() => view.root.unmount())
+    })
+
+    test('a status state from another flow keeps this flow blocked', async () => {
+        jest.useFakeTimers()
         const view = await renderGuard({ flowId: 'flow-1', loading: false, error: new Error('offline') }, 'flow-2')
 
-        expect(canvasInert()).toBe(false)
+        expect(canvasInert()).toBe(true)
         expect(document.body.textContent).not.toContain('The saved canvas could not be opened')
+        expect(document.body.textContent).not.toContain('Opening the saved canvas')
+        await act(async () => jest.advanceTimersByTime(400))
+        expect(document.body.textContent).toContain('Opening the saved canvas')
         act(() => view.root.unmount())
     })
 
     test('a successful status load opens this flow again', async () => {
-        const view = await renderGuard({ flowId: 'flow-1', loading: false, error: null })
+        const view = await renderGuard({ flowId: 'flow-1', known: true, loading: false, error: null })
 
         expect(canvasInert()).toBe(false)
         expect(document.body.textContent).not.toContain('Opening the saved canvas')
         act(() => view.root.unmount())
     })
 
-    test('the first status load leaves the canvas open and mounted, so it can measure and fit its cards', async () => {
+    test('the first status load is inert immediately but delays its visible opening screen', async () => {
+        jest.useFakeTimers()
         const view = await renderGuard({ flowId: 'flow-1', loading: true, error: null })
 
-        expect(canvasInert()).toBe(false)
+        expect(canvasInert()).toBe(true)
         expect(document.body.textContent).not.toContain('Opening the saved canvas')
+        await act(async () => jest.advanceTimersByTime(399))
+        expect(document.body.textContent).not.toContain('Opening the saved canvas')
+        await act(async () => jest.advanceTimersByTime(1))
+        expect(document.body.textContent).toContain('Opening the saved canvas')
+        expect(document.querySelector('[aria-label="Opening saved canvas"]')).toBeTruthy()
         act(() => view.root.unmount())
     })
 
-    test('canvasLoadBlocked blocks only this flow, on a failure or a retry', () => {
-        expect(canvasLoadBlocked('a', { flowId: 'a', error: new Error('x') })).toBe(true)
-        expect(canvasLoadBlocked('a', { flowId: 'a', loading: true, retrying: true })).toBe(true)
-        expect(canvasLoadBlocked('a', { flowId: 'a', loading: true })).toBe(false)
-        expect(canvasLoadBlocked('b', { flowId: 'a', error: new Error('x') })).toBe(false)
+    test('canvasLoadBlocked waits for known status for this exact flow id', () => {
+        expect(canvasLoadBlocked('a', { flowId: 'a', known: false })).toBe(true)
+        expect(canvasLoadBlocked('a', { flowId: 'a', known: true })).toBe(false)
+        expect(canvasLoadBlocked('b', { flowId: 'a', known: true })).toBe(true)
+        expect(canvasLoadBlocked('a', null)).toBe(true)
         expect(canvasLoadBlocked(undefined, { flowId: undefined, error: new Error('x') })).toBe(false)
+    })
+
+    test('retry reloads the flow after its GET failed and otherwise reloads draft status', () => {
+        expect(canvasLoadRetryRequest('a', { flowId: 'a', request: 'flow' }, undefined)).toBe('flow')
+        expect(canvasLoadRetryRequest('a', { flowId: 'a', request: 'status' }, 'a')).toBe('status')
+        expect(canvasLoadRetryRequest('b', { flowId: 'a', request: 'status' }, 'a')).toBe('flow')
     })
 })

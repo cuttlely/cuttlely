@@ -64,7 +64,7 @@ No. Native macOS and Windows source installs cannot save or compile agent profil
 Cuttlely sent a request and got no answer. Read requests are retried quietly first, so this message appears only after those attempts fail. Saves are not retried automatically. The connection may have dropped, the request may have timed out, or a reverse proxy or cloud gateway in front of a self-hosted install may have blocked it.
 
 1. Check that your network connection works.
-2. If you have unsaved canvas edits, keep the page open. Your edits stay on the canvas and remain marked as unsaved. Press **Save** again after the connection is back.
+2. If you have unsaved canvas edits, keep the page open. A failed save says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits remain marked as unsaved.
 3. Otherwise, reload the page.
 4. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 

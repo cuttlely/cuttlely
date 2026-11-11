@@ -23,4 +23,9 @@ describe('error handlers read a response only when there is one', () => {
         const unguarded = /=\s*\w+\.response\.data \|\| `\$\{\w+\.response\.status\}/
         expect(files.filter((file) => unguarded.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file))).toEqual([])
     })
+
+    it('no handler hides requestFailureMessage behind a response-body branch', () => {
+        const guarded = /if\s*\([^)]*response\?\.data[^)]*\)\s*\{[^}]*requestFailureMessage\(/s
+        expect(files.filter((file) => guarded.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file))).toEqual([])
+    })
 })

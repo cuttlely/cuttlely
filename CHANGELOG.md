@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again.
+-   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again. A saved canvas is inactive until its own draft status is known; quick opens show no extra screen, while slower opens show **Opening the saved canvas**.
 
 ### Fixed
 
@@ -16,7 +16,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays closed with a Retry action until its save mode is known.
 
--   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. A failed save shows the same message in a notification. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
+-   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. A failed canvas save instead says that the edits remain on the canvas and to press Save again when the connection is back. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
 -   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
 
