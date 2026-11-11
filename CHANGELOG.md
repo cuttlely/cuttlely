@@ -18,7 +18,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Selecting Save again while a new flow is still being created now creates one flow and saves the latest canvas to its returned id.
 
--   Starter questions from the canvas builder now stay queued with the canvas save and remain unsaved until their update is acknowledged.
+-   Starter questions from the canvas builder now stay queued with the canvas save and remain unsaved until their update is acknowledged. An acknowledgement that arrives after the builder's pending questions change settles its captured save without painting the older response over the newer questions.
 
 -   An inline name update that gets no answer now stays in the header and is included by the next canvas Save.
 

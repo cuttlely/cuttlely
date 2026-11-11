@@ -373,8 +373,8 @@ const AgentflowCanvas = () => {
             },
             onAck: (saved) => {
                 dispatch({ type: SET_CHATFLOW, chatflow: saved })
-                finish(saved)
             },
+            onSettled: (saved) => finish(saved),
             onError: (error) => errorFailed(saveFailureMessage(error, 'Saving the starter questions failed'))
         })
         if (!continuation) {

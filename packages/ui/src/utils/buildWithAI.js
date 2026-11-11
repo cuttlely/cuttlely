@@ -95,7 +95,7 @@ export const withStarterQuestions = (chatbotConfig, questions = []) => {
     return JSON.stringify({ ...config, starterPrompts })
 }
 
-export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurrent, clear, onAck, onError, rev }) => {
+export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurrent, clear, onAck, onSettled, onError, rev }) => {
     const chatbotConfig = withStarterQuestions(savedFlow?.chatbotConfig, questions)
     if (!savedFlow?.id || !chatbotConfig) return null
     return {
@@ -103,9 +103,12 @@ export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurren
         rev,
         send: () => save(savedFlow.id, { chatbotConfig }),
         onAck: async (saved) => {
-            if (isCurrent && !isCurrent()) return
-            clear?.()
-            await onAck?.(saved)
+            const current = !isCurrent || isCurrent()
+            if (current) {
+                clear?.()
+                await onAck?.(saved)
+            }
+            await onSettled?.(saved, { current })
         },
         onError
     }
