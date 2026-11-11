@@ -80,6 +80,7 @@ import { canvasSaveDocument } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
     missingCredentialsText,
+    starterQuestionsAfterCreate,
     starterQuestionsSaveEntry,
     stashNewCanvas,
     takeLanding,
@@ -1051,7 +1052,11 @@ const AgentflowCanvas = () => {
     }
 
     function createdChatflowSuccess(created, { saveRev, starterQuestions, willContinue }) {
-        if (builderStartersRef.current === starterQuestions) builderStartersRef.current = []
+        builderStartersRef.current = starterQuestionsAfterCreate({
+            current: builderStartersRef.current,
+            captured: starterQuestions,
+            willContinue
+        })
         dispatch({ type: SET_CHATFLOW, chatflow: created })
         if (!willContinue) saveChatflowSuccess(created.accessNotice, saveRev)
         createdFlowIdRef.current = created.id

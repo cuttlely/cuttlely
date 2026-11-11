@@ -192,4 +192,23 @@ describe('Canvas header discard', () => {
         expect(onChatflowUpdated).toHaveBeenCalledWith(expect.objectContaining({ name: 'Current name' }))
         act(() => view.root.unmount())
     })
+
+    test('keeps an unanswered inline name for the next canvas Save', async () => {
+        const handleSaveFlowName = jest.fn()
+        const handleSaveFlow = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow })
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const input = document.body.querySelector('input')
+        input.value = 'Name still here'
+        await act(async () => document.body.querySelector('[title="Save Name"]').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        await act(async () => handleSaveFlowName.mock.calls[0][1].onError(Object.assign(new Error('No answer'), { saveAgain: true })))
+        await act(async () =>
+            document.body
+                .querySelector('[title="Save Chatflow"]')
+                .firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        )
+        expect(handleSaveFlow).toHaveBeenCalledWith('Name still here')
+        act(() => view.root.unmount())
+    })
 })

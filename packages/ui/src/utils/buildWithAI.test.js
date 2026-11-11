@@ -7,6 +7,7 @@ import {
     recallModel,
     rememberModel,
     starterQuestionsSaveEntry,
+    starterQuestionsAfterCreate,
     withStarterQuestions,
     starterQuestionsOf
 } from './buildWithAI'
@@ -64,6 +65,14 @@ describe('Build with AI', () => {
         expect(starterQuestionsOf({ starterPrompts: { 0: { prompt: ' Bags? ' }, 1: { prompt: '' } } })).toEqual(['Bags?'])
         expect(starterQuestionsOf('not json')).toEqual([])
         expect(starterQuestionsOf(undefined)).toEqual([])
+    })
+
+    test('keeps first-save questions until the queued continuation acknowledges them', () => {
+        const questions = ['One?']
+        expect(starterQuestionsAfterCreate({ current: questions, captured: questions, willContinue: true })).toBe(questions)
+        expect(starterQuestionsAfterCreate({ current: questions, captured: questions, willContinue: false })).toEqual([])
+        const newer = ['Two?']
+        expect(starterQuestionsAfterCreate({ current: newer, captured: questions, willContinue: false })).toBe(newer)
     })
 
     test('keeps starter questions until their queued update is acknowledged', async () => {

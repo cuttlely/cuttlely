@@ -265,17 +265,55 @@ describe('API client resilience', () => {
         expect(AuthUtils.removeCurrentUser).toHaveBeenCalledTimes(1)
     })
 
-    test('refresh no-response retries outside the client and does not sign out', async () => {
+    test('refresh no-response is not replayed and does not sign out', async () => {
         apiClient.defaults.adapter = jest.fn(async (config) => {
             throw httpError(config, 401, { message: 'Token Expired', retry: true })
         })
         const refreshError = networkError()
         const refresh = jest.spyOn(axios, 'post').mockRejectedValue(refreshError)
         await expect(apiClient.get('/nodes')).rejects.toBe(refreshError)
-        expect(refresh).toHaveBeenCalledTimes(4)
+        expect(refresh).toHaveBeenCalledTimes(1)
         expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(1)
         expect(AuthUtils.removeCurrentUser).not.toHaveBeenCalled()
         expect(inFlightRequests.size).toBe(0)
+    })
+
+    test('refresh gateway status is not replayed and does not sign out', async () => {
+        apiClient.defaults.adapter = jest.fn(async (config) => {
+            throw httpError(config, 401, { message: 'Token Expired', retry: true })
+        })
+        const refreshError = httpError(undefined, 503)
+        const refresh = jest.spyOn(axios, 'post').mockRejectedValue(refreshError)
+        await expect(apiClient.get('/nodes')).rejects.toBe(refreshError)
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(1)
+        expect(AuthUtils.removeCurrentUser).not.toHaveBeenCalled()
+    })
+
+    test('an expired-session write refreshes once without replaying the write', async () => {
+        apiClient.defaults.adapter = jest.fn(async (config) => {
+            throw httpError(config, 401, { message: 'Token Expired', retry: true })
+        })
+        const refresh = jest.spyOn(axios, 'post').mockResolvedValue({ data: { id: 'session' } })
+        await expect(apiClient.put('/flow-drafts/id', {}, { retry: false, authReplay: false })).rejects.toMatchObject({
+            response: { status: 401 }
+        })
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(1)
+        expect(AuthUtils.removeCurrentUser).not.toHaveBeenCalled()
+    })
+
+    test('a failed session refresh does not turn a write rejection into a queue retry', async () => {
+        apiClient.defaults.adapter = jest.fn(async (config) => {
+            throw httpError(config, 401, { message: 'Token Expired', retry: true })
+        })
+        const refresh = jest.spyOn(axios, 'post').mockRejectedValue(networkError())
+        await expect(apiClient.put('/flow-drafts/id', {}, { retry: false, authReplay: false })).rejects.toMatchObject({
+            response: { status: 401 }
+        })
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(1)
+        expect(AuthUtils.removeCurrentUser).not.toHaveBeenCalled()
     })
 
     test.each(['success', 'failure'])('connection state returns to zero after retry %s', async (outcome) => {

@@ -352,7 +352,7 @@ const CanvasHeader = ({
                     setEditingFlowName(false)
                 },
                 onError: (error) => {
-                    setFlowName(chatflow.name)
+                    setFlowName(next)
                     enqueueSnackbar({
                         message: saveFailureMessage(error),
                         options: {

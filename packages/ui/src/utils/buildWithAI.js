@@ -110,6 +110,8 @@ export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurren
     }
 }
 
+export const starterQuestionsAfterCreate = ({ current, captured, willContinue }) => (!willContinue && current === captured ? [] : current)
+
 export const missingCredentialsText = (missing = []) => {
     if (!missing?.length) return ''
     const list = missing.map((m) => `${m.part} needs ${m.credential}`).join('; ')

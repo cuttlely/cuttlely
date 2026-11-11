@@ -97,6 +97,7 @@ import {
     compactForNewLook,
     harnessNameFrom,
     pipelineNameFrom,
+    starterQuestionsAfterCreate,
     starterQuestionsOf,
     stashNewCanvas,
     takeLanding,
@@ -1265,7 +1266,11 @@ const Canvas = () => {
 
     function createdChatflowSuccess(created, { saveRev, notice, starterQuestions, willContinue }) {
         dispatch({ type: SET_CHATFLOW, chatflow: created })
-        if (builderStartersRef.current === starterQuestions) builderStartersRef.current = []
+        builderStartersRef.current = starterQuestionsAfterCreate({
+            current: builderStartersRef.current,
+            captured: starterQuestions,
+            willContinue
+        })
         firstSaveAsDraftRef.current = false
         if (!willContinue) saveChatflowSuccess(created.accessNotice || notice || undefined, saveRev)
         createdFlowIdRef.current = created.id

@@ -11,7 +11,7 @@ const saveDraft = (chatflowId, flowData, options = {}) => {
         if (typeof hash === 'string' || hash === null) body.expectedDraftHash = hash
     }
     if (options && options.overwriteDraftChanges === true) body.overwriteDraftChanges = true
-    return client.put(path(chatflowId), body, { retry: false })
+    return client.put(path(chatflowId), body, { retry: false, authReplay: false })
 }
 
 const discardDraft = (chatflowId) => client.delete(path(chatflowId))

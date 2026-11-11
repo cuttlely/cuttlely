@@ -160,10 +160,7 @@ const dateValue = (value) => {
 
 export const draftSaveLanded = (status, entry) => {
     const stored = status?.draft
-    if (!stored) {
-        const liveFlowData = status?.live?.flowData ?? status?.flow?.flowData ?? status?.flowData ?? entry.liveFlowData
-        return typeof liveFlowData === 'string' && sameSavedCanvas(entry.flowData, liveFlowData)
-    }
+    if (!stored) return false
     if (stored.hash === entry.expectedDraftHash || stored.updatedBy !== entry.userId) return false
 
     const updated = dateValue(stored.updatedDate)

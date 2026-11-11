@@ -131,7 +131,7 @@ describe('save queue hook lifecycle', () => {
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(9)
     })
 
-    test('records a cleared draft when the sent canvas already equals Live', async () => {
+    test('does not acknowledge a save when draft metadata is absent', async () => {
         const onAck = jest.fn()
         flowDraftsApi.saveDraft.mockRejectedValue(noResponse())
         flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: null } })
@@ -145,11 +145,14 @@ describe('save queue hook lifecycle', () => {
         await settleTimers()
 
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(1)
-        expect(onAck).toHaveBeenCalledWith(
-            expect.objectContaining({ draft: null }),
-            expect.objectContaining({ reconciled: true, storedFlowData: FLOW })
-        )
-        expect(apiRef.current.expected()).toEqual({ expectedDraftHash: null })
+        expect(onAck).not.toHaveBeenCalled()
+        expect(
+            mockDispatch.mock.calls
+                .map(([action]) => action)
+                .filter((action) => action.type === ENQUEUE_SNACKBAR && action.notification.message === SAVE_RETRY_NOTICE)
+        ).toHaveLength(0)
+        expect(apiRef.current.conflict).toBeTruthy()
+        expect(apiRef.current.expected()).toEqual({ expectedDraftHash: 'base' })
     })
 
     test('an unanswered create reports Save again without showing the retry notice', async () => {

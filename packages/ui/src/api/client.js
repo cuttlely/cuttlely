@@ -54,23 +54,7 @@ const waitForRetry = async (config) => {
 }
 
 const refreshSession = async () => {
-    let tracked = false
-    try {
-        for (let attempt = 0; attempt <= 3; attempt += 1) {
-            try {
-                return await axios.post(`${baseURL}/api/v1/auth/refreshToken`, {}, { withCredentials: true, retry: false })
-            } catch (error) {
-                if (isCancel(error) || (!isNoResponse(error) && !isRetryableStatus(error)) || attempt >= 3) throw error
-                if (!tracked) {
-                    tracked = true
-                    beginReconnect()
-                }
-                await retrySleep(backoffDelay(attempt + 1))
-            }
-        }
-    } finally {
-        if (tracked) endReconnect()
-    }
+    return axios.post(`${baseURL}/api/v1/auth/refreshToken`, {}, { withCredentials: true, retry: false })
 }
 
 const logout = () => {
@@ -97,19 +81,26 @@ export const onResponseError = async (error) => {
         const expired = error.response.data?.message === ErrorMessage.TOKEN_EXPIRED && error.response.data?.retry === true
         if (expired && config && !config._authRetried) {
             config._authRetried = true
+            const method = String(config.method || 'get').toLowerCase()
+            const canReplayAfterRefresh = config.authReplay !== false && ['get', 'head', 'options'].includes(method)
             if (!refreshPromise) refreshPromise = refreshSession().finally(() => (refreshPromise = null))
             let response
             try {
                 response = await refreshPromise
             } catch (refreshError) {
                 finishRetryTracking(config)
+                if (!canReplayAfterRefresh) return Promise.reject(error)
                 if (isNoResponse(refreshError) || isRetryableStatus(refreshError) || isCancel(refreshError)) {
                     return Promise.reject(refreshError)
                 }
                 logout()
                 return Promise.reject(refreshError)
             }
-            if (response?.data?.id) return apiClient.request(config)
+            if (response?.data?.id && canReplayAfterRefresh) return apiClient.request(config)
+            if (response?.data?.id) {
+                finishRetryTracking(config)
+                return Promise.reject(error)
+            }
             logout()
         } else {
             logout()
