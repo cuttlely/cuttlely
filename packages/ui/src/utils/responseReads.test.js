@@ -28,4 +28,13 @@ describe('error handlers read a response only when there is one', () => {
         const guarded = /if\s*\([^)]*response\?\.data[^)]*\)\s*\{[^}]*requestFailureMessage\(/s
         expect(files.filter((file) => guarded.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file))).toEqual([])
     })
+
+    it('every handler that calls requestFailureMessage imports it', () => {
+        const missing = files.filter((file) => {
+            const source = fs.readFileSync(file, 'utf8')
+            if (!source.includes('requestFailureMessage(') || source.includes('export const requestFailureMessage')) return false
+            return !/import\s*\{[^}]*\brequestFailureMessage\b[^}]*\}\s*from\s*['"]@\/utils\/errorSummary['"]/s.test(source)
+        })
+        expect(missing.map((file) => path.relative(root, file))).toEqual([])
+    })
 })

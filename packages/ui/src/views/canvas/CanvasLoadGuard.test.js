@@ -128,6 +128,14 @@ describe('canvasLoadFailureReason', () => {
         expect(canvasLoadFailureReason(noAnswer)).toBe('The server could not be reached. Select Retry when the connection is back.')
     })
 
+    test('an exhausted gateway response does not expose its proxy body', () => {
+        for (const status of [502, 503, 504]) {
+            expect(canvasLoadFailureReason({ response: { status, data: '<html>gateway</html>' } })).toBe(
+                'The server could not be reached. Select Retry when the connection is back.'
+            )
+        }
+    })
+
     test("an answered failure keeps the server's reason or status", () => {
         expect(canvasLoadFailureReason({ response: { status: 404, data: { message: 'Chatflow not found' } } })).toBe(
             'The server answered: Chatflow not found'

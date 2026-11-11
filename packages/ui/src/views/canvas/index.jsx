@@ -24,7 +24,7 @@ import ButtonEdge from './ButtonEdge'
 import StickyNote from './StickyNote'
 import TidyLayoutButton from './TidyLayoutButton'
 import CanvasHeader from './CanvasHeader'
-import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest, flowLoadAction } from './CanvasLoadGuard'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest, createdFlowRouteAction, flowLoadAction } from './CanvasLoadGuard'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
@@ -1270,7 +1270,11 @@ const Canvas = () => {
 
     useEffect(() => {
         // A flow created on this canvas already has its cards and draft status; reloading it would replace newer edits.
-        if (!chatflowId || createdFlowIdRef.current === chatflowId) return
+        const action = createdFlowRouteAction(createdFlowIdRef.current, chatflowId)
+        if (action !== 'load') return
+        // The exemption belongs only to the create-time address change. Once the route leaves that flow, returning
+        // to it must issue a normal saved-flow request instead of reusing another flow's load state.
+        createdFlowIdRef.current = null
         setDraftStatus(null)
         setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
         requestFlow(chatflowId)

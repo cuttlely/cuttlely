@@ -345,12 +345,15 @@ export const AsyncDropdown = ({
                     </Box>
                 )}
             />
-            {!loading && credentialNames.length > 0 && options.filter((option) => option.name !== '-create-').length === 0 && (
-                <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
-                    {emptyCredentialText ||
-                        'No credential is saved for this node yet. Choose Create New, or add one on the Credentials page.'}
-                </Typography>
-            )}
+            {!loading &&
+                messages.length === 0 &&
+                credentialNames.length > 0 &&
+                options.filter((option) => option.name !== '-create-').length === 0 && (
+                    <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
+                        {emptyCredentialText ||
+                            'No credential is saved for this node yet. Choose Create New, or add one on the Credentials page.'}
+                    </Typography>
+                )}
         </>
     )
 }

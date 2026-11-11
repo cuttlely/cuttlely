@@ -11,6 +11,7 @@ export const PUBLISH_NO_ANSWER_MESSAGE =
 
 export const errorSummary = (error) => {
     const status = error?.response?.status
+    if (isConnectionUnavailable(error)) return { status: status ? `Status: ${status}` : 'No response', message: NO_ANSWER_MESSAGE }
     const data = error?.response?.data
     const serverMessage = typeof data === 'string' ? data : data?.message
     if (status) return { status: `Status: ${status}`, message: typeof serverMessage === 'string' ? serverMessage : '' }
@@ -28,6 +29,7 @@ export const errorSummaryText = (error) => {
 // The server's message for a failed API call, for a toast or an inline error.
 // A request that got no answer has no response body, so this says the server could not be reached.
 export const requestFailureMessage = (error) => {
+    if (isConnectionUnavailable(error)) return NO_ANSWER_MESSAGE
     const data = error?.response?.data
     if (typeof data === 'string' && data) return data
     if (typeof data?.message === 'string' && data.message) return data.message

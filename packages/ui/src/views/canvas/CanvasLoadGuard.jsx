@@ -3,6 +3,8 @@ import PropTypes from 'prop-types'
 
 import { Box, Button, CircularProgress, Typography } from '@mui/material'
 
+import { isConnectionUnavailable } from '@/api/resilience'
+
 // Shown when a saved canvas could not load its draft status, and while that load is retried.
 // The canvas stays mounted underneath, so opening and fitting it work as usual, but it is inert:
 // no click, key or focus reaches its header or cards until the status is known.
@@ -17,12 +19,21 @@ export const flowLoadAction = (chatflowId, requestedFlowId, data, error) => {
     return error ? 'fail' : 'ignore'
 }
 
+// A flow created in this mounted canvas already has its cards in memory, so its first route update must not
+// reload it. Once the route moves to another flow the exemption is spent; returning to the created flow must
+// load it like any other saved flow instead of leaving the canvas blocked behind stale load state.
+export const createdFlowRouteAction = (createdFlowId, routeFlowId) => {
+    if (!routeFlowId) return 'ignore'
+    return createdFlowId === routeFlowId ? 'keep-created' : 'load'
+}
+
 export const canvasLoadRetryRequest = (flowId, loadState, loadedFlowId) =>
     loadState?.flowId === flowId && loadState?.request === 'status' && loadedFlowId === flowId ? 'status' : 'flow'
 
 // Why the open failed, in the person's terms. A request with no answer is a connection problem; an answered
 // request keeps the server's own reason (for example a deleted flow), so it does not look like a dropped connection.
 export const canvasLoadFailureReason = (error) => {
+    if (isConnectionUnavailable(error)) return 'The server could not be reached. Select Retry when the connection is back.'
     const response = error?.response
     if (!response) return 'The server could not be reached. Select Retry when the connection is back.'
     const data = response.data
