@@ -482,8 +482,8 @@ describe('publish re-check after no answer', () => {
         expect(publishOutcomeFromStatus({ draftHash: 'h1', lastPublishedDate: null }, landed)).toBe('published')
     })
 
-    test('Live did not move and the same draft is pending: not published', () => {
-        expect(publishOutcomeFromStatus(before, pending)).toBe('not-published')
+    test('Live did not move and the same draft is pending: still unknown', () => {
+        expect(publishOutcomeFromStatus(before, pending)).toBe('unknown')
     })
 
     test('a mixed or missing status stays unknown', () => {
@@ -498,7 +498,7 @@ describe('publish re-check after no answer', () => {
             status: landed
         })
         await expect(recheckPublish(() => Promise.resolve({ data: pending }), before)).resolves.toEqual({
-            outcome: 'not-published',
+            outcome: 'unknown',
             status: pending
         })
         const noAnswer = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })

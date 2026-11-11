@@ -39,7 +39,7 @@ describe('request failure messages', () => {
         expect(saveFailureMessage({}, 'Could not save the settings.')).toBe('Could not save the settings.')
     })
 
-    test('uses the publish action and says that nothing was published', () => {
+    test('uses the publish action and says that its outcome is not confirmed', () => {
         expect(publishFailureMessage(noAnswer())).toBe(PUBLISH_NO_ANSWER_MESSAGE)
         expect(publishFailureMessage(noAnswer())).toBe(
             'Publish not confirmed. The server could not be reached, so Cuttlely cannot tell whether this version went Live. Check the Live status before you publish again.'

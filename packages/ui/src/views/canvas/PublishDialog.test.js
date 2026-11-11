@@ -51,7 +51,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 import flowDraftsApi from '@/api/flowDrafts'
 import chatflowsApi from '@/api/chatflows'
 import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
-import { PUBLISH_CONFLICT_ANYWAY, PUBLISH_CONFLICT_REVIEW, PUBLISH_NOT_LANDED_MESSAGE } from '@/utils/flowDrafts'
+import { PUBLISH_CONFLICT_ANYWAY, PUBLISH_CONFLICT_REVIEW } from '@/utils/flowDrafts'
 import { PUBLISH_NO_ANSWER_MESSAGE } from '@/utils/errorSummary'
 
 const { __setAllow } = jest.requireMock('@/hooks/useAuth')
@@ -759,14 +759,14 @@ describe('Publish that gets no answer reads the status back instead of publishin
         )
         const publish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
         const keepEditing = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Keep editing')
-        expect(publish.disabled).toBe(false)
+        expect(publish.disabled).toBe(true)
         expect(keepEditing.disabled).toBe(false)
         await act(async () => keepEditing.dispatchEvent(new MouseEvent('click', { bubbles: true })))
         expect(view.props.onClose).toHaveBeenCalledTimes(1)
         act(() => view.root.unmount())
     })
 
-    test('a publish that did not land says so and leaves Publish to press again', async () => {
+    test('an unchanged status cannot confirm an ambiguous publish or allow an immediate repeat', async () => {
         const view = await open()
         flowDraftsApi.publish.mockRejectedValueOnce(noAnswer())
         const pending = {
@@ -777,11 +777,11 @@ describe('Publish that gets no answer reads the status back instead of publishin
         flowDraftsApi.getStatus.mockResolvedValueOnce({ data: pending })
         await clickButton('Publish')
         expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
-        expect(document.body.textContent).toContain(PUBLISH_NOT_LANDED_MESSAGE)
+        expect(document.body.textContent).toContain(PUBLISH_NO_ANSWER_MESSAGE)
         expect(view.props.onClose).not.toHaveBeenCalled()
         expect(view.props.onChatflowUpdated).not.toHaveBeenCalled()
         const publish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
-        expect(publish.disabled).toBe(false)
+        expect(publish.disabled).toBe(true)
         act(() => view.root.unmount())
     })
 
