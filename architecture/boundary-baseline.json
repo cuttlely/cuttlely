@@ -2270,6 +2270,11 @@
         },
         {
             "from": "packages/ui/src/ui-component/dropdown/AsyncDropdown.test.js",
+            "to": "packages/ui/src/api/credentials.js",
+            "reason": "AsyncDropdown test mocks the credentials client to check a card switch aborts the previous load"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dropdown/AsyncDropdown.test.js",
             "to": "packages/ui/src/api/nodes.js",
             "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
         },
