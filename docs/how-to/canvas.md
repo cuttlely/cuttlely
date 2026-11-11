@@ -50,7 +50,9 @@ The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle
 
 Cuttlely quietly retries loading options, credentials, and other read requests. You may see **Reconnecting…** for a few seconds. The chip does not block clicks, and your edits stay on the canvas. If Cuttlely still cannot check a saved canvas before opening it, the whole canvas stays closed. Choose **Retry** when the connection is back, or **Back** to leave without changing anything.
 
-Saves are not retried automatically yet. If Save cannot reach the server, your edits stay on the canvas and still show as unsaved. Press **Save** again after the connection is back. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes.
+Saved-flow changes are kept and retried quietly when a request gets no answer. If the connection stays down, you see **Your changes aren't saved yet. We'll keep trying.** Choose **Retry**, or wait for saving to resume when the connection is back. Your edits stay on the canvas and remain marked as unsaved. If someone else saved the draft meanwhile, the usual review screen opens instead of replacing their work.
+
+The first save of a brand-new flow is not retried automatically. Press **Save** again after the connection is back.
 
 When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. If that check still fails after the quiet retries, the saved canvas stays closed. Select **Retry** on the page after the connection is back. This prevents a save until Cuttlely knows the correct mode.
 

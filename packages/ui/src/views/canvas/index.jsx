@@ -49,7 +49,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
-import useDraftSave from '@/hooks/useDraftSave'
+import useSaveQueue from '@/hooks/useSaveQueue'
 import { useAuth } from '@/hooks/useAuth'
 
 // icons
@@ -158,6 +158,8 @@ const Canvas = () => {
     const dispatch = useDispatch()
     const customization = useSelector((state) => state.customization)
     const canvas = useSelector((state) => state.canvas)
+    const canvasRef = useRef(canvas)
+    canvasRef.current = canvas
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
@@ -166,10 +168,9 @@ const Canvas = () => {
     const draftStatusLoadError = draftStatusLoad.flowId === chatflowId ? draftStatusLoad.error : null
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
-    const draftSave = useDraftSave()
+    const draftSave = useSaveQueue()
     const pendingSaveNameRef = useRef('')
     const pendingCreateSaveRevRef = useRef()
-    const pendingUpdateSaveRevRef = useRef()
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -181,7 +182,6 @@ const Canvas = () => {
     const firstSaveAsDraftRef = useRef(false)
     const pendingDraftRef = useRef(null)
     const pendingHarnessNoteRef = useRef('')
-    const pendingHarnessLiveSaveRef = useRef(null)
     const [builtResult, setBuiltResult] = useState(null)
     const pendingLangflow = useRef(null)
     const pendingMigration = useRef(null)
@@ -234,18 +234,12 @@ const Canvas = () => {
     const reactFlowWrapper = useRef(null)
 
     const [lastUpdatedDateTime, setLasUpdatedDateTime] = useState('')
-    const [chatflowName, setChatflowName] = useState('')
-    const [flowData, setFlowData] = useState('')
-
     // ==============================|| Chatflow API ||============================== //
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
-    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged)
 
     // ==============================|| Events & Actions ||============================== //
 
@@ -446,6 +440,31 @@ const Canvas = () => {
 
     const normalizeForMerge = (flow) => normalizeCanvasFlow(flow, canvasSpecs())
 
+    const queueLiveSave = ({ body, saveRev, baseUpdatedDate, notice, beforeWrite }) => {
+        draftSave.saveLive({
+            id: chatflow.id,
+            rev: saveRev,
+            body,
+            baseUpdatedDate,
+            beforeWrite,
+            onAck: (saved) => {
+                dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                setLasUpdatedDateTime(saved.updatedDate)
+                saveChatflowSuccess(notice, saveRev)
+            },
+            onChanged: async (stored) => {
+                const isConfirmed = await confirm({
+                    title: `Confirm Change`,
+                    description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                    confirmButtonName: 'Confirm',
+                    cancelButtonName: 'Cancel'
+                })
+                if (isConfirmed) queueLiveSave({ body, saveRev, baseUpdatedDate: stored?.updatedDate, notice })
+            },
+            onError: (error) => errorFailed(apiErrorText(error))
+        })
+    }
+
     const handleSaveFlow = async (chatflowName, saveOptions) => {
         if (draftStatusLoadError) {
             errorFailed('Draft status is still unknown. Retry loading before you save.')
@@ -508,7 +527,14 @@ const Canvas = () => {
                     pendingHarnessNoteRef.current = planned.notice || ''
                 }
                 pendingCreateSaveRevRef.current = saveRev
-                createNewChatflowApi.request(newChatflowBody)
+                draftSave.waitForNonReplay({
+                    send: () => chatflowsApi.createNewChatflow(newChatflowBody),
+                    onAck: createdChatflowSuccess,
+                    onError: (error) => {
+                        pendingCreateSaveRevRef.current = undefined
+                        errorFailed(apiErrorText(error))
+                    }
+                })
             } else {
                 const plan = planCanvasSave({
                     mode: draftStatusRef.current?.mode,
@@ -518,18 +544,54 @@ const Canvas = () => {
                     hasId: true
                 })
                 if (plan.draft) {
-                    try {
-                        const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
-                        if (res?.conflict) return
-                        setDraftStatus(res.data)
-                    } catch (error) {
-                        errorFailed(apiErrorMessage(error, 'Save failed'))
-                        return
-                    }
+                    draftSave.saveDraft({
+                        id: chatflow.id,
+                        rev: saveRev,
+                        flowData: plan.draft.flowData,
+                        liveFlowData: chatflow.flowData,
+                        name: chatflowName,
+                        overwriteDraftChanges: saveOptions?.overwriteDraftChanges === true,
+                        onAck: (status, details) => {
+                            setDraftStatus(status)
+                            if (
+                                details.hasBase64 &&
+                                canvasRef.current.editRev === saveRev &&
+                                details.storedFlowData !== plan.draft.flowData
+                            ) {
+                                try {
+                                    const stored = readGraph(details.storedFlowData)
+                                    setNodes(stored.nodes || [])
+                                    setEdges(stored.edges || [])
+                                } catch {
+                                    // The saved response remains authoritative even when it cannot be painted.
+                                }
+                            }
+                            const finish = () => {
+                                saveChatflowSuccess('Draft saved', saveRev)
+                                if (isChatCanvas) saveBuilderStarters(chatflow)
+                            }
+                            if (!plan.live?.name) {
+                                finish()
+                                return
+                            }
+                            draftSave.waitForNonReplay({
+                                send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
+                                onAck: (saved) => {
+                                    dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                                    setLasUpdatedDateTime(saved.updatedDate)
+                                    finish()
+                                },
+                                onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                            })
+                        },
+                        onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                    })
+                    return
                 }
                 if (plan.live?.flowData) {
+                    let retained = null
                     if (isHarnessCanvas) {
-                        const retained = planHarnessDraftFallback({
+                        retained = planHarnessDraftFallback({
                             flowData: plan.live.flowData,
                             nodeDefinitions: canvas.componentNodes,
                             draftsOff: draftStatusRef.current?.reason === 'off'
@@ -538,28 +600,38 @@ const Canvas = () => {
                             errorFailed(retained.error)
                             return
                         }
-                        pendingHarnessLiveSaveRef.current = retained
-                    } else {
-                        pendingHarnessLiveSaveRef.current = null
                     }
-                    setChatflowName(plan.live.name)
-                    setFlowData(plan.live.flowData)
-                    pendingUpdateSaveRevRef.current = saveRev
-                    getHasChatflowChangedApi.request(chatflow.id, lastUpdatedDateTime)
+                    const body = { name: plan.live.name, flowData: plan.live.flowData }
+                    queueLiveSave({
+                        body,
+                        saveRev,
+                        baseUpdatedDate: lastUpdatedDateTime,
+                        notice: retained?.notice,
+                        beforeWrite: async () => {
+                            const response = await chatflowsApi.getHasChatflowChanged(chatflow.id, lastUpdatedDateTime)
+                            if (response?.data?.hasChanged !== true) return true
+                            return confirm({
+                                title: `Confirm Change`,
+                                description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                                confirmButtonName: 'Confirm',
+                                cancelButtonName: 'Cancel'
+                            })
+                        }
+                    })
                     return
                 }
                 if (plan.live?.name) {
-                    try {
-                        const res = await chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name })
-                        dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                        setLasUpdatedDateTime(res.data.updatedDate)
-                    } catch (error) {
-                        errorFailed(apiErrorMessage(error, 'Save failed'))
-                        return
-                    }
+                    draftSave.waitForNonReplay({
+                        send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
+                        onAck: (saved) => {
+                            dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                            setLasUpdatedDateTime(saved.updatedDate)
+                            saveChatflowSuccess(undefined, saveRev)
+                        },
+                        onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                    })
+                    return
                 }
-                if (plan.draft) saveChatflowSuccess('Draft saved', saveRev)
-                if (isChatCanvas) saveBuilderStarters(chatflow)
             }
         }
     }
@@ -792,36 +864,42 @@ const Canvas = () => {
 
     // The first save of a built chatflow: Live stays empty and the built cards become the draft, so the test chat
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
-    const saveFirstDraft = async (created, draft, notice, rev) => {
-        try {
-            const res = await draftSave.save(created.id, draft)
-            if (res?.conflict) return
-            setDraftStatus(res.data)
-            saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
-        } catch (draftError) {
-            const retained = isHarnessCanvas
-                ? planHarnessDraftFallback({
-                      flowData: draft,
-                      nodeDefinitions: canvas.componentNodes,
-                      draftsOff: draftSaveWasTurnedOff(draftError)
-                  })
-                : null
-            if (retained?.error) {
-                errorFailed(retained.error)
-                return
+    const saveFirstDraft = (created, draft, notice, rev) => {
+        draftSave.saveDraft({
+            id: created.id,
+            rev,
+            flowData: draft,
+            liveFlowData: created.flowData,
+            name: created.name,
+            onAck: (status) => {
+                setDraftStatus(status)
+                saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
+            },
+            onError: async (draftError) => {
+                const retained = isHarnessCanvas
+                    ? planHarnessDraftFallback({
+                          flowData: draft,
+                          nodeDefinitions: canvas.componentNodes,
+                          draftsOff: draftSaveWasTurnedOff(draftError)
+                      })
+                    : null
+                if (retained?.error) {
+                    errorFailed(retained.error)
+                    return
+                }
+                if (isHarnessCanvas && !retained) {
+                    errorFailed(apiErrorMessage(draftError, 'Save failed'))
+                    return
+                }
+                try {
+                    const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
+                    dispatch({ type: SET_CHATFLOW, chatflow: res.data })
+                    saveChatflowSuccess(retained?.notice, rev)
+                } catch (error) {
+                    errorFailed(apiErrorMessage(error, 'Save failed'))
+                }
             }
-            if (isHarnessCanvas && !retained) {
-                errorFailed(apiErrorMessage(draftError, 'Save failed'))
-                return
-            }
-            try {
-                const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
-                dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                saveChatflowSuccess(retained?.notice, rev)
-            } catch (error) {
-                errorFailed(apiErrorMessage(error, 'Save failed'))
-            }
-        }
+        })
     }
 
     // Starter questions from a build join the chat settings on the next save of a flow that has none.
@@ -1031,96 +1109,36 @@ const Canvas = () => {
         reactFlowInstance.fitView(FIT_ON_OPEN)
     }, [nodes, reactFlowInstance])
 
-    // Create new chatflow successful
-    useEffect(() => {
-        if (createNewChatflowApi.data) {
-            const chatflow = createNewChatflowApi.data
-            dispatch({ type: SET_CHATFLOW, chatflow })
-            builderStartersRef.current = []
-            firstSaveAsDraftRef.current = false
-            const draft = pendingDraftRef.current
-            pendingDraftRef.current = null
-            const harnessNote = pendingHarnessNoteRef.current
-            pendingHarnessNoteRef.current = ''
-            const saveRev = pendingCreateSaveRevRef.current
-            pendingCreateSaveRevRef.current = undefined
-            if (draft) {
-                saveFirstDraft(chatflow, draft, harnessNote, saveRev)
-            } else {
-                saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined, saveRev)
-            }
-            if (!draft) {
-                flowDraftsApi
-                    .getStatus(chatflow.id)
-                    .then((res) => {
-                        setDraftStatus(res.data)
-                        draftSave.record(res.data, canvasFlowText(chatflow, res.data))
-                    })
-                    .catch(() => undefined)
-            }
-            window.history.replaceState(
-                state,
-                null,
-                `/${isEtlCanvas ? 'etlcanvas' : isHarnessCanvas ? 'harnesscanvas' : isAgentCanvas ? 'agentcanvas' : 'canvas'}/${
-                    chatflow.id
-                }`
-            )
-        } else if (createNewChatflowApi.error) {
-            pendingCreateSaveRevRef.current = undefined
-            errorFailed(apiErrorText(createNewChatflowApi.error))
+    function createdChatflowSuccess(created) {
+        dispatch({ type: SET_CHATFLOW, chatflow: created })
+        builderStartersRef.current = []
+        firstSaveAsDraftRef.current = false
+        const draft = pendingDraftRef.current
+        pendingDraftRef.current = null
+        const harnessNote = pendingHarnessNoteRef.current
+        pendingHarnessNoteRef.current = ''
+        const saveRev = pendingCreateSaveRevRef.current
+        pendingCreateSaveRevRef.current = undefined
+        if (draft) {
+            saveFirstDraft(created, draft, harnessNote, saveRev)
+        } else {
+            saveChatflowSuccess(created.accessNotice || harnessNote || undefined, saveRev)
         }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [createNewChatflowApi.data, createNewChatflowApi.error])
-
-    // Update chatflow successful
-    useEffect(() => {
-        if (updateChatflowApi.data) {
-            const retained = pendingHarnessLiveSaveRef.current
-            pendingHarnessLiveSaveRef.current = null
-            dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-            setLasUpdatedDateTime(updateChatflowApi.data.updatedDate)
-            const saveRev = pendingUpdateSaveRevRef.current
-            pendingUpdateSaveRevRef.current = undefined
-            saveChatflowSuccess(retained?.notice, saveRev)
-        } else if (updateChatflowApi.error) {
-            pendingHarnessLiveSaveRef.current = null
-            pendingUpdateSaveRevRef.current = undefined
-            errorFailed(apiErrorText(updateChatflowApi.error))
+        if (!draft) {
+            flowDraftsApi
+                .getStatus(created.id)
+                .then((res) => {
+                    setDraftStatus(res.data)
+                    draftSave.record(res.data, canvasFlowText(created, res.data))
+                })
+                .catch(() => undefined)
         }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateChatflowApi.data, updateChatflowApi.error])
-
-    // check if chatflow has changed before saving
-    useEffect(() => {
-        const checkIfHasChanged = async () => {
-            if (getHasChatflowChangedApi.data?.hasChanged === true) {
-                const confirmPayload = {
-                    title: `Confirm Change`,
-                    description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
-                    confirmButtonName: 'Confirm',
-                    cancelButtonName: 'Cancel'
-                }
-                const isConfirmed = await confirm(confirmPayload)
-
-                if (!isConfirmed) {
-                    return
-                }
-            }
-            const updateBody = {
-                name: chatflowName,
-                flowData
-            }
-            updateChatflowApi.request(chatflow.id, updateBody)
-        }
-
-        if (getHasChatflowChangedApi.data) {
-            checkIfHasChanged()
-        }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getHasChatflowChangedApi.data, getHasChatflowChangedApi.error])
+        window.history.replaceState(
+            state,
+            null,
+            `/${isEtlCanvas ? 'etlcanvas' : isHarnessCanvas ? 'harnesscanvas' : isAgentCanvas ? 'agentcanvas' : 'canvas'}/${created.id}`
+        )
+    }
 
     useEffect(() => {
         setChatflow(canvasDataStore.chatflow)

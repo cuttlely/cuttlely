@@ -6,9 +6,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   Canvas saves are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action.
+
 -   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again.
 
 ### Fixed
+
+-   A save that reached the server but lost its reply no longer appears to fail or writes the same canvas twice.
 
 -   A save that finished while you kept editing no longer marks the later edits as saved.
 

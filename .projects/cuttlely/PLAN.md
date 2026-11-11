@@ -28,9 +28,9 @@
 
 ## Next concrete tasks
 
--   **Silent canvas read retries.** Current work on `fix/silent-retry-ui` retries safe reads and opted-in node load requests, adds cancellation and in-flight sharing, keeps an unknown draft status from opening as Live, and keeps later edits dirty after a save reply. Saves remain single-attempt.
+-   **Silent canvas read retries.** Work on `fix/silent-retry-ui` retries safe reads and opted-in node load requests, adds cancellation and in-flight sharing, keeps an unknown draft status from opening as Live, and keeps later edits dirty after a save reply.
 
--   **Next: save queue.** Keep draft and Live save replay, reconciliation, and queued snapshots in a separate change. Reuse the retry primitives, but do not enable generic save retries.
+-   **Resilient save queue in progress.** `fix/save-queue` shares a single-flight queue between both canvases. Draft writes replay only after a missing response and a status check; HTTP responses never replay. Landed detection uses account, time, hash, and canvas checks, and later recovery requires the captured draft base to remain unchanged. Live writes reconcile canvas, name, and update time before one narrow retry. Creation and all other writes remain single-attempt. The optional `Idempotency-Key` header and `expectedUpdatedDate` comparison remain deferred.
 
 -   **Import handle types (done).** Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection.
 
