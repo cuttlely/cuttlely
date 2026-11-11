@@ -137,13 +137,14 @@ export function resolveRest(rest, { branch = '', refs = null, decoded = false } 
     const chosen = String(branch || '').trim()
     if (chosen) {
         if (chosen.startsWith('-')) throw new EtlError('bad_source', `Branch "${chosen}" is not a branch name.`)
+        if (refs) {
+            const match = longestRefPrefix(segments, refs)
+            if (match) return { branch: chosen, subPath: match.subPath }
+            throw new EtlError('bad_source', SLASH_BRANCH_HINT)
+        }
         const prefix = normalizeSubPath(chosen).split('/').filter(Boolean)
         if (prefix.length && startsWithSegments(segments, prefix)) {
             return { branch: chosen, subPath: segments.slice(prefix.length).join('/') }
-        }
-        if (refs && refs.size) {
-            const match = longestRefPrefix(segments, refs)
-            if (match) return { branch: chosen, subPath: match.subPath }
         }
         return { branch: chosen, subPath: segments.slice(1).join('/') }
     }
@@ -187,9 +188,9 @@ export async function resolveGitSource({ gitUrl, branch = '', listRefs } = {}) {
     const chosen = String(branch || '').trim()
     if (chosen.startsWith('-')) throw new EtlError('bad_source', `Branch "${chosen}" is not a branch name.`)
     let refs = null
-    const restSegments = normalizeSubPath(inspected.rest).split('/').filter(Boolean)
-    const chosenSegments = chosen ? normalizeSubPath(chosen).split('/').filter(Boolean) : []
-    const needsRefs = inspected.rest.includes('/') && (!chosen || !startsWithSegments(restSegments, chosenSegments))
+    // A slash can belong to the link's branch or its selected path. Resolve the link's longest
+    // remote ref first, even when Branch is a matching prefix, then apply Branch as an override.
+    const needsRefs = inspected.rest.includes('/')
     if (needsRefs) {
         try {
             refs = await (listRefs || listRemoteRefs)(inspected.cloneUrl)

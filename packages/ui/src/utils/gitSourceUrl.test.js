@@ -6,6 +6,8 @@ describe('gitSourceUrlHint', () => {
         expect(gitSourceUrlHint('https://github.com/hashicorp/web-unified-docs.git')).toBe('')
         expect(gitSourceUrlHint('https://github.com/hashicorp/web-unified-docs/tree/main/content/')).toBe('')
         expect(gitSourceUrlHint('https://github.com/org/repo/blob/main/README.md')).toBe('')
+        expect(gitSourceUrlHint('https://github.com/org/repo/blob/main/100%25.md')).toBe('')
+        expect(gitSourceUrlHint('https://github.com/org/repo/blob/main/literal%2520name.md')).toBe('')
         expect(gitSourceUrlHint('https://example.com/org/repo.git')).toBe('')
     })
 

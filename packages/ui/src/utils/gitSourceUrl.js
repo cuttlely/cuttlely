@@ -18,11 +18,9 @@ function decodePath(value) {
     }
 }
 
-function pathEscapes(raw) {
-    const decoded = decodePath(String(raw || '').trim())
-    if (decoded == null) return true
-    const normalized = decoded.replace(/\\/g, '/')
-    if (normalized.includes('\0') || normalized.startsWith('/')) return true
+function decodedPathEscapes(value) {
+    const normalized = String(value || '').replace(/\\/g, '/')
+    if (normalized.includes('\0') || normalized.startsWith('/') || normalized.startsWith('//')) return true
     return normalized.split('/').some((part) => part === '..')
 }
 
@@ -46,13 +44,15 @@ export function gitSourceUrlHint(raw) {
         if (segments.length < 2) return GITHUB_PAGE_HINT
         const owner = segments[0]
         const repo = segments[1].replace(/\.git$/i, '')
-        if (!owner || !repo || owner === '..' || repo === '..') return GITHUB_PAGE_HINT
+        if (!owner || !repo || owner === '..' || repo === '..' || owner.includes('\\') || repo.includes('\\')) return GITHUB_PAGE_HINT
         if (segments.length === 2) return ''
         const page = segments[2]
         if (page !== 'tree' && page !== 'blob') return GITHUB_PAGE_HINT
         const rest = segments.slice(3)
         if (!rest.length) return MISSING_BRANCH_HINT
-        if (rest.some((part) => pathEscapes(part))) return TRAVERSAL_HINT
+        // pathDecoded already decoded the URL pathname. Validate that text without decoding it again,
+        // matching packages/etl/git-url.mjs so literal percent text keeps its identity.
+        if (decodedPathEscapes(rest.join('/'))) return TRAVERSAL_HINT
         return ''
     }
     if (segments.includes('tree') || segments.includes('blob')) return WEB_PAGE_HINT

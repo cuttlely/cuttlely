@@ -170,17 +170,17 @@ describe('parseRemoteRefs and resolveGitSource', () => {
         assert.deepEqual(plain, { cloneUrl: 'https://example.com/org/repo.git', branch: 'main', subPath: '', kind: 'repo' })
     })
 
-    it('skips ls-remote for a matching Branch and resolves the link path for an override', async () => {
+    it('resolves the link ref before applying a Branch override', async () => {
         let called = false
         const got = await resolveGitSource({
             gitUrl: 'https://github.com/org/repo/tree/release/1.7.2/docs',
             branch: 'release/1.7.2',
             listRefs: async () => {
                 called = true
-                return new Set()
+                return new Set(['release/1.7.2', 'main'])
             }
         })
-        assert.equal(called, false)
+        assert.equal(called, true)
         assert.equal(got.branch, 'release/1.7.2')
         assert.equal(got.subPath, 'docs')
         const overridden = await resolveGitSource({
@@ -194,6 +194,21 @@ describe('parseRemoteRefs and resolveGitSource', () => {
         assert.equal(called, true)
         assert.equal(overridden.branch, 'main')
         assert.equal(overridden.subPath, 'docs')
+    })
+
+    it('does not mistake a Branch override for the prefix of a slash branch', async () => {
+        let called = false
+        const got = await resolveGitSource({
+            gitUrl: 'https://github.com/org/repo/tree/release/1.7.2/docs',
+            branch: 'release',
+            listRefs: async () => {
+                called = true
+                return new Set(['release', 'release/1.7.2', 'main'])
+            }
+        })
+        assert.equal(called, true)
+        assert.equal(got.branch, 'release')
+        assert.equal(got.subPath, 'docs')
     })
 
     it('hints when listing refs fails', async () => {
