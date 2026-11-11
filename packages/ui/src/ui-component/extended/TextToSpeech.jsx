@@ -38,7 +38,7 @@ import useNotifier from '@/utils/useNotifier'
 // API
 import chatflowsApi from '@/api/chatflows'
 import ttsApi from '@/api/tts'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const TextToSpeechType = {
     OPENAI_TTS: 'openai',
@@ -145,7 +145,7 @@ const TextToSpeech = ({ dialogProps }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Text To Speech Configuration: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Text To Speech Configuration'),
                 options: {
                     key: Date.now() + Math.random(),
                     variant: 'error',

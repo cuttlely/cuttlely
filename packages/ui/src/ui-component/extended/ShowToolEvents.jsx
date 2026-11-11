@@ -18,7 +18,7 @@ import useNotifier from '@/utils/useNotifier'
 import chatflowsApi from '@/api/chatflows'
 import { resolveShowToolEvents } from '@/utils/toolEvents'
 import { safeJsonParse } from '@/utils/safeJsonParse'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const ShowToolEvents = ({ dialogProps, onConfirm }) => {
     const dispatch = useDispatch()
@@ -60,7 +60,7 @@ const ShowToolEvents = ({ dialogProps, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Show tool events settings: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Show tool events settings'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

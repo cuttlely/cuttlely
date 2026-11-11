@@ -30,7 +30,7 @@ import useNotifier from '@/utils/useNotifier'
 // API
 import chatflowsApi from '@/api/chatflows'
 import { DOCUMENT_UPLOAD_TYPES, labelExtensions } from '../../../../components/src/documentUploadCapabilities'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const message = `Small documents are included as bounded text. Large files and spreadsheets stay on disk, and the agent inspects them with its tools. Files over 25 MB are refused.`
 
@@ -103,7 +103,7 @@ const FileUpload = ({ dialogProps }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save File Upload Configuration: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save File Upload Configuration'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

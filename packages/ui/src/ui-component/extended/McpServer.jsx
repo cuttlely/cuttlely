@@ -22,7 +22,7 @@ import useNotifier from '@/utils/useNotifier'
 // API
 import mcpServerApi from '@/api/mcpserver'
 import chatflowsApi from '@/api/chatflows'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const McpServer = ({ dialogProps, onStatusChange }) => {
     const dispatch = useDispatch()
@@ -150,7 +150,7 @@ const McpServer = ({ dialogProps, onStatusChange }) => {
             }
             await refreshChatflowStore()
         } catch (error) {
-            showError(`Failed to save MCP Server settings: ${requestFailureMessage(error)}`)
+            showError(settingFailureMessage(error, 'Failed to save MCP Server settings'))
         } finally {
             setLoading(false)
         }
@@ -183,7 +183,7 @@ const McpServer = ({ dialogProps, onStatusChange }) => {
             }
             await refreshChatflowStore()
         } catch (error) {
-            showError(`Failed to rotate token: ${requestFailureMessage(error)}`)
+            showError(settingFailureMessage(error, 'Failed to rotate token'))
         } finally {
             setLoading(false)
         }

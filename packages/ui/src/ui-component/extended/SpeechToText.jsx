@@ -26,7 +26,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 // If implementing a new provider, this must be updated in
 // components/src/speechToText.ts as well
@@ -276,7 +276,7 @@ const SpeechToText = ({ dialogProps, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Speech To Text Configuration: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Speech To Text Configuration'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

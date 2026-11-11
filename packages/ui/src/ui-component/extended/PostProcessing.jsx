@@ -37,7 +37,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const sampleFunction = `// Access chat history as a string
 const chatHistory = JSON.stringify($flow.chatHistory, null, 2); 
@@ -112,7 +112,7 @@ const PostProcessing = ({ dialogProps }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Post Processing Settings: ${requestFailureMessage(error)}`,
+                message: settingFailureMessage(error, 'Failed to save Post Processing Settings'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

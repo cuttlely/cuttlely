@@ -29,12 +29,28 @@ describe('error handlers read a response only when there is one', () => {
         expect(files.filter((file) => guarded.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file))).toEqual([])
     })
 
-    it('configuration save handlers use the shared response message reader', () => {
-        const handlers = ['ui-component/extended/Leads.jsx', 'ui-component/extended/FollowUpPrompts.jsx']
+    it('canvas configuration save handlers use the write-safe setting message', () => {
+        const handlers = [
+            'ui-component/extended/AllowedDomains.jsx',
+            'ui-component/extended/AnalyseFlow.jsx',
+            'ui-component/extended/ChatFeedback.jsx',
+            'ui-component/extended/EnhancedStatusMessages.jsx',
+            'ui-component/extended/FileUpload.jsx',
+            'ui-component/extended/FollowUpPrompts.jsx',
+            'ui-component/extended/Leads.jsx',
+            'ui-component/extended/McpServer.jsx',
+            'ui-component/extended/OverrideConfig.jsx',
+            'ui-component/extended/PostProcessing.jsx',
+            'ui-component/extended/RateLimit.jsx',
+            'ui-component/extended/ShowToolEvents.jsx',
+            'ui-component/extended/SpeechToText.jsx',
+            'ui-component/extended/StarterPrompts.jsx',
+            'ui-component/extended/TextToSpeech.jsx'
+        ]
         expect(
             handlers.filter((file) => {
                 const source = fs.readFileSync(path.join(root, file), 'utf8')
-                return !source.includes('requestFailureMessage(error)') || source.includes('error.response.data')
+                return !source.includes('settingFailureMessage(error') || source.includes('requestFailureMessage(')
             })
         ).toEqual([])
     })
