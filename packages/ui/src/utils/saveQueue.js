@@ -1,7 +1,7 @@
 import { backoffDelay, isCancel, isNoResponse } from '@/api/resilience'
 import { draftConflictFrom } from '@/utils/flowDrafts'
 
-export const SAVE_RETRY_NOTICE = "Your changes aren't saved yet. We'll keep trying."
+export const SAVE_RETRY_NOTICE = "Your changes aren't saved yet. Choose Retry when the connection is back."
 export const SAVE_AGAIN_NOTICE = 'The save did not get a response. Your edits are still here. Press Save again.'
 export const CREATE_STATUS_NOTICE = 'The flow was created. We are still checking its save status.'
 export const SAVE_CLOCK_SKEW_MS = 2 * 60 * 1000
@@ -160,10 +160,7 @@ const dateValue = (value) => {
 
 export const draftSaveLanded = (status, entry) => {
     const stored = status?.draft
-    if (!stored) {
-        const liveFlowData = status?.live?.flowData || status?.chatflow?.flowData || status?.flowData || entry.liveFlowData
-        return sameSavedCanvas(entry.flowData, liveFlowData)
-    }
+    if (!stored) return false
     if (stored.hash === entry.expectedDraftHash || stored.updatedBy !== entry.userId) return false
 
     const updated = dateValue(stored.updatedDate)

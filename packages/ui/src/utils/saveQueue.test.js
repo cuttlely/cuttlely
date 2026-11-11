@@ -165,22 +165,22 @@ describe('save queue core', () => {
         expect(save.onConflict).toHaveBeenCalledTimes(1)
     })
 
-    test('accepts a cleared draft only when the saved canvas equals Live', () => {
-        expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }))).toBe(true)
+    test('never accepts a missing draft as proof that the save landed', () => {
+        expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }))).toBe(false)
         expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_A, liveFlowData: FLOW_C }))).toBe(false)
     })
 
-    test('reconciles a cleared draft equal to Live without another write', async () => {
+    test('replays from a missing draft only when both the stored and sent bases are empty', async () => {
         const save = entry({ expectedDraftHash: null, flowData: FLOW_C, liveFlowData: FLOW_C })
         const cleared = status(null)
         const { queue, calls } = makeQueue({
-            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            putDraft: jest.fn().mockRejectedValueOnce(noResponse()).mockResolvedValueOnce({ data: cleared }),
             getDraftStatus: jest.fn().mockResolvedValue({ data: cleared })
         })
         queue.enqueue(save)
         await flush()
-        expect(calls.putDraft).toHaveBeenCalledTimes(1)
-        expect(save.onAck).toHaveBeenCalledWith(cleared, expect.objectContaining({ reconciled: true }))
+        expect(calls.putDraft).toHaveBeenCalledTimes(2)
+        expect(save.onAck).toHaveBeenCalledWith(cleared, expect.objectContaining({ reconciled: false }))
         expect(save.onConflict).not.toHaveBeenCalled()
         expect(calls.onExhausted).not.toHaveBeenCalled()
     })
