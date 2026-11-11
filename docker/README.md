@@ -16,6 +16,8 @@ Open [http://localhost:43117](http://localhost:43117) after ping returns `pong`.
 
 Render is a separate path. The Blueprint is [render.yaml](../render.yaml), applied in the Render Dashboard. It sets `DATABASE_TYPE=postgres`. Local Compose does not. Steps are in [docs/how-to/render.md](../docs/how-to/render.md). Local Compose stays on SQLite. The env table is in [docs/how-to/docker.md](../docs/how-to/docker.md).
 
+When another server accepts public traffic first, use the [reverse proxy guide](../docs/how-to/reverse-proxy.md) for connection reuse, streaming, uploads, and proxy trust.
+
 ## Queue files
 
 Cuttlely harness turns run in the Cuttlely process (`CUTTLELY_HARNESS_QUEUE` defaults to `inline`). These files are not the install:

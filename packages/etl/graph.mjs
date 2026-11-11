@@ -71,7 +71,7 @@ export function compilePipeline(flowData) {
             embeddings = nodeSpec(byId[embeddingEdges[0].source])
             if (!VERIFIED_EMBEDDINGS.has(embeddings.nodeName)) {
                 warnings.push(
-                    `${embeddings.label} is called through its Flowise node. Runs use your credential and are billed by the provider.`
+                    `${embeddings.label} is called through its Cuttlely node. Runs use your credential and are billed by the provider.`
                 )
             }
         }

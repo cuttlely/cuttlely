@@ -4,6 +4,8 @@ Use this guide to run Cuttlely on [Render](https://render.com) with the Blueprin
 
 Use Render when a team needs one shared Cuttlely on the internet. On your own computer, use [Docker](./docker.md) or [From source](./from-source.md). Both stay on SQLite.
 
+For timeout and streaming concepts that also apply to managed gateways, see the [reverse proxy guide](./reverse-proxy.md). The Blueprint already sets its required proxy hop count.
+
 These steps were checked against [`render.yaml`](../../render.yaml) and Render's documentation. No deploy was made for this guide, so there are no screenshots of the Dashboard.
 
 ## What the Blueprint creates
