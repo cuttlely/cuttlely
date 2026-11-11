@@ -797,13 +797,27 @@ const Canvas = () => {
 
     // The first save of a built chatflow: Live stays empty and the built cards become the draft, so the test chat
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
+    // The draft status of a flow this canvas just created. Its new address does not reload it (createdFlowIdRef),
+    // so this read is what lets the canvas leave its inert state.
+    const loadCreatedStatus = (created) =>
+        flowDraftsApi
+            .getStatus(created.id)
+            .then((res) => {
+                setDraftStatus(res.data)
+                setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
+                draftSave.record(res.data, canvasFlowText(created, res.data))
+            })
+            .catch((error) => setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' }))
+
+    // Resolves true when the draft save set the draft status; otherwise the caller reads it.
     const saveFirstDraft = async (created, draft, notice, rev) => {
         try {
             const res = await draftSave.save(created.id, draft)
-            if (res?.conflict) return
+            if (res?.conflict) return false
             setDraftStatus(res.data)
             setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
             saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.', rev)
+            return true
         } catch (draftError) {
             // A draft write that got no answer may have landed. Do not follow it with a Live write: report it and keep
             // the edits unsaved. The Live fallback is only for a server that answered (for example, drafts are off).
@@ -1053,7 +1067,10 @@ const Canvas = () => {
             retrying: true,
             request: draftStatusLoad.request
         })
-        if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
+        if (createdFlowIdRef.current === chatflowId && draftStatusLoad.request === 'status') {
+            // A flow created here keeps its unsaved cards: read its status again instead of reloading it.
+            loadCreatedStatus(chatflow?.id === chatflowId ? chatflow : canvasDataStore.chatflow)
+        } else if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
             getSpecificChatflowApi.request(chatflowId)
         } else {
             setDraftStatusRetry((attempt) => attempt + 1)
@@ -1084,19 +1101,12 @@ const Canvas = () => {
             const saveRev = pendingCreateSaveRevRef.current
             pendingCreateSaveRevRef.current = undefined
             if (draft) {
-                saveFirstDraft(chatflow, draft, harnessNote, saveRev)
+                saveFirstDraft(chatflow, draft, harnessNote, saveRev).then((known) => {
+                    if (!known) loadCreatedStatus(chatflow)
+                })
             } else {
                 saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined, saveRev)
-            }
-            if (!draft) {
-                flowDraftsApi
-                    .getStatus(chatflow.id)
-                    .then((res) => {
-                        setDraftStatus(res.data)
-                        setDraftStatusLoad({ flowId: chatflow.id, known: true, loading: false, error: null })
-                        draftSave.record(res.data, canvasFlowText(chatflow, res.data))
-                    })
-                    .catch((error) => setDraftStatusLoad({ flowId: chatflow.id, known: false, loading: false, error, request: 'status' }))
+                loadCreatedStatus(chatflow)
             }
             createdFlowIdRef.current = chatflow.id
             window.history.replaceState(
