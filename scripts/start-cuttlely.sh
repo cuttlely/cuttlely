@@ -481,7 +481,7 @@ if [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then
         WORKER_PIDS+=("$!")
         i=$((i + 1))
     done
-    echo "Harness workers: ${#WORKER_PIDS[@]} (queue external, each worker boots the Flowise node pool, Hermes stays on 127.0.0.1)"
+    echo "Harness workers: ${#WORKER_PIDS[@]} (queue external, each worker boots the Cuttlely node pool, Hermes stays on 127.0.0.1)"
 else
     echo "Harness queue: ${CUTTLELY_HARNESS_QUEUE:-inline}"
 fi
