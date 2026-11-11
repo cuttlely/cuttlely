@@ -109,7 +109,7 @@ export function compileRules(lines, base = '', pathPrefix = '') {
 export function isIgnored(relPath, isDir, ruleSets) {
     let ignored = false
     for (const set of ruleSets) {
-        let rel = set.pathPrefix ? `${set.pathPrefix}/${relPath}` : relPath
+        let rel = set.pathPrefix ? (relPath ? `${set.pathPrefix}/${relPath}` : set.pathPrefix) : relPath
         if (set.base) {
             if (!rel.startsWith(`${set.base}/`)) continue
             rel = rel.slice(set.base.length + 1)

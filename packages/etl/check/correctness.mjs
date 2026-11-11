@@ -53,6 +53,14 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
         selectedWalk.join() === 'docs/.gitignore,docs/guide.md,docs/keep.tmp',
         selectedWalk.join()
     )
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'docs/*/\n')
+    const selectedWithIgnoredChildren = [...repoFiles(repo, {}, { subPath: 'docs' })].map((file) => file.rel)
+    check(
+        'a root rule for selected child folders does not ignore the selected folder itself',
+        selectedWithIgnoredChildren.includes('docs/guide.md') && !selectedWithIgnoredChildren.includes('docs/drafts/private.md'),
+        selectedWithIgnoredChildren.join()
+    )
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'skip.txt\ndocs/drafts/\n*.tmp\n')
     const selectedByRepoGlob = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs' })].map((file) => file.rel)
     check('selected repo folder applies include globs from the repository root', selectedByRepoGlob.join() === 'docs/guide.md')
     const selectedByRepoGlobWithoutGitignore = [
