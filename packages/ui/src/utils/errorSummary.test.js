@@ -3,6 +3,7 @@ import {
     PUBLISH_NO_ANSWER_MESSAGE,
     SAVE_NO_ANSWER_MESSAGE,
     configurationLoadFailureMessage,
+    errorSummary,
     publishFailureMessage,
     requestFailureMessage,
     saveFailureMessage,
@@ -14,6 +15,14 @@ const noAnswer = () => Object.assign(new Error('Network Error'), { isAxiosError:
 describe('request failure messages', () => {
     test('keeps reload guidance for a page-level request with no answer', () => {
         expect(requestFailureMessage(noAnswer())).toBe(NO_ANSWER_MESSAGE)
+    })
+
+    test('keeps gateway bodies out of ordinary read and page errors', () => {
+        for (const status of [502, 503, 504]) {
+            const error = { response: { status, data: '<html>gateway</html>' } }
+            expect(requestFailureMessage(error)).toBe(NO_ANSWER_MESSAGE)
+            expect(errorSummary(error)).toEqual({ status: `Status: ${status}`, message: NO_ANSWER_MESSAGE })
+        }
     })
 
     test('keeps canvas edits and asks the person to save again after a failed save', () => {

@@ -11,7 +11,7 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import useApi from '@/hooks/useApi'
-import CanvasLoadGuard, { flowLoadAction } from './CanvasLoadGuard'
+import CanvasLoadGuard, { createdFlowRouteAction, flowLoadAction } from './CanvasLoadGuard'
 
 jest.mock('@/store/context/ErrorContext', () => ({ useError: () => ({ setError: jest.fn(), handleError: jest.fn() }) }))
 
@@ -121,6 +121,17 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(flowLoadAction(undefined, 'A', { id: 'A' }, null)).toBe('ignore')
     })
 
+    test('a create-time route exemption is spent after A moves to B, so returning to A loads it', () => {
+        let createdFlowId = 'A'
+        expect(createdFlowRouteAction(createdFlowId, 'A')).toBe('keep-created')
+
+        expect(createdFlowRouteAction(createdFlowId, 'B')).toBe('load')
+        createdFlowId = null
+
+        expect(createdFlowRouteAction(createdFlowId, 'A')).toBe('load')
+        expect(createdFlowRouteAction(createdFlowId, undefined)).toBe('ignore')
+    })
+
     test.each(['views/canvas/index.jsx', 'views/agentflowsv2/Canvas.jsx'])('%s routes the saved-flow GET through this path', (file) => {
         const source = fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8')
         expect(source).toContain('useApi(chatflowsApi.getSpecificChatflow, { currentOnly: true })')
@@ -135,6 +146,8 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toContain('const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)')
         expect(source).toMatch(/onStatus: \(status, created\) => \{\s+setDraftStatus\(status\)/)
         expect(source).toContain('setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })')
+        expect(source).toContain('const action = createdFlowRouteAction(createdFlowIdRef.current, chatflowId)')
+        expect(source).toMatch(/if \(action !== 'load'\) return\s+\/\/[\s\S]*?createdFlowIdRef\.current = null\s+setDraftStatus\(null\)/)
         expect(source).not.toContain('loadCreatedStatus')
     })
 })
