@@ -167,4 +167,12 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).not.toContain('pendingCreateSaveRevRef')
         expect(source).not.toContain('pendingUpdateSaveRevRef')
     })
+
+    test('a first-draft outcome that did not establish status always reads the created flow status', () => {
+        const source = fs.readFileSync(path.join(__dirname, 'index.jsx'), 'utf8')
+        expect(source).toMatch(
+            /saveFirstDraft\(chatflow, draft, harnessNote, saveRev\)\.then\(\(known\) => \{\s+if \(\s*firstDraftNeedsStatus\(known\)/
+        )
+        expect(source).toContain('if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return null')
+    })
 })

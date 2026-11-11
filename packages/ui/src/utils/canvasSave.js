@@ -58,3 +58,9 @@ export function saveCompletionForRoute(pending, routeFlowId) {
     if (!pending || pending.flowId !== (routeFlowId || null)) return null
     return pending
 }
+
+// The first draft save returns true only when it established status. False/undefined outcomes need a status read so
+// an ambiguous or failed write cannot strand the created canvas. Null is reserved for a stale route and does nothing.
+export function firstDraftNeedsStatus(result) {
+    return result !== true && result !== null
+}

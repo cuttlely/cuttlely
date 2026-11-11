@@ -1,6 +1,7 @@
 import {
     canvasSaveDocument,
     duplicateFlowData,
+    firstDraftNeedsStatus,
     liveSavePreflightForRoute,
     liveSaveUpdateForRoute,
     saveCompletionForRoute
@@ -210,5 +211,12 @@ describe('Live save preflight route identity', () => {
         expect(saveCompletionForRoute({ flowId: 'flow-a', rev: 5 }, 'flow-b')).toBeNull()
         expect(saveCompletionForRoute({ flowId: null, rev: 1 }, undefined)).toEqual({ flowId: null, rev: 1 })
         expect(saveCompletionForRoute({ flowId: null, rev: 1 }, 'flow-b')).toBeNull()
+    })
+
+    test('reads created status after every first-draft outcome except success or a stale route', () => {
+        expect(firstDraftNeedsStatus(true)).toBe(false)
+        expect(firstDraftNeedsStatus(null)).toBe(false)
+        expect(firstDraftNeedsStatus(false)).toBe(true)
+        expect(firstDraftNeedsStatus(undefined)).toBe(true)
     })
 })
