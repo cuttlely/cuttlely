@@ -146,6 +146,7 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toContain('const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)')
         expect(source).toMatch(/onStatus: \(status, created\) => \{\s+setDraftStatus\(status\)/)
         expect(source).toContain('setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })')
+        expect(source).toContain('onDirty={setDirty}')
         expect(source).toContain('const action = createdFlowRouteAction(createdFlowIdRef.current, chatflowId)')
         expect(source).toMatch(/if \(action !== 'load'\) return\s+\/\/[\s\S]*?createdFlowIdRef\.current = null\s+setDraftStatus\(null\)/)
         expect(source).not.toContain('loadCreatedStatus')

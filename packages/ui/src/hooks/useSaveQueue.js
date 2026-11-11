@@ -179,7 +179,8 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
                 afterCreate: async (created, details) => {
                     let response
                     try {
-                        response = await flowDraftsApi.getStatus(created.id)
+                        // The queue owns this four-attempt budget; do not nest the shared read retry budget inside it.
+                        response = await flowDraftsApi.getStatus(created.id, { retry: false })
                     } catch (error) {
                         if (error && typeof error === 'object') error.createStatusReadFailed = true
                         throw error

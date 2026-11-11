@@ -161,6 +161,7 @@ const CanvasHeader = ({
     onDraftStatus = () => undefined,
     onChatflowUpdated = () => undefined,
     onApplyCanvas = () => undefined,
+    onDirty = () => undefined,
     draftExpected = () => ({}),
     onDraftConflict = () => undefined,
     saveQueueBusy = false,
@@ -353,6 +354,7 @@ const CanvasHeader = ({
                 },
                 onError: (error) => {
                     setFlowName(next)
+                    onDirty()
                     enqueueSnackbar({
                         message: saveFailureMessage(error),
                         options: {
@@ -1077,6 +1079,7 @@ CanvasHeader.propTypes = {
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
     onApplyCanvas: PropTypes.func,
+    onDirty: PropTypes.func,
     draftExpected: PropTypes.func,
     onDraftConflict: PropTypes.func,
     saveQueueBusy: PropTypes.bool,

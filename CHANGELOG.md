@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Draft and Live canvas saves on an existing flow are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action. An unanswered creation request or follow-up name or starter-question update remains marked as unsaved and asks for another Save. When creation answers but its status is still unknown, only the status read is retried and offers Retry; the creation request is not repeated.
+-   Draft and Live canvas saves on an existing flow are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action. An unanswered creation request or follow-up name or starter-question update remains marked as unsaved and asks for another Save. When creation answers but its status is still unknown, the queue makes only its four status-read attempts and offers Retry; the creation request is not repeated.
 
 -   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again. A saved canvas is inactive until its own draft status is known; quick opens show no extra screen, while slower opens show **Opening the saved canvas**. A workflow field reused for another card clears the prior card's option state and follows the new card's saved value.
 

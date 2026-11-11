@@ -271,6 +271,7 @@ describe('save queue hook lifecycle', () => {
         expect(onAck).not.toHaveBeenCalled()
         expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
         expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(4)
+        expect(flowDraftsApi.getStatus.mock.calls).toEqual(Array(4).fill(['created-1', { retry: false }]))
         expect(apiRef.current.busy).toBe(false)
         const notice = mockDispatch.mock.calls
             .map(([action]) => action)

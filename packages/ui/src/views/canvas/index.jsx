@@ -1568,6 +1568,7 @@ const Canvas = () => {
                                     if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
                                 }}
                                 onApplyCanvas={applyCanvasText}
+                                onDirty={setDirty}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}
                                 saveQueueBusy={draftSave.busy}

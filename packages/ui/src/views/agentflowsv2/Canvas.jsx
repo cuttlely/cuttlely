@@ -1313,6 +1313,7 @@ const AgentflowCanvas = () => {
                                 onDraftStatus={setDraftStatus}
                                 onChatflowUpdated={(next) => dispatch({ type: SET_CHATFLOW, chatflow: next })}
                                 onApplyCanvas={applyCanvasText}
+                                onDirty={setDirty}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}
                                 saveQueueBusy={draftSave.busy}

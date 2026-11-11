@@ -196,13 +196,15 @@ describe('Canvas header discard', () => {
     test('keeps an unanswered inline name for the next canvas Save', async () => {
         const handleSaveFlowName = jest.fn()
         const handleSaveFlow = jest.fn()
-        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow })
+        const onDirty = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow, onDirty })
         const edit = document.body.querySelector('[title="Edit Name"]')
         await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
         const input = document.body.querySelector('input')
         input.value = 'Name still here'
         await act(async () => document.body.querySelector('[title="Save Name"]').dispatchEvent(new MouseEvent('click', { bubbles: true })))
         await act(async () => handleSaveFlowName.mock.calls[0][1].onError(Object.assign(new Error('No answer'), { saveAgain: true })))
+        expect(onDirty).toHaveBeenCalledTimes(1)
         await act(async () =>
             document.body
                 .querySelector('[title="Save Chatflow"]')
