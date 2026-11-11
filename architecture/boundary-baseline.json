@@ -2154,6 +2154,11 @@
             "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
         },
         {
+            "from": "packages/ui/src/hooks/useApi.test.js",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "Silent retry follow-up to #455: the useApi test exercises the inherited request hook until it moves to core."
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
