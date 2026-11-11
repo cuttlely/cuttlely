@@ -6,7 +6,7 @@ import PropTypes from 'prop-types'
 import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 
-import { SAVE_AGAIN_NOTICE, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
+import { CREATE_STATUS_NOTICE, SAVE_AGAIN_NOTICE, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
 import useSaveQueue from './useSaveQueue'
 
 const mockDispatch = jest.fn()
@@ -131,6 +131,27 @@ describe('save queue hook lifecycle', () => {
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(9)
     })
 
+    test('records a cleared draft when the sent canvas already equals Live', async () => {
+        const onAck = jest.fn()
+        flowDraftsApi.saveDraft.mockRejectedValue(noResponse())
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: null } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+        apiRef.current.record(BASE, FLOW)
+
+        await act(async () => apiRef.current.saveDraft({ id: 'flow-1', rev: 1, flowData: FLOW, liveFlowData: FLOW, onAck }))
+        await settleTimers()
+
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(1)
+        expect(onAck).toHaveBeenCalledWith(
+            expect.objectContaining({ draft: null }),
+            expect.objectContaining({ reconciled: true, storedFlowData: FLOW })
+        )
+        expect(apiRef.current.expected()).toEqual({ expectedDraftHash: null })
+    })
+
     test('an unanswered create reports Save again without showing the retry notice', async () => {
         const onError = jest.fn()
         const send = jest.fn().mockRejectedValue(noResponse())
@@ -229,12 +250,12 @@ describe('save queue hook lifecycle', () => {
         expect(onAck).toHaveBeenCalledTimes(1)
     })
 
-    test('does not expose a created id or write while its save mode is unknown', async () => {
+    test('keeps the create id private until Retry finishes its status read', async () => {
         const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: '{}', name: 'Created' } })
         const queuedSend = jest.fn()
         const onAck = jest.fn()
         const latestAck = jest.fn()
-        flowDraftsApi.getStatus.mockResolvedValueOnce({ data: {} }).mockResolvedValueOnce({ data: { ...BASE, mode: 'draft' } })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: {} })
         flowDraftsApi.saveDraft.mockResolvedValue({ data: { ...BASE, mode: 'draft', draft: { ...BASE.draft, hash: 'saved' } } })
         const container = document.createElement('div')
         document.body.appendChild(container)
@@ -246,7 +267,14 @@ describe('save queue hook lifecycle', () => {
         expect(send).toHaveBeenCalledTimes(1)
         expect(onAck).not.toHaveBeenCalled()
         expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(4)
+        expect(apiRef.current.busy).toBe(false)
+        const notice = mockDispatch.mock.calls
+            .map(([action]) => action)
+            .find((action) => action.type === ENQUEUE_SNACKBAR && action.notification.message === CREATE_STATUS_NOTICE)
+        expect(notice).toBeTruthy()
 
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { ...BASE, mode: 'draft' } })
         await act(async () =>
             apiRef.current.saveCreate({
                 send: queuedSend,
@@ -263,11 +291,55 @@ describe('save queue hook lifecycle', () => {
         await settleTimers()
         expect(send).toHaveBeenCalledTimes(1)
         expect(queuedSend).not.toHaveBeenCalled()
-        expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(2)
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(5)
         expect(onAck).toHaveBeenCalledTimes(1)
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(1)
         expect(latestAck).toHaveBeenCalledTimes(1)
         expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
+    })
+
+    test('the create Retry action repeats the status read without another create request', async () => {
+        const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: FLOW, name: 'Created' } })
+        const onAck = jest.fn()
+        flowDraftsApi.getStatus.mockResolvedValue({ data: {} })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+
+        await act(async () => apiRef.current.saveCreate({ send, onAck }))
+        await settleTimers()
+        const notice = mockDispatch.mock.calls
+            .map(([action]) => action)
+            .find((action) => action.type === ENQUEUE_SNACKBAR && action.notification.message === CREATE_STATUS_NOTICE)
+        const retry = notice.notification.options.action()
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { ...BASE, mode: 'live' } })
+        await act(async () => retry.props.onClick())
+        await settleTimers()
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(5)
+        expect(onAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('an online event resumes only the created flow status read', async () => {
+        const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: FLOW, name: 'Created' } })
+        const onAck = jest.fn()
+        flowDraftsApi.getStatus.mockResolvedValue({ data: {} })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+
+        await act(async () => apiRef.current.saveCreate({ send, onAck }))
+        await settleTimers()
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { ...BASE, mode: 'live' } })
+        await act(async () => window.dispatchEvent(new Event('online')))
+        await settleTimers()
+
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledTimes(5)
+        expect(onAck).toHaveBeenCalledTimes(1)
     })
 
     test('reports busy until the queued write settles', async () => {

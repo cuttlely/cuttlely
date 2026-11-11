@@ -3,10 +3,11 @@ import { Button } from '@mui/material'
 import { useSelector } from 'react-redux'
 
 import { beginReconnect, endReconnect } from '@/api/connectionState'
-import { createSaveQueue, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
+import { CREATE_STATUS_NOTICE, createSaveQueue, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
 import useDraftSave from './useDraftSave'
 
 const NOTICE_KEY = 'canvas-save-waiting'
+const CREATE_NOTICE_KEY = 'canvas-create-status-waiting'
 
 export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, enqueueSnackbar, closeSnackbar }) {
     const userId = useSelector((state) => state.auth?.user?.id)
@@ -14,56 +15,57 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
     const draftSaveRef = useRef(draftSave)
     const userIdRef = useRef(userId)
     const mountedRef = useRef(false)
-    const noticeOpenRef = useRef(false)
+    const noticeOpenRef = useRef(null)
     const queueRef = useRef(null)
     const [busy, setBusy] = useState(false)
 
     draftSaveRef.current = draftSave
     userIdRef.current = userId
 
-    const makeQueue = useCallback(
-        () =>
-            createSaveQueue({
-                putDraft: flowDraftsApi.saveDraft,
-                getDraftStatus: flowDraftsApi.getStatus,
-                putLive: chatflowsApi.updateChatflow,
-                getLive: chatflowsApi.getSpecificChatflow,
-                beginReconnect,
-                endReconnect,
-                onExhausted: () => {
-                    if (!mountedRef.current || noticeOpenRef.current) return
-                    noticeOpenRef.current = true
-                    dispatch(
-                        enqueueSnackbar({
-                            message: SAVE_RETRY_NOTICE,
-                            options: {
-                                key: NOTICE_KEY,
-                                variant: 'warning',
-                                persist: true,
-                                action: () =>
-                                    createElement(
-                                        Button,
-                                        {
-                                            style: { color: 'white' },
-                                            onClick: () => queueRef.current?.retry()
-                                        },
-                                        'Retry'
-                                    )
-                            }
-                        })
-                    )
-                },
-                onResolved: () => {
-                    if (!mountedRef.current || !noticeOpenRef.current) return
-                    noticeOpenRef.current = false
-                    dispatch(closeSnackbar(NOTICE_KEY))
-                },
-                onBusyChange: (next) => {
-                    if (mountedRef.current) setBusy(next)
-                }
-            }),
-        [chatflowsApi, closeSnackbar, dispatch, enqueueSnackbar, flowDraftsApi]
-    )
+    const makeQueue = useCallback(() => {
+        const showRetryNotice = (key, message) => {
+            if (!mountedRef.current || noticeOpenRef.current) return
+            noticeOpenRef.current = key
+            dispatch(
+                enqueueSnackbar({
+                    message,
+                    options: {
+                        key,
+                        variant: 'warning',
+                        persist: true,
+                        action: () =>
+                            createElement(
+                                Button,
+                                {
+                                    style: { color: 'white' },
+                                    onClick: () => queueRef.current?.retry()
+                                },
+                                'Retry'
+                            )
+                    }
+                })
+            )
+        }
+        return createSaveQueue({
+            putDraft: flowDraftsApi.saveDraft,
+            getDraftStatus: flowDraftsApi.getStatus,
+            putLive: chatflowsApi.updateChatflow,
+            getLive: chatflowsApi.getSpecificChatflow,
+            beginReconnect,
+            endReconnect,
+            onExhausted: () => showRetryNotice(NOTICE_KEY, SAVE_RETRY_NOTICE),
+            onCreateStatusWaiting: () => showRetryNotice(CREATE_NOTICE_KEY, CREATE_STATUS_NOTICE),
+            onResolved: () => {
+                if (!mountedRef.current || !noticeOpenRef.current) return
+                const key = noticeOpenRef.current
+                noticeOpenRef.current = null
+                dispatch(closeSnackbar(key))
+            },
+            onBusyChange: (next) => {
+                if (mountedRef.current) setBusy(next)
+            }
+        })
+    }, [chatflowsApi, closeSnackbar, dispatch, enqueueSnackbar, flowDraftsApi])
 
     useEffect(() => {
         mountedRef.current = true
@@ -74,8 +76,8 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
         window.addEventListener('online', online)
         return () => {
             window.removeEventListener('online', online)
-            if (mountedRef.current && noticeOpenRef.current) dispatch(closeSnackbar(NOTICE_KEY))
-            noticeOpenRef.current = false
+            if (mountedRef.current && noticeOpenRef.current) dispatch(closeSnackbar(noticeOpenRef.current))
+            noticeOpenRef.current = null
             mountedRef.current = false
             queue.dispose()
             if (queueRef.current === queue) queueRef.current = null
@@ -175,7 +177,13 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
                 kind: 'create',
                 needsPostCreate: entry.needsPostCreate === true,
                 afterCreate: async (created, details) => {
-                    const response = await flowDraftsApi.getStatus(created.id)
+                    let response
+                    try {
+                        response = await flowDraftsApi.getStatus(created.id)
+                    } catch (error) {
+                        if (error && typeof error === 'object') error.createStatusReadFailed = true
+                        throw error
+                    }
                     const status = response?.data ?? response
                     if (status?.mode !== 'draft' && status?.mode !== 'live') {
                         const error = new Error('The save mode is still unknown.')

@@ -502,6 +502,17 @@ const Canvas = () => {
         )
     }
 
+    const handleSaveFlowName = (name, callbacks = {}) => {
+        draftSave.runNonReplay(
+            {
+                send: () => chatflowsApi.updateChatflow(chatflow.id, { name }),
+                onAck: callbacks.onAck,
+                onError: callbacks.onError
+            },
+            { internal: true }
+        )
+    }
+
     const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, notice, starterQuestions = []) => ({
         kind: 'live',
         id: created.id,
@@ -769,8 +780,8 @@ const Canvas = () => {
                         baseUpdatedDate: lastUpdatedDateTime,
                         notice: retained?.notice,
                         starterQuestions,
-                        beforeWrite: async () => {
-                            const response = await chatflowsApi.getHasChatflowChanged(chatflow.id, lastUpdatedDateTime)
+                        beforeWrite: async (baseUpdatedDate) => {
+                            const response = await chatflowsApi.getHasChatflowChanged(chatflow.id, baseUpdatedDate)
                             if (response?.data?.hasChanged !== true) return true
                             return confirm({
                                 title: `Confirm Change`,
@@ -1514,6 +1525,7 @@ const Canvas = () => {
                             <CanvasHeader
                                 chatflow={chatflow}
                                 handleSaveFlow={handleSaveFlow}
+                                handleSaveFlowName={handleSaveFlowName}
                                 handleDeleteFlow={handleDeleteFlow}
                                 handleLoadFlow={handleLoadFlow}
                                 catalogLoading={getNodesApi.loading}

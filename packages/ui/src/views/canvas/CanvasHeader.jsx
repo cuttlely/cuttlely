@@ -64,7 +64,7 @@ import { generateExportFlowData, showHideInputAnchors, showHideInputParams, upda
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
-import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW } from '@/store/actions'
+import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import { saveFailureMessage, settingFailureMessage } from '@/utils/errorSummary'
 
 // Clock icon (unchecked) and calendar-check icon (checked), mirroring MaterialUISwitch style
@@ -153,6 +153,7 @@ const CanvasHeader = ({
     isAgentflowV2,
     isEtlCanvas,
     handleSaveFlow,
+    handleSaveFlowName,
     handleDeleteFlow,
     handleLoadFlow,
     onApplyMigration,
@@ -179,6 +180,7 @@ const CanvasHeader = ({
 
     const [isEditingFlowName, setEditingFlowName] = useState(null)
     const [flowName, setFlowName] = useState('')
+    const storedFlowName = chatflow?.name
     const [isSettingsOpen, setSettingsOpen] = useState(false)
     const [flowDialogOpen, setFlowDialogOpen] = useState(false)
     const [apiDialogOpen, setAPIDialogOpen] = useState(false)
@@ -210,7 +212,6 @@ const CanvasHeader = ({
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
     const getScheduleStatusApi = useApi(chatflowsApi.getScheduleStatus)
     const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled, { currentOnly: true, localNoAnswer: true })
     const canvas = useSelector((state) => state.canvas)
@@ -343,10 +344,31 @@ const CanvasHeader = ({
                     return
                 }
             }
-            const updateBody = {
-                name: next
-            }
-            updateChatflowApi.request(chatflow.id, updateBody)
+            setFlowName(next)
+            handleSaveFlowName?.(next, {
+                onAck: (saved) => {
+                    setFlowName(saved.name)
+                    onChatflowUpdated(saved)
+                    setEditingFlowName(false)
+                },
+                onError: (error) => {
+                    setFlowName(chatflow.name)
+                    enqueueSnackbar({
+                        message: saveFailureMessage(error),
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'error',
+                            persist: true,
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                    setEditingFlowName(false)
+                }
+            })
         }
     }
 
@@ -435,46 +457,17 @@ const CanvasHeader = ({
     }
 
     useEffect(() => {
-        if (updateChatflowApi.data) {
-            setFlowName(updateChatflowApi.data.name)
-            dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-        }
-        setEditingFlowName(false)
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateChatflowApi.data])
+        if (storedFlowName !== undefined) setFlowName(storedFlowName)
+    }, [storedFlowName])
 
     useEffect(() => {
-        if (!updateChatflowApi.error) return
-        enqueueSnackbar({
-            message: saveFailureMessage(updateChatflowApi.error),
-            options: {
-                key: new Date().getTime() + Math.random(),
-                variant: 'error',
-                persist: true,
-                action: (key) => (
-                    <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                        <IconX />
-                    </Button>
-                )
-            }
+        if (!chatflow || !chatflowConfigurationDialogOpen) return
+        setChatflowConfigurationDialogProps({
+            title: `${title} Configuration`,
+            chatflow,
+            draftStatus,
+            onDraftStatus
         })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateChatflowApi.error])
-
-    useEffect(() => {
-        if (chatflow) {
-            setFlowName(chatflow.name)
-            // if configuration dialog is open, update its data
-            if (chatflowConfigurationDialogOpen) {
-                setChatflowConfigurationDialogProps({
-                    title: `${title} Configuration`,
-                    chatflow,
-                    draftStatus,
-                    onDraftStatus
-                })
-            }
-        }
     }, [chatflow, title, chatflowConfigurationDialogOpen, draftStatus, onDraftStatus])
 
     // Version history shows when the server keeps it: on by default, off with CUTTLELY_VERSIONS=off.
@@ -1072,6 +1065,7 @@ const CanvasHeader = ({
 CanvasHeader.propTypes = {
     chatflow: PropTypes.object,
     handleSaveFlow: PropTypes.func,
+    handleSaveFlowName: PropTypes.func,
     handleDeleteFlow: PropTypes.func,
     handleLoadFlow: PropTypes.func,
     onApplyMigration: PropTypes.func,

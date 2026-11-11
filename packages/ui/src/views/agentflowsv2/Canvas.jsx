@@ -388,6 +388,17 @@ const AgentflowCanvas = () => {
         )
     }
 
+    const handleSaveFlowName = (name, callbacks = {}) => {
+        draftSave.runNonReplay(
+            {
+                send: () => chatflowsApi.updateChatflow(chatflow.id, { name }),
+                onAck: callbacks.onAck,
+                onError: callbacks.onError
+            },
+            { internal: true }
+        )
+    }
+
     const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, starterQuestions = []) => ({
         kind: 'live',
         id: created.id,
@@ -1257,6 +1268,7 @@ const AgentflowCanvas = () => {
                             <CanvasHeader
                                 chatflow={chatflow}
                                 handleSaveFlow={handleSaveFlow}
+                                handleSaveFlowName={handleSaveFlowName}
                                 handleDeleteFlow={handleDeleteFlow}
                                 handleLoadFlow={handleLoadFlow}
                                 onApplyMigration={({ canvas, name }) => {

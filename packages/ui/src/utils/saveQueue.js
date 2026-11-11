@@ -3,6 +3,7 @@ import { draftConflictFrom } from '@/utils/flowDrafts'
 
 export const SAVE_RETRY_NOTICE = "Your changes aren't saved yet. We'll keep trying."
 export const SAVE_AGAIN_NOTICE = 'The save did not get a response. Your edits are still here. Press Save again.'
+export const CREATE_STATUS_NOTICE = 'The flow was created. We are still checking its save status.'
 export const SAVE_CLOCK_SKEW_MS = 2 * 60 * 1000
 
 const parseCanvas = (text) => {
@@ -68,16 +69,46 @@ const fileNamesInInput = (value) => {
     }
 }
 
+const withoutNestedFileBodies = (value) => {
+    const names = fileNamesInInput(value)
+    if (names) return { savedFileNames: names }
+    if (typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))) {
+        try {
+            const parsed = JSON.parse(value)
+            const normalized = withoutNestedFileBodies(parsed)
+            return normalized === parsed ? value : JSON.stringify(normalized)
+        } catch {
+            return value
+        }
+    }
+    if (Array.isArray(value)) {
+        let changed = false
+        const normalized = value.map((item) => {
+            const next = withoutNestedFileBodies(item)
+            if (next !== item) changed = true
+            return next
+        })
+        return changed ? normalized : value
+    }
+    if (value && Object.getPrototypeOf(value) === Object.prototype) {
+        let changed = false
+        const normalized = {}
+        for (const [key, item] of Object.entries(value)) {
+            const next = withoutNestedFileBodies(item)
+            normalized[key] = next
+            if (next !== item) changed = true
+        }
+        return changed ? normalized : value
+    }
+    return value
+}
+
 const withoutFileBodies = (canvas) => {
     const next = withoutServerCanvasFields(canvas)
     for (const node of next.nodes) {
         const inputs = node?.data?.inputs
         if (!inputs || Object.getPrototypeOf(inputs) !== Object.prototype) continue
-        node.data.inputs = { ...inputs }
-        for (const [key, value] of Object.entries(node.data.inputs)) {
-            const names = fileNamesInInput(value)
-            if (names) node.data.inputs[key] = { savedFileNames: names }
-        }
+        node.data.inputs = withoutNestedFileBodies(inputs)
     }
     return next
 }
@@ -129,7 +160,10 @@ const dateValue = (value) => {
 
 export const draftSaveLanded = (status, entry) => {
     const stored = status?.draft
-    if (!stored) return false
+    if (!stored) {
+        const liveFlowData = status?.live?.flowData ?? status?.flow?.flowData ?? status?.flowData ?? entry.liveFlowData
+        return typeof liveFlowData === 'string' && sameSavedCanvas(entry.flowData, liveFlowData)
+    }
     if (stored.hash === entry.expectedDraftHash || stored.updatedBy !== entry.userId) return false
 
     const updated = dateValue(stored.updatedDate)
@@ -170,6 +204,24 @@ const withNextDraftBase = (entry, status) => ({
     baseFlowData: status?.draft?.flowData || entry.flowData
 })
 
+const withNextLiveBase = (entry, flow) => ({
+    ...entry,
+    baseUpdatedDate: flow?.updatedDate ?? entry.baseUpdatedDate,
+    baseFlowData: flow?.flowData ?? entry.baseFlowData,
+    baseName: flow?.name ?? entry.baseName
+})
+
+const liveCanvasMatch = (entry, stored) => {
+    if (stored?.name !== entry.body.name) return 'none'
+    if (sameSavedCanvas(stored?.flowData, entry.body.flowData)) return 'exact'
+    return sameLiveCanvas(stored?.flowData, entry.body.flowData) ? 'files' : 'none'
+}
+
+const liveSaveLanded = (entry, stored) => {
+    const match = liveCanvasMatch(entry, stored)
+    return match === 'exact' || (match === 'files' && stored?.updatedDate !== entry.baseUpdatedDate)
+}
+
 export const createSaveQueue = ({
     putDraft,
     getDraftStatus,
@@ -181,6 +233,7 @@ export const createSaveQueue = ({
     beginReconnect = () => undefined,
     endReconnect = () => undefined,
     onExhausted = () => undefined,
+    onCreateStatusWaiting = () => undefined,
     onResolved = () => undefined,
     onBusyChange = () => undefined
 }) => {
@@ -213,7 +266,7 @@ export const createSaveQueue = ({
 
     const setState = (next) => {
         state = next
-        const nextBusy = next === 'saving' || next === 'waiting'
+        const nextBusy = next === 'saving' || (next === 'waiting' && current?.kind !== 'create')
         if (nextBusy === busy) return
         busy = nextBusy
         if (!stopped) onBusyChange(nextBusy)
@@ -320,6 +373,7 @@ export const createSaveQueue = ({
     const ackLive = async (entry, flow, reconciled = false) => {
         if (stopped) return
         await entry.onAck?.(flow, { reconciled })
+        if (pending?.kind === 'live') pending = withNextLiveBase(pending, flow)
         finishResolved(entry)
     }
 
@@ -338,7 +392,7 @@ export const createSaveQueue = ({
         let guardedWriteUsed = false
         if (!guarded && entry.beforeWrite && !entry.preflightDone) {
             try {
-                const allowed = await entry.beforeWrite()
+                const allowed = await entry.beforeWrite(entry.baseUpdatedDate)
                 entry.preflightDone = true
                 if (!allowed) {
                     finishResolved(entry)
@@ -353,7 +407,7 @@ export const createSaveQueue = ({
         if (guarded) {
             const checked = await readLive(entry)
             if (checked.result === 'waiting') return 'waiting'
-            if (checked.stored?.name === entry.body.name && sameLiveCanvas(checked.stored?.flowData, entry.body.flowData)) {
+            if (liveSaveLanded(entry, checked.stored)) {
                 await ackLive(entry, checked.stored, true)
                 return 'done'
             }
@@ -376,7 +430,7 @@ export const createSaveQueue = ({
                 const checked = await readLive(entry)
                 if (checked.result === 'waiting') return 'waiting'
                 const stored = checked.stored
-                if (stored?.name === entry.body.name && sameLiveCanvas(stored?.flowData, entry.body.flowData)) {
+                if (liveSaveLanded(entry, stored)) {
                     await ackLive(entry, stored, true)
                     return 'done'
                 }
@@ -409,6 +463,7 @@ export const createSaveQueue = ({
             const saved = response?.data ?? response
             if (entry.kind === 'create') return { result: 'done', created: saved }
             await entry.onAck?.(saved)
+            if (pending?.kind === 'live') pending = withNextLiveBase(pending, saved)
             finishResolved(entry)
             return { result: 'done' }
         } catch (error) {
@@ -428,19 +483,28 @@ export const createSaveQueue = ({
 
         while (source) {
             let next = null
-            try {
-                next = source.afterCreate ? await source.afterCreate(created, { fromPending: source !== entry }) : null
-            } catch (error) {
-                if ((isNoResponse(error) && !isCancel(error)) || error?.saveModeUnknown === true) {
-                    entry.created = created
-                    entry.createSource = source
-                    trackReconnect()
-                    return { result: 'waiting' }
+            for (let attempt = 0; attempt <= 3 && !stopped; attempt += 1) {
+                if (attempt > 0) await waitForRetry(attempt)
+                try {
+                    next = source.afterCreate ? await source.afterCreate(created, { fromPending: source !== entry }) : null
+                    break
+                } catch (error) {
+                    const canRetry =
+                        (!isCancel(error) && (isNoResponse(error) || error?.createStatusReadFailed === true)) ||
+                        error?.saveModeUnknown === true
+                    if (canRetry && attempt < 3) continue
+                    if (canRetry) {
+                        entry.created = created
+                        entry.createSource = source
+                        trackReconnect()
+                        return { result: 'waiting' }
+                    }
+                    await source.onError?.(error)
+                    finishResolved(source)
+                    return { result: 'done', dropPendingCreate: true }
                 }
-                await source.onError?.(error)
-                finishResolved(source)
-                return { result: 'done', dropPendingCreate: true }
             }
+            if (stopped) return { result: 'done' }
 
             if (pending?.kind === 'create') {
                 source = pending
@@ -465,7 +529,8 @@ export const createSaveQueue = ({
             stopReconnect()
             current = entry
             setState('waiting')
-            if (entry.kind !== 'create') onExhausted(current)
+            if (entry.kind === 'create') onCreateStatusWaiting(current)
+            else onExhausted(current)
             return
         }
         current = null
@@ -476,7 +541,8 @@ export const createSaveQueue = ({
                 stopReconnect()
                 current = entry
                 setState('waiting')
-                if (entry.kind !== 'create') onExhausted(current)
+                if (entry.kind === 'create') onCreateStatusWaiting(current)
+                else onExhausted(current)
                 return
             }
             if (followed.dropPendingCreate && pending?.kind === 'create') pending = null
