@@ -6,7 +6,7 @@ import PropTypes from 'prop-types'
 import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 
-import { CREATE_STATUS_NOTICE, SAVE_AGAIN_NOTICE, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
+import { CREATE_NOT_CONFIRMED_NOTICE, CREATE_STATUS_NOTICE, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
 import useSaveQueue from './useSaveQueue'
 
 const mockDispatch = jest.fn()
@@ -155,9 +155,11 @@ describe('save queue hook lifecycle', () => {
         expect(apiRef.current.expected()).toEqual({ expectedDraftHash: 'base' })
     })
 
-    test('an unanswered create reports Save again without showing the retry notice', async () => {
+    test('an unanswered create blocks later creates without showing the retry notice', async () => {
         const onError = jest.fn()
         const send = jest.fn().mockRejectedValue(noResponse())
+        const laterSend = jest.fn()
+        const laterError = jest.fn()
         const container = document.createElement('div')
         document.body.appendChild(container)
         root = createRoot(container)
@@ -166,7 +168,7 @@ describe('save queue hook lifecycle', () => {
         await act(async () => apiRef.current.saveCreate({ send, onError }))
         await settleTimers()
         expect(send).toHaveBeenCalledTimes(1)
-        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_AGAIN_NOTICE }))
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: CREATE_NOT_CONFIRMED_NOTICE }))
         expect(
             mockDispatch.mock.calls
                 .map(([action]) => action)
@@ -175,7 +177,11 @@ describe('save queue hook lifecycle', () => {
 
         await act(async () => window.dispatchEvent(new Event('online')))
         await settleTimers()
+        await act(async () => apiRef.current.saveCreate({ send: laterSend, onError: laterError }))
+        await settleTimers()
         expect(send).toHaveBeenCalledTimes(1)
+        expect(laterSend).not.toHaveBeenCalled()
+        expect(laterError).toHaveBeenCalledWith(expect.objectContaining({ message: CREATE_NOT_CONFIRMED_NOTICE }))
     })
 
     test('uses the returned id for a second Save during creation', async () => {

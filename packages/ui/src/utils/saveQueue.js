@@ -3,6 +3,8 @@ import { draftConflictFrom } from '@/utils/flowDrafts'
 
 export const SAVE_RETRY_NOTICE = "Your changes aren't saved yet. Choose Retry when the connection is back."
 export const SAVE_AGAIN_NOTICE = 'The save did not get a response. Your edits are still here. Press Save again.'
+export const CREATE_NOT_CONFIRMED_NOTICE =
+    'The new flow may have been created, but the server did not answer. Check your flows in another tab before leaving this canvas.'
 export const CREATE_STATUS_NOTICE = 'The flow was created. We are still checking its save status.'
 export const SAVE_CLOCK_SKEW_MS = 2 * 60 * 1000
 
@@ -239,6 +241,7 @@ export const createSaveQueue = ({
     let pending = null
     let continuations = []
     let createdFlow = null
+    let createBlocked = false
     let stopped = false
     let reconnecting = false
     let generation = 0
@@ -454,6 +457,13 @@ export const createSaveQueue = ({
         return failure
     }
 
+    const createNotConfirmedError = (error) => {
+        const failure = new Error(CREATE_NOT_CONFIRMED_NOTICE)
+        failure.cause = error
+        failure.createNotConfirmed = true
+        return failure
+    }
+
     const runNonReplay = async (entry) => {
         try {
             const response = await entry.send()
@@ -465,7 +475,8 @@ export const createSaveQueue = ({
             return { result: 'done' }
         } catch (error) {
             if (isNoResponse(error) && !isCancel(error)) {
-                await entry.onError?.(saveAgainError(error))
+                if (entry.kind === 'create') createBlocked = true
+                await entry.onError?.(entry.kind === 'create' ? createNotConfirmedError(error) : saveAgainError(error))
                 finishResolved(entry)
                 return { result: 'done', ambiguousCreate: entry.kind === 'create' }
             }
@@ -583,6 +594,10 @@ export const createSaveQueue = ({
     const enqueue = (entry) => {
         if (stopped) return
         const captured = { ...entry, hasBase64: entry.hasBase64 ?? containsBase64Canvas(entry.flowData) }
+        if (captured.kind === 'create' && createBlocked && !createdFlow) {
+            Promise.resolve(captured.onError?.(createNotConfirmedError())).catch(() => undefined)
+            return
+        }
         if (captured.kind === 'create' && createdFlow) captured.created = createdFlow
         if (state === 'saving') {
             if (captured.internal) continuations.push(captured)
@@ -619,5 +634,5 @@ export const createSaveQueue = ({
         stopReconnect()
     }
 
-    return { enqueue, retry, dispose, getState: () => ({ state, current, pending }) }
+    return { enqueue, retry, dispose, getState: () => ({ state, current, pending, createBlocked }) }
 }

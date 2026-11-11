@@ -1,10 +1,10 @@
 import {
+    CREATE_NOT_CONFIRMED_NOTICE,
     containsBase64Canvas,
     createSaveQueue,
     draftSaveLanded,
     sameLiveCanvas,
     sameSavedCanvas,
-    SAVE_AGAIN_NOTICE,
     SAVE_CLOCK_SKEW_MS
 } from './saveQueue'
 
@@ -604,7 +604,7 @@ describe('save queue core', () => {
         expect(queue.getState().state).toBe('waiting')
     })
 
-    test('settles an unanswered create and asks for another Save without the retry notice', async () => {
+    test('blocks every later create after an unanswered create without showing the retry notice', async () => {
         const create = { kind: 'create', send: jest.fn().mockRejectedValue(noResponse()), onAck: jest.fn(), onError: jest.fn() }
         const { queue, calls } = makeQueue()
         queue.enqueue(create)
@@ -613,8 +613,11 @@ describe('save queue core', () => {
         await flush()
         expect(create.send).toHaveBeenCalledTimes(1)
         expect(calls.onExhausted).not.toHaveBeenCalled()
-        expect(create.onError).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(create.onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: CREATE_NOT_CONFIRMED_NOTICE, createNotConfirmed: true })
+        )
         expect(queue.getState().state).toBe('idle')
+        expect(queue.getState().createBlocked).toBe(true)
     })
 
     test('drops a queued creation after an unanswered creation request', async () => {
@@ -636,7 +639,10 @@ describe('save queue core', () => {
 
         queue.enqueue(queued)
         await flush()
-        expect(queuedSend).toHaveBeenCalledTimes(1)
+        expect(queuedSend).not.toHaveBeenCalled()
+        expect(queued.onError).toHaveBeenCalledWith(
+            expect.objectContaining({ message: CREATE_NOT_CONFIRMED_NOTICE, createNotConfirmed: true })
+        )
     })
 
     test('retries a created flow status before leaving a Retry action', async () => {
