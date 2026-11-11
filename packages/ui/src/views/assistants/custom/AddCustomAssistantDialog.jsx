@@ -25,6 +25,7 @@ import assistantsApi from '@/api/assistants'
 
 // utils
 import useNotifier from '@/utils/useNotifier'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const AddCustomAssistantDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const portalElement = document.getElementById('portal')
@@ -73,9 +74,7 @@ const AddCustomAssistantDialog = ({ show, dialogProps, onCancel, onConfirm }) =>
             }
         } catch (err) {
             enqueueSnackbar({
-                message: `Failed to add new Custom Assistant: ${
-                    typeof err.response.data === 'object' ? err.response.data.message : err.response.data
-                }`,
+                message: `Failed to add new Custom Assistant: ${requestFailureMessage(err)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

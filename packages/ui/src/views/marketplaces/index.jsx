@@ -60,6 +60,7 @@ import useNotifier from '@/utils/useNotifier'
 import { baseURL, AGENTFLOW_ICONS } from '@/store/constant'
 import { cardGridColumns, gridSpacing } from '@/store/constant'
 import { useError } from '@/store/context/ErrorContext'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const badges = ['POPULAR', 'NEW']
 const types = ['Harness', 'ETL', 'AgentflowV2', 'Chatflow', 'Tool']
@@ -247,9 +248,7 @@ const Marketplace = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete custom template: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete custom template: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

@@ -24,6 +24,7 @@ import documentStoreApi from '@/api/documentstore'
 
 // utils
 import useNotifier from '@/utils/useNotifier'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const AddDocStoreDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const portalElement = document.getElementById('portal')
@@ -93,9 +94,7 @@ const AddDocStoreDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to add new Document Store: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new Document Store: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -140,9 +139,7 @@ const AddDocStoreDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to update Document Store: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to update Document Store: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

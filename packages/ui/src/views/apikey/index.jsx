@@ -50,6 +50,7 @@ import useNotifier from '@/utils/useNotifier'
 // Icons
 import APIEmptySVG from '@/assets/images/api_empty.svg'
 import { IconChevronsDown, IconChevronsUp, IconCopy, IconEdit, IconEye, IconEyeOff, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| APIKey ||============================== //
 
@@ -367,9 +368,7 @@ const APIKey = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete API key: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete API key: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

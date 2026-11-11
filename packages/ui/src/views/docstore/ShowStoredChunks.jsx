@@ -31,6 +31,7 @@ import { getFileName } from '@/utils/genericHelper'
 // store
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import { useError } from '@/store/context/ErrorContext'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
     background: theme.palette.card.main,
@@ -122,9 +123,7 @@ const ShowStoredChunks = () => {
         } catch (error) {
             setLoading(false)
             enqueueSnackbar({
-                message: `Failed to edit chunk: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to edit chunk: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -171,9 +170,7 @@ const ShowStoredChunks = () => {
             } catch (error) {
                 setLoading(false)
                 enqueueSnackbar({
-                    message: `Failed to delete chunk: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete chunk: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

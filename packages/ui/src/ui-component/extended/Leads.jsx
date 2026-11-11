@@ -16,6 +16,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const formTitle = `Hey 👋 thanks for your interest!
 Let us know where we can reach you`
@@ -66,7 +67,9 @@ const Leads = ({ dialogProps }) => {
                 dispatch({ type: SET_CHATFLOW, chatflow: saveResp.data })
             }
         } catch (error) {
-            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
+            const errorData = error.response
+                ? error.response.data || `${error.response.status}: ${error.response.statusText}`
+                : requestFailureMessage(error)
             enqueueSnackbar({
                 message: `Failed to save Leads configuration: ${errorData}`,
                 options: {
