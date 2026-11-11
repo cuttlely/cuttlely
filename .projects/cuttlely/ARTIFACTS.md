@@ -1,3 +1,9 @@
+## Proxy-safe HTTP timeouts
+
+-   `packages/server/src/utils/httpServerTimeouts.ts`: parses bounded keep-alive and headers timeouts, reports invalid values through the supplied warning function, and applies only those two properties to the HTTP server.
+-   `packages/server/src/utils/httpServerTimeouts.test.ts`: covers defaults, valid and invalid overrides, ordering, the maximum pair, warnings, and preservation of `requestTimeout`.
+-   `docs/how-to/reverse-proxy.md`: beginner deployment guide for upstream connection reuse, streaming, uploads, gateway idle time, proxy trust, and the two server timeout variables.
+
 ## Canvas error page after a request gets no answer
 
 -   `packages/ui/src/api/client.js`: `onResponseError` guards `error.response` and rejects a no-response error unchanged. `packages/ui/src/api/client.test.js` covers no response, `undefined` and 401 with and without a body.

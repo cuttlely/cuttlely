@@ -83,6 +83,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   [Docker](./docker.md). The install most people want: SQLite, one container.
 -   [Render](./render.md). A hosted install with Postgres, from the Blueprint in the repository.
 -   [Build from source and run the dev server](./from-source.md). Build Cuttlely yourself and change it with live reload.
+-   [Run behind a reverse proxy](./reverse-proxy.md). Keep reused upstream connections and streaming chats reliable.
 -   [Server settings](./server-settings.md). Change how the server runs from **Admin** > **Server Settings**.
 
 ## Sign in and manage people
