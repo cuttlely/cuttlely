@@ -1,4 +1,4 @@
-import { containsBase64Canvas, createSaveQueue, draftSaveLanded, sameSavedCanvas, SAVE_CLOCK_SKEW_MS } from './saveQueue'
+import { containsBase64Canvas, createSaveQueue, draftSaveLanded, sameSavedCanvas, SAVE_AGAIN_NOTICE, SAVE_CLOCK_SKEW_MS } from './saveQueue'
 
 const FLOW_A = JSON.stringify({ nodes: [{ id: 'a', data: { name: 'card' } }], edges: [] })
 const FLOW_B = JSON.stringify({ nodes: [{ id: 'b', data: { name: 'card' } }], edges: [] })
@@ -157,13 +157,22 @@ describe('save queue core', () => {
         expect(draftSaveLanded({ draft: null }, entry({ flowData: FLOW_C, liveFlowData: FLOW_C }), NOW)).toBe(true)
     })
 
-    test('uses the clock allowance or a later base timestamp for landed detection', () => {
+    test('requires the clock allowance even when the stored draft is newer than the base', async () => {
         const near = status('stored', FLOW_A, { updatedDate: new Date(NOW - SAVE_CLOCK_SKEW_MS + 1).toISOString() })
-        const afterBase = status('stored', FLOW_A, { updatedDate: new Date(NOW - SAVE_CLOCK_SKEW_MS - 1).toISOString() })
+        const tooOld = status('stored', FLOW_A, { updatedDate: new Date(NOW - SAVE_CLOCK_SKEW_MS - 1).toISOString() })
+        const save = entry({ baseDraftUpdatedDate: new Date(NOW - SAVE_CLOCK_SKEW_MS - 2).toISOString() })
         expect(draftSaveLanded(near, entry(), NOW)).toBe(true)
-        expect(draftSaveLanded(afterBase, entry({ baseDraftUpdatedDate: new Date(NOW - SAVE_CLOCK_SKEW_MS - 2).toISOString() }), NOW)).toBe(
-            true
-        )
+        expect(draftSaveLanded(tooOld, save, NOW)).toBe(false)
+
+        const { queue, calls } = makeQueue({
+            putDraft: jest.fn().mockRejectedValue(noResponse()),
+            getDraftStatus: jest.fn().mockResolvedValue({ data: tooOld })
+        })
+        queue.enqueue(save)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(save.onAck).not.toHaveBeenCalled()
+        expect(save.onConflict).toHaveBeenCalledTimes(1)
     })
 
     test('ignores only stored node-pack metadata during canvas comparison', () => {
@@ -333,7 +342,7 @@ describe('save queue core', () => {
         expect(queue.getState().state).toBe('waiting')
     })
 
-    test('never replays create and keeps one waiting snapshot', async () => {
+    test('settles an unanswered create and asks for another Save without the retry notice', async () => {
         const create = { kind: 'create', send: jest.fn().mockRejectedValue(noResponse()), onAck: jest.fn(), onError: jest.fn() }
         const { queue, calls } = makeQueue()
         queue.enqueue(create)
@@ -341,8 +350,80 @@ describe('save queue core', () => {
         queue.retry()
         await flush()
         expect(create.send).toHaveBeenCalledTimes(1)
-        expect(calls.onExhausted).toHaveBeenCalledTimes(1)
-        expect(queue.getState().current.kind).toBe('create')
+        expect(calls.onExhausted).not.toHaveBeenCalled()
+        expect(create.onError).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
+    })
+
+    test('uses one create and saves the latest queued snapshot to its returned id', async () => {
+        const firstRequest = deferred()
+        let editRev = 2
+        let dirty = true
+        const firstCreate = {
+            kind: 'create',
+            rev: 1,
+            send: jest.fn().mockReturnValue(firstRequest.promise),
+            onAck: jest.fn((_created, details) => {
+                if (!details.willContinue && editRev === 1) dirty = false
+            }),
+            onError: jest.fn()
+        }
+        const secondCreate = {
+            kind: 'create',
+            rev: 2,
+            flowData: FLOW_B,
+            send: jest.fn(),
+            onError: jest.fn(),
+            afterCreate: jest.fn((created) =>
+                entry({
+                    id: created.id,
+                    rev: 2,
+                    flowData: FLOW_B,
+                    onAck: jest.fn(() => {
+                        if (editRev === 2) dirty = false
+                    })
+                })
+            )
+        }
+        const { queue, calls } = makeQueue({ putDraft: jest.fn().mockResolvedValue({ data: status('saved', FLOW_B) }) })
+        queue.enqueue(firstCreate)
+        queue.enqueue(secondCreate)
+        firstRequest.resolve({ data: { id: 'created-1', name: 'Created', flowData: FLOW_A } })
+        await flush()
+        await flush()
+        expect(firstCreate.send).toHaveBeenCalledTimes(1)
+        expect(secondCreate.send).not.toHaveBeenCalled()
+        expect(firstCreate.onAck).toHaveBeenCalledWith(expect.objectContaining({ id: 'created-1' }), { willContinue: true })
+        expect(secondCreate.afterCreate).toHaveBeenCalledWith(expect.objectContaining({ id: 'created-1' }), { fromPending: true })
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(calls.putDraft).toHaveBeenCalledWith('created-1', FLOW_B, expect.any(Object))
+        expect(dirty).toBe(false)
+    })
+
+    test('keeps an internal continuation separate from the latest user snapshot', async () => {
+        const firstRequest = deferred()
+        const nameSend = jest.fn().mockResolvedValue({ data: { id: 'flow-1' } })
+        const latest = entry({ rev: 2, flowData: FLOW_B })
+        const { queue, calls } = makeQueue({
+            putDraft: jest
+                .fn()
+                .mockReturnValueOnce(firstRequest.promise)
+                .mockResolvedValueOnce({ data: status('latest', FLOW_B) })
+        })
+        const first = entry({
+            onAck: jest.fn(() => {
+                queue.enqueue({ kind: 'nonReplay', internal: true, send: nameSend, onAck: jest.fn(), onError: jest.fn() })
+            })
+        })
+        queue.enqueue(first)
+        queue.enqueue(latest)
+        firstRequest.resolve({ data: status('first', FLOW_A) })
+        await flush()
+        await flush()
+        expect(nameSend).toHaveBeenCalledTimes(1)
+        expect(calls.putDraft).toHaveBeenCalledTimes(2)
+        expect(calls.putDraft.mock.calls[1][1]).toBe(FLOW_B)
+        expect(latest.onAck).toHaveBeenCalledTimes(1)
     })
 
     test('stops callbacks and further attempts after disposal', async () => {

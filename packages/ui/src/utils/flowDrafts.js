@@ -276,6 +276,7 @@ export const publishResultMessage = (data = {}) => {
 }
 
 export const apiErrorMessage = (error, fallback) => {
+    if (error?.saveAgain === true && typeof error.message === 'string' && error.message) return error.message
     const data = error?.response?.data
     if (data && typeof data === 'object' && typeof data.message === 'string' && data.message) return data.message
     if (typeof data === 'string' && data) return data

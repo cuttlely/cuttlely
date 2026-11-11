@@ -6,27 +6,22 @@ import PropTypes from 'prop-types'
 import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 
-import chatflowsApi from '@/api/chatflows'
-import flowDraftsApi from '@/api/flowDrafts'
-import { ENQUEUE_SNACKBAR } from '@/store/actions'
-import { SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
+import { SAVE_AGAIN_NOTICE, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
 import useSaveQueue from './useSaveQueue'
 
 const mockDispatch = jest.fn()
+const ENQUEUE_SNACKBAR = 'test/enqueue'
+const CLOSE_SNACKBAR = 'test/close'
+const enqueueSnackbar = (notification) => ({ type: ENQUEUE_SNACKBAR, notification })
+const closeSnackbar = (key) => ({ type: CLOSE_SNACKBAR, key })
 
 jest.mock('react-redux', () => ({
-    useDispatch: () => mockDispatch,
     useSelector: (select) => select({ auth: { user: { id: 'me' } } })
 }))
 
 jest.mock('@/api/flowDrafts', () => ({
     __esModule: true,
-    default: { saveDraft: jest.fn(), getStatus: jest.fn() }
-}))
-
-jest.mock('@/api/chatflows', () => ({
-    __esModule: true,
-    default: { updateChatflow: jest.fn(), getSpecificChatflow: jest.fn() }
+    default: { getStatus: jest.fn() }
 }))
 
 jest.mock('@/api/connectionState', () => ({ beginReconnect: jest.fn(), endReconnect: jest.fn() }))
@@ -42,25 +37,34 @@ const BASE = {
 }
 
 const noResponse = () => ({ request: {}, response: undefined })
+const deferred = () => {
+    let resolve
+    const promise = new Promise((done) => {
+        resolve = done
+    })
+    return { promise, resolve }
+}
 
-function Harness({ apiRef }) {
-    apiRef.current = useSaveQueue()
+function Harness({ apiRef, dependencies }) {
+    apiRef.current = useSaveQueue(dependencies)
     return createElement('div')
 }
 
-Harness.propTypes = { apiRef: PropTypes.shape({ current: PropTypes.object }) }
+Harness.propTypes = { apiRef: PropTypes.shape({ current: PropTypes.object }), dependencies: PropTypes.object }
 
 describe('save queue hook lifecycle', () => {
     let root
     let apiRef
+    let chatflowsApi
+    let flowDraftsApi
+    let dependencies
 
     beforeEach(() => {
         jest.useFakeTimers()
         mockDispatch.mockReset()
-        flowDraftsApi.saveDraft.mockReset()
-        flowDraftsApi.getStatus.mockReset()
-        chatflowsApi.updateChatflow.mockReset()
-        chatflowsApi.getSpecificChatflow.mockReset()
+        flowDraftsApi = { saveDraft: jest.fn(), getStatus: jest.fn() }
+        chatflowsApi = { updateChatflow: jest.fn(), getSpecificChatflow: jest.fn() }
+        dependencies = { chatflowsApi, flowDraftsApi, dispatch: mockDispatch, enqueueSnackbar, closeSnackbar }
         apiRef = { current: null }
     })
 
@@ -91,7 +95,7 @@ describe('save queue hook lifecycle', () => {
         const container = document.createElement('div')
         document.body.appendChild(container)
         root = createRoot(container)
-        await act(async () => root.render(createElement(Harness, { apiRef })))
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
         apiRef.current.record(BASE, FLOW)
         await act(async () => {
             apiRef.current.saveDraft({ id: 'flow-1', rev: 1, flowData: FLOW, liveFlowData: '{}', onAck })
@@ -104,16 +108,108 @@ describe('save queue hook lifecycle', () => {
         expect(notices).toHaveLength(1)
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(4)
 
+        await act(async () => window.dispatchEvent(new Event('online')))
+        await settleTimers()
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(8)
+        expect(
+            mockDispatch.mock.calls
+                .map(([action]) => action)
+                .filter((action) => action.type === ENQUEUE_SNACKBAR && action.notification.message === SAVE_RETRY_NOTICE)
+        ).toHaveLength(1)
+
         flowDraftsApi.saveDraft.mockResolvedValueOnce({ data: { ...BASE, draft: { ...BASE.draft, hash: 'saved' } } })
         await act(async () => window.dispatchEvent(new Event('online')))
         await settleTimers()
-        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(5)
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(9)
         expect(onAck).toHaveBeenCalledTimes(1)
+        expect(mockDispatch.mock.calls.map(([action]) => action).filter((action) => action.type === CLOSE_SNACKBAR)).toHaveLength(1)
 
         await act(async () => root.unmount())
         root = null
         await act(async () => window.dispatchEvent(new Event('online')))
         await settleTimers()
-        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(5)
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(9)
+    })
+
+    test('an unanswered create reports Save again without showing the retry notice', async () => {
+        const onError = jest.fn()
+        const send = jest.fn().mockRejectedValue(noResponse())
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+
+        await act(async () => apiRef.current.saveCreate({ send, onError }))
+        await settleTimers()
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_AGAIN_NOTICE }))
+        expect(
+            mockDispatch.mock.calls
+                .map(([action]) => action)
+                .filter((action) => action.type === ENQUEUE_SNACKBAR && action.notification.message === SAVE_RETRY_NOTICE)
+        ).toHaveLength(0)
+
+        await act(async () => window.dispatchEvent(new Event('online')))
+        await settleTimers()
+        expect(send).toHaveBeenCalledTimes(1)
+    })
+
+    test('uses the returned id for a second Save during creation', async () => {
+        const request = deferred()
+        const firstSend = jest.fn().mockReturnValue(request.promise)
+        const secondSend = jest.fn()
+        const firstAck = jest.fn()
+        const latestAck = jest.fn()
+        const afterCreate = jest.fn((_created, _status, details) =>
+            details.fromPending ? { kind: 'draft', id: 'created-1', rev: 2, flowData: FLOW, liveFlowData: '{}', onAck: latestAck } : null
+        )
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { ...BASE, mode: 'draft' } })
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: { ...BASE, mode: 'draft', draft: { ...BASE.draft, hash: 'saved' } } })
+
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+        await act(async () => {
+            apiRef.current.saveCreate({ send: firstSend, onAck: firstAck, afterCreate })
+            apiRef.current.saveCreate({ send: secondSend, afterCreate })
+        })
+        await act(async () => request.resolve({ data: { id: 'created-1', flowData: '{}', name: 'Created' } }))
+        await settleTimers()
+
+        expect(firstSend).toHaveBeenCalledTimes(1)
+        expect(secondSend).not.toHaveBeenCalled()
+        expect(firstAck).toHaveBeenCalledWith(expect.objectContaining({ id: 'created-1' }), { willContinue: true })
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith('created-1', FLOW, { expectedDraftHash: 'base' })
+        expect(latestAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not call creation follow-up callbacks after unmount', async () => {
+        const statusRequest = deferred()
+        const onStatus = jest.fn()
+        const afterCreate = jest.fn()
+        flowDraftsApi.getStatus.mockReturnValue(statusRequest.promise)
+
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+        await act(async () =>
+            apiRef.current.saveCreate({
+                send: jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: '{}', name: 'Created' } }),
+                needsPostCreate: true,
+                onStatus,
+                afterCreate
+            })
+        )
+        await act(async () => root.unmount())
+        root = null
+        const dispatchesAfterUnmount = mockDispatch.mock.calls.length
+        await act(async () => statusRequest.resolve({ data: { ...BASE, mode: 'draft' } }))
+        await settleTimers()
+
+        expect(onStatus).not.toHaveBeenCalled()
+        expect(afterCreate).not.toHaveBeenCalled()
+        expect(mockDispatch).toHaveBeenCalledTimes(dispatchesAfterUnmount)
     })
 })

@@ -57,7 +57,7 @@ node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and 
 For focused canvas-save work, run the queue, draft-state, API, and dirty-revision tests from `packages/ui` with no more than three workers, then lint the changed UI files. The local browser scenarios are in the separate run workspace and require a running test server; do not treat an unrun script as execution evidence.
 
 ```bash
-nice -n 19 npx jest -w 3 src/utils/saveQueue.test.js src/hooks/useSaveQueue.test.js src/hooks/useDraftSave.test.js src/api/flowDrafts.test.js src/store/reducers/canvasReducer.test.js
+nice -n 19 npx jest -w 3 src/utils/saveQueue.test.js src/hooks/useSaveQueue.test.js src/utils/flowDrafts.test.js src/hooks/useDraftSave.test.js src/api/flowDrafts.test.js src/store/reducers/canvasReducer.test.js src/utils/canvasSave.test.js
 nice -n 19 npx eslint <changed-ui-files>
 ```
 

@@ -2,6 +2,7 @@ import { backoffDelay, isCancel, isNoResponse } from '@/api/resilience'
 import { draftConflictFrom } from '@/utils/flowDrafts'
 
 export const SAVE_RETRY_NOTICE = "Your changes aren't saved yet. We'll keep trying."
+export const SAVE_AGAIN_NOTICE = 'The save did not get a response. Your edits are still here. Press Save again.'
 export const SAVE_CLOCK_SKEW_MS = 2 * 60 * 1000
 
 const parseCanvas = (text) => {
@@ -67,10 +68,9 @@ export const draftSaveLanded = (status, entry) => {
     if (stored.hash === entry.expectedDraftHash || stored.updatedBy !== entry.userId) return false
 
     const updated = dateValue(stored.updatedDate)
-    const baseUpdated = dateValue(entry.baseDraftUpdatedDate)
-    const recent = updated !== null && updated >= entry.sentAt - SAVE_CLOCK_SKEW_MS
-    const afterBase = updated !== null && baseUpdated !== null && updated > baseUpdated
-    if (!recent && !afterBase) return false
+    // Allow two minutes for clock differences between the browser and the server. A stored draft
+    // outside this window may belong to another tab, even when it is newer than the loaded base.
+    if (updated === null || updated < entry.sentAt - SAVE_CLOCK_SKEW_MS) return false
 
     // Uploaded data is rewritten into stored paths, so its content cannot be compared reliably here.
     if (entry.hasBase64) return true
@@ -112,6 +112,7 @@ export const createSaveQueue = ({
     let state = 'idle'
     let current = null
     let pending = null
+    let continuations = []
     let stopped = false
     let reconnecting = false
     let generation = 0
@@ -294,32 +295,74 @@ export const createSaveQueue = ({
         return 'done'
     }
 
-    const runCreate = async (entry) => {
+    const saveAgainError = (error) => {
+        const failure = new Error(SAVE_AGAIN_NOTICE)
+        failure.cause = error
+        failure.saveAgain = true
+        return failure
+    }
+
+    const runNonReplay = async (entry) => {
         try {
             const response = await entry.send()
-            await entry.onAck?.(response?.data ?? response)
+            const saved = response?.data ?? response
+            const details = entry.kind === 'create' ? { willContinue: Boolean(pending) || entry.needsPostCreate === true } : undefined
+            await entry.onAck?.(saved, details)
             finishResolved(entry)
-            return 'done'
+            return entry.kind === 'create' ? { result: 'done', created: saved } : { result: 'done' }
         } catch (error) {
-            if (isNoResponse(error) && !isCancel(error)) return 'waiting'
+            if (isNoResponse(error) && !isCancel(error)) {
+                await entry.onError?.(saveAgainError(error))
+                finishResolved(entry)
+                return { result: 'done' }
+            }
             throw error
         }
     }
 
+    const createFollowup = async (entry, created) => {
+        let source = pending || entry
+        pending = null
+        let next = null
+
+        while (source) {
+            if (source !== entry && source.kind !== 'create') return source
+            try {
+                next = source.afterCreate ? await source.afterCreate(created, { fromPending: source !== entry }) : null
+            } catch (error) {
+                await source.onError?.(isNoResponse(error) && !isCancel(error) ? saveAgainError(error) : error)
+                finishResolved(source)
+                next = null
+            }
+
+            if (!pending) break
+            source = pending
+            pending = null
+            next = null
+        }
+        return next
+    }
+
     const settle = async (entry, result, runGeneration) => {
         if (stopped || generation !== runGeneration) return
-        if (result === 'waiting') {
+        const outcome = typeof result === 'string' ? { result } : result || { result: 'done' }
+        if (outcome.result === 'waiting') {
             stopReconnect()
-            current = pending || entry
-            pending = null
+            current = entry
             state = 'waiting'
             onExhausted(current)
             return
         }
         current = null
-        if (pending) {
-            const next = pending
+        let next = null
+        if (outcome.created) next = await createFollowup(entry, outcome.created)
+        if (stopped || generation !== runGeneration) return
+        if (!next && continuations.length) next = continuations.shift()
+        if (!next && pending) {
+            next = pending
             pending = null
+        }
+        if (next) {
             state = 'saving'
             current = next
             await execute(next, false)
@@ -336,7 +379,7 @@ export const createSaveQueue = ({
                     ? await runDraft(entry, guarded)
                     : entry.kind === 'live'
                     ? await runLive(entry, guarded)
-                    : await runCreate(entry)
+                    : await runNonReplay(entry)
             await settle(entry, result, runGeneration)
         } catch (error) {
             stopReconnect()
@@ -350,13 +393,15 @@ export const createSaveQueue = ({
         if (stopped) return
         const captured = { ...entry, hasBase64: entry.hasBase64 ?? containsBase64Canvas(entry.flowData) }
         if (state === 'saving') {
-            pending = captured
+            if (captured.internal) continuations.push(captured)
+            else pending = captured
             return
         }
         if (state === 'waiting') {
-            current = captured
+            if (captured.internal) continuations.push(captured)
+            else pending = captured
             state = 'saving'
-            execute(captured, captured.kind !== 'create')
+            execute(current, true)
             return
         }
         state = 'saving'
@@ -376,6 +421,7 @@ export const createSaveQueue = ({
         state = 'stopped'
         current = null
         pending = null
+        continuations = []
         for (const timer of timers) clearTimeout(timer)
         timers.clear()
         stopReconnect()

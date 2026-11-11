@@ -64,8 +64,8 @@ No. Native macOS and Windows source installs cannot save or compile agent profil
 Cuttlely sent a request and got no answer. Read requests are retried quietly first, so this message appears only after those attempts fail. The connection may have dropped, the request may have timed out, or a reverse proxy or cloud gateway in front of a self-hosted install may have blocked it.
 
 1. Check that your network connection works.
-2. If you have unsaved canvas edits, keep the page open. Saved-flow changes stay on the canvas and are retried quietly. If the connection stays down, you see **Your changes aren't saved yet. We'll keep trying.** Choose **Retry**, or wait for saving to resume when the connection is back. If someone else saved the draft, the usual review screen opens instead of replacing their work.
+2. If you have unsaved canvas edits, keep the page open. Canvas changes on an existing saved flow stay on the canvas and are retried quietly for draft and Live saves. If the connection stays down, you see **Your changes aren't saved yet. We'll keep trying.** Choose **Retry**, or wait for saving to resume when the connection is back. If someone else saved the draft, the usual review screen opens instead of replacing their work.
 3. Otherwise, reload the page.
 4. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 
-The first save of a brand-new flow is not retried automatically. Press **Save** again after the connection is back. Work you saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.
+The first save of a new flow and a save that changes only its name are not retried automatically. They do not show the keep-trying message. Your edits remain marked as unsaved, and Cuttlely asks you to press **Save** again. Work saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.

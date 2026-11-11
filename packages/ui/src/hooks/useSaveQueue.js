@@ -1,23 +1,20 @@
 import { createElement, useCallback, useEffect, useRef } from 'react'
 import { Button } from '@mui/material'
-import { useDispatch, useSelector } from 'react-redux'
+import { useSelector } from 'react-redux'
 
-import chatflowsApi from '@/api/chatflows'
-import flowDraftsApi from '@/api/flowDrafts'
 import { beginReconnect, endReconnect } from '@/api/connectionState'
-import { closeSnackbar, enqueueSnackbar } from '@/store/actions'
 import { createSaveQueue, SAVE_RETRY_NOTICE } from '@/utils/saveQueue'
 import useDraftSave from './useDraftSave'
 
 const NOTICE_KEY = 'canvas-save-waiting'
 
-export default function useSaveQueue() {
-    const dispatch = useDispatch()
+export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, enqueueSnackbar, closeSnackbar }) {
     const userId = useSelector((state) => state.auth?.user?.id)
     const draftSave = useDraftSave()
     const draftSaveRef = useRef(draftSave)
     const userIdRef = useRef(userId)
     const mountedRef = useRef(true)
+    const noticeOpenRef = useRef(false)
     const queueRef = useRef(null)
 
     draftSaveRef.current = draftSave
@@ -32,7 +29,8 @@ export default function useSaveQueue() {
             beginReconnect,
             endReconnect,
             onExhausted: () => {
-                if (!mountedRef.current) return
+                if (!mountedRef.current || noticeOpenRef.current) return
+                noticeOpenRef.current = true
                 dispatch(
                     enqueueSnackbar({
                         message: SAVE_RETRY_NOTICE,
@@ -54,7 +52,9 @@ export default function useSaveQueue() {
                 )
             },
             onResolved: () => {
-                if (mountedRef.current) dispatch(closeSnackbar(NOTICE_KEY))
+                if (!mountedRef.current || !noticeOpenRef.current) return
+                noticeOpenRef.current = false
+                dispatch(closeSnackbar(NOTICE_KEY))
             }
         })
     }
@@ -63,21 +63,30 @@ export default function useSaveQueue() {
         const online = () => queueRef.current?.retry()
         window.addEventListener('online', online)
         return () => {
-            mountedRef.current = false
             window.removeEventListener('online', online)
+            if (mountedRef.current && noticeOpenRef.current) dispatch(closeSnackbar(NOTICE_KEY))
+            noticeOpenRef.current = false
+            mountedRef.current = false
             queueRef.current?.dispose()
         }
-    }, [])
+    }, [closeSnackbar, dispatch])
 
-    const saveDraft = useCallback((entry) => {
-        const base = draftSaveRef.current.snapshot()
-        queueRef.current.enqueue({
+    const wrapDraft = useCallback((entry, recordedStatus) => {
+        const snapshot = recordedStatus
+            ? {
+                  recorded: true,
+                  expectedDraftHash: recordedStatus?.draft?.hash ?? null,
+                  baseDraftUpdatedDate: recordedStatus?.draft?.updatedDate ?? null,
+                  baseFlowData: recordedStatus?.draft?.flowData ?? entry.liveFlowData
+              }
+            : draftSaveRef.current.snapshot()
+        return {
             ...entry,
             kind: 'draft',
             userId: userIdRef.current,
-            expectedDraftHash: base.recorded ? base.expectedDraftHash : undefined,
-            baseDraftUpdatedDate: base.baseDraftUpdatedDate,
-            baseFlowData: base.baseFlowData,
+            expectedDraftHash: snapshot.recorded ? snapshot.expectedDraftHash : undefined,
+            baseDraftUpdatedDate: snapshot.baseDraftUpdatedDate,
+            baseFlowData: snapshot.baseFlowData,
             onAck: async (status, details) => {
                 draftSaveRef.current.record(status, status?.draft?.flowData || entry.flowData)
                 if (mountedRef.current) await entry.onAck?.(status, details)
@@ -90,11 +99,11 @@ export default function useSaveQueue() {
             onError: async (error) => {
                 if (mountedRef.current) await entry.onError?.(error)
             }
-        })
+        }
     }, [])
 
-    const saveLive = useCallback((entry) => {
-        queueRef.current.enqueue({
+    const wrapLive = useCallback(
+        (entry) => ({
             ...entry,
             kind: 'live',
             onAck: async (flow, details) => {
@@ -106,18 +115,87 @@ export default function useSaveQueue() {
             onError: async (error) => {
                 if (mountedRef.current) await entry.onError?.(error)
             }
-        })
-    }, [])
+        }),
+        []
+    )
 
-    const waitForNonReplay = useCallback((entry) => {
-        queueRef.current.enqueue({ ...entry, kind: 'create' })
-    }, [])
+    const wrapNonReplay = useCallback(
+        (entry) => ({
+            ...entry,
+            kind: 'nonReplay',
+            onAck: async (saved, details) => {
+                if (mountedRef.current) await entry.onAck?.(saved, details)
+            },
+            onError: async (error) => {
+                if (mountedRef.current) await entry.onError?.(error)
+            }
+        }),
+        []
+    )
+
+    const normalizeCreatedEntry = useCallback(
+        (entry, status) => {
+            if (!entry) return null
+            if (entry.kind === 'draft') return wrapDraft(entry, status)
+            if (entry.kind === 'live') return wrapLive(entry)
+            return wrapNonReplay(entry)
+        },
+        [wrapDraft, wrapLive, wrapNonReplay]
+    )
+
+    const saveDraft = useCallback(
+        (entry) => {
+            queueRef.current.enqueue(wrapDraft(entry))
+        },
+        [wrapDraft]
+    )
+
+    const saveLive = useCallback(
+        (entry, options = {}) => {
+            queueRef.current.enqueue({ ...wrapLive(entry), internal: options.internal === true })
+        },
+        [wrapLive]
+    )
+
+    const saveCreate = useCallback(
+        (entry) => {
+            queueRef.current.enqueue({
+                ...wrapNonReplay(entry),
+                kind: 'create',
+                needsPostCreate: entry.needsPostCreate === true,
+                afterCreate: async (created, details) => {
+                    let response
+                    try {
+                        response = await flowDraftsApi.getStatus(created.id)
+                    } catch (error) {
+                        if (!details.fromPending && entry.needsPostCreate !== true) return null
+                        throw error
+                    }
+                    const status = response?.data ?? response
+                    if (!mountedRef.current) return null
+                    draftSaveRef.current.record(status, status?.draft?.flowData || created.flowData)
+                    await entry.onStatus?.(status, created)
+                    const next = await entry.afterCreate?.(created, status, details)
+                    return normalizeCreatedEntry(next, status)
+                }
+            })
+        },
+        [flowDraftsApi, normalizeCreatedEntry, wrapNonReplay]
+    )
+
+    const runNonReplay = useCallback(
+        (entry, options = {}) => {
+            queueRef.current.enqueue({ ...wrapNonReplay(entry), internal: options.internal === true })
+        },
+        [wrapNonReplay]
+    )
 
     return {
         ...draftSave,
         saveDraft,
         saveLive,
-        waitForNonReplay,
+        saveCreate,
+        runNonReplay,
         retry: () => queueRef.current?.retry()
     }
 }
