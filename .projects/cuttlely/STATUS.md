@@ -24,9 +24,17 @@ A no-answer Publish is never sent again automatically. `PublishDialog` re-reads 
 
 Draft-setting and schedule failures ask the person to try that setting again; page-level load failures retain their reload guidance. Canvas writes keep no-answer failures local to the canvas, while answered failures still use the existing handler. A nested agentflow configuration load that fails after retries shows a message with Retry and names either the missing answer or the server's reason. The saved-canvas open screen likewise names the reason through `canvasLoadFailureReason`. Unit tests cover the client, retry helpers, exact-id draft-status decision, delayed opening screen, route-specific saved-flow reads, current save result, action-specific write messages, dirty reducer, dropdown client path, analyst lookup, publish reconciliation, and the save queue. Every UI error handler reads `error.response` only after checking it (`requestFailureMessage`), and `utils/responseReads.test.js` also refuses handlers that call that helper only inside a response-body branch.
 
+## Product name in user-facing text
+
+This branch is `chore/product-name-in-ui-text` from `origin/main` at `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Display text that still named this product incorrectly now says Cuttlely. Identifiers, package names, API and environment names, stored keys, attribution, import-format labels, and historical changelog entries are unchanged. `CHANGELOG.md` records the wording under `## [Unreleased]`.
+
+The ETL Pipeline panel warning for an unverified embeddings node now says it is called through its Cuttlely node. Harness worker readiness and module-binding errors, server start and shutdown logs, the API documentation listen line, the Render blueprint `DATABASE_URL` check, and the local start-script worker line use the same product name. No user-doc, README, FAQ, or website file needed a wording change beyond those operator messages: remaining mentions in docs name an import format, an environment variable, a URL path, or an attribution credit.
+
 ## Proxy-safe HTTP timeouts
 
-The server keeps idle connections open for 65 seconds instead of the earlier 5-second default. `HTTP_KEEP_ALIVE_TIMEOUT_MS` accepts whole numbers from 1000 to 600000. `HTTP_HEADERS_TIMEOUT_MS` defaults to the keep-alive value plus 1000, must be greater than keep-alive, and is capped at 601000. Invalid values warn and use the applicable default. Startup applies only `keepAliveTimeout` and `headersTimeout`; the overall request timeout is unchanged. `docs/how-to/reverse-proxy.md` covers upstream reuse, stream timeouts and buffering, upload size, gateway idle time, and `TRUST_PROXY`.
+Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
+
+The HTTP server keeps idle connections open for 65 seconds instead of Node's 5-second default. `HTTP_KEEP_ALIVE_TIMEOUT_MS` accepts whole numbers from 1000 to 600000. `HTTP_HEADERS_TIMEOUT_MS` defaults to the keep-alive value plus 1000, must be greater than keep-alive, and is capped at 601000. Invalid values warn and use the applicable default. Startup applies only `keepAliveTimeout` and `headersTimeout`; Node's `requestTimeout` is unchanged. `docs/how-to/reverse-proxy.md` covers upstream reuse, stream timeouts and buffering, upload size, gateway idle time, and `TRUST_PROXY`.
 
 ## Canvas error page after a request gets no answer
 

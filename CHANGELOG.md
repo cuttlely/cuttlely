@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again. A saved canvas is inactive until its own draft status is known; quick opens show no extra screen, while slower opens show **Opening the saved canvas**.
 
+-   Node warnings and operator messages now use the product name Cuttlely. The ETL Pipeline panel says an embeddings model is called through its Cuttlely node. Server start, stop, worker, and blueprint-check messages use the same product name.
+
 ### Fixed
 
 -   When the stored draft shows that a save already landed, a lost reply no longer makes that save appear to fail or write the same canvas twice.
