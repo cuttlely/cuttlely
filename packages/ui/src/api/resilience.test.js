@@ -45,4 +45,14 @@ describe('request resilience helpers', () => {
         )
         expect(dedupeKey({ method: 'get', url: '/nodes', signal: new AbortController().signal })).toBeNull()
     })
+
+    test('dedupe keys keep URL search parameter values distinct', () => {
+        const first = new URLSearchParams({ provider: 'first', credentialId: 'credential-a' })
+        const second = new URLSearchParams({ provider: 'second', credentialId: 'credential-b' })
+        const matching = new URLSearchParams({ provider: 'first', credentialId: 'credential-a' })
+
+        const firstKey = dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/voices', params: first })
+        expect(firstKey).toBe(dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/voices', params: matching }))
+        expect(firstKey).not.toBe(dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/voices', params: second }))
+    })
 })

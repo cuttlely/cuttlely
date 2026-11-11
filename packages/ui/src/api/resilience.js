@@ -59,6 +59,9 @@ export const abortableSleep = (delay, signal) =>
     })
 
 const stableValue = (value) => {
+    if (typeof URLSearchParams !== 'undefined' && value instanceof URLSearchParams) {
+        return { __urlSearchParams: Array.from(value.entries()) }
+    }
     if (Array.isArray(value)) return value.map(stableValue)
     if (value && Object.getPrototypeOf(value) === Object.prototype) {
         return Object.keys(value)

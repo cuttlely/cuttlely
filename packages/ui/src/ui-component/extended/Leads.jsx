@@ -67,9 +67,7 @@ const Leads = ({ dialogProps }) => {
                 dispatch({ type: SET_CHATFLOW, chatflow: saveResp.data })
             }
         } catch (error) {
-            const errorData = error.response
-                ? error.response.data || `${error.response.status}: ${error.response.statusText}`
-                : requestFailureMessage(error)
+            const errorData = requestFailureMessage(error)
             enqueueSnackbar({
                 message: `Failed to save Leads configuration: ${errorData}`,
                 options: {

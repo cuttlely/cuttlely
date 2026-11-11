@@ -29,6 +29,16 @@ describe('error handlers read a response only when there is one', () => {
         expect(files.filter((file) => guarded.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file))).toEqual([])
     })
 
+    it('configuration save handlers use the shared response message reader', () => {
+        const handlers = ['ui-component/extended/Leads.jsx', 'ui-component/extended/FollowUpPrompts.jsx']
+        expect(
+            handlers.filter((file) => {
+                const source = fs.readFileSync(path.join(root, file), 'utf8')
+                return !source.includes('requestFailureMessage(error)') || source.includes('error.response.data')
+            })
+        ).toEqual([])
+    })
+
     it('every handler that calls requestFailureMessage imports it', () => {
         const missing = files.filter((file) => {
             const source = fs.readFileSync(file, 'utf8')
