@@ -354,7 +354,9 @@ export const createSaveQueue = ({
     const reconcileDraft = async (entry) => {
         let response
         try {
-            response = await getDraftStatus(entry.id)
+            // A replay decision must not join an older in-flight status read. It needs the state immediately before
+            // any guarded write so a newer draft from this account cannot be overwritten from a stale response.
+            response = await getDraftStatus(entry.id, { dedupe: false })
         } catch (error) {
             if (isCancel(error)) throw error
             return { result: 'waiting', readFailure: isNoResponse(error) ? 'no-response' : 'http' }
