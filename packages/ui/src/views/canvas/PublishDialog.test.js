@@ -786,6 +786,12 @@ describe('Publish that gets no answer reads the status back instead of publishin
         expect(document.body.textContent).toContain(
             'Published, but the canvas could not refresh Live. Close and reopen the flow when the connection is back.'
         )
+        const publish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
+        const keepEditing = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Keep editing')
+        expect(publish.disabled).toBe(false)
+        expect(keepEditing.disabled).toBe(false)
+        await act(async () => keepEditing.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        expect(view.props.onClose).toHaveBeenCalledTimes(1)
         act(() => view.root.unmount())
     })
 

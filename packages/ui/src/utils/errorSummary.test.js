@@ -2,6 +2,7 @@ import {
     NO_ANSWER_MESSAGE,
     PUBLISH_NO_ANSWER_MESSAGE,
     SAVE_NO_ANSWER_MESSAGE,
+    configurationLoadFailureMessage,
     publishFailureMessage,
     requestFailureMessage,
     saveFailureMessage,
@@ -43,5 +44,18 @@ describe('request failure messages', () => {
         expect(settingFailureMessage(noAnswer(), 'Could not update this setting')).toBe(
             'Could not update this setting. The server could not be reached. Try again when the connection is back.'
         )
+    })
+
+    test('keeps gateway bodies out of nested configuration load errors', () => {
+        expect(configurationLoadFailureMessage(noAnswer())).toBe('The server did not answer.')
+        for (const status of [502, 503, 504]) {
+            expect(configurationLoadFailureMessage({ response: { status, data: '<html>gateway</html>' } })).toBe(
+                'The server could not be reached.'
+            )
+        }
+        expect(configurationLoadFailureMessage({ response: { status: 400, data: { message: 'Choose a component.' } } })).toBe(
+            'Choose a component.'
+        )
+        expect(configurationLoadFailureMessage({ response: { status: 500, data: {} } })).toBe('The server answered with status 500.')
     })
 })

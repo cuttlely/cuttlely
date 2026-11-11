@@ -59,3 +59,15 @@ export const settingFailureMessage = (error, fallback = 'That setting could not 
         `${fallbackSentence} The server could not be reached. Try again when the connection is back.`
     )
 }
+
+// Nested configuration is a read, so gateway failures have already used the quiet retries. Do not put a proxy's
+// HTML response into the panel; keep ordinary application error messages for answered, non-gateway failures.
+export const configurationLoadFailureMessage = (error) => {
+    if (isConnectionUnavailable(error)) {
+        return error?.response === undefined ? 'The server did not answer.' : 'The server could not be reached.'
+    }
+    const data = error?.response?.data
+    const serverMessage = typeof data === 'string' ? data : data?.message
+    if (typeof serverMessage === 'string' && serverMessage) return serverMessage
+    return `The server answered with status ${error?.response?.status ?? 'unknown'}.`
+}

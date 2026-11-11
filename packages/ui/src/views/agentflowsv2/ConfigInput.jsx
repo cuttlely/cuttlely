@@ -13,12 +13,13 @@ import NodeInputHandler from '../canvas/NodeInputHandler'
 
 // API
 import nodesApi from '@/api/nodes'
-import { isCancel, isNoResponse } from '@/api/resilience'
+import { isCancel } from '@/api/resilience'
 
 // const
 import { initNode, showHideInputParams, initializeDefaultNodeData } from '@/utils/genericHelper'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { FLOWISE_CREDENTIAL_ID } from '@/store/constant'
+import { configurationLoadFailureMessage } from '@/utils/errorSummary'
 
 export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = null, parentParamForArray = null }) => {
     const theme = useTheme()
@@ -172,15 +173,7 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
                 })
             } catch (error) {
                 if (isCancel(error) || !active) return
-                const data = error?.response?.data
-                const serverMessage = typeof data === 'string' ? data : data?.message
-                setLoadFailed(
-                    isNoResponse(error)
-                        ? 'The server did not answer.'
-                        : typeof serverMessage === 'string' && serverMessage
-                        ? serverMessage
-                        : `The server answered with status ${error?.response?.status ?? 'unknown'}.`
-                )
+                setLoadFailed(configurationLoadFailureMessage(error))
             }
         }
 
