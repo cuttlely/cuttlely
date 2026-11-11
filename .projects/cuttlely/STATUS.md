@@ -1,6 +1,6 @@
 ## Product name in user-facing text
 
-This branch is `chore/product-name-in-ui-text` from `origin/main` at `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Display text that still named this product incorrectly now says Cuttlely. Identifiers, package names, API and environment names, stored keys, attribution, import-format labels, and historical changelog entries are unchanged. `CHANGELOG.md` records the wording under `## [Unreleased]`.
+The product-name wording correction landed on `main` as `05701570` ([#463](https://github.com/cuttlely/cuttlely/pull/463)). Display text that still named this product incorrectly now says Cuttlely. Identifiers, package names, API and environment names, stored keys, attribution, import-format labels, and historical changelog entries are unchanged. `CHANGELOG.md` records the wording under `## [Unreleased]`.
 
 The ETL Pipeline panel warning for an unverified embeddings node now says it is called through its Cuttlely node. Harness worker readiness and module-binding errors, server start and shutdown logs, the API documentation listen line, the Render blueprint `DATABASE_URL` check, and the local start-script worker line use the same product name. No user-doc, README, FAQ, or website file needed a wording change beyond those operator messages: remaining mentions in docs name an import format, an environment variable, a URL path, or an attribution credit.
 
