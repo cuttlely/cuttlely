@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import { cloneDeep } from 'lodash'
 
 // Material
-import { Accordion, AccordionSummary, AccordionDetails, Box, Typography, Tooltip, IconButton } from '@mui/material'
+import { Accordion, AccordionSummary, AccordionDetails, Box, Button, Typography, Tooltip, IconButton } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { IconSettings, IconAlertTriangle } from '@tabler/icons-react'
@@ -26,6 +26,9 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
 
     const [expanded, setExpanded] = useState(false)
     const [selectedComponentNodeData, setSelectedComponentNodeData] = useState({})
+    // A load that fails after the shared client's quiet retries shows a message with Retry instead of blank fields.
+    const [loadFailed, setLoadFailed] = useState(false)
+    const [loadAttempt, setLoadAttempt] = useState(0)
 
     // Track the last processed input values to prevent infinite loops using useState
     const [lastProcessedInputs, setLastProcessedInputs] = useState({
@@ -85,6 +88,7 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
     useEffect(() => {
         const controller = new AbortController()
         let active = true
+        setLoadFailed(false)
         const loadComponentData = async () => {
             try {
                 // Get the node name from inputs
@@ -167,7 +171,8 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
                     arrayValue: parentParamForArray ? data.inputs[parentParamForArray.name] : null
                 })
             } catch (error) {
-                if (!isCancel(error)) return undefined
+                if (isCancel(error) || !active) return
+                setLoadFailed(true)
             }
         }
 
@@ -179,7 +184,7 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [loadAttempt])
 
     // Handle external changes to data.inputs
     useEffect(() => {
@@ -324,6 +329,16 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
                         </div>
                     </AccordionSummary>
                     <AccordionDetails>
+                        {loadFailed && (
+                            <Box role='alert' sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                                <Typography variant='body2' sx={{ flexGrow: 1 }}>
+                                    These parameters could not be loaded. The server did not answer.
+                                </Typography>
+                                <Button size='small' variant='outlined' onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+                                    Retry
+                                </Button>
+                            </Box>
+                        )}
                         {(selectedComponentNodeData.inputParams ?? [])
                             .filter((inputParam) => !inputParam.hidden)
                             .filter((inputParam) => inputParam.display !== false)

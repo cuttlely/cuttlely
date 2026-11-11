@@ -188,8 +188,8 @@ const AgentflowCanvas = () => {
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true })
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true })
+    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true, localNoAnswer: true })
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
 
     // ==============================|| Events & Actions ||============================== //

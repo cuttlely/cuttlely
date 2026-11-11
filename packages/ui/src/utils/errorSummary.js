@@ -5,7 +5,7 @@ export const NO_ANSWER_MESSAGE = 'The server could not be reached. Check your co
 export const SAVE_NO_ANSWER_MESSAGE =
     'Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.'
 export const PUBLISH_NO_ANSWER_MESSAGE =
-    'Publish failed. The server could not be reached. Nothing was published. Try again when the connection is back.'
+    'Publish not confirmed. The server could not be reached, so Cuttlely cannot tell whether this version went Live. Check the Live status before you publish again.'
 
 export const errorSummary = (error) => {
     const status = error?.response?.status
@@ -33,7 +33,8 @@ export const requestFailureMessage = (error) => {
     return typeof error?.message === 'string' && error.message ? error.message : NO_ANSWER_MESSAGE
 }
 
-// Canvas writes are deliberately not retried. A failed request leaves the editor mounted and dirty, so do not
+// Canvas writes are deliberately not retried. A write that gets no answer may still have reached the server, so a
+// no-answer publish says its result is unknown instead of claiming nothing changed. A failed request leaves the editor mounted and dirty, so do not
 // tell the person to reload and discard the edits they can save again.
 const writeFailureMessage = (error, fallback, noAnswerMessage) => {
     const data = error?.response?.data

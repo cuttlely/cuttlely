@@ -28,7 +28,7 @@ describe('request failure messages', () => {
     test('uses the publish action and says that nothing was published', () => {
         expect(publishFailureMessage(noAnswer())).toBe(PUBLISH_NO_ANSWER_MESSAGE)
         expect(publishFailureMessage(noAnswer())).toBe(
-            'Publish failed. The server could not be reached. Nothing was published. Try again when the connection is back.'
+            'Publish not confirmed. The server could not be reached, so Cuttlely cannot tell whether this version went Live. Check the Live status before you publish again.'
         )
     })
 

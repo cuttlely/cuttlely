@@ -12,7 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Self-hosted installs behind a reverse proxy or cloud gateway now keep idle server connections open for 65 seconds by default, instead of 5 seconds, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`; see the [reverse proxy guide](./docs/how-to/reverse-proxy.md). Follow-up to #455.
 
--   A canvas save that gets no answer after an earlier successful save no longer reports the old result as saved, clears the unsaved mark, or starts the Live update after its change check failed. Publish and draft-setting connection errors now name the action that failed.
+-   A canvas save that gets no answer after an earlier successful save no longer reports the old result as saved, clears the unsaved mark, or starts the Live update after its change check failed. Publish and draft-setting connection errors now name the action. A publish that gets no answer says its result is not confirmed and asks you to check the Live version before publishing again.
 
 -   A save that finished while you kept editing no longer marks the later edits as saved.
 
@@ -20,7 +20,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays closed with a Retry action until its save mode is known.
 
--   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. A failed canvas save instead says that the edits remain on the canvas and to press Save again when the connection is back. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
+-   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. A canvas save notification that gets no answer says that the edits remain on the canvas and to press Save again when the connection is back. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
 -   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
 

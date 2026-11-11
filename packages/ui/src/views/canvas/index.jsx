@@ -242,10 +242,10 @@ const Canvas = () => {
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true })
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true })
+    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true, localNoAnswer: true })
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
-    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true })
+    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true, localNoAnswer: true })
 
     // ==============================|| Events & Actions ||============================== //
 
