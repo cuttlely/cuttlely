@@ -1,4 +1,4 @@
-import { canvasSaveDocument, duplicateFlowData } from './canvasSave'
+import { canvasSaveDocument, duplicateFlowData, liveSavePreflightForRoute } from './canvasSave'
 import { planCanvasSave } from './flowDrafts'
 import { missingNodeInfo } from './missingNode'
 import { normalizeCanvasFlow } from './normalizeCanvasFlow'
@@ -182,4 +182,14 @@ it('duplicate transfer preserves its source identity without copying access-key 
     expect(copied.cuttlelyDuplicateSourceId).toBe(source.id)
     expect(copied.nodes).toEqual(original.nodes)
     expect(copied.apikeyid).toBeUndefined()
+})
+
+describe('Live save preflight route identity', () => {
+    const preflight = { flowId: 'flow-a', name: 'A', flowData: '{"nodes":[]}', rev: 4 }
+
+    test('keeps the captured payload only on the route that started it', () => {
+        expect(liveSavePreflightForRoute(preflight, 'flow-a')).toBe(preflight)
+        expect(liveSavePreflightForRoute(preflight, 'flow-b')).toBeNull()
+        expect(liveSavePreflightForRoute(null, 'flow-a')).toBeNull()
+    })
 })

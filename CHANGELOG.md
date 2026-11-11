@@ -28,7 +28,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   A save that finished while you kept editing no longer marks the later edits as saved.
 
--   Error notifications across the app, such as saving settings, credentials or evaluations, now show "The server could not be reached" when a request gets no answer, instead of showing nothing. Nested agentflow settings also keep a 502, 503, or 504 gateway page out of the panel and show the connection message with Retry.
+-   Canvas and node-configuration error notifications updated by this change now show "The server could not be reached" when a request gets no answer, instead of showing nothing. Nested agentflow settings also keep a 502, 503, or 504 gateway page out of the panel and show the connection message with Retry.
 
 -   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays inactive until its save mode is known. If that load fails, the page offers Retry and says whether the server could not be reached or answered with an error. Moving to another saved flow while one is still opening shows only the flow you moved to, and a late answer for the earlier flow is ignored.
 

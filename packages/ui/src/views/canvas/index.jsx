@@ -89,7 +89,7 @@ import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
-import { applyCredentialInput, canvasSaveDocument } from '@/utils/canvasSave'
+import { applyCredentialInput, canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import { draftSaveWasTurnedOff, planHarnessDraftFallback, planNewHarnessSave } from '@/utils/harnessSave'
 import {
     asSavedCards,
@@ -182,6 +182,8 @@ const Canvas = () => {
     // The flow this canvas is on. chatflowId is read from the address on every render, and create sets the new
     // address before its state updates render; createdFlowIdRef also covers a render that reads the address first.
     const routeFlowId = chatflowId || createdFlowIdRef.current
+    const routeFlowIdRef = useRef(routeFlowId)
+    routeFlowIdRef.current = routeFlowId
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -484,30 +486,54 @@ const Canvas = () => {
         draftSave.runNonReplay(continuation, { internal: true })
     }
 
-    const queueLiveSave = ({ body, saveRev, baseUpdatedDate, notice, beforeWrite, starterQuestions = [], internal = false }) => {
+    const queueLiveSave = ({
+        flowId = chatflow.id,
+        flowName = chatflow.name,
+        body,
+        saveRev,
+        baseUpdatedDate,
+        notice,
+        beforeWrite,
+        starterQuestions = [],
+        internal = false
+    }) => {
+        const isStartingRoute = () => Boolean(liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current))
         draftSave.saveLive(
             {
-                id: chatflow.id,
+                id: flowId,
                 rev: saveRev,
                 body,
                 baseUpdatedDate,
                 beforeWrite,
                 onAck: (saved) => {
+                    if (!isStartingRoute()) return
                     dispatch({ type: SET_CHATFLOW, chatflow: saved })
                     setLasUpdatedDateTime(saved.updatedDate)
                     queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice, saveRev))
                 },
                 onChanged: async (stored) => {
+                    if (!isStartingRoute()) return
                     const isConfirmed = await confirm({
                         title: `Confirm Change`,
-                        description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                        description: `${canvasTitle} ${flowName} has changed since you have opened, overwrite changes?`,
                         confirmButtonName: 'Confirm',
                         cancelButtonName: 'Cancel'
                     })
-                    if (isConfirmed)
-                        queueLiveSave({ body, saveRev, baseUpdatedDate: stored?.updatedDate, notice, starterQuestions, internal: true })
+                    if (isConfirmed && isStartingRoute())
+                        queueLiveSave({
+                            flowId,
+                            flowName,
+                            body,
+                            saveRev,
+                            baseUpdatedDate: stored?.updatedDate,
+                            notice,
+                            starterQuestions,
+                            internal: true
+                        })
                 },
-                onError: (error) => errorFailed(apiErrorText(error))
+                onError: (error) => {
+                    if (isStartingRoute()) errorFailed(apiErrorText(error))
+                }
             },
             { internal }
         )
@@ -524,31 +550,38 @@ const Canvas = () => {
         )
     }
 
-    const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, notice, starterQuestions = []) => ({
-        kind: 'live',
-        id: created.id,
-        rev: saveRev,
-        body,
-        baseUpdatedDate,
-        onAck: (saved) => {
-            dispatch({ type: SET_CHATFLOW, chatflow: saved })
-            setLasUpdatedDateTime(saved.updatedDate)
-            queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice || created.accessNotice, saveRev))
-        },
-        onChanged: async (stored) => {
-            const isConfirmed = await confirm({
-                title: `Confirm Change`,
-                description: `${canvasTitle} ${created.name} has changed since you have opened, overwrite changes?`,
-                confirmButtonName: 'Confirm',
-                cancelButtonName: 'Cancel'
-            })
-            if (isConfirmed)
-                draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, notice, starterQuestions), {
-                    internal: true
+    const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, notice, starterQuestions = []) => {
+        const isCreatedRoute = () => Boolean(liveSavePreflightForRoute({ flowId: created.id }, routeFlowIdRef.current))
+        return {
+            kind: 'live',
+            id: created.id,
+            rev: saveRev,
+            body,
+            baseUpdatedDate,
+            onAck: (saved) => {
+                if (!isCreatedRoute()) return
+                dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                setLasUpdatedDateTime(saved.updatedDate)
+                queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice || created.accessNotice, saveRev))
+            },
+            onChanged: async (stored) => {
+                if (!isCreatedRoute()) return
+                const isConfirmed = await confirm({
+                    title: `Confirm Change`,
+                    description: `${canvasTitle} ${created.name} has changed since you have opened, overwrite changes?`,
+                    confirmButtonName: 'Confirm',
+                    cancelButtonName: 'Cancel'
                 })
-        },
-        onError: (error) => errorFailed(apiErrorText(error))
-    })
+                if (isConfirmed && isCreatedRoute())
+                    draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, notice, starterQuestions), {
+                        internal: true
+                    })
+            },
+            onError: (error) => {
+                if (isCreatedRoute()) errorFailed(apiErrorText(error))
+            }
+        }
+    }
 
     const createdSnapshotEntry = (created, status, { flowData, name, saveRev, notice, starterQuestions = [] }) => {
         const plan = planCanvasSave({ mode: status?.mode, name, savedName: created.name, flowData, hasId: true })
@@ -785,21 +818,27 @@ const Canvas = () => {
                         }
                     }
                     const body = { name: plan.live.name, flowData: plan.live.flowData }
+                    const flowId = chatflow.id
                     queueLiveSave({
+                        flowId,
+                        flowName: plan.live.name,
                         body,
                         saveRev,
                         baseUpdatedDate: lastUpdatedDateTime,
                         notice: retained?.notice,
                         starterQuestions,
                         beforeWrite: async (baseUpdatedDate) => {
-                            const response = await chatflowsApi.getHasChatflowChanged(chatflow.id, baseUpdatedDate)
+                            if (!liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current)) return false
+                            const response = await chatflowsApi.getHasChatflowChanged(flowId, baseUpdatedDate)
+                            if (!liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current)) return false
                             if (response?.data?.hasChanged !== true) return true
-                            return confirm({
+                            const confirmed = await confirm({
                                 title: `Confirm Change`,
-                                description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
+                                description: `${canvasTitle} ${plan.live.name} has changed since you have opened, overwrite changes?`,
                                 confirmButtonName: 'Confirm',
                                 cancelButtonName: 'Cancel'
                             })
+                            return Boolean(confirmed && liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current))
                         }
                     })
                     return

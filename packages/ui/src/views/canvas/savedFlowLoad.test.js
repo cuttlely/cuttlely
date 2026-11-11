@@ -151,4 +151,15 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toMatch(/if \(action !== 'load'\) return\s+\/\/[\s\S]*?createdFlowIdRef\.current = null\s+setDraftStatus\(null\)/)
         expect(source).not.toContain('loadCreatedStatus')
     })
+
+    test('the classic queued Live save keeps its starting route through its change check and callbacks', () => {
+        const source = fs.readFileSync(path.join(__dirname, 'index.jsx'), 'utf8')
+        expect(source).toContain('const routeFlowIdRef = useRef(routeFlowId)')
+        expect(source).toContain('routeFlowIdRef.current = routeFlowId')
+        expect(source).toContain('id: flowId')
+        expect(source).toMatch(/beforeWrite: async[\s\S]*?getHasChatflowChanged\(flowId, baseUpdatedDate\)/)
+        expect(source).toMatch(/onAck: \(saved\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onChanged: async \(stored\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onError: \(error\) => \{\s+if \(isStartingRoute\(\)\)/)
+    })
 })
