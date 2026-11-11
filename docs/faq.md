@@ -65,7 +65,7 @@ Cuttlely sent a request and got no answer. Read requests are retried quietly fir
 
 1. Check that your network connection works.
 2. If you have unsaved canvas edits, keep the page open. A failed save says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits remain marked as unsaved.
-3. If Publish gets no answer, Cuttlely checks whether it went through. If it did, you see the usual **Published** message. If it did not, the dialog says nothing was published, and you can select **Publish** again. Only if that check also gets no answer does it say **Publish not confirmed**. Then reopen the flow when the connection is back and check whether its Live version changed before you publish again.
+3. If Publish gets no answer, Cuttlely checks whether it went through. If it did, you see the usual **Published** message. If it did not, the dialog says nothing was published, and you can select **Publish** again. If the check cannot tell, for example because it also gets no answer or someone else published at the same time, it says **Publish not confirmed**. Then reopen the flow when the connection is back and check whether its Live version changed before you publish again.
 4. Otherwise, reload the page.
 5. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 

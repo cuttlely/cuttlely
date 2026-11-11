@@ -316,7 +316,8 @@ const PublishDialog = ({
             if (found) setPublishConflict(found)
             else if (err?.response === undefined && (err?.isAxiosError || err?.request)) {
                 // No answer: the publish may have landed. Read the status back (a retried GET) instead of sending it again.
-                const { outcome, status } = await recheckPublish(() => flowDraftsApi.getStatus(chatflow.id), before)
+                // dedupe: false so a status read started before the publish (when the dialog opened) is never reused.
+                const { outcome, status } = await recheckPublish(() => flowDraftsApi.getStatus(chatflow.id, { dedupe: false }), before)
                 if (!mounted.current) return
                 if (outcome === 'published') {
                     finish({ status })

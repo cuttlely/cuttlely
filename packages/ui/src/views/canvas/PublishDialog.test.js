@@ -710,7 +710,7 @@ describe('Publish that gets no answer reads the status back instead of publishin
         flowDraftsApi.getStatus.mockResolvedValueOnce({ data: landed })
         await clickButton('Publish')
         expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
-        expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('flow-1')
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('flow-1', { dedupe: false })
         expect(view.props.onDraftStatus).toHaveBeenCalledWith(landed)
         expect(view.props.onChatflowUpdated).toHaveBeenCalledTimes(1)
         expect(view.props.onClose).toHaveBeenCalled()
