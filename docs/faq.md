@@ -65,7 +65,8 @@ Cuttlely sent a request and got no answer. Read requests are retried quietly fir
 
 1. Check that your network connection works.
 2. If you have unsaved canvas edits, keep the page open. A failed save says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits remain marked as unsaved.
-3. Otherwise, reload the page.
-4. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
+3. If Publish failed, nothing was published. Try Publish again when the connection is back.
+4. Otherwise, reload the page.
+5. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 
 Work you saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.

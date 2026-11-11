@@ -188,8 +188,8 @@ const AgentflowCanvas = () => {
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
+    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true })
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true })
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
 
     // ==============================|| Events & Actions ||============================== //
@@ -852,7 +852,10 @@ const AgentflowCanvas = () => {
 
     // Create new chatflow successful
     useEffect(() => {
-        if (createNewChatflowApi.data) {
+        if (createNewChatflowApi.error) {
+            pendingCreateSaveRevRef.current = undefined
+            errorFailed(saveFailureMessage(createNewChatflowApi.error))
+        } else if (createNewChatflowApi.data) {
             const chatflow = createNewChatflowApi.data
             builderStartersRef.current = []
             dispatch({ type: SET_CHATFLOW, chatflow })
@@ -868,9 +871,6 @@ const AgentflowCanvas = () => {
                 })
                 .catch((error) => setDraftStatusLoad({ flowId: chatflow.id, known: false, loading: false, error, request: 'status' }))
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
-        } else if (createNewChatflowApi.error) {
-            pendingCreateSaveRevRef.current = undefined
-            errorFailed(saveFailureMessage(createNewChatflowApi.error))
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -878,15 +878,15 @@ const AgentflowCanvas = () => {
 
     // Update chatflow successful
     useEffect(() => {
-        if (updateChatflowApi.data) {
+        if (updateChatflowApi.error) {
+            pendingUpdateSaveRevRef.current = undefined
+            errorFailed(saveFailureMessage(updateChatflowApi.error))
+        } else if (updateChatflowApi.data) {
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
             const saveRev = pendingUpdateSaveRevRef.current
             pendingUpdateSaveRevRef.current = undefined
             saveChatflowSuccess(undefined, saveRev)
             saveBuilderStarters(updateChatflowApi.data)
-        } else if (updateChatflowApi.error) {
-            pendingUpdateSaveRevRef.current = undefined
-            errorFailed(saveFailureMessage(updateChatflowApi.error))
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

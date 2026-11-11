@@ -1,4 +1,12 @@
-import { NO_ANSWER_MESSAGE, SAVE_NO_ANSWER_MESSAGE, requestFailureMessage, saveFailureMessage } from './errorSummary'
+import {
+    NO_ANSWER_MESSAGE,
+    PUBLISH_NO_ANSWER_MESSAGE,
+    SAVE_NO_ANSWER_MESSAGE,
+    publishFailureMessage,
+    requestFailureMessage,
+    saveFailureMessage,
+    settingFailureMessage
+} from './errorSummary'
 
 const noAnswer = () => Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
 
@@ -15,5 +23,21 @@ describe('request failure messages', () => {
     test('prefers a server save message and otherwise uses the supplied fallback', () => {
         expect(saveFailureMessage({ response: { data: { message: 'The draft changed.' } } })).toBe('The draft changed.')
         expect(saveFailureMessage({}, 'Could not save the settings.')).toBe('Could not save the settings.')
+    })
+
+    test('uses the publish action and says that nothing was published', () => {
+        expect(publishFailureMessage(noAnswer())).toBe(PUBLISH_NO_ANSWER_MESSAGE)
+        expect(publishFailureMessage(noAnswer())).toBe(
+            'Publish failed. The server could not be reached. Nothing was published. Try again when the connection is back.'
+        )
+    })
+
+    test('uses the setting fallback without telling the person to press Save', () => {
+        expect(settingFailureMessage(noAnswer(), 'The draft setting could not be saved.')).toBe(
+            'The draft setting could not be saved. The server could not be reached. Try again when the connection is back.'
+        )
+        expect(settingFailureMessage(noAnswer(), 'Could not update this setting')).toBe(
+            'Could not update this setting. The server could not be reached. Try again when the connection is back.'
+        )
     })
 })

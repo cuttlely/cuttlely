@@ -242,10 +242,10 @@ const Canvas = () => {
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
+    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true })
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true })
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
-    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged)
+    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true })
 
     // ==============================|| Events & Actions ||============================== //
 
@@ -1058,7 +1058,10 @@ const Canvas = () => {
 
     // Create new chatflow successful
     useEffect(() => {
-        if (createNewChatflowApi.data) {
+        if (createNewChatflowApi.error) {
+            pendingCreateSaveRevRef.current = undefined
+            errorFailed(apiErrorText(createNewChatflowApi.error))
+        } else if (createNewChatflowApi.data) {
             const chatflow = createNewChatflowApi.data
             dispatch({ type: SET_CHATFLOW, chatflow })
             builderStartersRef.current = []
@@ -1091,9 +1094,6 @@ const Canvas = () => {
                     chatflow.id
                 }`
             )
-        } else if (createNewChatflowApi.error) {
-            pendingCreateSaveRevRef.current = undefined
-            errorFailed(apiErrorText(createNewChatflowApi.error))
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1101,7 +1101,11 @@ const Canvas = () => {
 
     // Update chatflow successful
     useEffect(() => {
-        if (updateChatflowApi.data) {
+        if (updateChatflowApi.error) {
+            pendingHarnessLiveSaveRef.current = null
+            pendingUpdateSaveRevRef.current = undefined
+            errorFailed(apiErrorText(updateChatflowApi.error))
+        } else if (updateChatflowApi.data) {
             const retained = pendingHarnessLiveSaveRef.current
             pendingHarnessLiveSaveRef.current = null
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
@@ -1109,10 +1113,6 @@ const Canvas = () => {
             const saveRev = pendingUpdateSaveRevRef.current
             pendingUpdateSaveRevRef.current = undefined
             saveChatflowSuccess(retained?.notice, saveRev)
-        } else if (updateChatflowApi.error) {
-            pendingHarnessLiveSaveRef.current = null
-            pendingUpdateSaveRevRef.current = undefined
-            errorFailed(apiErrorText(updateChatflowApi.error))
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1141,11 +1141,11 @@ const Canvas = () => {
             updateChatflowApi.request(chatflow.id, updateBody)
         }
 
-        if (getHasChatflowChangedApi.data) {
-            checkIfHasChanged()
-        } else if (getHasChatflowChangedApi.error) {
+        if (getHasChatflowChangedApi.error) {
             pendingUpdateSaveRevRef.current = undefined
             errorFailed(saveFailureMessage(getHasChatflowChangedApi.error))
+        } else if (getHasChatflowChangedApi.data) {
+            checkIfHasChanged()
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

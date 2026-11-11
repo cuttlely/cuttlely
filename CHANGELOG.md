@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A canvas save that gets no answer after an earlier successful save no longer reports the old result as saved, clears the unsaved mark, or starts the Live update after its change check failed. Publish and draft-setting connection errors now name the action that failed.
+
 -   A save that finished while you kept editing no longer marks the later edits as saved.
 
 -   Error notifications across the app, such as saving settings, credentials or evaluations, now show "The server could not be reached" when a request gets no answer, instead of showing nothing.
