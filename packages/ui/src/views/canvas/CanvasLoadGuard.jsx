@@ -1,43 +1,64 @@
+import { useEffect, useRef } from 'react'
 import PropTypes from 'prop-types'
 
 import { Box, Button, CircularProgress, Typography } from '@mui/material'
 
-const CanvasLoadGuard = ({ flowId, loadState, onRetry, onBack, children }) => {
-    const active = Boolean(flowId && loadState?.flowId === flowId && (loadState.loading || loadState.error))
+// Shown when a saved canvas could not load its draft status, and while that load is retried.
+// The canvas stays mounted underneath, so opening and fitting it work as usual, but it is inert:
+// no click, key or focus reaches its header or cards until the status is known.
+export const canvasLoadBlocked = (flowId, loadState) =>
+    Boolean(flowId && loadState?.flowId === flowId && (loadState.error || (loadState.loading && loadState.retrying)))
 
-    if (!active) return children
+const CanvasLoadGuard = ({ flowId, loadState, onRetry, onBack, children }) => {
+    const active = canvasLoadBlocked(flowId, loadState)
+    const contentRef = useRef(null)
+
+    useEffect(() => {
+        if (contentRef.current) contentRef.current.inert = active
+    }, [active])
 
     return (
-        <Box
-            sx={{
-                position: 'fixed',
-                inset: 0,
-                zIndex: (theme) => theme.zIndex.modal + 1,
-                display: 'grid',
-                placeContent: 'center',
-                gap: 2,
-                px: 3,
-                textAlign: 'center',
-                bgcolor: 'background.default'
-            }}
-        >
-            <Typography variant='h4'>{loadState.loading ? 'Opening the saved canvas' : 'The saved canvas could not be opened'}</Typography>
-            <Typography color='text.secondary'>
-                {loadState.loading
-                    ? 'Checking the saved draft before the canvas opens.'
-                    : 'Draft status could not be loaded. The canvas stays closed so none of its actions can run.'}
-            </Typography>
-            {loadState.loading ? (
-                <CircularProgress aria-label='Opening saved canvas' sx={{ justifySelf: 'center' }} />
-            ) : (
-                <Button variant='contained' onClick={onRetry}>
-                    Retry
-                </Button>
+        <>
+            <Box ref={contentRef} aria-hidden={active || undefined} sx={{ display: 'contents' }}>
+                {children}
+            </Box>
+            {active && (
+                <Box
+                    role='alertdialog'
+                    aria-label='Saved canvas'
+                    sx={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: (theme) => theme.zIndex.modal + 1,
+                        display: 'grid',
+                        placeContent: 'center',
+                        gap: 2,
+                        px: 3,
+                        textAlign: 'center',
+                        bgcolor: 'background.default'
+                    }}
+                >
+                    <Typography variant='h4'>
+                        {loadState.error ? 'The saved canvas could not be opened' : 'Opening the saved canvas'}
+                    </Typography>
+                    <Typography color='text.secondary'>
+                        {loadState.error
+                            ? 'Draft status could not be loaded. The canvas stays closed so none of its actions can run.'
+                            : 'Checking the saved draft before the canvas opens.'}
+                    </Typography>
+                    {loadState.error ? (
+                        <Button variant='contained' onClick={onRetry}>
+                            Retry
+                        </Button>
+                    ) : (
+                        <CircularProgress aria-label='Opening saved canvas' sx={{ justifySelf: 'center' }} />
+                    )}
+                    <Button variant='outlined' onClick={onBack}>
+                        Back
+                    </Button>
+                </Box>
             )}
-            <Button variant='outlined' onClick={onBack}>
-                Back
-            </Button>
-        </Box>
+        </>
     )
 }
 
@@ -46,6 +67,7 @@ CanvasLoadGuard.propTypes = {
     loadState: PropTypes.shape({
         flowId: PropTypes.string,
         loading: PropTypes.bool,
+        retrying: PropTypes.bool,
         error: PropTypes.any
     }),
     onRetry: PropTypes.func.isRequired,

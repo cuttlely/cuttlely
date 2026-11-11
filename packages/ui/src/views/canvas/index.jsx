@@ -163,7 +163,8 @@ const Canvas = () => {
     const [draftStatus, setDraftStatusState] = useState(null)
     const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, loading: false, error: null })
     const [draftStatusRetry, setDraftStatusRetry] = useState(0)
-    const draftStatusLoadError = draftStatusLoad.flowId === chatflowId ? draftStatusLoad.error : null
+    const draftStatusLoadError =
+        draftStatusLoad.flowId === chatflowId ? draftStatusLoad.error || (draftStatusLoad.retrying ? 'retrying' : null) : null
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
     const draftSave = useDraftSave()
@@ -966,7 +967,12 @@ const Canvas = () => {
             }
             let cancelled = false
             setDraftStatus(null)
-            setDraftStatusLoad({ flowId: loaded.id, loading: true, error: null })
+            setDraftStatusLoad((previous) => ({
+                flowId: loaded.id,
+                loading: true,
+                error: null,
+                retrying: previous.flowId === loaded.id && Boolean(previous.retrying || previous.error)
+            }))
             const paint = (status) => {
                 if (cancelled) return
                 setDraftStatusLoad({ flowId: loaded.id, loading: false, error: null })
@@ -1020,7 +1026,7 @@ const Canvas = () => {
 
     const retryDraftStatusLoad = () => {
         setDraftStatus(null)
-        setDraftStatusLoad({ flowId: chatflowId, loading: true, error: null })
+        setDraftStatusLoad({ flowId: chatflowId, loading: true, error: null, retrying: true })
         setDraftStatusRetry((attempt) => attempt + 1)
     }
 
