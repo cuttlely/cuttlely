@@ -65,7 +65,8 @@ Cuttlely sent a request and got no answer. Read requests are retried quietly fir
 
 1. Check that your network connection works.
 2. If you have unsaved canvas edits, keep the page open. Canvas changes on an existing saved flow stay on the canvas and are retried quietly for draft and Live saves. If the connection stays down, you see **Your changes aren't saved yet. We'll keep trying.** Choose **Retry**, or wait for saving to resume when the connection is back. If someone else saved the draft, the usual review screen opens instead of replacing their work.
-3. Otherwise, reload the page.
-4. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
+3. If Publish gets no answer, the message says **Publish not confirmed**. The publish may or may not have gone through. When the connection is back, reopen the flow and check whether its Live version changed before you publish again.
+4. Otherwise, reload the page.
+5. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 
 The create request for a new flow is not retried automatically and does not show the keep-trying message. Press **Save** again after an unanswered create request. If creation answers but the following status check does not, Cuttlely waits and later repeats only that status check. On an existing flow, the canvas save is retried, but a follow-up update for its name or starter questions is not. These updates do not show the keep-trying message. Your edits remain marked as unsaved, and Cuttlely asks you to press **Save** again. Work saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.

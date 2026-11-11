@@ -65,7 +65,7 @@ import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW } from '@/store/actions'
-import { saveFailureMessage } from '@/utils/errorSummary'
+import { saveFailureMessage, settingFailureMessage } from '@/utils/errorSummary'
 
 // Clock icon (unchecked) and calendar-check icon (checked), mirroring MaterialUISwitch style
 const clockIcon = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" height="20" width="20" viewBox="0 0 20 20"><path fill="${encodeURIComponent(
@@ -210,9 +210,9 @@ const CanvasHeader = ({
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
     const getScheduleStatusApi = useApi(chatflowsApi.getScheduleStatus)
-    const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled)
+    const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled, { currentOnly: true, localNoAnswer: true })
     const canvas = useSelector((state) => state.canvas)
     const isDark = useSelector((state) => state.customization.isDarkMode)
     const nodeSpecsReady = Array.isArray(canvas.componentNodes) && canvas.componentNodes.length > 0
@@ -538,7 +538,7 @@ const CanvasHeader = ({
     useEffect(() => {
         if (toggleScheduleEnabledApi.error) {
             enqueueSnackbar({
-                message: String(toggleScheduleEnabledApi.error?.message || toggleScheduleEnabledApi.error || 'Failed to toggle schedule'),
+                message: settingFailureMessage(toggleScheduleEnabledApi.error, 'The schedule could not be changed.'),
                 options: { variant: 'error' }
             })
         }

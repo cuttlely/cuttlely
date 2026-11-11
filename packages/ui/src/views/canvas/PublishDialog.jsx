@@ -38,7 +38,7 @@ import {
     showsPublishCheck
 } from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
-import { saveFailureMessage } from '@/utils/errorSummary'
+import { publishFailureMessage } from '@/utils/errorSummary'
 
 import PublishCheck from './PublishCheck'
 
@@ -309,7 +309,7 @@ const PublishDialog = ({
         } catch (err) {
             const found = draftConflictFrom(err)
             if (found) setPublishConflict(found)
-            else setError(saveFailureMessage(err, 'Publish failed.'))
+            else setError(publishFailureMessage(err))
             setBusy(false)
         }
     }

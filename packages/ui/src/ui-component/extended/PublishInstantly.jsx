@@ -8,7 +8,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import { SwitchInput } from '@/ui-component/switch/Switch'
 import { PUBLISH_INSTANTLY_LOCKED, publishInstantlyLocked } from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
-import { saveFailureMessage } from '@/utils/errorSummary'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const PublishInstantly = ({ dialogProps }) => {
     const dispatch = useDispatch()
@@ -35,7 +35,7 @@ const PublishInstantly = ({ dialogProps }) => {
             )
         } catch (err) {
             setOn(Boolean(draftStatus?.publishInstantly))
-            setError(saveFailureMessage(err, 'That setting could not be saved.'))
+            setError(settingFailureMessage(err))
         }
     }
 
