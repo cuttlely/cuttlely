@@ -342,11 +342,7 @@ const ProfileSection = ({ handleLogout }) => {
     useEffect(() => {
         if (importAllApi.error) {
             setImportDialogOpen(false)
-            let errMsg = 'Invalid Imported File'
-            let error = importAllApi.error
-            if (error?.response?.data) {
-                errMsg = requestFailureMessage(error)
-            }
+            const errMsg = requestFailureMessage(importAllApi.error)
             errorFailed(`Failed to import: ${errMsg}`)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -375,11 +371,7 @@ const ProfileSection = ({ handleLogout }) => {
     useEffect(() => {
         if (exportAllApi.error) {
             setExportDialogOpen(false)
-            let errMsg = 'Internal Server Error'
-            let error = exportAllApi.error
-            if (error?.response?.data) {
-                errMsg = requestFailureMessage(error)
-            }
+            const errMsg = requestFailureMessage(exportAllApi.error)
             errorFailed(`Failed to export: ${errMsg}`)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

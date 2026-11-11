@@ -65,6 +65,7 @@ import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW } from '@/store/actions'
+import { saveFailureMessage } from '@/utils/errorSummary'
 
 // Clock icon (unchecked) and calendar-check icon (checked), mirroring MaterialUISwitch style
 const clockIcon = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" height="20" width="20" viewBox="0 0 20 20"><path fill="${encodeURIComponent(
@@ -444,7 +445,7 @@ const CanvasHeader = ({
     useEffect(() => {
         if (!updateChatflowApi.error) return
         enqueueSnackbar({
-            message: apiErrorMessage(updateChatflowApi.error, 'Save failed'),
+            message: saveFailureMessage(updateChatflowApi.error),
             options: {
                 key: new Date().getTime() + Math.random(),
                 variant: 'error',

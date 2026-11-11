@@ -26,7 +26,7 @@ import AgentFlowEdge from './AgentFlowEdge'
 import ConnectionLine from './ConnectionLine'
 import StickyNote from './StickyNote'
 import CanvasHeader from '@/views/canvas/CanvasHeader'
-import CanvasLoadGuard from '@/views/canvas/CanvasLoadGuard'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest } from '@/views/canvas/CanvasLoadGuard'
 import AddNodes from '@/views/canvas/AddNodes'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import DraftConflictDialog from '@/ui-component/dialog/DraftConflictDialog'
@@ -75,7 +75,7 @@ import {
 import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
-import { apiErrorMessage, canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
+import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
@@ -90,7 +90,7 @@ import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 
 // const
 import { AGENTFLOW_ICONS, uiBaseURL } from '@/store/constant'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { requestFailureMessage, saveFailureMessage } from '@/utils/errorSummary'
 
 const nodeTypes = { agentFlow: CanvasNode, stickyNote: StickyNote, iteration: IterationNode }
 const edgeTypes = { agentFlow: AgentFlowEdge }
@@ -119,10 +119,9 @@ const AgentflowCanvas = () => {
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
-    const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, loading: false, error: null })
+    const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, known: false, loading: false, error: null })
     const [draftStatusRetry, setDraftStatusRetry] = useState(0)
-    const draftStatusLoadError =
-        draftStatusLoad.flowId === chatflowId ? draftStatusLoad.error || (draftStatusLoad.retrying ? 'retrying' : null) : null
+    const canvasBlocked = canvasLoadBlocked(chatflowId, draftStatusLoad)
     const draftStatusRef = useRef(null)
     const draftSave = useSaveQueue({
         chatflowsApi,
@@ -353,7 +352,7 @@ const AgentflowCanvas = () => {
                 dispatch({ type: SET_CHATFLOW, chatflow: saved })
                 finish(saved)
             },
-            onError: (error) => errorFailed(apiErrorMessage(error, 'Saving the starter questions failed'))
+            onError: (error) => errorFailed(saveFailureMessage(error, 'Saving the starter questions failed'))
         })
         if (!continuation) {
             if (builderStartersRef.current === questions) builderStartersRef.current = []
@@ -441,12 +440,12 @@ const AgentflowCanvas = () => {
                                 dispatch({ type: SET_CHATFLOW, chatflow: saved })
                                 queueStarterQuestions(saved, starterQuestions, saveRev, finish)
                             },
-                            onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                            onError: (error) => errorFailed(saveFailureMessage(error))
                         },
                         { internal: true }
                     )
                 },
-                onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                onError: (error) => errorFailed(saveFailureMessage(error))
             }
         }
         return createdLiveEntry(
@@ -459,7 +458,7 @@ const AgentflowCanvas = () => {
     }
 
     const handleSaveFlow = async (chatflowName, saveOptions) => {
-        if (draftStatusLoadError) {
+        if (canvasBlocked) {
             errorFailed('Draft status is still unknown. Retry loading before you save.')
             return
         }
@@ -489,7 +488,10 @@ const AgentflowCanvas = () => {
                             starterQuestions,
                             willContinue: details?.willContinue === true
                         }),
-                    onStatus: (status) => setDraftStatus(status),
+                    onStatus: (status, created) => {
+                        setDraftStatus(status)
+                        setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
+                    },
                     afterCreate: (created, status, details) =>
                         details.fromPending
                             ? createdSnapshotEntry(created, status, { flowData, name: chatflowName, saveRev, starterQuestions })
@@ -543,12 +545,12 @@ const AgentflowCanvas = () => {
                                         dispatch({ type: SET_CHATFLOW, chatflow: saved })
                                         queueStarterQuestions(saved, starterQuestions, saveRev, finish)
                                     },
-                                    onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                                    onError: (error) => errorFailed(saveFailureMessage(error))
                                 },
                                 { internal: true }
                             )
                         },
-                        onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                        onError: (error) => errorFailed(saveFailureMessage(error))
                     })
                     return
                 }
@@ -563,7 +565,7 @@ const AgentflowCanvas = () => {
                             dispatch({ type: SET_CHATFLOW, chatflow: saved })
                             saveChatflowSuccess(undefined, saveRev)
                         },
-                        onError: (error) => errorFailed(apiErrorMessage(error, 'Save failed'))
+                        onError: (error) => errorFailed(saveFailureMessage(error))
                     })
                     return
                 }
@@ -947,13 +949,15 @@ const AgentflowCanvas = () => {
             setDraftStatus(null)
             setDraftStatusLoad((previous) => ({
                 flowId: loaded.id,
+                known: false,
                 loading: true,
                 error: null,
+                request: 'status',
                 retrying: previous.flowId === loaded.id && Boolean(previous.retrying || previous.error)
             }))
             const paint = (status) => {
                 if (cancelled) return
-                setDraftStatusLoad({ flowId: loaded.id, loading: false, error: null })
+                setDraftStatusLoad({ flowId: loaded.id, known: true, loading: false, error: null })
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
                 draftSave.record(status, text)
@@ -983,14 +987,20 @@ const AgentflowCanvas = () => {
                 .catch((error) => {
                     const decision = draftStatusOpenDecision(undefined, error)
                     if (!cancelled && !decision.paint) {
-                        setDraftStatusLoad({ flowId: loaded.id, loading: false, error: decision.error })
+                        setDraftStatusLoad({ flowId: loaded.id, known: false, loading: false, error: decision.error, request: 'status' })
                     }
                 })
             return () => {
                 cancelled = true
             }
         } else if (getSpecificChatflowApi.error) {
-            errorFailed(`Failed to retrieve ${canvasTitle}: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
+            setDraftStatusLoad({
+                flowId: chatflowId,
+                known: false,
+                loading: false,
+                error: getSpecificChatflowApi.error,
+                request: 'flow'
+            })
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -998,8 +1008,19 @@ const AgentflowCanvas = () => {
 
     const retryDraftStatusLoad = () => {
         setDraftStatus(null)
-        setDraftStatusLoad({ flowId: chatflowId, loading: true, error: null, retrying: true })
-        setDraftStatusRetry((attempt) => attempt + 1)
+        setDraftStatusLoad({
+            flowId: chatflowId,
+            known: false,
+            loading: true,
+            error: null,
+            retrying: true,
+            request: draftStatusLoad.request
+        })
+        if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
+            getSpecificChatflowApi.request(chatflowId)
+        } else {
+            setDraftStatusRetry((attempt) => attempt + 1)
+        }
     }
 
     function createdChatflowSuccess(created, { saveRev, starterQuestions, willContinue }) {
@@ -1022,9 +1043,7 @@ const AgentflowCanvas = () => {
     // Initialization
     useEffect(() => {
         setIsSyncNodesButtonEnabled(false)
-        if (chatflowId) {
-            getSpecificChatflowApi.request(chatflowId)
-        } else {
+        if (!chatflowId) {
             let importedName = ''
             const storedFlow = localStorage.getItem('duplicatedFlowData')
             if (storedFlow) {
@@ -1088,11 +1107,20 @@ const AgentflowCanvas = () => {
     }, [])
 
     useEffect(() => {
+        if (!chatflowId) return
+        setDraftStatus(null)
+        setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
+        getSpecificChatflowApi.request(chatflowId)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatflowId])
+
+    useEffect(() => {
         setCanvasDataStore(canvas)
     }, [canvas])
 
     useEffect(() => {
         function handlePaste(e) {
+            if (canvasBlocked) return
             const pasteData = e.clipboardData.getData('text')
             //TODO: prevent paste event when input focused, temporary fix: catch chatflow syntax
             if (pasteData.includes('{"nodes":[') && pasteData.includes('],"edges":[')) {
@@ -1107,7 +1135,7 @@ const AgentflowCanvas = () => {
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [canvasBlocked])
 
     useEffect(() => {
         if (templateFlowData && templateFlowData.includes('"nodes":[') && templateFlowData.includes('],"edges":[')) {
@@ -1267,7 +1295,7 @@ const AgentflowCanvas = () => {
                                             onConnect={onConnect}
                                             onInit={setReactFlowInstance}
                                             fitView
-                                            deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
+                                            deleteKeyCode={canvasBlocked || canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
                                             minZoom={0.5}
                                             snapGrid={[25, 25]}
                                             snapToGrid={isSnappingEnabled}

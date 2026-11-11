@@ -202,11 +202,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
 
     useEffect(() => {
         if (getAssistantObjApi.error) {
-            let errMsg = 'Internal Server Error'
-            let error = getAssistantObjApi.error
-            if (error?.response?.data) {
-                errMsg = requestFailureMessage(error)
-            }
+            const errMsg = requestFailureMessage(getAssistantObjApi.error)
             enqueueSnackbar({
                 message: `Failed to get assistant: ${errMsg}`,
                 options: {
@@ -226,11 +222,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
 
     useEffect(() => {
         if (getSpecificAssistantApi.error) {
-            const error = getSpecificAssistantApi.error
-            let errMsg = ''
-            if (error?.response?.data) {
-                errMsg = requestFailureMessage(error)
-            }
+            const errMsg = requestFailureMessage(getSpecificAssistantApi.error)
             enqueueSnackbar({
                 message: `Failed to get assistant: ${errMsg}`,
                 options: {
