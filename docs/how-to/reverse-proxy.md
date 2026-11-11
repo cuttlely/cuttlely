@@ -56,9 +56,16 @@ For a cloud gateway:
 1. Use HTTP/1.1 to the upstream server.
 2. Enable upstream connection reuse.
 3. Set its upstream idle timeout below 65 seconds, unless you raise `HTTP_KEEP_ALIVE_TIMEOUT_MS`.
-4. Set its client or stream idle timeout to at least 120 seconds. Cuttlely's current stream heartbeat is every 30 seconds.
+4. Set its client or stream idle timeout longer than the longest quiet gap in a stream. See [How long a stream can stay quiet](#how-long-a-stream-can-stay-quiet).
 5. Disable response buffering for server-sent event routes.
 6. Allow request bodies large enough for the uploads your flows accept.
+
+### How long a stream can stay quiet
+
+A proxy or gateway closes a stream that sends nothing for longer than its idle timeout. Not every stream sends keep-alive data today.
+
+-   Chat predictions, webhook responses and the webhook listener send a keep-alive comment every 30 seconds. An idle timeout of 120 seconds is enough for them.
+-   Harness streams, Harness chat on the canvas, and text-to-speech do not send keep-alive comments yet. A Harness specialist step can stay quiet until the agent run limit ends it. That limit is **Agent run time** in **Server Settings** (`CUTTLELY_HARNESS_RUN_TIMEOUT_MS`), 4 minutes by default. Set the idle timeout, and the nginx `proxy_read_timeout`, above that limit. If you raise the limit, or set it to 0 for no limit, raise the proxy timeouts to match.
 
 ## 3. Set proxy trust
 
