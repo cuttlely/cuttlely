@@ -37,7 +37,6 @@ import {
     draftConflictFrom,
     publishChangeLines,
     publishResultMessage,
-    PUBLISH_NOT_LANDED_MESSAGE,
     recheckPublish,
     showsPublishCheck
 } from '@/utils/flowDrafts'
@@ -158,6 +157,7 @@ const PublishDialog = ({
     const [gateBusy, setGateBusy] = useState(false)
     const [runAnyway, setRunAnyway] = useState(false)
     const [error, setError] = useState('')
+    const [publishAgainBlocked, setPublishAgainBlocked] = useState(false)
     // A 409 DRAFT_CHANGED: someone else saved the draft after this canvas loaded it.
     const [publishConflict, setPublishConflict] = useState(null)
 
@@ -178,6 +178,7 @@ const PublishDialog = ({
         setReplaceLiveChanges(false)
         setError('')
         setBusy(false)
+        setPublishAgainBlocked(false)
         setPublishConflict(null)
     }, [open])
 
@@ -332,13 +333,15 @@ const PublishDialog = ({
                     } catch {
                         if (!mounted.current) return
                         if (status) onDraftStatus(status)
+                        setPublishAgainBlocked(true)
                         setError('Published, but the canvas could not refresh Live. Close and reopen the flow when the connection is back.')
                         setBusy(false)
                     }
                     return
                 }
                 if (status) onDraftStatus(status)
-                setError(outcome === 'not-published' ? PUBLISH_NOT_LANDED_MESSAGE : publishFailureMessage(err))
+                setPublishAgainBlocked(true)
+                setError(publishFailureMessage(err))
             } else setError(publishFailureMessage(err))
             setBusy(false)
         }
@@ -479,7 +482,9 @@ const PublishDialog = ({
                 <Button
                     variant='contained'
                     onClick={() => onPublish(false)}
-                    disabled={busy || saveQueueBusy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)}
+                    disabled={
+                        publishAgainBlocked || busy || saveQueueBusy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)
+                    }
                 >
                     {busy ? 'Publishing…' : 'Publish'}
                 </Button>

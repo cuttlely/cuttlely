@@ -58,8 +58,7 @@ Publish is never sent twice on its own. If Publish gets no answer, the publish m
 
 -   If Live now has your draft, you see the usual **Published** message.
 -   If Live has your draft but the canvas cannot refresh it, the dialog says **Published, but the canvas could not refresh Live**. Close it and reopen the flow when the connection is back.
--   If it does not, the dialog says **Publish did not go through. Nothing was published.** Select **Publish** to try again.
--   If the check cannot tell, for example because it also gets no answer, the dialog says **Publish not confirmed**. When the connection is back, reopen the flow and check its Live version before you publish again.
+-   If the check does not prove that it finished, including when the status still looks unchanged or the check also gets no answer, the dialog says **Publish not confirmed** and disables Publish. When the connection is back, reopen the flow and check its Live version before you publish again.
 
 Draft-setting failures ask you to try that setting again instead of telling you to press Save.
 

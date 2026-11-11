@@ -276,11 +276,9 @@ export const publishResultMessage = (data = {}) => {
     return { message: 'Published.', variant: 'success' }
 }
 
-export const PUBLISH_NOT_LANDED_MESSAGE = 'Publish did not go through. Nothing was published. Select Publish to try again.'
-
 // What a Publish that got no answer did, read back from the draft status. `before` is the draft hash that was
 // published and the last publish date before it. Live moved and that draft is no longer pending: it landed.
-// Live did not move and the same draft is still pending: it did not. Anything else stays unknown.
+// An unchanged status is not proof that the original request has finished, so every other result stays unknown.
 export const publishOutcomeFromStatus = (before, status) => {
     if (!status || typeof status !== 'object') return 'unknown'
     const hash = typeof before?.draftHash === 'string' && before.draftHash ? before.draftHash : null
@@ -289,7 +287,6 @@ export const publishOutcomeFromStatus = (before, status) => {
     const pendingHash = status.draft?.hash ?? null
     const moved = Boolean(afterDate) && afterDate !== beforeDate
     if (moved && pendingHash !== hash) return 'published'
-    if (!moved && hash && pendingHash === hash) return 'not-published'
     return 'unknown'
 }
 
