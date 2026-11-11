@@ -54,9 +54,15 @@ Canvas changes on an existing saved flow are kept and retried quietly when a dra
 
 The create request for a new flow is never repeated automatically. Press **Save** again after an unanswered create request. If creation answers but its status check fails, Cuttlely repeats only that status check after 300 ms, 1 second, and 3 seconds; it never sends a second create request. If the check still fails, **The flow was created. We are still checking its save status.** appears with **Retry**. The message does not block the canvas, Save remains available, **Retry** repeats only the status check, and the same status check resumes when the browser comes online. On an existing flow, the canvas save is retried, but a follow-up update for its name or starter questions is not. If one of those updates gets no answer, your edits remain marked as unsaved and Cuttlely asks you to press **Save** again. These updates do not show the keep-trying message.
 
-Publish is also single-attempt. If it gets no answer, the message says **Publish not confirmed**, because the publish may have gone through before the connection dropped. When the connection is back, reopen the flow and check its Live version before you publish again. Draft-setting failures ask you to try that setting again instead of telling you to press Save.
+Publish is never sent twice on its own. If Publish gets no answer, the publish may still have gone through, so Cuttlely reads the flow's publish status again:
 
-When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. Select **Retry** on the page after the connection is back. This prevents a save or edit until Cuttlely knows the correct mode.
+-   If Live now has your draft, you see the usual **Published** message.
+-   If it does not, the dialog says **Publish did not go through. Nothing was published.** Select **Publish** to try again.
+-   If the check cannot tell, for example because it also gets no answer, the dialog says **Publish not confirmed**. When the connection is back, reopen the flow and check its Live version before you publish again.
+
+Draft-setting failures ask you to try that setting again instead of telling you to press Save.
+
+When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. The page says whether the server could not be reached or answered with an error, such as a flow that no longer exists. Select **Retry** after the connection is back, or **Back** to leave. This prevents a save or edit until Cuttlely knows the correct mode.
 
 ## Switch between compact and classic cards
 

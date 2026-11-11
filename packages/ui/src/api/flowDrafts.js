@@ -2,7 +2,7 @@ import client from './client'
 
 const path = (chatflowId) => `/flow-drafts/${encodeURIComponent(chatflowId)}`
 
-const getStatus = (chatflowId) => client.get(path(chatflowId))
+const getStatus = (chatflowId, config) => (config ? client.get(path(chatflowId), config) : client.get(path(chatflowId)))
 
 const saveDraft = (chatflowId, flowData, options = {}) => {
     const body = { flowData }

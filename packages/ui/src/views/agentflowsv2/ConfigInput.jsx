@@ -13,7 +13,7 @@ import NodeInputHandler from '../canvas/NodeInputHandler'
 
 // API
 import nodesApi from '@/api/nodes'
-import { isCancel } from '@/api/resilience'
+import { isCancel, isNoResponse } from '@/api/resilience'
 
 // const
 import { initNode, showHideInputParams, initializeDefaultNodeData } from '@/utils/genericHelper'
@@ -27,7 +27,7 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
     const [expanded, setExpanded] = useState(false)
     const [selectedComponentNodeData, setSelectedComponentNodeData] = useState({})
     // A load that fails after the shared client's quiet retries shows a message with Retry instead of blank fields.
-    const [loadFailed, setLoadFailed] = useState(false)
+    const [loadFailed, setLoadFailed] = useState('')
     const [loadAttempt, setLoadAttempt] = useState(0)
 
     // Track the last processed input values to prevent infinite loops using useState
@@ -88,7 +88,7 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
     useEffect(() => {
         const controller = new AbortController()
         let active = true
-        setLoadFailed(false)
+        setLoadFailed('')
         const loadComponentData = async () => {
             try {
                 // Get the node name from inputs
@@ -172,7 +172,15 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
                 })
             } catch (error) {
                 if (isCancel(error) || !active) return
-                setLoadFailed(true)
+                const data = error?.response?.data
+                const serverMessage = typeof data === 'string' ? data : data?.message
+                setLoadFailed(
+                    isNoResponse(error)
+                        ? 'The server did not answer.'
+                        : typeof serverMessage === 'string' && serverMessage
+                        ? serverMessage
+                        : `The server answered with status ${error?.response?.status ?? 'unknown'}.`
+                )
             }
         }
 
@@ -332,7 +340,7 @@ export const ConfigInput = ({ data, inputParam, disabled = false, arrayIndex = n
                         {loadFailed && (
                             <Box role='alert' sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
                                 <Typography variant='body2' sx={{ flexGrow: 1 }}>
-                                    These parameters could not be loaded. The server did not answer.
+                                    These parameters could not be loaded. {loadFailed}
                                 </Typography>
                                 <Button size='small' variant='outlined' onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
                                     Retry

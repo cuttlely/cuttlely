@@ -131,6 +131,8 @@ const AgentflowCanvas = () => {
         closeSnackbar: closeSnackbarAction
     })
     const pendingSaveNameRef = useRef('')
+    // A flow this canvas just created. Its new URL must not reload it from the server over newer edits.
+    const createdFlowIdRef = useRef(null)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -1042,6 +1044,7 @@ const AgentflowCanvas = () => {
         if (builderStartersRef.current === starterQuestions) builderStartersRef.current = []
         dispatch({ type: SET_CHATFLOW, chatflow: created })
         if (!willContinue) saveChatflowSuccess(created.accessNotice, saveRev)
+        createdFlowIdRef.current = created.id
         window.history.replaceState(state, null, `/v2/agentcanvas/${created.id}`)
     }
 
@@ -1122,7 +1125,8 @@ const AgentflowCanvas = () => {
     }, [])
 
     useEffect(() => {
-        if (!chatflowId) return
+        // A flow created on this canvas already has its cards and draft status; reloading it would replace newer edits.
+        if (!chatflowId || createdFlowIdRef.current === chatflowId) return
         setDraftStatus(null)
         setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
         getSpecificChatflowApi.request(chatflowId)

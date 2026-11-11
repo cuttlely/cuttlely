@@ -184,8 +184,10 @@ export const AsyncDropdown = ({
             controller.abort()
         }
 
+        // A field reused for another card (the side panel keys inputs by position) reloads for that card and
+        // aborts the previous card's load, so its options never show on the new card.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [attempt])
+    }, [attempt, nodeData?.id, name, credentialNames.join('|')])
 
     return (
         <>

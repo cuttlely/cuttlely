@@ -46,7 +46,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
 import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
-import { PUBLISH_CONFLICT_ANYWAY, PUBLISH_CONFLICT_REVIEW } from '@/utils/flowDrafts'
+import { PUBLISH_CONFLICT_ANYWAY, PUBLISH_CONFLICT_REVIEW, PUBLISH_NOT_LANDED_MESSAGE } from '@/utils/flowDrafts'
+import { PUBLISH_NO_ANSWER_MESSAGE } from '@/utils/errorSummary'
 
 const { __setAllow } = jest.requireMock('@/hooks/useAuth')
 import PublishDialog, { PublishChangeList, PublishGateNotice } from './PublishDialog'
@@ -687,6 +688,92 @@ describe('Publish checks that nobody else saved the draft', () => {
         await clickButton('Publish')
         expect(draftExpected).toHaveBeenCalledTimes(1)
         expect(flowDraftsApi.publish).toHaveBeenCalledWith('flow-1', { expectedDraftHash: 'zz-test-after' })
+        act(() => view.root.unmount())
+    })
+})
+
+describe('Publish that gets no answer reads the status back instead of publishing again', () => {
+    afterEach(() => {
+        flowDraftsApi.publish.mockReset()
+        flowDraftsApi.getCheckSetup.mockReset()
+        flowDraftsApi.getStatus.mockReset()
+        document.body.innerHTML = ''
+    })
+
+    const noAnswer = () => Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
+    const before = { date: '2026-11-10T10:00:00.000Z' }
+
+    const open = async () => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockImplementation(() => new Promise(() => {}))
+        const props = {
+            open: true,
+            chatflow: { id: 'flow-1', name: 'ZZ-TEST-catalog', type: 'ETL', flowData: graph('Streaming Files', 'a.csv') },
+            draftStatus: {
+                mode: 'draft',
+                draft: { flowData: graph('Streaming Files', 'b.csv'), stale: false, hash: 'zz-test-loaded' },
+                lastPublished: { sha: 'old', date: before.date }
+            },
+            isDirty: false,
+            onClose: jest.fn(),
+            onDraftStatus: jest.fn(),
+            onChatflowUpdated: jest.fn(),
+            onApplyCanvas: jest.fn(),
+            draftExpected: () => ({ expectedDraftHash: 'zz-test-loaded' }),
+            onDraftConflict: jest.fn()
+        }
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(PublishDialog, props)))
+        })
+        flowDraftsApi.getStatus.mockReset()
+        return { root, props }
+    }
+
+    test('a publish that landed shows the normal success and closes', async () => {
+        const view = await open()
+        flowDraftsApi.publish.mockRejectedValueOnce(noAnswer())
+        const landed = { mode: 'draft', draft: null, lastPublished: { sha: 'new', date: '2026-11-10T10:05:00.000Z' } }
+        flowDraftsApi.getStatus.mockResolvedValueOnce({ data: landed })
+        await clickButton('Publish')
+        expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('flow-1', { dedupe: false })
+        expect(view.props.onDraftStatus).toHaveBeenCalledWith(landed)
+        expect(view.props.onChatflowUpdated).toHaveBeenCalledTimes(1)
+        expect(view.props.onClose).toHaveBeenCalled()
+        expect(document.body.textContent).not.toContain(PUBLISH_NO_ANSWER_MESSAGE)
+        act(() => view.root.unmount())
+    })
+
+    test('a publish that did not land says so and leaves Publish to press again', async () => {
+        const view = await open()
+        flowDraftsApi.publish.mockRejectedValueOnce(noAnswer())
+        const pending = {
+            mode: 'draft',
+            draft: { flowData: graph('Streaming Files', 'b.csv'), stale: false, hash: 'zz-test-loaded' },
+            lastPublished: { sha: 'old', date: before.date }
+        }
+        flowDraftsApi.getStatus.mockResolvedValueOnce({ data: pending })
+        await clickButton('Publish')
+        expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
+        expect(document.body.textContent).toContain(PUBLISH_NOT_LANDED_MESSAGE)
+        expect(view.props.onClose).not.toHaveBeenCalled()
+        expect(view.props.onChatflowUpdated).not.toHaveBeenCalled()
+        const publish = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Publish')
+        expect(publish.disabled).toBe(false)
+        act(() => view.root.unmount())
+    })
+
+    test('a re-check that also gets no answer says the publish is not confirmed', async () => {
+        const view = await open()
+        flowDraftsApi.publish.mockRejectedValueOnce(noAnswer())
+        flowDraftsApi.getStatus.mockRejectedValueOnce(noAnswer())
+        await clickButton('Publish')
+        expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
+        expect(document.body.textContent).toContain(PUBLISH_NO_ANSWER_MESSAGE)
+        expect(view.props.onClose).not.toHaveBeenCalled()
         act(() => view.root.unmount())
     })
 })

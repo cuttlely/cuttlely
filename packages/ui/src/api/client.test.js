@@ -216,6 +216,21 @@ describe('API client resilience', () => {
         expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(2)
     })
 
+    test('a read with dedupe: false never joins an earlier identical read in flight', async () => {
+        let release
+        apiClient.defaults.adapter = jest.fn(
+            (config) => new Promise((resolve) => (release = () => resolve(response(config, { fresh: config.dedupe === false }))))
+        )
+        const earlier = apiClient.get('/flow-drafts/flow-1')
+        const releaseEarlier = release
+        const fresh = apiClient.get('/flow-drafts/flow-1', { dedupe: false })
+        expect(apiClient.defaults.adapter).toHaveBeenCalledTimes(2)
+        release()
+        releaseEarlier()
+        await expect(fresh).resolves.toMatchObject({ data: { fresh: true } })
+        await expect(earlier).resolves.toMatchObject({ data: { fresh: false } })
+    })
+
     test('the in-flight entry is removed after settle', async () => {
         apiClient.defaults.adapter = jest.fn(async (config) => response(config))
         await apiClient.get('/nodes')

@@ -4,7 +4,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest } from './CanvasLoadGuard'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadFailureReason, canvasLoadRetryRequest } from './CanvasLoadGuard'
 
 const theme = createTheme()
 
@@ -119,5 +119,22 @@ describe('CanvasLoadGuard', () => {
         expect(canvasLoadRetryRequest('a', { flowId: 'a', request: 'flow' }, undefined)).toBe('flow')
         expect(canvasLoadRetryRequest('a', { flowId: 'a', request: 'status' }, 'a')).toBe('status')
         expect(canvasLoadRetryRequest('b', { flowId: 'a', request: 'status' }, 'a')).toBe('flow')
+    })
+})
+
+describe('canvasLoadFailureReason', () => {
+    test('a request with no answer is reported as a connection problem', () => {
+        const noAnswer = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
+        expect(canvasLoadFailureReason(noAnswer)).toBe('The server could not be reached. Select Retry when the connection is back.')
+    })
+
+    test("an answered failure keeps the server's reason or status", () => {
+        expect(canvasLoadFailureReason({ response: { status: 404, data: { message: 'Chatflow not found' } } })).toBe(
+            'The server answered: Chatflow not found'
+        )
+        expect(canvasLoadFailureReason({ response: { status: 500, data: 'Internal failure' } })).toBe(
+            'The server answered: Internal failure'
+        )
+        expect(canvasLoadFailureReason({ response: { status: 500, data: {} } })).toBe('The server answered with status 500.')
     })
 })

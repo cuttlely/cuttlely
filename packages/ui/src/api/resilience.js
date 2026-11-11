@@ -79,7 +79,8 @@ const bodyHash = (value) => {
 }
 
 export const dedupeKey = (config = {}) => {
-    if (config.signal || config._authRetried || (config._retryCount || 0) > 0) return null
+    // dedupe: false asks for a fresh read, for example a status re-check that must not reuse a read started earlier.
+    if (config.dedupe === false || config.signal || config._authRetried || (config._retryCount || 0) > 0) return null
     const method = String(config.method || 'get').toLowerCase()
     const isRead = method === 'get' || method === 'head'
     const isLoadPost = method === 'post' && retryEnabled(config)
