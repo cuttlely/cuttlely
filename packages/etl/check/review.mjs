@@ -811,6 +811,20 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
         synced = String(error.stderr || error.message)
     }
     check('git clone and fetch still work with --', synced === true && fs.existsSync(path.join(dest, '.git')), String(synced))
+
+    const { resolveGitSource, gitUrlHint, SSH_HINT } = await import('../git-url.mjs')
+    const tree = await resolveGitSource({
+        gitUrl: 'https://github.com/hashicorp/web-unified-docs/tree/main/content/',
+        listRefs: async () => new Set(['main'])
+    })
+    check(
+        'a GitHub folder link clones the repository and loads that folder',
+        tree.cloneUrl === 'https://github.com/hashicorp/web-unified-docs.git' &&
+            tree.branch === 'main' &&
+            tree.subPath === 'content' &&
+            gitUrlHint('git@github.com:org/repo.git') === SSH_HINT,
+        json(tree)
+    )
 }
 
 {

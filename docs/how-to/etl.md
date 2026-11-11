@@ -206,6 +206,14 @@ A source path must be an absolute path on the server, without `..`. A pipeline c
 
 A **Code Repository** source can also read the Cuttlely checkout itself while `CUTTLELY_ETL_ROOTS` is not set. Any other path is refused with `Path "..." is outside the folders pipelines may read (...). Set CUTTLELY_ETL_ROOTS on the server to the folders pipelines may read (comma-separated, each path or label=path) and restart it.`
 
+## Load a code repository
+
+Add a **Code Repository** node when the source is a git repository. Set **Folder Path** to a checkout on the server, or set **Git URL** to a public https repository.
+
+You can paste a GitHub folder or file link, such as `https://github.com/hashicorp/web-unified-docs/tree/main/content/`. The node clones the repository on that branch and loads only that folder or file. A plain repository URL or a `.git` URL still works. SSH URLs are not cloned; use the https address instead.
+
+If the URL cannot be cloned, a short hint appears on the node. For a branch name that contains slashes, fill in **Branch** if the node cannot tell the branch apart from the folder path.
+
 ## Restore an earlier version
 
 **Publish**, **Roll back**, and a save through the API create a version when nodes, inputs, credentials, or connections change. A canvas save stores a draft and does not. Moving nodes does not. **Versions** lists the published versions, newest first.

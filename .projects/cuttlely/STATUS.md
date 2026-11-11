@@ -1,6 +1,14 @@
+## Code Repository GitHub page links
+
+This branch is `fix/etl-git-browser-url` from `origin/main` at `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). It fixes [#461](https://github.com/cuttlely/cuttlely/issues/461). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.
+
+A Code Repository source on an ETL pipeline treated a GitHub folder or file link as the clone URL, so `git clone` failed with "repository not found". The node now turns a GitHub `/tree/<branch>/<path>` or `/blob/<branch>/<path>` link into the repository URL, the branch, and the folder or file path. It shallow-clones that repository and loads only that path. A plain https repository URL or a `.git` URL is unchanged. SSH URLs are still refused. The Git URL field shows a short hint when the value cannot be cloned. Branch names with slashes are resolved with `git ls-remote`, or from the Branch field. A path that leaves the repository is refused.
+
+The parser is `packages/etl/git-url.mjs`. Tests are in `packages/etl/git-url.test.mjs` and `packages/ui/src/utils/gitSourceUrl.test.js`. The Code Repository node is version 1.1. The how-to is in `docs/how-to/etl.md`.
+
 ## Proxy-safe HTTP timeouts
 
-This branch is `fix/proxy-safe-timeouts` from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
+Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)), from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
 
 The HTTP server keeps idle connections open for 65 seconds instead of Node's 5-second default. `HTTP_KEEP_ALIVE_TIMEOUT_MS` accepts whole numbers from 1000 to 600000. `HTTP_HEADERS_TIMEOUT_MS` defaults to the keep-alive value plus 1000, must be greater than keep-alive, and is capped at 601000. Invalid values warn and use the applicable default. Startup applies only `keepAliveTimeout` and `headersTimeout`; Node's `requestTimeout` is unchanged. `docs/how-to/reverse-proxy.md` covers upstream reuse, stream timeouts and buffering, upload size, gateway idle time, and `TRUST_PROXY`.
 
