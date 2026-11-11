@@ -5,7 +5,8 @@ import {
     draftSaveLanded,
     sameLiveCanvas,
     sameSavedCanvas,
-    SAVE_CLOCK_SKEW_MS
+    SAVE_CLOCK_SKEW_MS,
+    UPLOAD_SAVE_AGAIN_NOTICE
 } from './saveQueue'
 
 const FLOW_A = JSON.stringify({ nodes: [{ id: 'a', data: { name: 'card' } }], edges: [] })
@@ -279,7 +280,7 @@ describe('save queue core', () => {
         expect(sameSavedCanvas(FLOW_A, nested)).toBe(false)
     })
 
-    test('reconciles a file canvas before every replay and accepts rewritten upload paths', async () => {
+    test('accepts a landed file canvas after storage rewrites its upload paths', async () => {
         const fileFlow = JSON.stringify({
             nodes: [{ id: 'a', data: { category: 'Document Loaders', inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
             edges: []
@@ -302,6 +303,33 @@ describe('save queue core', () => {
         expect(save.onAck).toHaveBeenCalledWith(stored, expect.objectContaining({ reconciled: true, hasBase64: true }))
     })
 
+    test('does not replay an ambiguous file draft and permits a later explicit Save', async () => {
+        const fileFlow = JSON.stringify({
+            nodes: [{ id: 'a', data: { inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
+            edges: []
+        })
+        const first = entry({ flowData: fileFlow })
+        const second = entry({ rev: 2, flowData: fileFlow })
+        const { queue, calls } = makeQueue({
+            putDraft: jest
+                .fn()
+                .mockRejectedValueOnce(noResponse())
+                .mockResolvedValueOnce({ data: status('saved', fileFlow) }),
+            getDraftStatus: jest.fn().mockResolvedValue({ data: status('base') })
+        })
+
+        queue.enqueue(first)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(1)
+        expect(first.onError).toHaveBeenCalledWith(expect.objectContaining({ message: UPLOAD_SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
+
+        queue.enqueue(second)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(2)
+        expect(second.onAck).toHaveBeenCalledTimes(1)
+    })
+
     test('finds file data in every node input', () => {
         const nested = JSON.stringify({
             nodes: [{ id: 'a', data: { category: 'Chat Models', inputs: { options: { file: 'data:text/plain;base64,QQ==' } } } }],
@@ -311,7 +339,7 @@ describe('save queue core', () => {
         expect(containsBase64Canvas(FLOW_A)).toBe(false)
     })
 
-    test('waits after a file reconciliation read gets no response', async () => {
+    test('does not replay a file draft when its reconciliation read gets no response', async () => {
         const fileFlow = JSON.stringify({
             nodes: [{ id: 'a', data: { inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
             edges: []
@@ -320,10 +348,12 @@ describe('save queue core', () => {
             putDraft: jest.fn().mockRejectedValue(noResponse()),
             getDraftStatus: jest.fn().mockRejectedValue(noResponse())
         })
-        queue.enqueue(entry({ flowData: fileFlow }))
+        const save = entry({ flowData: fileFlow })
+        queue.enqueue(save)
         await flush()
         expect(calls.putDraft).toHaveBeenCalledTimes(1)
-        expect(queue.getState().state).toBe('waiting')
+        expect(save.onError).toHaveBeenCalledWith(expect.objectContaining({ message: UPLOAD_SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
     })
 
     test('continues a canvas retry burst when reconciliation reads get no response', async () => {
@@ -514,7 +544,7 @@ describe('save queue core', () => {
         expect(liveEntry.onChanged).not.toHaveBeenCalled()
     })
 
-    test('retries a nested file write when only its name matches at the base time', async () => {
+    test('does not replay a nested Live file write when only its name matches at the base time', async () => {
         const sent = JSON.stringify({
             nodes: [{ id: 'a', data: { inputs: { options: { file: 'data:text/plain;base64,QkJC,filename:notes.txt' } } } }],
             edges: []
@@ -532,10 +562,7 @@ describe('save queue core', () => {
             onChanged: jest.fn(),
             onError: jest.fn()
         }
-        const putLive = jest
-            .fn()
-            .mockRejectedValueOnce(noResponse())
-            .mockResolvedValueOnce({ data: { ...liveEntry.body, updatedDate: 'saved' } })
+        const putLive = jest.fn().mockRejectedValue(noResponse())
         const { queue } = makeQueue({
             putLive,
             getLive: jest.fn().mockResolvedValue({ data: { name: 'Name', flowData: stored, updatedDate: 'base' } })
@@ -544,9 +571,36 @@ describe('save queue core', () => {
         expect(sameLiveCanvas(sent, stored)).toBe(true)
         queue.enqueue(liveEntry)
         await flush()
-        expect(putLive).toHaveBeenCalledTimes(2)
-        expect(liveEntry.onAck).toHaveBeenCalledTimes(1)
+        expect(putLive).toHaveBeenCalledTimes(1)
+        expect(liveEntry.onAck).not.toHaveBeenCalled()
         expect(liveEntry.onChanged).not.toHaveBeenCalled()
+        expect(liveEntry.onError).toHaveBeenCalledWith(expect.objectContaining({ message: UPLOAD_SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
+    })
+
+    test('does not replay a Live file write when its reconciliation read gets no response', async () => {
+        const sent = JSON.stringify({
+            nodes: [{ id: 'a', data: { inputs: { file: 'data:text/plain;base64,QQ==,filename:a.txt' } } }],
+            edges: []
+        })
+        const liveEntry = entry({
+            kind: 'live',
+            flowData: undefined,
+            body: { name: 'Name', flowData: sent },
+            baseUpdatedDate: 'base',
+            onChanged: jest.fn()
+        })
+        const { queue, calls } = makeQueue({
+            putLive: jest.fn().mockRejectedValue(noResponse()),
+            getLive: jest.fn().mockRejectedValue(noResponse())
+        })
+
+        queue.enqueue(liveEntry)
+        await flush()
+        expect(calls.putLive).toHaveBeenCalledTimes(1)
+        expect(calls.getLive).toHaveBeenCalledTimes(1)
+        expect(liveEntry.onError).toHaveBeenCalledWith(expect.objectContaining({ message: UPLOAD_SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
     })
 
     test('advances a pending Live base before its write starts', async () => {

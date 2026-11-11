@@ -3,6 +3,8 @@ import { draftConflictFrom } from '@/utils/flowDrafts'
 
 export const SAVE_RETRY_NOTICE = "Your changes aren't saved yet. Choose Retry when the connection is back."
 export const SAVE_AGAIN_NOTICE = 'The save did not get a response. Your edits are still here. Press Save again.'
+export const UPLOAD_SAVE_AGAIN_NOTICE =
+    'The save did not get a response. Your file may already be stored. Check the saved canvas in another tab, then press Save again only if it is still missing.'
 export const CREATE_NOT_CONFIRMED_NOTICE =
     'The new flow may have been created, but the server did not answer. Check your flows in another tab before leaving this canvas.'
 export const CREATE_STATUS_NOTICE = 'The flow was created. We are still checking its save status.'
@@ -368,7 +370,7 @@ export const createSaveQueue = ({
             response = await getDraftStatus(entry.id, { dedupe: false })
         } catch (error) {
             if (isCancel(error)) throw error
-            return { result: 'waiting', readFailure: isNoResponse(error) ? 'no-response' : 'http' }
+            return { result: 'waiting', readFailure: isNoResponse(error) ? 'no-response' : 'http', error }
         }
         const status = response?.data ?? response
         if (draftSaveLanded(status, entry)) return { result: 'landed', status }
@@ -427,8 +429,12 @@ export const createSaveQueue = ({
                 if (checked.result === 'conflict') {
                     return openDraftConflict(entry, null, checked.status)
                 }
-                if (checked.result === 'waiting' && (entry.hasBase64 || checked.readFailure !== 'no-response' || attempt === 3))
-                    return 'waiting'
+                if (entry.hasBase64) {
+                    await entry.onError?.(saveAgainError(checked.error || error, UPLOAD_SAVE_AGAIN_NOTICE))
+                    finishResolved(entry)
+                    return 'done'
+                }
+                if (checked.result === 'waiting' && (checked.readFailure !== 'no-response' || attempt === 3)) return 'waiting'
             }
         }
         return 'waiting'
@@ -447,7 +453,7 @@ export const createSaveQueue = ({
             return { result: 'read', stored: response?.data ?? response }
         } catch (error) {
             if (isCancel(error)) throw error
-            return { result: 'waiting' }
+            return { result: 'waiting', error }
         }
     }
 
@@ -492,13 +498,25 @@ export const createSaveQueue = ({
                 if (!isNoResponse(error) || isCancel(error)) throw error
                 trackReconnect()
                 const checked = await readLive(entry)
-                if (checked.result === 'waiting') return 'waiting'
+                if (checked.result === 'waiting') {
+                    if (entry.hasBase64) {
+                        await entry.onError?.(saveAgainError(checked.error || error, UPLOAD_SAVE_AGAIN_NOTICE))
+                        finishResolved(entry)
+                        return 'done'
+                    }
+                    return 'waiting'
+                }
                 const stored = checked.stored
                 if (liveSaveLanded(entry, stored)) {
                     await ackLive(entry, stored, true)
                     return 'done'
                 }
                 if (stored?.updatedDate === entry.baseUpdatedDate) {
+                    if (entry.hasBase64) {
+                        await entry.onError?.(saveAgainError(error, UPLOAD_SAVE_AGAIN_NOTICE))
+                        finishResolved(entry)
+                        return 'done'
+                    }
                     if (guarded) return 'waiting'
                     if (!retried) {
                         retried = true
@@ -514,8 +532,8 @@ export const createSaveQueue = ({
         return 'done'
     }
 
-    const saveAgainError = (error) => {
-        const failure = new Error(SAVE_AGAIN_NOTICE)
+    const saveAgainError = (error, message = SAVE_AGAIN_NOTICE) => {
+        const failure = new Error(message)
         failure.cause = error
         failure.saveAgain = true
         return failure
@@ -658,7 +676,10 @@ export const createSaveQueue = ({
 
     const enqueue = (entry) => {
         if (stopped) return
-        const captured = { ...entry, hasBase64: entry.hasBase64 ?? containsBase64Canvas(entry.flowData) }
+        const captured = {
+            ...entry,
+            hasBase64: entry.hasBase64 ?? containsBase64Canvas(entry.flowData ?? entry.body?.flowData)
+        }
         if (captured.kind === 'create' && createBlocked && !createdFlow) {
             Promise.resolve(captured.onError?.(createNotConfirmedError())).catch(() => undefined)
             return

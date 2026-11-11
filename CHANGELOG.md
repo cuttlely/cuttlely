@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Draft and Live canvas saves on an existing flow are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action. After an unanswered creation request, that canvas blocks later create attempts and asks the person to check their flows in another tab. An unanswered follow-up name or starter-question update remains marked as unsaved and asks for another Save. When creation answers but its status is still unknown, the queue makes only its four status-read attempts and offers Retry; the creation request is not repeated.
+-   Draft and Live canvas saves without new file data on an existing flow are kept and retried quietly when a request gets no answer. If the connection stays down, the canvas keeps the edits and offers a Retry action. A save with new file data makes one write attempt per explicit Save action. After an unanswered creation request, that canvas blocks later create attempts and asks the person to check their flows in another tab. An unanswered follow-up name or starter-question update remains marked as unsaved and asks for another Save. When creation answers but its status is still unknown, the queue makes only its four status-read attempts and offers Retry; the creation request is not repeated.
 
 -   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again. A saved canvas is inactive until its own draft status is known; quick opens show no extra screen, while slower opens show **Opening the saved canvas**. A workflow field reused for another card clears the prior card's option state and follows the new card's saved value.
 
@@ -14,7 +14,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   When the stored draft shows that a save already landed, a lost reply no longer makes that save appear to fail or write the same canvas twice. Uploaded-file saves also compare the stored non-file graph and file names, so a nearby save from another tab is not accepted as this save. A missing draft is not accepted as proof of a landed save just because Live matches the submitted canvas.
+-   When the stored draft shows that a save already landed, a lost reply no longer makes that save appear to fail or write the same canvas twice. Uploaded-file saves also compare the stored non-file graph and file names, so a nearby save from another tab is not accepted as this save. A file-bearing save is not sent again automatically: if the saved state cannot prove that it landed, the canvas stays unsaved and asks the person to check another tab before pressing Save again. A missing draft is not accepted as proof of a landed save just because Live matches the submitted canvas.
 
 -   Selecting Save again while a new flow is still being created now creates one flow and saves the latest canvas to its returned id.
 
@@ -32,7 +32,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays inactive until its save mode is known. If that load fails, the page offers Retry and says whether the server could not be reached or answered with an error. Moving to another saved flow while one is still opening shows only the flow you moved to, and a late answer for the earlier flow is ignored.
 
--   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. An unanswered first save or follow-up settings update says that the edits remain on the canvas and asks you to press Save again when the connection is back. Existing draft and Live saves use the Retry notice described above. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
+-   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. An unanswered first save or follow-up settings update says that the edits remain on the canvas and asks you to press Save again when the connection is back. Existing draft and Live saves without new file data use the Retry notice described above. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
 -   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
 
