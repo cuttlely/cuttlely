@@ -27,9 +27,9 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.7.2 makes tool status optional and fixes access dialogs and calls between flows.** Chatflows start with **Show tool events** Off; agentflows and Harnesses keep it On. Access-key checks also cover calls between flows and external workers. The setup steps now explain what the first-account code does.
+Latest stable is **1.7.2**. Pin image `1.7.2` or install `cuttlely@1.7.2`. [1.7.2 release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.2) · [Changelog](./CHANGELOG.md).
 
-**1.7.0 is a security-exception release and needs upgrade action.** Back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before you deploy, so you don't lock yourself out of browser administration. The setup code creates only the first account, and only when local sign-in is already on at the host (Docker and `npx cuttlely start` turn this on by default). It does not designate the instance operator; that is a separate step. [Sign in](./docs/how-to/sign-in.md) · [Upgrade warnings](./docs/upgrading.md) · [Changelog](./CHANGELOG.md). To select 1.7.2, pin image `1.7.2` or install `cuttlely@1.7.2`.
+**1.7.0 is a security-exception release. If you're upgrading from an earlier version, it needs action.** Back up the database, encryption key and settings, then read [operator onboarding and recovery](./docs/how-to/instance-operator.md) before you deploy, so you don't lock yourself out of browser administration. The full checklist, including the host-log claim, `CUTTLELY_INSTANCE_OPERATOR`, and access-key enforcement staying off by default, is in [Upgrade warnings](./docs/upgrading.md) (section "1.7.0 security-exception upgrade") and the [changelog](./CHANGELOG.md). The setup code creates only the first account, and only when local sign-in is already on at the host (Docker and `npx cuttlely start` turn this on by default). It cannot configure the service, and it does not designate the instance operator. [Sign in](./docs/how-to/sign-in.md) · [Your first 10 minutes](#your-first-10-minutes).
 
 ## Contents
 
