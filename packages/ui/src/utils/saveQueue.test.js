@@ -393,6 +393,50 @@ describe('save queue core', () => {
         expect(save.onConflict).toHaveBeenCalledTimes(1)
     })
 
+    test('guards the latest draft after a replay conflict', async () => {
+        const first = entry()
+        const latest = entry({ rev: 2, flowData: FLOW_C })
+        const getDraftStatus = jest.fn().mockResolvedValue({ data: status('base') })
+        const { queue, calls } = makeQueue({ putDraft: jest.fn().mockRejectedValue(noResponse()), getDraftStatus })
+        queue.enqueue(first)
+        await flush()
+        expect(queue.getState().state).toBe('waiting')
+
+        getDraftStatus.mockClear()
+        getDraftStatus.mockResolvedValue({ data: status('other', FLOW_B) })
+        queue.enqueue(latest)
+        await flush()
+
+        expect(getDraftStatus).toHaveBeenCalledTimes(2)
+        expect(getDraftStatus.mock.calls).toEqual([
+            ['flow-1', { dedupe: false }],
+            ['flow-1', { dedupe: false }]
+        ])
+        expect(calls.putDraft).toHaveBeenCalledTimes(4)
+        expect(first.onConflict).toHaveBeenCalledTimes(1)
+        expect(latest.onConflict).toHaveBeenCalledTimes(1)
+    })
+
+    test('allows the explicit conflict choice to write without another review', async () => {
+        const conflict = { response: { status: 409, data: { code: 'DRAFT_CHANGED', savedBy: { id: 'other' } } } }
+        const approved = entry({ rev: 2, flowData: FLOW_C, overwriteDraftChanges: true })
+        const { queue, calls } = makeQueue({
+            putDraft: jest
+                .fn()
+                .mockRejectedValueOnce(conflict)
+                .mockResolvedValueOnce({ data: status('approved', FLOW_C) })
+        })
+        queue.enqueue(entry())
+        await flush()
+        queue.enqueue(approved)
+        await flush()
+
+        expect(calls.getDraftStatus).not.toHaveBeenCalled()
+        expect(calls.putDraft).toHaveBeenCalledTimes(2)
+        expect(calls.putDraft).toHaveBeenLastCalledWith('flow-1', FLOW_C, expect.objectContaining({ overwriteDraftChanges: true }))
+        expect(approved.onAck).toHaveBeenCalledTimes(1)
+    })
+
     test('reconciles a Live write and retries once only when its base is unchanged', async () => {
         const liveEntry = {
             kind: 'live',

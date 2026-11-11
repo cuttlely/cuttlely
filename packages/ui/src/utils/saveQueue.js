@@ -302,6 +302,7 @@ export const createSaveQueue = ({
     let generation = 0
     const timers = new Set()
     let busy = false
+    let guardNextDraft = false
     const wait =
         sleep ||
         ((delay) =>
@@ -348,7 +349,15 @@ export const createSaveQueue = ({
     const openDraftConflict = async (entry, found, status) => {
         if (stopped) return
         await entry.onConflict?.(found || conflictFromStatus(status), status)
+        guardNextDraft = true
         finishResolved(entry)
+        return { result: 'done' }
+    }
+
+    const guardForNextDraft = (entry) => {
+        if (!guardNextDraft || entry?.kind !== 'draft') return false
+        guardNextDraft = false
+        return entry.overwriteDraftChanges !== true
     }
 
     const reconcileDraft = async (entry) => {
@@ -405,8 +414,7 @@ export const createSaveQueue = ({
                 entry.lastAttemptSettledAt = attemptTiming.settledAt
                 const conflict = draftConflictFrom(error)
                 if (conflict) {
-                    await openDraftConflict(entry, conflict)
-                    return 'done'
+                    return openDraftConflict(entry, conflict)
                 }
                 if (!isNoResponse(error) || isCancel(error)) throw error
                 trackReconnect()
@@ -417,8 +425,7 @@ export const createSaveQueue = ({
                     return 'done'
                 }
                 if (checked.result === 'conflict') {
-                    await openDraftConflict(entry, null, checked.status)
-                    return 'done'
+                    return openDraftConflict(entry, null, checked.status)
                 }
                 if (checked.result === 'waiting' && (entry.hasBase64 || checked.readFailure !== 'no-response' || attempt === 3))
                     return 'waiting'
@@ -623,7 +630,7 @@ export const createSaveQueue = ({
         if (next) {
             setState('saving')
             current = next
-            await execute(next, false)
+            await execute(next, guardForNextDraft(next))
         } else {
             setState('idle')
         }
@@ -671,7 +678,7 @@ export const createSaveQueue = ({
         }
         setState('saving')
         current = captured
-        execute(captured, false)
+        execute(captured, guardForNextDraft(captured))
     }
 
     const retry = () => {
