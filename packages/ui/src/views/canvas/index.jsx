@@ -24,7 +24,7 @@ import ButtonEdge from './ButtonEdge'
 import StickyNote from './StickyNote'
 import TidyLayoutButton from './TidyLayoutButton'
 import CanvasHeader from './CanvasHeader'
-import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest } from './CanvasLoadGuard'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest, flowLoadAction } from './CanvasLoadGuard'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
@@ -249,7 +249,14 @@ const Canvas = () => {
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
     const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow, { currentOnly: true, localNoAnswer: true })
     const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localNoAnswer: true })
-    const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
+    // currentOnly: a new flow request clears the previous result, and a late reply for an earlier request is dropped.
+    const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow, { currentOnly: true })
+    // The flow id of the latest saved-flow request; a result counts only while it matches the route (flowLoadAction).
+    const requestedFlowIdRef = useRef(null)
+    const requestFlow = (id) => {
+        requestedFlowIdRef.current = id
+        getSpecificChatflowApi.request(id)
+    }
     const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true, localNoAnswer: true })
 
     // ==============================|| Events & Actions ||============================== //
@@ -419,7 +426,7 @@ const Canvas = () => {
     const reloadSharedDraft = () => {
         draftSave.dismiss()
         if (!chatflow?.id) return
-        getSpecificChatflowApi.request(chatflow.id)
+        requestFlow(chatflow.id)
     }
 
     // The merged canvas from the conflict review screen. It replaces the cards and stays unsaved, so the
@@ -983,7 +990,8 @@ const Canvas = () => {
     }
 
     useEffect(() => {
-        if (getSpecificChatflowApi.data) {
+        const flowLoad = flowLoadAction(chatflowId, requestedFlowIdRef.current, getSpecificChatflowApi.data, getSpecificChatflowApi.error)
+        if (flowLoad === 'paint') {
             const loaded = getSpecificChatflowApi.data
             const workspaceId = loaded.workspaceId
             if (!hasAssignedWorkspace(workspaceId)) {
@@ -1044,7 +1052,7 @@ const Canvas = () => {
             return () => {
                 cancelled = true
             }
-        } else if (getSpecificChatflowApi.error) {
+        } else if (flowLoad === 'fail') {
             setDraftStatusLoad({
                 flowId: chatflowId,
                 known: false,
@@ -1071,7 +1079,7 @@ const Canvas = () => {
             // A flow created here keeps its unsaved cards: read its status again instead of reloading it.
             loadCreatedStatus(chatflow?.id === chatflowId ? chatflow : canvasDataStore.chatflow)
         } else if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
-            getSpecificChatflowApi.request(chatflowId)
+            requestFlow(chatflowId)
         } else {
             setDraftStatusRetry((attempt) => attempt + 1)
         }
@@ -1261,7 +1269,7 @@ const Canvas = () => {
         if (!chatflowId || createdFlowIdRef.current === chatflowId) return
         setDraftStatus(null)
         setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
-        getSpecificChatflowApi.request(chatflowId)
+        requestFlow(chatflowId)
         // The route id is the request identity. A new id must not reuse the previous canvas or its draft mode.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [chatflowId])

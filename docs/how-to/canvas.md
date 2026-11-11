@@ -60,7 +60,7 @@ Publish is never sent twice on its own. If Publish gets no answer, the publish m
 
 Draft-setting failures ask you to try that setting again instead of telling you to press Save.
 
-When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. The page says whether the server could not be reached or answered with an error, such as a flow that no longer exists. Select **Retry** after the connection is back, or **Back** to leave. This prevents a save or edit until Cuttlely knows the correct mode.
+When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. The page says whether the server could not be reached or answered with an error, such as a flow that no longer exists. Select **Retry** after the connection is back, or **Back** to leave. This prevents a save or edit until Cuttlely knows the correct mode. If you move to another saved flow while one is still opening, only the flow you moved to opens.
 
 ## Switch between compact and classic cards
 

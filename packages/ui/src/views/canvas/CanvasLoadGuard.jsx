@@ -8,6 +8,15 @@ import { Box, Button, CircularProgress, Typography } from '@mui/material'
 // no click, key or focus reaches its header or cards until the status is known.
 export const canvasLoadBlocked = (flowId, loadState) => Boolean(flowId) && !(loadState?.flowId === flowId && loadState?.known)
 
+// What to do with the saved-flow GET result. Only a result for the flow on the route counts: a reply for a flow
+// the canvas has since left is ignored, so it cannot paint over the current flow or leave its open screen waiting.
+// A failure for the current flow marks that flow as failed, so the open screen offers Retry.
+export const flowLoadAction = (chatflowId, requestedFlowId, data, error) => {
+    if (!chatflowId || requestedFlowId !== chatflowId) return 'ignore'
+    if (data) return data.id === chatflowId ? 'paint' : 'ignore'
+    return error ? 'fail' : 'ignore'
+}
+
 export const canvasLoadRetryRequest = (flowId, loadState, loadedFlowId) =>
     loadState?.flowId === flowId && loadState?.request === 'status' && loadedFlowId === flowId ? 'status' : 'flow'
 
