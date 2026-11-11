@@ -332,6 +332,7 @@ const PublishDialog = ({
                         if (!mounted.current) return
                         if (status) onDraftStatus(status)
                         setError('Published, but the canvas could not refresh Live. Close and reopen the flow when the connection is back.')
+                        setBusy(false)
                     }
                     return
                 }
