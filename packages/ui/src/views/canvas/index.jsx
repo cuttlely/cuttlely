@@ -169,13 +169,6 @@ const Canvas = () => {
     const [draftStatusRetry, setDraftStatusRetry] = useState(0)
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
-    const draftSave = useSaveQueue({
-        chatflowsApi,
-        flowDraftsApi,
-        dispatch,
-        enqueueSnackbar: enqueueSnackbarAction,
-        closeSnackbar: closeSnackbarAction
-    })
     const pendingSaveNameRef = useRef('')
     // A flow this canvas just created. Its new URL must not reload it from the server over newer edits.
     const createdFlowIdRef = useRef(null)
@@ -184,6 +177,17 @@ const Canvas = () => {
     const routeFlowId = chatflowId || createdFlowIdRef.current
     const routeFlowIdRef = useRef(routeFlowId)
     routeFlowIdRef.current = routeFlowId
+    // A newly created flow is still the same queue scope. Moving between saved routes is not: disposing the old
+    // queue prevents a late save from recording its draft base or callbacks on the newly opened canvas.
+    const saveQueueRouteKey = createdFlowIdRef.current === chatflowId ? '' : chatflowId
+    const draftSave = useSaveQueue({
+        chatflowsApi,
+        flowDraftsApi,
+        dispatch,
+        enqueueSnackbar: enqueueSnackbarAction,
+        closeSnackbar: closeSnackbarAction,
+        routeKey: saveQueueRouteKey
+    })
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -542,6 +546,7 @@ const Canvas = () => {
     const handleSaveFlowName = (name, callbacks = {}) => {
         draftSave.runNonReplay(
             {
+                id: chatflow.id,
                 send: () => chatflowsApi.updateChatflow(chatflow.id, { name }),
                 onAck: callbacks.onAck,
                 onError: callbacks.onError
@@ -611,6 +616,7 @@ const Canvas = () => {
                     }
                     draftSave.runNonReplay(
                         {
+                            id: created.id,
                             send: () => chatflowsApi.updateChatflow(created.id, { name: plan.live.name }),
                             onAck: (saved) => {
                                 dispatch({ type: SET_CHATFLOW, chatflow: saved })
@@ -789,6 +795,7 @@ const Canvas = () => {
                             }
                             draftSave.runNonReplay(
                                 {
+                                    id: chatflow.id,
                                     send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
                                     onAck: (saved) => {
                                         dispatch({ type: SET_CHATFLOW, chatflow: saved })
@@ -845,6 +852,7 @@ const Canvas = () => {
                 }
                 if (plan.live?.name) {
                     draftSave.runNonReplay({
+                        id: chatflow.id,
                         send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
                         onAck: (saved) => {
                             dispatch({ type: SET_CHATFLOW, chatflow: saved })

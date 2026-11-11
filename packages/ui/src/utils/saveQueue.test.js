@@ -88,6 +88,23 @@ describe('save queue core', () => {
         expect(calls.putDraft.mock.calls[1][2].expectedDraftHash).toBe('h1')
     })
 
+    test("does not advance another flow's pending draft base", async () => {
+        const first = deferred()
+        const { queue, calls } = makeQueue({
+            putDraft: jest
+                .fn()
+                .mockReturnValueOnce(first.promise)
+                .mockResolvedValue({ data: status('flow-2-saved', FLOW_B) })
+        })
+        queue.enqueue(entry({ id: 'flow-1', flowData: FLOW_A }))
+        queue.enqueue(entry({ id: 'flow-2', flowData: FLOW_B, expectedDraftHash: 'flow-2-base' }))
+        first.resolve({ data: status('flow-1-saved', FLOW_A) })
+        await flush()
+
+        expect(calls.putDraft.mock.calls[1][0]).toBe('flow-2')
+        expect(calls.putDraft.mock.calls[1][2].expectedDraftHash).toBe('flow-2-base')
+    })
+
     test('leaves revision matching to the acknowledgement callback', async () => {
         let editRev = 2
         let dirty = true
@@ -544,6 +561,7 @@ describe('save queue core', () => {
         })
         queue.enqueue({
             kind: 'nonReplay',
+            id: 'flow-1',
             internal: true,
             send: jest.fn().mockReturnValue(nameRequest.promise),
             onAck: jest.fn(),

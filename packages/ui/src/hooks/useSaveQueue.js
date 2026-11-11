@@ -9,7 +9,7 @@ import useDraftSave from './useDraftSave'
 const NOTICE_KEY = 'canvas-save-waiting'
 const CREATE_NOTICE_KEY = 'canvas-create-status-waiting'
 
-export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, enqueueSnackbar, closeSnackbar }) {
+export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, enqueueSnackbar, closeSnackbar, routeKey = '' }) {
     const userId = useSelector((state) => state.auth?.user?.id)
     const draftSave = useDraftSave()
     const draftSaveRef = useRef(draftSave)
@@ -82,7 +82,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
             queue.dispose()
             if (queueRef.current === queue) queueRef.current = null
         }
-    }, [closeSnackbar, dispatch, makeQueue])
+    }, [closeSnackbar, dispatch, makeQueue, routeKey])
 
     const wrapDraft = useCallback((entry, recordedStatus) => {
         const snapshot = recordedStatus

@@ -143,6 +143,8 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         // A newly created flow is exposed only by the queue's acknowledgement, after its status callback made the
         // exact id usable. The queue tests cover retrying that status read without another creation request.
         expect(source).toContain('const routeFlowId = chatflowId || createdFlowIdRef.current')
+        expect(source).toContain("const saveQueueRouteKey = createdFlowIdRef.current === chatflowId ? '' : chatflowId")
+        expect(source).toContain('routeKey: saveQueueRouteKey')
         expect(source).toContain('const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)')
         expect(source).toMatch(/onStatus: \(status, created\) => \{\s+setDraftStatus\(status\)/)
         expect(source).toContain('setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })')

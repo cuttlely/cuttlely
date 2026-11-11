@@ -45,12 +45,12 @@ const deferred = () => {
     return { promise, resolve }
 }
 
-function Harness({ apiRef, dependencies }) {
-    apiRef.current = useSaveQueue(dependencies)
+function Harness({ apiRef, dependencies, routeKey = '' }) {
+    apiRef.current = useSaveQueue({ ...dependencies, routeKey })
     return createElement('div')
 }
 
-Harness.propTypes = { apiRef: PropTypes.shape({ current: PropTypes.object }), dependencies: PropTypes.object }
+Harness.propTypes = { apiRef: PropTypes.shape({ current: PropTypes.object }), dependencies: PropTypes.object, routeKey: PropTypes.string }
 
 describe('save queue hook lifecycle', () => {
     let root
@@ -257,6 +257,34 @@ describe('save queue hook lifecycle', () => {
 
         expect(flowDraftsApi.saveDraft).toHaveBeenCalledTimes(1)
         expect(onAck).toHaveBeenCalledTimes(1)
+    })
+
+    test('a saved-route change disposes the old queue before the new flow saves', async () => {
+        const first = deferred()
+        const firstAck = jest.fn()
+        const secondAck = jest.fn()
+        flowDraftsApi.saveDraft
+            .mockReturnValueOnce(first.promise)
+            .mockResolvedValueOnce({ data: { ...BASE, draft: { ...BASE.draft, hash: 'flow-b-saved' } } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies, routeKey: 'flow-a' })))
+        apiRef.current.record(BASE, FLOW)
+        await act(async () => apiRef.current.saveDraft({ id: 'flow-a', rev: 1, flowData: FLOW, liveFlowData: '{}', onAck: firstAck }))
+
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies, routeKey: 'flow-b' })))
+        apiRef.current.record(BASE, FLOW)
+        await act(async () => apiRef.current.saveDraft({ id: 'flow-b', rev: 2, flowData: FLOW, liveFlowData: '{}', onAck: secondAck }))
+        await settleTimers()
+
+        expect(flowDraftsApi.saveDraft.mock.calls.map(([id]) => id)).toEqual(['flow-a', 'flow-b'])
+        expect(secondAck).toHaveBeenCalledTimes(1)
+        await act(async () => first.resolve({ data: { ...BASE, draft: { ...BASE.draft, hash: 'flow-a-saved' } } }))
+        await settleTimers()
+        expect(firstAck).not.toHaveBeenCalled()
+        expect(apiRef.current.expected()).toEqual({ expectedDraftHash: 'flow-b-saved' })
     })
 
     test('keeps the create id private until Retry finishes its status read', async () => {

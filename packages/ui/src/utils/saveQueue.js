@@ -341,7 +341,7 @@ export const createSaveQueue = ({
     const ackDraft = async (entry, status, reconciled = false) => {
         if (stopped) return
         await entry.onAck?.(status, { reconciled, storedFlowData: status?.draft?.flowData || entry.flowData, hasBase64: entry.hasBase64 })
-        if (pending?.kind === 'draft') pending = withNextDraftBase(pending, status)
+        if (pending?.kind === 'draft' && pending.id === entry.id) pending = withNextDraftBase(pending, status)
         finishResolved(entry)
     }
 
@@ -428,7 +428,7 @@ export const createSaveQueue = ({
     const ackLive = async (entry, flow, reconciled = false) => {
         if (stopped) return
         await entry.onAck?.(flow, { reconciled })
-        if (pending?.kind === 'live') pending = withNextLiveBase(pending, flow)
+        if (pending?.kind === 'live' && pending.id === entry.id) pending = withNextLiveBase(pending, flow)
         finishResolved(entry)
     }
 
@@ -522,10 +522,11 @@ export const createSaveQueue = ({
     const runNonReplay = async (entry) => {
         try {
             const response = await entry.send()
+            if (stopped) return { result: 'done' }
             const saved = response?.data ?? response
             if (entry.kind === 'create') return { result: 'done', created: saved }
             await entry.onAck?.(saved)
-            if (pending?.kind === 'live') pending = withNextLiveBase(pending, saved)
+            if (pending?.kind === 'live' && pending.id === entry.id) pending = withNextLiveBase(pending, saved)
             finishResolved(entry)
             return { result: 'done' }
         } catch (error) {

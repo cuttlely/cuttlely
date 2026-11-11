@@ -99,6 +99,7 @@ export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurren
     const chatbotConfig = withStarterQuestions(savedFlow?.chatbotConfig, questions)
     if (!savedFlow?.id || !chatbotConfig) return null
     return {
+        id: savedFlow.id,
         rev,
         send: () => save(savedFlow.id, { chatbotConfig }),
         onAck: async (saved) => {
