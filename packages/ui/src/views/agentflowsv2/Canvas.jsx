@@ -112,7 +112,6 @@ const AgentflowCanvas = () => {
     const [draftStatus, setDraftStatusState] = useState(null)
     const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, known: false, loading: false, error: null })
     const [draftStatusRetry, setDraftStatusRetry] = useState(0)
-    const canvasBlocked = canvasLoadBlocked(chatflowId, draftStatusLoad)
     const draftStatusRef = useRef(null)
     const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
@@ -120,6 +119,10 @@ const AgentflowCanvas = () => {
     const pendingUpdateSaveRevRef = useRef()
     // A flow this canvas just created. Its new URL must not reload it from the server over newer edits.
     const createdFlowIdRef = useRef(null)
+    // The flow this canvas is on. chatflowId is read from the address on every render, and create sets the new
+    // address before its state updates render; createdFlowIdRef also covers a render that reads the address first.
+    const routeFlowId = chatflowId || createdFlowIdRef.current
+    const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -843,17 +846,32 @@ const AgentflowCanvas = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [getSpecificChatflowApi.data, getSpecificChatflowApi.error, draftStatusRetry])
 
+    // The draft status of a flow this canvas just created. Its new address does not reload it (createdFlowIdRef),
+    // so this read is what lets the canvas leave its inert state.
+    const loadCreatedStatus = (created) =>
+        flowDraftsApi
+            .getStatus(created.id)
+            .then((res) => {
+                setDraftStatus(res.data)
+                setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
+                draftSave.record(res.data, canvasFlowText(created, res.data))
+            })
+            .catch((error) => setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' }))
+
     const retryDraftStatusLoad = () => {
         setDraftStatus(null)
         setDraftStatusLoad({
-            flowId: chatflowId,
+            flowId: routeFlowId,
             known: false,
             loading: true,
             error: null,
             retrying: true,
             request: draftStatusLoad.request
         })
-        if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
+        if (createdFlowIdRef.current === routeFlowId && draftStatusLoad.request === 'status') {
+            // A flow created here keeps the cards on the canvas: read its status again instead of reloading it.
+            loadCreatedStatus(chatflow?.id === routeFlowId ? chatflow : canvasDataStore.chatflow)
+        } else if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
             requestFlow(chatflowId)
         } else {
             setDraftStatusRetry((attempt) => attempt + 1)
@@ -872,14 +890,7 @@ const AgentflowCanvas = () => {
             const saveRev = pendingCreateSaveRevRef.current
             pendingCreateSaveRevRef.current = undefined
             saveChatflowSuccess(chatflow.accessNotice, saveRev)
-            flowDraftsApi
-                .getStatus(chatflow.id)
-                .then((res) => {
-                    setDraftStatus(res.data)
-                    setDraftStatusLoad({ flowId: chatflow.id, known: true, loading: false, error: null })
-                    draftSave.record(res.data, canvasFlowText(chatflow, res.data))
-                })
-                .catch((error) => setDraftStatusLoad({ flowId: chatflow.id, known: false, loading: false, error, request: 'status' }))
+            loadCreatedStatus(chatflow)
             createdFlowIdRef.current = chatflow.id
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
         }
@@ -1092,7 +1103,7 @@ const AgentflowCanvas = () => {
 
     return (
         <CanvasLoadGuard
-            flowId={chatflowId}
+            flowId={routeFlowId}
             loadState={draftStatusLoad}
             onRetry={retryDraftStatusLoad}
             onBack={() => navigate('/agentflows')}

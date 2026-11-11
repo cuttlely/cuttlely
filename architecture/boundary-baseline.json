@@ -2698,6 +2698,11 @@
             "to": "packages/ui/src/store/actions.js"
         },
         {
+            "from": "packages/ui/src/views/canvas/savedFlowLoad.test.js",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "saved-flow load test drives useApi currentOnly with the canvas load guard"
+        },
+        {
             "from": "packages/ui/src/views/chatflows/APICodeDialog.test.js",
             "to": "packages/ui/src/api/chatflows.js",
             "reason": "Access-key UI regression mounts the inherited API dialog and spies on its existing chatflow API writer"

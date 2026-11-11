@@ -129,5 +129,12 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         )
         expect(source).not.toMatch(/getSpecificChatflowApi\.request\((?!id\))/)
         expect(source).not.toMatch(/if \(getSpecificChatflowApi\.(data|error)\)/)
+        // A flow created on this canvas is blocked by its own id until its status is known, and Retry re-reads that
+        // status instead of reloading the saved copy over the cards on the canvas.
+        expect(source).toContain('const routeFlowId = chatflowId || createdFlowIdRef.current')
+        expect(source).toContain('const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)')
+        expect(source).toMatch(
+            /if \(createdFlowIdRef\.current === routeFlowId && draftStatusLoad\.request === 'status'\) \{\s+\/\/[^\n]*\n\s+loadCreatedStatus\(/
+        )
     })
 })
