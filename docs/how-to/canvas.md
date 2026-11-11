@@ -56,7 +56,7 @@ Publish is never sent twice on its own. If Publish gets no answer, the publish m
 
 -   If Live now has your draft, you see the usual **Published** message.
 -   If it does not, the dialog says **Publish did not go through. Nothing was published.** Select **Publish** to try again.
--   If the check cannot tell, for example because it also gets no answer or someone else published at the same time, the dialog says **Publish not confirmed**. When the connection is back, reopen the flow and check its Live version before you publish again.
+-   If the check cannot tell, for example because it also gets no answer, the dialog says **Publish not confirmed**. When the connection is back, reopen the flow and check its Live version before you publish again.
 
 Draft-setting failures ask you to try that setting again instead of telling you to press Save.
 

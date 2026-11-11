@@ -170,6 +170,11 @@ const Canvas = () => {
     const pendingSaveNameRef = useRef('')
     const pendingCreateSaveRevRef = useRef()
     const pendingUpdateSaveRevRef = useRef()
+    // The edit revision of a Live save waiting on its change check. It moves to pendingUpdateSaveRevRef only when
+    // that save's update is sent, so an earlier update finishing cannot take a later save's revision.
+    const pendingPreflightSaveRevRef = useRef()
+    // A flow this canvas just created. Its new URL must not reload it from the server over newer edits.
+    const createdFlowIdRef = useRef(null)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -544,7 +549,7 @@ const Canvas = () => {
                     }
                     setChatflowName(plan.live.name)
                     setFlowData(plan.live.flowData)
-                    pendingUpdateSaveRevRef.current = saveRev
+                    pendingPreflightSaveRevRef.current = saveRev
                     getHasChatflowChangedApi.request(chatflow.id, lastUpdatedDateTime)
                     return
                 }
@@ -1087,6 +1092,7 @@ const Canvas = () => {
                     })
                     .catch((error) => setDraftStatusLoad({ flowId: chatflow.id, known: false, loading: false, error, request: 'status' }))
             }
+            createdFlowIdRef.current = chatflow.id
             window.history.replaceState(
                 state,
                 null,
@@ -1131,9 +1137,12 @@ const Canvas = () => {
                 const isConfirmed = await confirm(confirmPayload)
 
                 if (!isConfirmed) {
+                    pendingPreflightSaveRevRef.current = undefined
                     return
                 }
             }
+            pendingUpdateSaveRevRef.current = pendingPreflightSaveRevRef.current
+            pendingPreflightSaveRevRef.current = undefined
             const updateBody = {
                 name: chatflowName,
                 flowData
@@ -1142,7 +1151,7 @@ const Canvas = () => {
         }
 
         if (getHasChatflowChangedApi.error) {
-            pendingUpdateSaveRevRef.current = undefined
+            pendingPreflightSaveRevRef.current = undefined
             errorFailed(saveFailureMessage(getHasChatflowChangedApi.error))
         } else if (getHasChatflowChangedApi.data) {
             checkIfHasChanged()
@@ -1232,7 +1241,8 @@ const Canvas = () => {
     }, [])
 
     useEffect(() => {
-        if (!chatflowId) return
+        // A flow created on this canvas already has its cards and draft status; reloading it would replace newer edits.
+        if (!chatflowId || createdFlowIdRef.current === chatflowId) return
         setDraftStatus(null)
         setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
         getSpecificChatflowApi.request(chatflowId)
