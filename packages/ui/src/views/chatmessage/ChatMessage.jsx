@@ -104,6 +104,7 @@ import FollowUpPromptsCard from '@/ui-component/cards/FollowUpPromptsCard'
 
 // History
 import { ChatInputHistory } from './ChatInputHistory'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const messageImageStyle = {
     width: '128px',
@@ -524,7 +525,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
         } catch (error) {
             setIsMessageStopping(false)
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

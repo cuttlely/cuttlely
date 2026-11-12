@@ -23,6 +23,7 @@
         "./errors.mjs": "./errors.mjs",
         "./execute.mjs": "./execute.mjs",
         "./faults.mjs": "./faults.mjs",
+        "./git-url.mjs": "./git-url.mjs",
         "./graph.mjs": "./graph.mjs",
         "./hash-embeddings.mjs": "./hash-embeddings.mjs",
         "./ignore.mjs": "./ignore.mjs",

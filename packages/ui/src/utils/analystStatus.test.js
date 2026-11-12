@@ -8,14 +8,26 @@ import {
     serverAnalystMode
 } from './analystStatus'
 import { CREDENTIAL_INPUT } from './canvasSave'
+import nodesApi from '@/api/nodes'
 
 jest.mock('@/store/constant', () => ({ baseURL: 'http://localhost' }))
+jest.mock('@/api/nodes', () => ({ __esModule: true, default: { executeNodeLoadMethod: jest.fn() } }))
 
 const answer = (name) => jest.fn(async () => ({ data: [{ label: 'x', name }] }))
 
 beforeEach(() => resetAnalystModeCache())
 
 describe('analyst mode lookup', () => {
+    it('uses the shared client by default', async () => {
+        nodesApi.executeNodeLoadMethod.mockResolvedValueOnce({ data: [{ name: 'readonly' }] })
+        await expect(fetchAnalystMode({ name: 'postgreSQLMCP' })).resolves.toBe('readonly')
+        expect(nodesApi.executeNodeLoadMethod).toHaveBeenCalledWith(
+            'postgreSQLMCP',
+            expect.objectContaining({ loadMethod: 'analystMode' }),
+            expect.objectContaining({ withCredentials: true })
+        )
+    })
+
     it('reads one known word and treats anything else as unknown', () => {
         expect(modeFrom([{ name: 'sandbox' }])).toBe('sandbox')
         expect(modeFrom([{ name: 'readonly' }])).toBe('readonly')

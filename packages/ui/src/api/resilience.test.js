@@ -1,0 +1,58 @@
+import axios from 'axios'
+import { backoffDelay, dedupeKey, isConnectionUnavailable, isNoResponse, isRetryableStatus, shouldRetry } from './resilience'
+
+describe('request resilience helpers', () => {
+    test('backoff uses the three delays and stays within the jitter bounds', () => {
+        expect([1, 2, 3].map((attempt) => backoffDelay(attempt, () => 0.5))).toEqual([300, 1000, 3000])
+        expect([1, 2, 3].map((attempt) => backoffDelay(attempt, () => 0))).toEqual([225, 750, 2250])
+        expect([1, 2, 3].map((attempt) => backoffDelay(attempt, () => 1))).toEqual([375, 1250, 3750])
+    })
+
+    test('a missing response is distinct from HTTP and cancellation errors', () => {
+        expect(isNoResponse(Object.assign(new Error('down'), { request: {} }))).toBe(true)
+        expect(isNoResponse({ response: { status: 503 } })).toBe(false)
+        expect(isNoResponse(new axios.CanceledError())).toBe(false)
+    })
+
+    test('only gateway failure statuses are retryable', () => {
+        expect([502, 503, 504].every(isRetryableStatus)).toBe(true)
+        expect([400, 404, 500].some(isRetryableStatus)).toBe(false)
+    })
+
+    test('only real request failures are connection-unavailable outcomes for writes', () => {
+        expect(isConnectionUnavailable({ isAxiosError: true, request: {} })).toBe(true)
+        expect(isConnectionUnavailable({ response: { status: 503 } })).toBe(true)
+        expect(isConnectionUnavailable({})).toBe(false)
+        expect(isConnectionUnavailable(new Error('local failure'))).toBe(false)
+    })
+
+    test('safe methods and opted-in load posts retry', () => {
+        const network = Object.assign(new Error('down'), { request: {} })
+        expect(shouldRetry({ method: 'get' }, network)).toBe(true)
+        expect(shouldRetry({ method: 'head' }, { response: { status: 503 } })).toBe(true)
+        expect(shouldRetry({ method: 'post', retry: true }, network)).toBe(true)
+        expect(shouldRetry({ method: 'post' }, network)).toBe(false)
+        expect(shouldRetry({ method: 'put', retry: true }, { response: { status: 500 } })).toBe(false)
+        expect(shouldRetry({ method: 'get', retry: false }, network)).toBe(false)
+    })
+
+    test('dedupe keys are stable and include opted-in post bodies', () => {
+        const first = dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/nodes', params: { b: 2, a: 1 } })
+        const second = dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/nodes', params: { a: 1, b: 2 } })
+        expect(first).toBe(second)
+        expect(dedupeKey({ method: 'post', baseURL: 'http://local', url: '/load', data: { a: 1 }, retry: true })).not.toBe(
+            dedupeKey({ method: 'post', baseURL: 'http://local', url: '/load', data: { a: 2 }, retry: true })
+        )
+        expect(dedupeKey({ method: 'get', url: '/nodes', signal: new AbortController().signal })).toBeNull()
+    })
+
+    test('dedupe keys keep URL search parameter values distinct', () => {
+        const first = new URLSearchParams({ provider: 'first', credentialId: 'credential-a' })
+        const second = new URLSearchParams({ provider: 'second', credentialId: 'credential-b' })
+        const matching = new URLSearchParams({ provider: 'first', credentialId: 'credential-a' })
+
+        const firstKey = dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/voices', params: first })
+        expect(firstKey).toBe(dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/voices', params: matching }))
+        expect(firstKey).not.toBe(dedupeKey({ method: 'get', baseURL: 'http://local/api', url: '/voices', params: second }))
+    })
+})

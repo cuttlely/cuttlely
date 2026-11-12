@@ -33,6 +33,7 @@ import { IconTrash, IconPlus, IconJson, IconX, IconNumber123, IconAbc, IconAugme
 
 // const
 import { evaluators as evaluatorsOptions, numericOperators } from '../evaluators/evaluatorConstant'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| Evaluators ||============================== //
 
@@ -128,9 +129,7 @@ const Evaluators = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete Evaluator: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete Evaluator: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

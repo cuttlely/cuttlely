@@ -18,6 +18,7 @@ import chatflowsApi from '@/api/chatflows'
 
 // utils
 import useNotifier from '@/utils/useNotifier'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const RateLimit = ({ dialogProps, hideTitle = false }) => {
     const dispatch = useDispatch()
@@ -95,9 +96,7 @@ const RateLimit = ({ dialogProps, hideTitle = false }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Rate Limit Configuration: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: settingFailureMessage(error, 'Failed to save Rate Limit Configuration'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

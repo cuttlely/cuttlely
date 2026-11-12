@@ -22,7 +22,7 @@ export function isTidyUndoKey(event) {
 // Rearranges the harness canvas. It changes card positions only and never saves: the canvas is marked changed and
 // the person's own Save keeps the layout. One Undo (the snackbar button or Ctrl/Cmd+Z) puts every card back while
 // no card has been moved, added or removed and the canvas has not been saved.
-const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSnackbar, closeSnackbar }) => {
+const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSnackbar, closeSnackbar, blocked = false }) => {
     const measured = useNodesInitialized()
     const [undo, setUndo] = useState(null)
     const snackbarKey = useRef(null)
@@ -40,17 +40,19 @@ const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSna
     }, [])
 
     const runUndo = useCallback(() => {
+        if (blocked) return false
         if (!canUndoTidy(undo, nodesRef.current)) return false
         setNodes(undoTidy(undo, nodesRef.current))
         onDirty()
         dropUndo()
         return true
-    }, [undo, setNodes, onDirty, dropUndo])
+    }, [blocked, undo, setNodes, onDirty, dropUndo])
 
     const runUndoRef = useRef(runUndo)
     runUndoRef.current = runUndo
 
     const tidy = () => {
+        if (blocked) return
         const step = tidyStep(nodesRef.current, edges)
         if (!step.undo) {
             enqueueSnackbar({
@@ -115,7 +117,7 @@ const TidyLayoutButton = ({ nodes, edges, setNodes, isDirty, onDirty, enqueueSna
         return () => window.removeEventListener('keydown', onKeyDown)
     }, [undo])
 
-    const ready = measured && nodes.length > 0
+    const ready = !blocked && measured && nodes.length > 0
     return (
         <button
             type='button'
@@ -137,7 +139,8 @@ TidyLayoutButton.propTypes = {
     isDirty: PropTypes.bool,
     onDirty: PropTypes.func.isRequired,
     enqueueSnackbar: PropTypes.func.isRequired,
-    closeSnackbar: PropTypes.func.isRequired
+    closeSnackbar: PropTypes.func.isRequired,
+    blocked: PropTypes.bool
 }
 
 export default TidyLayoutButton

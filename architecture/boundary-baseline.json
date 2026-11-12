@@ -2154,6 +2154,11 @@
             "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
         },
         {
+            "from": "packages/ui/src/hooks/useApi.test.js",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "Silent retry follow-up to #455: the useApi test exercises the inherited request hook until it moves to core."
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
@@ -2178,6 +2183,16 @@
             "from": "packages/ui/src/store/context/ErrorContext.test.js",
             "to": "packages/ui/src/store/context/ErrorContext.jsx",
             "reason": "Regression tests for the error card and API client exercise the existing inherited modules that read a missing HTTP response"
+        },
+        {
+            "from": "packages/ui/src/store/reducers/canvasReducer.test.js",
+            "to": "packages/ui/src/store/actions.js",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
+        },
+        {
+            "from": "packages/ui/src/store/reducers/canvasReducer.test.js",
+            "to": "packages/ui/src/store/reducers/canvasReducer.js",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
         },
         {
             "from": "packages/ui/src/themes/compStyleOverride.test.js",
@@ -2252,6 +2267,21 @@
             "from": "packages/ui/src/ui-component/dialog/ExpandTextDialog.test.js",
             "to": "packages/ui/src/ui-component/dialog/ExpandTextDialog.jsx",
             "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
+        },
+        {
+            "from": "packages/ui/src/ui-component/dropdown/AsyncDropdown.test.js",
+            "to": "packages/ui/src/api/credentials.js",
+            "reason": "AsyncDropdown test mocks the credentials client to check a card switch aborts the previous load"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dropdown/AsyncDropdown.test.js",
+            "to": "packages/ui/src/api/nodes.js",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
+        },
+        {
+            "from": "packages/ui/src/ui-component/dropdown/AsyncDropdown.test.js",
+            "to": "packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
         },
         {
             "from": "packages/ui/src/ui-component/dropdown/MultiDropdown.test.js",
@@ -2376,8 +2406,18 @@
         },
         {
             "from": "packages/ui/src/utils/analystStatus.js",
+            "to": "packages/ui/src/api/nodes.js",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
+        },
+        {
+            "from": "packages/ui/src/utils/analystStatus.js",
             "to": "packages/ui/src/store/constant.js",
             "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
+        },
+        {
+            "from": "packages/ui/src/utils/analystStatus.test.js",
+            "to": "packages/ui/src/api/nodes.js",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
         },
         {
             "from": "packages/ui/src/utils/credentialSaveValues.js",
@@ -2578,6 +2618,11 @@
         },
         {
             "from": "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
+            "to": "packages/ui/src/api/nodes.js",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/NodeLinkNotes.test.js",
             "to": "packages/ui/src/store/context/ReactFlowContext.jsx",
             "reason": "Postgres (MCP) panel groups, link notes, analyst mode badge and the pinned query list read the existing canvas field renderer, flow context, API base URL and pinned query modules; display only"
         },
@@ -2641,6 +2686,11 @@
         },
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Publish reconciliation reads the current Live flow after an ambiguous write."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/hooks/useAuth.jsx",
             "reason": "The Publish dialog hides Run the test set unless the person can view datasets and evaluators."
         },
@@ -2651,6 +2701,16 @@
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.test.js",
+            "to": "packages/ui/src/api/chatflows.js",
+            "reason": "Publish reconciliation reads the current Live flow after an ambiguous write."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/savedFlowLoad.test.js",
+            "to": "packages/ui/src/hooks/useApi.jsx",
+            "reason": "saved-flow load test drives useApi currentOnly with the canvas load guard"
         },
         {
             "from": "packages/ui/src/views/chatflows/APICodeDialog.test.js",
@@ -3160,6 +3220,16 @@
             "from": "packages/ui/src/utils/migrationScan.test.js",
             "to": "packages/ui/src/utils/flowiseMigration.mjs",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "from": "packages/ui/src/views/agentflowsv2/Canvas.jsx",
+            "to": "packages/ui/src/views/canvas/CanvasLoadGuard.jsx",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/index.jsx",
+            "to": "packages/ui/src/views/canvas/CanvasLoadGuard.jsx",
+            "reason": "Silent retry follow-up to #455: core resilience code and its tests call the inherited nodes API client and canvas store; the edges stay until those modules move to core."
         },
         {
             "from": "packages/ui/src/views/chatflows/APICodeDialog.jsx",

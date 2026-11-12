@@ -15,9 +15,9 @@
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
-오픈소스 에이전트 플랫폼 · Apache-2.0
+컨텍스트 인식 에이전트 오케스트레이션. 오픈소스, Apache-2.0.
 
-Cuttlely는 오픈소스 컨텍스트 인식 에이전트 오케스트레이션입니다. AI 에이전트 팀을 시각적으로 만들고, 각 에이전트는 필요한 컨텍스트만 받으므로 게시하기 전에 모든 실행이 무엇을 쓰고 비용이 얼마인지 확인할 수 있습니다. 무엇이든 바뀌기 전에 실제 질문을 Live와 초안에서 나란히 다시 실행해 보세요.
+Cuttlely에서는 AI 에이전트 팀을 시각적으로 만들고, 각 에이전트는 필요한 컨텍스트만 받으므로 게시하기 전에 모든 실행이 무엇을 쓰고 비용이 얼마인지 확인할 수 있습니다. 무엇이든 바뀌기 전에 실제 질문을 Live와 초안에서 나란히 다시 실행해 보세요.
 
 ```bash
 npx cuttlely start
@@ -25,17 +25,11 @@ npx cuttlely start
 
 Node 20+ 및 Docker
 
-**프로덕션에 바로 쓰는 비주얼 에이전트 빌더.**
-
-끌어다 놓아 만드는 에이전트에 제대로 된 거버넌스와 가벼운 컨텍스트를 더합니다. 오픈소스, Apache-2.0. Cuttlely("커들리"로 읽습니다)는 여러분이 관리하는 인프라 위에서 실행됩니다. 모든 변경은 초안에서 기다리고, 게시하기 전에 실제 질문을 Live와 초안에서 나란히 다시 실행해 볼 수 있으며, 각 스페셜리스트는 필요한 작업만 받습니다.
-
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.7.2는 도구 상태 표시를 선택할 수 있게 하고 액세스 설정 대화 상자와 플로우 간 호출을 수정합니다.** 챗플로우의 **Show tool events**는 기본적으로 Off이고 에이전트플로우와 Harness는 On을 유지합니다. 플로우 간 호출과 외부 워커에도 액세스 키 권한 검사가 적용됩니다. 설정 안내에는 첫 계정용 코드의 역할을 명확히 설명했습니다.
+최신 안정 버전은 **1.7.2**입니다. 이미지 `1.7.2`를 지정하거나 `cuttlely@1.7.2`를 설치하세요. [1.7.2 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.2) · [변경 기록](./CHANGELOG.md).
 
-**1.7.1은 액세스 키 생성과 비공개 흐름을 개선합니다.** 프리셋이 필수 권한과 Harness 접근을 포함하며, 저장된 Private 표시와 복제 시 비공개 설정, PostgreSQL 삭제 처리를 수정합니다. [액세스 키 안내](./docs/how-to/access-keys.md).
-
-**1.7.0은 범위가 지정된 API 키와 호스트 기반 서비스 관리를 추가합니다.** 보안 예외를 적용한 릴리스이며 업그레이드 작업이 필요합니다. 데이터베이스, 암호화 키, 설정을 백업하고 배포 전에 [운영자 지정 및 복구](./docs/how-to/instance-operator.md)를 준비하세요. 검증된 호스트 CLI 바인딩만 자동으로 유지됩니다. 바인딩이 없는 기존 설치는 Server settings의 Instance operator에서 호스트 로그에 한 번 표시되는 코드로 명시적으로 CLAIM합니다. 일상적인 이전·해제·재바인딩은 관리 패널에서 수행하며 CLI는 긴급 복구 전용입니다. 서비스 전체 설정은 지정된 인스턴스 운영자만 변경할 수 있으며 다른 소유자에게 서비스 권한을 부여하지 않습니다. 호스트 로그 코드는 호스팅 대시보드 또는 Docker/Compose 로그에서 확인합니다. 호스트의 `CUTTLELY_INSTANCE_OPERATOR` JSON이 파일보다 우선하고 `none`은 모든 브라우저 관리를 취소합니다. 바인딩이 없거나 잘못되면 관리가 차단됩니다. 새 설치는 호스트에서 로그인을 먼저 설정해야 합니다. 설정 코드는 첫 계정만 만들며, 호스트에서 로컬 로그인이 이미 켜져 있어야 합니다(Docker와 `npx cuttlely start`는 기본적으로 이를 켭니다). 이 코드로 서비스 구성을 바꾸거나 인스턴스 운영자를 지정할 수 없습니다. 운영자 지정은 별도 단계입니다. [로그인](./docs/how-to/sign-in.md) · [인스턴스 운영자](./docs/how-to/instance-operator.md). 액세스 키 적용은 기본적으로 꺼져 있습니다. [업그레이드 주의사항](./docs/upgrading.md) · [변경 기록](./CHANGELOG.md). 1.7.2를 선택하려면 이미지 `1.7.2` 또는 `cuttlely@1.7.2`를 지정하세요.
+**1.7.0은 보안 예외 릴리스입니다. 이전 버전에서 업그레이드하는 경우 작업이 필요합니다.** 데이터베이스, 암호화 키, 설정을 백업한 다음, 브라우저 관리에서 잠기지 않도록 배포 전에 [운영자 지정 및 복구](./docs/how-to/instance-operator.md)를 읽으세요. 호스트 로그 일회용 코드로 하는 신청, `CUTTLELY_INSTANCE_OPERATOR`, 액세스 키 적용이 기본적으로 꺼져 있다는 점을 포함한 전체 체크리스트는 [업그레이드 주의사항](./docs/upgrading.md)("1.7.0 security-exception upgrade" 절)과 [변경 기록](./CHANGELOG.md)에 있습니다. 설정 코드는 첫 계정만 만들며, 호스트에서 로컬 로그인이 이미 켜져 있어야 합니다(Docker와 `npx cuttlely start`는 기본적으로 이를 켭니다). 이 코드로 서비스를 구성하거나 인스턴스 운영자를 지정할 수는 없습니다. [로그인](./docs/how-to/sign-in.md) · [처음 10분](#your-first-10-minutes).
 
 ## 목차
 

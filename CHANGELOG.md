@@ -6,13 +6,25 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   Brief connection drops while editing are retried quietly for reads and option loads. A non-blocking **Reconnecting…** chip can appear while Cuttlely tries again. A saved canvas is inactive until its own draft status is known; quick opens show no extra screen, while slower opens show **Opening the saved canvas**. A workflow field reused for another card clears the prior card's option state and follows the new card's saved value.
+
 -   Node warnings and operator messages now use the product name Cuttlely. The ETL Pipeline panel says an embeddings model is called through its Cuttlely node. Server start, stop, worker, and blueprint-check messages use the same product name.
 
 ### Fixed
 
+-   The Code Repository source on an ETL pipeline accepts a GitHub folder or file link, such as a `/tree/` or `/blob/` URL, including a full-commit permalink. It checks out the link's branch, tag, or commit and loads only that path while keeping repository ignore and filter rules. A non-empty Branch field overrides the link's revision while keeping its path. An unsupported or malformed link shows a short hint on the node; access and branch errors appear during a preview or run. Fixes #461.
+
 -   Self-hosted installs behind a reverse proxy or cloud gateway now keep idle server connections open for 65 seconds by default, instead of 5 seconds, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`; see the [reverse proxy guide](./docs/how-to/reverse-proxy.md). Follow-up to #455.
 
--   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. The page now says the server could not be reached and asks you to check your connection, then reload. Loading or saving a canvas in that state shows the same message in a notification. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
+-   A canvas save that gets no answer or a 502, 503, or 504 gateway response after an earlier successful save no longer reports the old result as saved, clears the unsaved mark, starts the Live update after its change check failed, or replaces the canvas with reload guidance. The first draft save after **Build with AI** also falls back to Live only when the server specifically says drafts are off; gateway and other server errors keep the built cards unsaved on the canvas. Publish and draft-setting connection errors now name the action. A publish with one of those ambiguous failures is not sent again. Cuttlely reads the flow's publish status back: it refreshes the current Live flow and shows the usual success only when the status proves the publish landed, reports a landed publish separately if the Live canvas cannot refresh, and otherwise says the result is not confirmed and disables Publish until the flow is reopened.
+
+-   A save that finished while you kept editing no longer marks the later edits as saved. If the mounted canvas moves to another flow while a create, draft, Live, name, or starter-question save is waiting, that completion no longer changes the new flow, clears its unsaved mark, or shows a success or failure for the earlier flow. This applies to the classic and agentflow canvases.
+
+-   Canvas and node-configuration error notifications updated by this change now show "The server could not be reached" when a request gets no answer, instead of showing nothing. Canvas configuration saves ask you to try that setting again instead of advising a reload that could lose unsaved edits. Nested agentflow settings also keep a 502, 503, or 504 gateway page out of the panel and show the connection message with Retry.
+
+-   Opening a saved flow when its draft status cannot be loaded no longer shows Live in place of its draft. The canvas stays inactive until its save mode is known. If that load fails, the page offers Retry and says whether the server could not be reached or answered with an error. Moving to another saved flow while one is still opening shows only the flow you moved to, and a late answer for the earlier flow is ignored.
+
+-   A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. A canvas save notification that gets no answer says that the edits remain on the canvas and to press Save again when the connection is back. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
 -   Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
 

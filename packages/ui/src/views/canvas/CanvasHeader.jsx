@@ -1,4 +1,4 @@
-import { duplicateFlowData } from '@/utils/canvasSave'
+import { duplicateFlowData, saveCompletionForRoute } from '@/utils/canvasSave'
 import PropTypes from 'prop-types'
 import { useNavigate } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
@@ -65,6 +65,7 @@ import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW } from '@/store/actions'
+import { saveFailureMessage, settingFailureMessage } from '@/utils/errorSummary'
 
 // Clock icon (unchecked) and calendar-check icon (checked), mirroring MaterialUISwitch style
 const clockIcon = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" height="20" width="20" viewBox="0 0 20 20"><path fill="${encodeURIComponent(
@@ -174,6 +175,8 @@ const CanvasHeader = ({
     const { confirm } = useConfirm()
     const flowNameRef = useRef()
     const settingsRef = useRef()
+    const pendingNameSaveRef = useRef()
+    const nameRouteRef = useRef(chatflow?.id)
 
     const [isEditingFlowName, setEditingFlowName] = useState(null)
     const [flowName, setFlowName] = useState('')
@@ -208,12 +211,19 @@ const CanvasHeader = ({
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
+    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localUnavailable: true })
     const getScheduleStatusApi = useApi(chatflowsApi.getScheduleStatus)
-    const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled)
+    const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled, { currentOnly: true, localUnavailable: true })
     const canvas = useSelector((state) => state.canvas)
     const isDark = useSelector((state) => state.customization.isDarkMode)
     const nodeSpecsReady = Array.isArray(canvas.componentNodes) && canvas.componentNodes.length > 0
+
+    useEffect(() => {
+        if (nameRouteRef.current === chatflow?.id) return
+        nameRouteRef.current = chatflow?.id
+        pendingNameSaveRef.current = undefined
+        setEditingFlowName(false)
+    }, [chatflow?.id])
 
     const [scheduleEnabled, setScheduleEnabled] = useState(false)
     const [scheduleCanEnable, setScheduleCanEnable] = useState(false)
@@ -343,6 +353,7 @@ const CanvasHeader = ({
             const updateBody = {
                 name: next
             }
+            pendingNameSaveRef.current = { flowId: chatflow.id }
             updateChatflowApi.request(chatflow.id, updateBody)
         }
     }
@@ -432,10 +443,13 @@ const CanvasHeader = ({
     }
 
     useEffect(() => {
-        if (updateChatflowApi.data) {
-            setFlowName(updateChatflowApi.data.name)
-            dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-        }
+        if (!updateChatflowApi.data) return
+        const pendingSave = pendingNameSaveRef.current
+        pendingNameSaveRef.current = undefined
+        if (!saveCompletionForRoute(pendingSave, chatflow?.id)) return
+        if (updateChatflowApi.data.id !== pendingSave.flowId) return
+        setFlowName(updateChatflowApi.data.name)
+        dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
         setEditingFlowName(false)
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -443,8 +457,11 @@ const CanvasHeader = ({
 
     useEffect(() => {
         if (!updateChatflowApi.error) return
+        const pendingSave = pendingNameSaveRef.current
+        pendingNameSaveRef.current = undefined
+        if (!saveCompletionForRoute(pendingSave, chatflow?.id)) return
         enqueueSnackbar({
-            message: apiErrorMessage(updateChatflowApi.error, 'Save failed'),
+            message: saveFailureMessage(updateChatflowApi.error),
             options: {
                 key: new Date().getTime() + Math.random(),
                 variant: 'error',
@@ -535,7 +552,7 @@ const CanvasHeader = ({
     useEffect(() => {
         if (toggleScheduleEnabledApi.error) {
             enqueueSnackbar({
-                message: String(toggleScheduleEnabledApi.error?.message || toggleScheduleEnabledApi.error || 'Failed to toggle schedule'),
+                message: settingFailureMessage(toggleScheduleEnabledApi.error, 'The schedule could not be changed.'),
                 options: { variant: 'error' }
             })
         }
