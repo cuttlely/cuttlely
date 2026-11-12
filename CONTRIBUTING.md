@@ -38,7 +38,7 @@ Not sure what to contribute? Some ideas:
 
 ### Developers
 
-Cuttlely has 3 different modules in a single mono repository. New modules follow the boundary map in [ARCHITECTURE.md](./ARCHITECTURE.md).
+Cuttlely is a pnpm monorepo. The packages a first change usually touches are `server` (Node API), `ui` (React frontend) and `components` (nodes and integrations); [ARCHITECTURE.md](./ARCHITECTURE.md) maps every package and the boundaries new modules follow.
 
 -   `server`: Node backend to serve API logics
 -   `ui`: React frontend
@@ -208,7 +208,7 @@ npx cuttlely-server start --PORT=3000 --DEBUG=true
 
 ## Docs
 
-Update the README, this file, and `docker/README.md` so they describe Cuttlely.
+If your change alters what users see or run, update the matching page under `docs/` and the README section in the same pull request. Docs-only pull requests can run `pnpm verify --fast`.
 
 ## Vendored Hermes
 
