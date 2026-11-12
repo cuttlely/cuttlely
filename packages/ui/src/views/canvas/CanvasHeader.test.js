@@ -1,32 +1,20 @@
 /**
  * @jest-environment <rootDir>/src/__mocks__/jsdomCanvasEnvironment.js
  */
-const mockUpdateApi = { data: null, error: null, loading: false, request: jest.fn() }
-const mockOtherApi = { data: null, error: null, loading: false, request: jest.fn() }
-const mockDispatch = jest.fn()
-
 jest.mock('@/store/constant', () => ({ uiBaseURL: 'http://localhost', baseURL: 'http://localhost' }))
-jest.mock('@/hooks/useApi', () => (apiFunc) => apiFunc?.name === 'mockUpdateChatflow' ? mockUpdateApi : mockOtherApi)
+jest.mock('@/hooks/useApi', () => () => ({ data: null, error: null, loading: false, request: jest.fn() }))
 jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ hasPermission: () => true }) }))
 jest.mock('@/hooks/useConfirm', () => {
     const confirm = jest.fn()
     return { __esModule: true, default: () => ({ confirm }) }
 })
 jest.mock('react-redux', () => ({
-    useDispatch: () => mockDispatch,
+    useDispatch: () => jest.fn(),
     useSelector: (selector) => selector({ canvas: { isDirty: false, componentNodes: [] }, customization: { isDarkMode: false } })
 }))
 jest.mock('react-router-dom', () => ({ useNavigate: () => jest.fn() }))
 jest.mock('@mui/material/useMediaQuery', () => () => false)
-jest.mock('@/api/chatflows', () => ({
-    __esModule: true,
-    default: {
-        updateChatflow: function mockUpdateChatflow() {},
-        getScheduleStatus: jest.fn(),
-        toggleScheduleEnabled: jest.fn(),
-        getSpecificChatflow: jest.fn()
-    }
-}))
+jest.mock('@/api/chatflows', () => ({ __esModule: true, default: {} }))
 jest.mock('@/api/flowVersions', () => ({
     __esModule: true,
     default: {
@@ -86,13 +74,6 @@ describe('Canvas header discard', () => {
     afterEach(() => {
         flowDraftsApi.discardDraft.mockReset()
         confirm.mockReset()
-        mockUpdateApi.data = null
-        mockUpdateApi.error = null
-        mockUpdateApi.request.mockReset()
-        mockOtherApi.data = null
-        mockOtherApi.error = null
-        mockOtherApi.request.mockReset()
-        mockDispatch.mockReset()
         document.body.innerHTML = ''
     })
 
@@ -101,32 +82,30 @@ describe('Canvas header discard', () => {
         const container = document.createElement('div')
         document.body.appendChild(container)
         const root = createRoot(container)
-        const render = async (chatflow = { id: 'flow-1', name: 'Upgrade catalog', type, flowData }) =>
-            act(async () => {
-                root.render(
-                    createElement(
-                        ThemeProvider,
-                        { theme },
-                        createElement(CanvasHeader, {
-                            chatflow,
-                            isAgentCanvas: type === 'AGENTFLOW',
-                            isAgentflowV2: type === 'AGENTFLOW',
-                            isEtlCanvas: type === 'ETL',
-                            handleSaveFlow: () => {},
-                            handleDeleteFlow: () => {},
-                            handleLoadFlow: () => {},
-                            draftStatus: {
-                                mode: 'draft',
-                                draft: { flowData: graph('Streaming Files', 'draft.csv'), stale: true }
-                            },
-                            onApplyCanvas,
-                            ...headerProps
-                        })
-                    )
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme },
+                    createElement(CanvasHeader, {
+                        chatflow: { id: 'flow-1', name: 'Upgrade catalog', type, flowData },
+                        isAgentCanvas: type === 'AGENTFLOW',
+                        isAgentflowV2: type === 'AGENTFLOW',
+                        isEtlCanvas: type === 'ETL',
+                        handleSaveFlow: () => {},
+                        handleDeleteFlow: () => {},
+                        handleLoadFlow: () => {},
+                        draftStatus: {
+                            mode: 'draft',
+                            draft: { flowData: graph('Streaming Files', 'draft.csv'), stale: true }
+                        },
+                        onApplyCanvas,
+                        ...headerProps
+                    })
                 )
-            })
-        await render()
-        return { root, onApplyCanvas, render }
+            )
+        })
+        return { root, onApplyCanvas }
     }
 
     const discard = async () => {
@@ -180,56 +159,58 @@ describe('Canvas header discard', () => {
         act(() => view.root.unmount())
     })
 
-    it('ignores an inline name result after the header moves to another flow', async () => {
-        const flowData = graph('Chat', 'input.txt')
-        const view = await open(flowData, 'CHATFLOW')
-        await act(async () =>
-            document.querySelector('[title="Edit Name"]').firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        )
-        const input = document.querySelector('input')
-        input.value = 'Renamed A'
-        await act(async () =>
-            document.querySelector('[title="Save Name"]').firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        )
-        expect(mockUpdateApi.request).toHaveBeenCalledWith('flow-1', { name: 'Renamed A' })
+    test('blocks name and publish writes while a canvas save is active', async () => {
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { saveQueueBusy: true })
+        const publish = document.body.querySelector('[data-testid="publish-button"]')
+        expect(publish.disabled).toBe(true)
+        expect(publish.getAttribute('title')).toBe('Save your changes first')
 
-        await view.render({ id: 'flow-2', name: 'Flow B', type: 'CHATFLOW', flowData })
-        mockUpdateApi.data = { id: 'flow-1', name: 'Renamed A', type: 'CHATFLOW', flowData }
-        await view.render({ id: 'flow-2', name: 'Flow B', type: 'CHATFLOW', flowData })
-
-        expect(mockDispatch.mock.calls.map(([action]) => action).filter((action) => action?.type === 'SET_CHATFLOW')).toEqual([])
-        expect(document.body.textContent).toContain('Flow B')
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const saveName = document.body.querySelector('[title="Saving…"]')
+        expect(saveName.disabled).toBe(true)
         act(() => view.root.unmount())
     })
 
-    it('keeps the inline name editor open while the next result is pending and after its failure', async () => {
-        const flowData = graph('Chat', 'input.txt')
-        const flow = { id: 'flow-1', name: 'Upgrade catalog', type: 'CHATFLOW', flowData }
-        const view = await open(flowData, 'CHATFLOW')
-        await act(async () =>
-            document.querySelector('[title="Edit Name"]').firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        )
-        document.querySelector('input').value = 'First name'
-        await act(async () =>
-            document.querySelector('[title="Save Name"]').firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        )
-        mockUpdateApi.data = { ...flow, name: 'First name' }
-        await view.render({ ...flow, name: 'First name' })
+    test('sends an inline name through the shared lane and gives Save the current name', async () => {
+        const handleSaveFlowName = jest.fn()
+        const handleSaveFlow = jest.fn()
+        const onChatflowUpdated = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow, onChatflowUpdated })
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const input = document.body.querySelector('input')
+        input.value = 'Current name'
+        const saveName = document.body.querySelector('[title="Save Name"]')
+        await act(async () => saveName.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 
-        await act(async () =>
-            document.querySelector('[title="Edit Name"]').firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        )
-        document.querySelector('input').value = 'Second name'
-        await act(async () =>
-            document.querySelector('[title="Save Name"]').firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        )
-        mockUpdateApi.data = null
-        await view.render({ ...flow, name: 'First name' })
-        expect(document.querySelector('input').value).toBe('Second name')
+        expect(handleSaveFlowName).toHaveBeenCalledWith('Current name', expect.objectContaining({ onAck: expect.any(Function) }))
+        const saveCanvas = document.body.querySelector('[title="Save Chatflow"]')
+        await act(async () => saveCanvas.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        expect(handleSaveFlow).toHaveBeenCalledWith('Current name')
+        await act(async () => handleSaveFlowName.mock.calls[0][1].onAck({ id: 'flow-1', name: 'Current name' }))
+        expect(onChatflowUpdated).toHaveBeenCalledWith(expect.objectContaining({ name: 'Current name' }))
+        act(() => view.root.unmount())
+    })
 
-        mockUpdateApi.error = new Error('write failed')
-        await view.render({ ...flow, name: 'First name' })
-        expect(document.querySelector('input').value).toBe('Second name')
+    test('keeps an unanswered inline name for the next canvas Save', async () => {
+        const handleSaveFlowName = jest.fn()
+        const handleSaveFlow = jest.fn()
+        const onDirty = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow, onDirty })
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const input = document.body.querySelector('input')
+        input.value = 'Name still here'
+        await act(async () => document.body.querySelector('[title="Save Name"]').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        await act(async () => handleSaveFlowName.mock.calls[0][1].onError(Object.assign(new Error('No answer'), { saveAgain: true })))
+        expect(onDirty).toHaveBeenCalledTimes(1)
+        await act(async () =>
+            document.body
+                .querySelector('[title="Save Chatflow"]')
+                .firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        )
+        expect(handleSaveFlow).toHaveBeenCalledWith('Name still here')
         act(() => view.root.unmount())
     })
 })

@@ -95,6 +95,27 @@ export const withStarterQuestions = (chatbotConfig, questions = []) => {
     return JSON.stringify({ ...config, starterPrompts })
 }
 
+export const starterQuestionsSaveEntry = ({ savedFlow, questions, save, isCurrent, clear, onAck, onSettled, onError, rev }) => {
+    const chatbotConfig = withStarterQuestions(savedFlow?.chatbotConfig, questions)
+    if (!savedFlow?.id || !chatbotConfig) return null
+    return {
+        id: savedFlow.id,
+        rev,
+        send: () => save(savedFlow.id, { chatbotConfig }),
+        onAck: async (saved) => {
+            const current = !isCurrent || isCurrent()
+            if (current) {
+                clear?.()
+                await onAck?.(saved)
+            }
+            await onSettled?.(saved, { current })
+        },
+        onError
+    }
+}
+
+export const starterQuestionsAfterCreate = ({ current, captured, willContinue }) => (!willContinue && current === captured ? [] : current)
+
 export const missingCredentialsText = (missing = []) => {
     if (!missing?.length) return ''
     const list = missing.map((m) => `${m.part} needs ${m.credential}`).join('; ')

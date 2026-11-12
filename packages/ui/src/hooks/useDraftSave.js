@@ -8,6 +8,7 @@ import { draftConflictFrom, draftVersion } from '@/utils/flowDrafts'
 export default function useDraftSave() {
     const versionRef = useRef(null)
     const baseRef = useRef(null)
+    const updatedRef = useRef(null)
     const recordedRef = useRef(false)
     const conflictRef = useRef(0)
     const [conflict, setConflict] = useState(null)
@@ -18,6 +19,7 @@ export default function useDraftSave() {
         versionRef.current = draftVersion(status)
         const text = typeof baseText === 'string' && baseText ? baseText : status?.draft?.flowData
         baseRef.current = typeof text === 'string' && text ? text : null
+        updatedRef.current = status?.draft?.updatedDate ?? null
         recordedRef.current = true
     }, [])
 
@@ -28,6 +30,16 @@ export default function useDraftSave() {
 
     // What a publish sends: the recorded hash, once the canvas has one.
     const expected = useCallback(() => (recordedRef.current ? { expectedDraftHash: versionRef.current } : {}), [])
+
+    const snapshot = useCallback(
+        () => ({
+            expectedDraftHash: recordedRef.current ? versionRef.current : undefined,
+            baseFlowData: baseRef.current,
+            baseDraftUpdatedDate: updatedRef.current,
+            recorded: recordedRef.current
+        }),
+        []
+    )
 
     // Shows the review screen for a 409 and reads the draft the other person saved.
     // mine is the open editor's canvas text, unsaved edits included.
@@ -54,6 +66,7 @@ export default function useDraftSave() {
         if (!theirs) return
         versionRef.current = theirs.hash ?? null
         baseRef.current = typeof theirs.flowData === 'string' ? theirs.flowData : null
+        updatedRef.current = theirs.status?.draft?.updatedDate ?? null
         recordedRef.current = true
     }, [])
 
@@ -79,5 +92,5 @@ export default function useDraftSave() {
         [record, openConflict]
     )
 
-    return { record, save, conflict, dismiss, expected, openConflict, adopt }
+    return { record, save, conflict, dismiss, expected, snapshot, openConflict, adopt }
 }
