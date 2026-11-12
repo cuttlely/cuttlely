@@ -19,10 +19,10 @@ const sanitizeTool = (Tool) => {
     }
 }
 
-const sanitizeChatflow = (ChatFlow, knownNodeNames) => {
+const sanitizeChatflow = (ChatFlow, knownNodeNames, credentials) => {
     try {
         return ChatFlow.map((chatFlow) => {
-            const sanitizeFlowData = generateExportFlowData(JSON.parse(chatFlow.flowData), knownNodeNames)
+            const sanitizeFlowData = generateExportFlowData(JSON.parse(chatFlow.flowData), knownNodeNames, credentials)
             return {
                 id: chatFlow.id,
                 name: chatFlow.name,
@@ -105,16 +105,16 @@ export const stringify = (object) => {
     }
 }
 
-export const exportData = (exportAllData, knownNodeNames) => {
+export const exportData = (exportAllData, knownNodeNames, credentials) => {
     try {
         return {
-            AgentFlow: sanitizeChatflow(exportAllData.AgentFlow, knownNodeNames),
-            AgentFlowV2: sanitizeChatflow(exportAllData.AgentFlowV2, knownNodeNames),
-            AssistantFlow: sanitizeChatflow(exportAllData.AssistantFlow, knownNodeNames),
+            AgentFlow: sanitizeChatflow(exportAllData.AgentFlow, knownNodeNames, credentials),
+            AgentFlowV2: sanitizeChatflow(exportAllData.AgentFlowV2, knownNodeNames, credentials),
+            AssistantFlow: sanitizeChatflow(exportAllData.AssistantFlow, knownNodeNames, credentials),
             AssistantCustom: sanitizeAssistant(exportAllData.AssistantCustom),
             AssistantOpenAI: sanitizeAssistant(exportAllData.AssistantOpenAI),
             AssistantAzure: sanitizeAssistant(exportAllData.AssistantAzure),
-            ChatFlow: sanitizeChatflow(exportAllData.ChatFlow, knownNodeNames),
+            ChatFlow: sanitizeChatflow(exportAllData.ChatFlow, knownNodeNames, credentials),
             ChatMessage: exportAllData.ChatMessage,
             ChatMessageFeedback: exportAllData.ChatMessageFeedback,
             CustomTemplate: sanitizeCustomTemplate(exportAllData.CustomTemplate),

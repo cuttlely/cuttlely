@@ -2,7 +2,7 @@
 
 Analyst mode gives one specialist its own database. It can create tables, insert rows, and answer questions about that data. It does not read the application database, where users, credentials, and chat history live.
 
-The switch is `CUTTLELY_ANALYST=auto`. Any other value, including unset, leaves it off. There is no button in the app.
+Analyst storage is Auto when `CUTTLELY_ANALYST` is unset. The start script and a server start fill in `auto`, and **Admin** > **Server settings** > **Analyst** shows **Auto**. A host or saved value of `off`, `false`, `0`, or `no` stays off. Saving **Off** stores `off`. A Postgres URL credential on the node, or `CUTTLELY_POSTGRES_URL`, still uses the read-only path and does not use the private store.
 
 Use it when a harness should look at business data you are willing to create for it, and must not see the tables Cuttlely uses to run.
 
@@ -104,7 +104,7 @@ The labels are display only. The saved node keeps its name (`postgreSQLMCP`), it
 What changed for the analyst in 1.4.10 and 1.5.0. Saved harnesses, node names, field names and runs are unchanged by all of it.
 
 -   **A cleaner analyst panel (1.4.10).** The tool is **Postgres (MCP)** in the **Database** group of **Add Nodes**. Its settings sit in **Data source**, **What it can see**, **Model**, **Limits** and **Advanced**, and a badge in **Data source** says where queries go. The panel opens wider, can be resized by dragging its left edge (the width is remembered in this browser), and has an **Expand** button. Run trace chips read like **Query · 4 rows**, and a result table has **Show SQL**, **Copy** and **CSV**. See [The Postgres (MCP) card](#the-postgres-mcp-card).
--   **Analyst extras follow the server.** Parts of the panel that need a server setting show only when that setting is on, and both are off by default: the pinned query list needs `CUTTLELY_PINNED_QUERIES`, and the **Sandbox.** badge needs `CUTTLELY_ANALYST=auto` (**Analyst storage** set to **Auto** in [Server settings](./server-settings.md)).
+-   **Analyst extras follow the server.** The pinned query list needs `CUTTLELY_PINNED_QUERIES`, which is off unless you turn it on. The **Sandbox.** badge needs Analyst storage Auto. That is the default when `CUTTLELY_ANALYST` is unset. **Off** in [Server settings](./server-settings.md) stores `off` and leaves the private store off.
 -   **Existing harnesses say when the analyst is off on this server.** Open a harness whose specialist reads only Postgres (MCP) tools with no database connection, on a server with **Analyst storage** off and no `CUTTLELY_POSTGRES_URL`. The specialist card says **Not connected.** Select the specialist and its settings panel adds the full note: `Its Postgres (MCP) tool has no database connection, and this server has no default database for it. Choose a database connection on the tool, or ask an admin to turn on Analyst storage. The saved harness is unchanged.` The tool card itself shows **Not connected.** as its badge instead. When the server cannot answer, no note is shown.
 -   **Add Nodes still lists Postgres (MCP) when the analyst is off.** It is a plain database tool that any agent or flow can use with a database connection, so it stays in **Add Nodes** whatever **Analyst storage** says; the badge and the note above tell you whether this server can run it.
 
@@ -637,9 +637,9 @@ The rule goes by names and fields. A server that runs SQL under a name that says
 
 1. A Postgres URL credential on the node.
 2. `CUTTLELY_POSTGRES_URL`.
-3. `CUTTLELY_ANALYST=auto`.
+3. `CUTTLELY_ANALYST=auto`, including when that variable was unset and the server filled in Auto.
 
-Auto storage is used only when the credential and `CUTTLELY_POSTGRES_URL` are both unset. A selected credential still wins when it names a different database than the variable.
+Auto storage is used only when the credential and `CUTTLELY_POSTGRES_URL` are both unset. A selected credential still wins when it names a different database than the variable. An explicit Off (`off`, `false`, `0`, or `no`) does not fall through to Auto.
 
 Pointing either URL at the application database stops the node:
 

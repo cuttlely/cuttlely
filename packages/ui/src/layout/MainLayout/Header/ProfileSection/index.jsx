@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, REMOVE_DIRTY } from '@/store/actions'
 import { exportData, stringify } from '@/utils/exportImport'
+import { credentialsForExport, exportFailureMessage } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 
@@ -349,21 +350,29 @@ const ProfileSection = ({ handleLogout }) => {
     }, [importAllApi.error])
 
     useEffect(() => {
-        if (exportAllApi.data) {
-            setExportDialogOpen(false)
+        if (!exportAllApi.data) return undefined
+        let cancelled = false
+        setExportDialogOpen(false)
+        ;(async () => {
             try {
-                const dataStr = stringify(exportData(exportAllApi.data, exportKnownNodeNames(componentNodes)))
-                //const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
+                const credentials = await credentialsForExport()
+                if (cancelled) return
+                const dataStr = stringify(exportData(exportAllApi.data, exportKnownNodeNames(componentNodes), credentials))
                 const blob = new Blob([dataStr], { type: 'application/json' })
                 const dataUri = URL.createObjectURL(blob)
-
                 const linkElement = document.createElement('a')
                 linkElement.setAttribute('href', dataUri)
                 linkElement.setAttribute('download', exportAllApi.data.FileDefaultName)
                 linkElement.click()
             } catch (error) {
-                errorFailed(`Failed to export all: ${getErrorMessage(error)}`)
+                if (!cancelled) {
+                    const listFailed = error instanceof Error && error.message === 'The credential list did not load.'
+                    errorFailed(`Failed to export all: ${listFailed ? exportFailureMessage() : getErrorMessage(error)}`)
+                }
             }
+        })()
+        return () => {
+            cancelled = true
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [exportAllApi.data])

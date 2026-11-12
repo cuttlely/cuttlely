@@ -4,6 +4,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Analyst storage is **Auto** when `CUTTLELY_ANALYST` is unset, including a fresh deploy and an upgrade that never set it. A host or saved value of `off`, `false`, `0`, or `no` stays off. Saving **Off** in Server settings stores `off`. A Postgres URL credential or `CUTTLELY_POSTGRES_URL` still uses the read-only path.
+-   A canvas export names each credential by its name and type. The file still omits secrets, password and file inputs, and every `FLOWISE_CREDENTIAL_ID`. Import attaches a credential that already exists on that server with the same name and type. If none matches, or more than one does, the import stops and names it. The import does not create a credential. **QUERY** and other non-secret node inputs stay in the file.
+
 ### Fixed
 
 -   Postgres (MCP) **Tools it can use** stays listed after an analyst specialist has offered a query or pinned query tool. A later tool list that returns nothing, fails, or lists only other tools no longer sets `X-Cuttlely-Analyst` back to `missing` or replaces that menu with **Analyst tool unavailable**. Refreshing the menu reads the status again.

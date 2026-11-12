@@ -2,6 +2,7 @@ import { uniq, get, isEqual } from 'lodash'
 import moment from 'moment'
 
 import { handlesEqual } from './edgeRefs'
+import { credentialById, replaceCredentialIds, stripCredentialIds } from './credentialMarks'
 
 export const getUniqueNodeId = (nodeData, nodes) => {
     let suffix = 0
@@ -552,26 +553,12 @@ export const getFolderName = (base64ArrayStr) => {
     }
 }
 
-const _removeCredentialId = (obj) => {
-    if (!obj || typeof obj !== 'object') return obj
-
-    if (Array.isArray(obj)) {
-        return obj.map((item) => _removeCredentialId(item))
-    }
-
-    const newObj = {}
-    for (const [key, value] of Object.entries(obj)) {
-        if (key === 'FLOWISE_CREDENTIAL_ID') continue
-        newObj[key] = _removeCredentialId(value)
-    }
-    return newObj
-}
-
-export const generateExportFlowData = (flowData, knownNodeNames) => {
+export const generateExportFlowData = (flowData, knownNodeNames, credentials) => {
     const nodes = flowData.nodes
     const edges = flowData.edges
     // When the catalog is loaded, a node that is not in it keeps the saved data, including inputs.
     const known = Array.isArray(knownNodeNames) && knownNodeNames.length ? new Set(knownNodeNames) : null
+    const namedCredentials = Array.isArray(credentials) ? credentialById(credentials) : null
 
     for (let i = 0; i < nodes.length; i += 1) {
         const node = nodes[i]
@@ -613,7 +600,8 @@ export const generateExportFlowData = (flowData, knownNodeNames) => {
             newNodeData.inputs = nodeDataInputs
         }
 
-        nodes[i].data = _removeCredentialId(newNodeData)
+        if (namedCredentials && node.data.credential) newNodeData.credential = node.data.credential
+        nodes[i].data = namedCredentials ? replaceCredentialIds(newNodeData, namedCredentials) : stripCredentialIds(newNodeData)
     }
     const exportJson = {
         nodes,
