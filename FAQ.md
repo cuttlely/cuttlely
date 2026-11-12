@@ -314,7 +314,7 @@ Redis/multi-instance limiting, browser delegation, usage exports/alerts, asynchr
 
 ### Can I cancel a pending owner invitation?
 
-In **Admin > Users** (`/users`), an active organization owner can use the trash action on another pending owner invitation. Confirmation names the email; cancellation revokes invite links across the organization's teams. An accepted invitation, self-removal, or removal of the last active owner is refused. Active owners remain **Super User, read-only** in this UI. [Users guide](docs/how-to/users-without-authkit.md).
+In **Admin > Users** (`/users`), an active organization owner, or an Admin (the built-in Admin role or a role with `users:manage`), can use the trash action on a pending invitation, including another pending owner invitation. Confirmation names the email; cancellation revokes invite links across the organization's teams. Removing an active or disabled person from every team stays limited to an active organization owner. An accepted invitation, self-removal, or removal of the last active owner is refused. Active owners remain **Super User, read-only** in this UI. [Users guide](docs/how-to/users-without-authkit.md).
 
 ## Running harnesses from your app
 
