@@ -1,6 +1,6 @@
 # cuttlely
 
-Start [Cuttlely](https://cuttlely.com) in Docker. Cuttlely is the open-source agent platform for applications.
+Start [Cuttlely](https://cuttlely.com) in Docker. Context-aware agent orchestration. Open source, Apache-2.0.
 
 The full server needs the Python agent runtime that ships in the Docker image, so this package does not install the server. `npx cuttlely` pulls `ghcr.io/cuttlely/cuttlely` and runs it.
 

@@ -1,7 +1,7 @@
 <p align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="../assets/brand/readme/cuttlely-readme-header-dark.png">
-<img src="../assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. Your applications deserve agents. The open-source agent platform for applications." width="880">
+<img src="../assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely。上下文感知型智慧體編排。開源，Apache-2.0。" width="880">
 </picture>
 </p>
 

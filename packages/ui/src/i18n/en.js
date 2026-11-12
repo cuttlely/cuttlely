@@ -1,7 +1,7 @@
 // English UI strings, by key. Another locale is a catalog with the same keys.
 const en = {
     'hero.headline': 'Your applications deserve agents.',
-    'hero.tagline': 'The open-source agent platform for applications.',
+    'hero.tagline': 'Context-aware agent orchestration. Open source, Apache-2.0.',
     'demo.needsKey': 'Add a model key first',
     'demo.needsKeyAskAdmin': 'Ask an admin to add a model key',
     'chatflows.empty.body': 'No chatflows yet. Pick Chat / simple AI app above, or start from a template.',

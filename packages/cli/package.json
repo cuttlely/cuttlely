@@ -1,7 +1,7 @@
 {
     "name": "cuttlely",
     "version": "1.7.3",
-    "description": "Start Cuttlely in Docker. The open-source agent platform for applications.",
+    "description": "Start Cuttlely in Docker. Context-aware agent orchestration. Open source, Apache-2.0.",
     "type": "module",
     "bin": {
         "cuttlely": "bin/cuttlely.js"
