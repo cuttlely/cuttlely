@@ -59,6 +59,13 @@ node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and 
 
 ## Local verify
 
+For focused canvas-save work, run the queue, draft-state, API, and dirty-revision tests from `packages/ui` with no more than three workers, then lint the changed UI files. The local browser scenarios are in the separate run workspace and require a running test server; do not treat an unrun script as execution evidence.
+
+```bash
+nice -n 19 npx jest -w 3 src/utils/saveQueue.test.js src/hooks/useSaveQueue.test.js src/utils/flowDrafts.test.js src/utils/buildWithAI.test.js src/hooks/useDraftSave.test.js src/api/flowDrafts.test.js src/store/reducers/canvasReducer.test.js src/utils/canvasSave.test.js
+nice -n 19 npx eslint <changed-ui-files>
+```
+
 ```bash
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 27 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, identity-migration
@@ -351,6 +358,16 @@ The proxy-safe HTTP timeout fix landed on `main` as `4588a835` ([#458](https://g
 ## Canvas error page after no response
 
 The canvas no-response error-handling fix landed on `main` as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). Keep this fix under `## [Unreleased]`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
+
+## Silent canvas read retries
+
+Run the focused UI set from `packages/ui` with at most three workers:
+
+```bash
+nice -n 19 npx jest src/api/client.test.js src/api/resilience.test.js src/utils/analystStatus.test.js src/ui-component/dropdown/AsyncDropdown.test.js src/views/canvas/NodeLinkNotes.test.js src/store/reducers/canvasReducer.test.js src/utils/flowDrafts.test.js src/ui-component/connection/connectionVisibility.test.js src/hooks/useDraftSave.test.js src/views/canvas/CanvasHeader.test.js -w 3
+```
+
+GET and HEAD retry by default. A non-GET call retries only with `retry: true` or `retry: { network: true }`; use that only for read-only load methods. Do not add it to saves, creates, publishing, uploads, or other writes. A request with its own signal is not shared with another caller. Keep the app-wide timeout unchanged.
 
 ## Import target-handle types
 

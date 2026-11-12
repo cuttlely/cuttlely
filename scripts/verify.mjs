@@ -72,6 +72,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'media-size.test.mjs'),
             path.join(ROOT, 'scripts', 'readme-translations.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
+            path.join(ROOT, 'packages', 'etl', 'git-url.test.mjs'),
             path.join(ROOT, 'scripts', 'flow-drafts-sqlite-race.test.cjs'),
             path.join(ROOT, 'scripts', 'dataset-row-metadata.test.cjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),

@@ -158,4 +158,59 @@ describe('Canvas header discard', () => {
         expect(props.onRetryCatalog).toBe(retry)
         act(() => view.root.unmount())
     })
+
+    test('blocks name and publish writes while a canvas save is active', async () => {
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { saveQueueBusy: true })
+        const publish = document.body.querySelector('[data-testid="publish-button"]')
+        expect(publish.disabled).toBe(true)
+        expect(publish.getAttribute('title')).toBe('Save your changes first')
+
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const saveName = document.body.querySelector('[title="Saving…"]')
+        expect(saveName.disabled).toBe(true)
+        act(() => view.root.unmount())
+    })
+
+    test('sends an inline name through the shared lane and gives Save the current name', async () => {
+        const handleSaveFlowName = jest.fn()
+        const handleSaveFlow = jest.fn()
+        const onChatflowUpdated = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow, onChatflowUpdated })
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const input = document.body.querySelector('input')
+        input.value = 'Current name'
+        const saveName = document.body.querySelector('[title="Save Name"]')
+        await act(async () => saveName.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+        expect(handleSaveFlowName).toHaveBeenCalledWith('Current name', expect.objectContaining({ onAck: expect.any(Function) }))
+        const saveCanvas = document.body.querySelector('[title="Save Chatflow"]')
+        await act(async () => saveCanvas.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        expect(handleSaveFlow).toHaveBeenCalledWith('Current name')
+        await act(async () => handleSaveFlowName.mock.calls[0][1].onAck({ id: 'flow-1', name: 'Current name' }))
+        expect(onChatflowUpdated).toHaveBeenCalledWith(expect.objectContaining({ name: 'Current name' }))
+        act(() => view.root.unmount())
+    })
+
+    test('keeps an unanswered inline name for the next canvas Save', async () => {
+        const handleSaveFlowName = jest.fn()
+        const handleSaveFlow = jest.fn()
+        const onDirty = jest.fn()
+        const view = await open(graph('Chat', 'input.txt'), 'CHATFLOW', { handleSaveFlowName, handleSaveFlow, onDirty })
+        const edit = document.body.querySelector('[title="Edit Name"]')
+        await act(async () => edit.firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        const input = document.body.querySelector('input')
+        input.value = 'Name still here'
+        await act(async () => document.body.querySelector('[title="Save Name"]').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        await act(async () => handleSaveFlowName.mock.calls[0][1].onError(Object.assign(new Error('No answer'), { saveAgain: true })))
+        expect(onDirty).toHaveBeenCalledTimes(1)
+        await act(async () =>
+            document.body
+                .querySelector('[title="Save Chatflow"]')
+                .firstElementChild.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        )
+        expect(handleSaveFlow).toHaveBeenCalledWith('Name still here')
+        act(() => view.root.unmount())
+    })
 })

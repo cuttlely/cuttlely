@@ -24,6 +24,7 @@ import { useError } from '@/store/context/ErrorContext'
 
 // Icons
 import { IconExclamationCircle, IconX } from '@tabler/icons-react'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| ResetPasswordPage ||============================== //
 
@@ -131,7 +132,7 @@ const ResetPasswordPage = () => {
             }
         } catch (error) {
             setLoading(false)
-            setAuthErrors([typeof error.response.data === 'object' ? error.response.data.message : error.response.data])
+            setAuthErrors([requestFailureMessage(error)])
             enqueueSnackbar({
                 message: `Failed to reset password!`,
                 options: {

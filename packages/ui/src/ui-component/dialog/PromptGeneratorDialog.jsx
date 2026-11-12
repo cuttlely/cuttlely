@@ -9,6 +9,7 @@ import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackba
 import { IconX, IconWand, IconArrowLeft, IconNotebook, IconLanguage, IconMail, IconCode, IconReport, IconWorld } from '@tabler/icons-react'
 import useNotifier from '@/utils/useNotifier'
 import { LoadingButton } from '@mui/lab'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const defaultInstructions = [
     {
@@ -70,7 +71,7 @@ const AssistantPromptGenerator = ({ show, dialogProps, onCancel, onConfirm }) =>
         } catch (error) {
             setLoading(false)
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

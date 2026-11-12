@@ -12,6 +12,15 @@
 -   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx`: malformed `chatbotConfig` falls back to an empty object; `ShowToolEvents.test.js` covers it.
 -   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Unreleased notes in `CHANGELOG.md`.
 
+## Silent canvas read retries
+
+-   `packages/ui/src/api/resilience.js` and `resilience.test.js`: safe-method policy, no-response and gateway-status classification, three jittered delays, abortable sleep, stable request keys, response cloning, and the in-flight map.
+-   `packages/ui/src/api/client.js` and `client.test.js`: four-attempt read limit, retry opt-in, cancellation, in-flight sharing and eviction, single-attempt shared session refresh, read-only post-refresh replay, and connection-state cleanup.
+-   `packages/ui/src/api/connectionState.js`, `store/context/ConnectionContext.jsx`, and `ui-component/connection/`: the count store and delayed app-shell **Reconnecting…** chip.
+-   `packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx`, `utils/analystStatus.js`, `views/canvas/CredentialInputHandler.jsx`, and `views/agentflowsv2/ConfigInput.jsx`: shared-client node loads and field-lifetime cancellation.
+-   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
+-   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [Unreleased]`.
+
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
@@ -52,6 +61,12 @@
 -   `packages/harness/warmup.mjs` and `warmup.test.mjs`: health/probe decisions, recent activity, per-profile invalidation, bounded concurrency and overlapping save/timer coverage.
 
 # Artifacts
+
+Resilient canvas saves: `packages/ui/src/utils/saveQueue.js` is the pure queue and reconciliation core. Its adjacent test covers single flight, latest pending replacement, separate internal continuations, the four-attempt draft burst through no-response non-file reads, HTTP write non-retry, waiting after reconciliation HTTP errors, the bounded first-send/last-settle landed window, the other-tab guard, rejection when draft metadata is absent, file detection across all node inputs, file-canvas reconciliation, guarded resume, stored-file-aware Live reconciliation, one guarded Live PUT per action, confirmed-write ordering, one-POST creation with mode resolution and a latest-snapshot handoff, ambiguous-create settlement, non-replayed error settlement, busy state, and disposal. `packages/ui/src/hooks/useSaveQueue.js` binds injected canvas adapters to draft state, the connection indicator, busy state, one persistent notice, manual Retry, the browser online event, and cleanup; its adjacent test covers notice deduplication, online resume, one-POST creation handoff, unknown-mode queuing without a creation notice, non-replayed errors, busy state, effect cleanup/setup, and listener removal. `packages/ui/src/utils/buildWithAI.test.js` covers acknowledgement-gated starter-question cleanup, retention across the first-save continuation, retention after an unanswered update, and a newer question snapshot surviving an older acknowledgement. `packages/ui/src/hooks/useDraftSave.js` remains the source of the recorded draft hash, base canvas, conflict review, and adoption state. Both canvas views use the hook. `CanvasHeader.test.js` covers the busy name and Publish controls plus retention of an unanswered inline name for the next canvas Save. `packages/ui/src/api/flowDrafts.js` disables both client-level resilience replay and post-refresh replay for the draft write.
+
+User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [Unreleased]` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
+
+Focused UI checks pass 114 tests across the save queue, queue hook, session client, draft adapter, builder-state helper, and canvas header. The broader UI batch passes 141 suites and 1,177 tests; its only failure is the known 24-case sample-canvas golden mismatch in `savedFlowsUnchanged.test.js`. Changed-file lint passes. The browser runner was not executed.
 
 Historical 1.7.2 release: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.2. That release landed on main as `712cb85d` ([#453](https://github.com/cuttlely/cuttlely/pull/453)). `CHANGELOG.md` dates it `## [1.7.2] - 2026-11-10` and identifies #450 as `76c5a7ee`. The release-prep work included the access-key target-scope and active-chat wording, plus the empty-session assertion corrections saved through `pnpm hermes:vendor --save-patches`. Patch 0002 and the vendor fingerprint match the test; production scope behavior and the upstream pin are unchanged. The share/embed and Harness guides clarify tool-card visibility; the READMEs clarify first-account setup and separate operator designation. Website docs and quickstart are generated by `website/scripts/sync-docs.mjs`; generated pages are not hand-edited.
 

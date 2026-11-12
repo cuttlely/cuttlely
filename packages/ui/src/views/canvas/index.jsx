@@ -24,6 +24,7 @@ import ButtonEdge from './ButtonEdge'
 import StickyNote from './StickyNote'
 import TidyLayoutButton from './TidyLayoutButton'
 import CanvasHeader from './CanvasHeader'
+import CanvasLoadGuard, { canvasLoadBlocked, canvasLoadRetryRequest, createdFlowRouteAction, flowLoadAction } from './CanvasLoadGuard'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
@@ -46,9 +47,10 @@ import flowDraftsApi from '@/api/flowDrafts'
 
 // Hooks
 import useApi from '@/hooks/useApi'
+import useCanvasOpenRequest from '@/hooks/useCanvasOpenRequest'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
-import useDraftSave from '@/hooks/useDraftSave'
+import useSaveQueue from '@/hooks/useSaveQueue'
 import { useAuth } from '@/hooks/useAuth'
 
 // icons
@@ -87,8 +89,8 @@ import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canv
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
-import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
-import { applyCredentialInput, canvasSaveDocument } from '@/utils/canvasSave'
+import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
+import { applyCredentialInput, canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import { draftSaveWasTurnedOff, planHarnessDraftFallback, planNewHarnessSave } from '@/utils/harnessSave'
 import {
     asSavedCards,
@@ -96,18 +98,20 @@ import {
     compactForNewLook,
     harnessNameFrom,
     pipelineNameFrom,
+    starterQuestionsAfterCreate,
     starterQuestionsOf,
     stashNewCanvas,
     takeLanding,
     missingCredentialsText,
     noteSavedBuild,
+    starterQuestionsSaveEntry,
     takeSavedBuild,
     withStarterQuestions
 } from '@/utils/buildWithAI'
 
 // const
 import { uiBaseURL } from '@/store/constant'
-import { requestFailureMessage } from '@/utils/errorSummary'
+import { requestFailureMessage, saveFailureMessage } from '@/utils/errorSummary'
 
 const nodeTypes = { customNode: CanvasNode, stickyNote: StickyNote }
 const edgeTypes = { buttonedge: ButtonEdge }
@@ -157,13 +161,38 @@ const Canvas = () => {
     const dispatch = useDispatch()
     const customization = useSelector((state) => state.customization)
     const canvas = useSelector((state) => state.canvas)
+    const canvasRef = useRef(canvas)
+    canvasRef.current = canvas
     const [canvasDataStore, setCanvasDataStore] = useState(canvas)
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
+    const [draftStatusLoad, setDraftStatusLoad] = useState({ flowId: null, known: false, loading: false, error: null })
+    const [draftStatusRetry, setDraftStatusRetry] = useState(0)
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
-    const draftSave = useDraftSave()
     const pendingSaveNameRef = useRef('')
+    // A flow this canvas just created. Its new URL must not reload it from the server over newer edits.
+    const createdFlowIdRef = useRef(null)
+    // The flow this canvas is on. chatflowId is read from the address on every render, and create sets the new
+    // address before its state updates render; createdFlowIdRef also covers a render that reads the address first.
+    const routeFlowId = chatflowId || createdFlowIdRef.current
+    const routeFlowIdRef = useRef(routeFlowId)
+    routeFlowIdRef.current = routeFlowId
+    const openRequest = useCanvasOpenRequest()
+    const abortOpenRequest = openRequest.abort
+    // A newly created flow is still the same queue scope. Moving between saved routes is not: disposing the old
+    // queue prevents a late save from recording its draft base or callbacks on the newly opened canvas.
+    const saveQueueRouteKey = createdFlowIdRef.current === chatflowId ? '' : chatflowId
+    const draftSave = useSaveQueue({
+        chatflowsApi,
+        flowDraftsApi,
+        dispatch,
+        enqueueSnackbar: enqueueSnackbarAction,
+        closeSnackbar: closeSnackbarAction,
+        openRequestSignalFor: openRequest.signalFor,
+        routeKey: saveQueueRouteKey
+    })
+    const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -173,9 +202,6 @@ const Canvas = () => {
     // never saved keeps Live empty on that first save, so it lands as a draft.
     const builderStartersRef = useRef([])
     const firstSaveAsDraftRef = useRef(false)
-    const pendingDraftRef = useRef(null)
-    const pendingHarnessNoteRef = useRef('')
-    const pendingHarnessLiveSaveRef = useRef(null)
     const [builtResult, setBuiltResult] = useState(null)
     const pendingLangflow = useRef(null)
     const pendingMigration = useRef(null)
@@ -215,7 +241,7 @@ const Canvas = () => {
         [applyingDelete, deleteQueue, onEdgesChange]
     )
 
-    const [selectedNode, setSelectedNode] = useState(null)
+    const [, setSelectedNode] = useState(null)
     const [canvasLook, setCanvasLook] = useCanvasLook()
     const sidePanelOn = canvasLook === 'panel'
     const [panelNodeId, setPanelNodeId] = useState(null)
@@ -228,19 +254,18 @@ const Canvas = () => {
     const reactFlowWrapper = useRef(null)
 
     const [lastUpdatedDateTime, setLasUpdatedDateTime] = useState('')
-    const [chatflowName, setChatflowName] = useState('')
-    const [flowData, setFlowData] = useState('')
-
     // ==============================|| Chatflow API ||============================== //
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
     const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
     const [duplicateSourceId, setDuplicateSourceId] = useState('')
-    const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
-    const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
-    const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged)
-
+    const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow, { currentOnly: true })
+    // The flow id of the latest saved-flow request; a result counts only while it matches the route (flowLoadAction).
+    const requestedFlowIdRef = useRef(null)
+    const requestFlow = (id) => {
+        requestedFlowIdRef.current = id
+        getSpecificChatflowApi.request(id, { signal: openRequest.start(id) })
+    }
     // ==============================|| Events & Actions ||============================== //
 
     const onConnect = (params) => {
@@ -389,7 +414,7 @@ const Canvas = () => {
                 navigate(isEtlCanvas ? '/etl' : isHarnessCanvas ? '/harnesses' : isAgentCanvas ? '/agentflows' : '/')
             } catch (error) {
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -408,7 +433,7 @@ const Canvas = () => {
     const reloadSharedDraft = () => {
         draftSave.dismiss()
         if (!chatflow?.id) return
-        getSpecificChatflowApi.request(chatflow.id)
+        requestFlow(chatflow.id)
     }
 
     // The merged canvas from the conflict review screen. It replaces the cards and stays unsaved, so the
@@ -440,11 +465,218 @@ const Canvas = () => {
 
     const normalizeForMerge = (flow) => normalizeCanvasFlow(flow, canvasSpecs())
 
+    const queueStarterQuestions = (savedFlow, questions, saveRev, finish) => {
+        if (!isChatCanvas || !questions.length) {
+            finish(savedFlow)
+            return
+        }
+        const continuation = starterQuestionsSaveEntry({
+            savedFlow,
+            questions,
+            rev: saveRev,
+            save: chatflowsApi.updateChatflow,
+            isCurrent: () => builderStartersRef.current === questions,
+            clear: () => {
+                builderStartersRef.current = []
+            },
+            onAck: (saved) => {
+                dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                setLasUpdatedDateTime(saved.updatedDate)
+            },
+            onSettled: (saved) => finish(saved),
+            onError: (error) => errorFailed(saveFailureMessage(error, 'Saving the starter questions failed'))
+        })
+        if (!continuation) {
+            if (builderStartersRef.current === questions) builderStartersRef.current = []
+            finish(savedFlow)
+            return
+        }
+        draftSave.runNonReplay(continuation, { internal: true })
+    }
+
+    const queueLiveSave = ({
+        flowId = chatflow.id,
+        flowName = chatflow.name,
+        body,
+        saveRev,
+        baseUpdatedDate,
+        notice,
+        beforeWrite,
+        starterQuestions = [],
+        internal = false
+    }) => {
+        const isStartingRoute = () => Boolean(liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current))
+        draftSave.saveLive(
+            {
+                id: flowId,
+                rev: saveRev,
+                body,
+                baseUpdatedDate,
+                beforeWrite,
+                onAck: (saved) => {
+                    if (!isStartingRoute()) return
+                    dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                    setLasUpdatedDateTime(saved.updatedDate)
+                    queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice, saveRev))
+                },
+                onChanged: async (stored) => {
+                    if (!isStartingRoute()) return
+                    const isConfirmed = await confirm({
+                        title: `Confirm Change`,
+                        description: `${canvasTitle} ${flowName} has changed since you have opened, overwrite changes?`,
+                        confirmButtonName: 'Confirm',
+                        cancelButtonName: 'Cancel'
+                    })
+                    if (isConfirmed && isStartingRoute())
+                        queueLiveSave({
+                            flowId,
+                            flowName,
+                            body,
+                            saveRev,
+                            baseUpdatedDate: stored?.updatedDate,
+                            notice,
+                            starterQuestions,
+                            internal: true
+                        })
+                },
+                onError: (error) => {
+                    if (isStartingRoute()) errorFailed(apiErrorText(error))
+                }
+            },
+            { internal }
+        )
+    }
+
+    const handleSaveFlowName = (name, callbacks = {}) => {
+        draftSave.runNonReplay(
+            {
+                id: chatflow.id,
+                send: () => chatflowsApi.updateChatflow(chatflow.id, { name }),
+                onAck: callbacks.onAck,
+                onError: callbacks.onError
+            },
+            { internal: true }
+        )
+    }
+
+    const createdLiveEntry = (created, body, saveRev, baseUpdatedDate, notice, starterQuestions = []) => {
+        const isCreatedRoute = () => Boolean(liveSavePreflightForRoute({ flowId: created.id }, routeFlowIdRef.current))
+        return {
+            kind: 'live',
+            id: created.id,
+            rev: saveRev,
+            body,
+            baseUpdatedDate,
+            onAck: (saved) => {
+                if (!isCreatedRoute()) return
+                dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                setLasUpdatedDateTime(saved.updatedDate)
+                queueStarterQuestions(saved, starterQuestions, saveRev, () => saveChatflowSuccess(notice || created.accessNotice, saveRev))
+            },
+            onChanged: async (stored) => {
+                if (!isCreatedRoute()) return
+                const isConfirmed = await confirm({
+                    title: `Confirm Change`,
+                    description: `${canvasTitle} ${created.name} has changed since you have opened, overwrite changes?`,
+                    confirmButtonName: 'Confirm',
+                    cancelButtonName: 'Cancel'
+                })
+                if (isConfirmed && isCreatedRoute())
+                    draftSave.saveLive(createdLiveEntry(created, body, saveRev, stored?.updatedDate, notice, starterQuestions), {
+                        internal: true
+                    })
+            },
+            onError: (error) => {
+                if (isCreatedRoute()) errorFailed(apiErrorText(error))
+            }
+        }
+    }
+
+    const createdSnapshotEntry = (created, status, { flowData, name, saveRev, notice, starterQuestions = [] }) => {
+        const plan = planCanvasSave({ mode: status?.mode, name, savedName: created.name, flowData, hasId: true })
+        if (plan.draft) {
+            return {
+                kind: 'draft',
+                id: created.id,
+                rev: saveRev,
+                flowData: plan.draft.flowData,
+                liveFlowData: created.flowData,
+                name,
+                onAck: (savedStatus, details) => {
+                    setDraftStatus(savedStatus)
+                    if (details.hasBase64 && canvasRef.current.editRev === saveRev && details.storedFlowData !== plan.draft.flowData) {
+                        try {
+                            const stored = readGraph(details.storedFlowData)
+                            setNodes(stored.nodes || [])
+                            setEdges(stored.edges || [])
+                        } catch {
+                            // The stored canvas is still the saved result when it cannot be painted.
+                        }
+                    }
+                    const finish = () => saveChatflowSuccess(notice || created.accessNotice || 'Draft saved', saveRev)
+                    if (!plan.live?.name) {
+                        queueStarterQuestions(created, starterQuestions, saveRev, finish)
+                        return
+                    }
+                    draftSave.runNonReplay(
+                        {
+                            id: created.id,
+                            send: () => chatflowsApi.updateChatflow(created.id, { name: plan.live.name }),
+                            onAck: (saved) => {
+                                dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                                setLasUpdatedDateTime(saved.updatedDate)
+                                queueStarterQuestions(saved, starterQuestions, saveRev, finish)
+                            },
+                            onError: (error) => errorFailed(saveFailureMessage(error))
+                        },
+                        { internal: true }
+                    )
+                },
+                onError: (error) => {
+                    if (!draftSaveWasTurnedOff(error)) {
+                        errorFailed(saveFailureMessage(error))
+                        return
+                    }
+                    const retained = isHarnessCanvas
+                        ? planHarnessDraftFallback({
+                              flowData: plan.draft.flowData,
+                              nodeDefinitions: canvas.componentNodes,
+                              draftsOff: true
+                          })
+                        : null
+                    if (retained?.error || (isHarnessCanvas && !retained)) {
+                        errorFailed(retained?.error || saveFailureMessage(error))
+                        return
+                    }
+                    const body = { name, ...(retained?.body || { flowData: plan.draft.flowData }) }
+                    draftSave.saveLive(
+                        createdLiveEntry(created, body, saveRev, created.updatedDate, retained?.notice || notice, starterQuestions),
+                        { internal: true }
+                    )
+                }
+            }
+        }
+        return createdLiveEntry(
+            created,
+            { name: plan.live.name, flowData: plan.live.flowData },
+            saveRev,
+            created.updatedDate,
+            notice,
+            starterQuestions
+        )
+    }
+
     const handleSaveFlow = async (chatflowName, saveOptions) => {
+        if (canvasBlocked) {
+            errorFailed('Draft status is still unknown. Retry loading before you save.')
+            return
+        }
+        const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance)
             const flowData = JSON.stringify(rfInstanceObject)
+            const starterQuestions = builderStartersRef.current
 
             if (!isAgentCanvas && !isHarnessCanvas && !isEtlCanvas && !chatflowCanChat(rfInstanceObject)) {
                 enqueueSnackbar({
@@ -462,6 +694,8 @@ const Canvas = () => {
             }
 
             if (!chatflow.id) {
+                let postCreateDraft = null
+                let createNotice = ''
                 const newChatflowBody = {
                     ...(duplicateSourceId ? { duplicateSourceId } : {}),
                     name: chatflowName,
@@ -474,7 +708,7 @@ const Canvas = () => {
                     const chatbotConfig = withStarterQuestions(undefined, builderStartersRef.current)
                     if (chatbotConfig) newChatflowBody.chatbotConfig = chatbotConfig
                     if (firstSaveAsDraftRef.current) {
-                        pendingDraftRef.current = flowData
+                        postCreateDraft = flowData
                         newChatflowBody.flowData = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } })
                     }
                 }
@@ -494,9 +728,35 @@ const Canvas = () => {
                     newChatflowBody.name = planned.name
                     newChatflowBody.flowData = planned.liveFlowData
                     if (planned.draftFlowData) newChatflowBody.draftFlowData = planned.draftFlowData
-                    pendingHarnessNoteRef.current = planned.notice || ''
+                    createNotice = planned.notice || ''
                 }
-                createNewChatflowApi.request(newChatflowBody)
+                draftSave.saveCreate({
+                    send: () => chatflowsApi.createNewChatflow(newChatflowBody),
+                    needsPostCreate: Boolean(postCreateDraft),
+                    onAck: (created, details) =>
+                        createdChatflowSuccess(created, {
+                            saveRev,
+                            notice: createNotice,
+                            starterQuestions,
+                            willContinue: details?.willContinue === true
+                        }),
+                    onStatus: (status, created) => {
+                        setDraftStatus(status)
+                        setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })
+                    },
+                    afterCreate: (created, status, details) => {
+                        const desiredFlowData = details.fromPending ? flowData : postCreateDraft
+                        if (!desiredFlowData) return null
+                        return createdSnapshotEntry(created, status, {
+                            flowData: desiredFlowData,
+                            name: newChatflowBody.name,
+                            saveRev,
+                            notice: createNotice,
+                            starterQuestions
+                        })
+                    },
+                    onError: (error) => errorFailed(apiErrorText(error))
+                })
             } else {
                 const plan = planCanvasSave({
                     mode: draftStatusRef.current?.mode,
@@ -505,19 +765,60 @@ const Canvas = () => {
                     flowData,
                     hasId: true
                 })
+                if (plan.modeUnknown) {
+                    errorFailed('Draft status is still unknown. Retry loading before you save.')
+                    return
+                }
                 if (plan.draft) {
-                    try {
-                        const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
-                        if (res?.conflict) return
-                        setDraftStatus(res.data)
-                    } catch (error) {
-                        errorFailed(apiErrorMessage(error, 'Save failed'))
-                        return
-                    }
+                    draftSave.saveDraft({
+                        id: chatflow.id,
+                        rev: saveRev,
+                        flowData: plan.draft.flowData,
+                        liveFlowData: chatflow.flowData,
+                        name: chatflowName,
+                        overwriteDraftChanges: saveOptions?.overwriteDraftChanges === true,
+                        onAck: (status, details) => {
+                            setDraftStatus(status)
+                            if (
+                                details.hasBase64 &&
+                                canvasRef.current.editRev === saveRev &&
+                                details.storedFlowData !== plan.draft.flowData
+                            ) {
+                                try {
+                                    const stored = readGraph(details.storedFlowData)
+                                    setNodes(stored.nodes || [])
+                                    setEdges(stored.edges || [])
+                                } catch {
+                                    // The saved response remains authoritative even when it cannot be painted.
+                                }
+                            }
+                            const finish = () => saveChatflowSuccess('Draft saved', saveRev)
+                            if (!plan.live?.name) {
+                                queueStarterQuestions(chatflow, starterQuestions, saveRev, finish)
+                                return
+                            }
+                            draftSave.runNonReplay(
+                                {
+                                    id: chatflow.id,
+                                    send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
+                                    onAck: (saved) => {
+                                        dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                                        setLasUpdatedDateTime(saved.updatedDate)
+                                        queueStarterQuestions(saved, starterQuestions, saveRev, finish)
+                                    },
+                                    onError: (error) => errorFailed(saveFailureMessage(error))
+                                },
+                                { internal: true }
+                            )
+                        },
+                        onError: (error) => errorFailed(saveFailureMessage(error))
+                    })
+                    return
                 }
                 if (plan.live?.flowData) {
+                    let retained = null
                     if (isHarnessCanvas) {
-                        const retained = planHarnessDraftFallback({
+                        retained = planHarnessDraftFallback({
                             flowData: plan.live.flowData,
                             nodeDefinitions: canvas.componentNodes,
                             draftsOff: draftStatusRef.current?.reason === 'off'
@@ -526,27 +827,46 @@ const Canvas = () => {
                             errorFailed(retained.error)
                             return
                         }
-                        pendingHarnessLiveSaveRef.current = retained
-                    } else {
-                        pendingHarnessLiveSaveRef.current = null
                     }
-                    setChatflowName(plan.live.name)
-                    setFlowData(plan.live.flowData)
-                    getHasChatflowChangedApi.request(chatflow.id, lastUpdatedDateTime)
+                    const body = { name: plan.live.name, flowData: plan.live.flowData }
+                    const flowId = chatflow.id
+                    queueLiveSave({
+                        flowId,
+                        flowName: plan.live.name,
+                        body,
+                        saveRev,
+                        baseUpdatedDate: lastUpdatedDateTime,
+                        notice: retained?.notice,
+                        starterQuestions,
+                        beforeWrite: async (baseUpdatedDate) => {
+                            if (!liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current)) return false
+                            const response = await chatflowsApi.getHasChatflowChanged(flowId, baseUpdatedDate)
+                            if (!liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current)) return false
+                            if (response?.data?.hasChanged !== true) return true
+                            const confirmed = await confirm({
+                                title: `Confirm Change`,
+                                description: `${canvasTitle} ${plan.live.name} has changed since you have opened, overwrite changes?`,
+                                confirmButtonName: 'Confirm',
+                                cancelButtonName: 'Cancel'
+                            })
+                            return Boolean(confirmed && liveSavePreflightForRoute({ flowId }, routeFlowIdRef.current))
+                        }
+                    })
                     return
                 }
                 if (plan.live?.name) {
-                    try {
-                        const res = await chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name })
-                        dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                        setLasUpdatedDateTime(res.data.updatedDate)
-                    } catch (error) {
-                        errorFailed(apiErrorMessage(error, 'Save failed'))
-                        return
-                    }
+                    draftSave.runNonReplay({
+                        id: chatflow.id,
+                        send: () => chatflowsApi.updateChatflow(chatflow.id, { name: plan.live.name }),
+                        onAck: (saved) => {
+                            dispatch({ type: SET_CHATFLOW, chatflow: saved })
+                            setLasUpdatedDateTime(saved.updatedDate)
+                            saveChatflowSuccess(undefined, saveRev)
+                        },
+                        onError: (error) => errorFailed(saveFailureMessage(error))
+                    })
+                    return
                 }
-                if (plan.draft) saveChatflowSuccess('Draft saved')
-                if (isChatCanvas) saveBuilderStarters(chatflow)
             }
         }
     }
@@ -672,8 +992,8 @@ const Canvas = () => {
         setIsSyncNodesButtonEnabled(false)
     }
 
-    const saveChatflowSuccess = (message = `${canvasTitle} saved`) => {
-        dispatch({ type: REMOVE_DIRTY })
+    const saveChatflowSuccess = (message = `${canvasTitle} saved`, rev) => {
+        dispatch({ type: REMOVE_DIRTY, rev })
         enqueueSnackbar({
             message,
             options: {
@@ -688,7 +1008,7 @@ const Canvas = () => {
         })
     }
 
-    const apiErrorText = (error) => (error ? requestFailureMessage(error) : 'Save failed')
+    const apiErrorText = (error) => saveFailureMessage(error)
 
     const errorFailed = (message) => {
         enqueueSnackbar({
@@ -776,55 +1096,6 @@ const Canvas = () => {
     // then opens on its own canvas, here when this canvas is new and empty, otherwise in a new tab so nothing here
     // is lost.
     const buildKind = isHarnessCanvas ? 'harness' : isEtlCanvas ? 'etl' : isChatCanvas ? 'chat' : undefined
-
-    // The first save of a built chatflow: Live stays empty and the built cards become the draft, so the test chat
-    // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
-    const saveFirstDraft = async (created, draft, notice) => {
-        try {
-            const res = await draftSave.save(created.id, draft)
-            if (res?.conflict) return
-            setDraftStatus(res.data)
-            saveChatflowSuccess(notice || 'Saved as a draft. Live stays empty until you publish.')
-        } catch (draftError) {
-            const retained = isHarnessCanvas
-                ? planHarnessDraftFallback({
-                      flowData: draft,
-                      nodeDefinitions: canvas.componentNodes,
-                      draftsOff: draftSaveWasTurnedOff(draftError)
-                  })
-                : null
-            if (retained?.error) {
-                errorFailed(retained.error)
-                return
-            }
-            if (isHarnessCanvas && !retained) {
-                errorFailed(apiErrorMessage(draftError, 'Save failed'))
-                return
-            }
-            try {
-                const res = await chatflowsApi.updateChatflow(created.id, retained?.body || { flowData: draft })
-                dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-                saveChatflowSuccess(retained?.notice)
-            } catch (error) {
-                errorFailed(apiErrorMessage(error, 'Save failed'))
-            }
-        }
-    }
-
-    // Starter questions from a build join the chat settings on the next save of a flow that has none.
-    const saveBuilderStarters = async (savedFlow) => {
-        const questions = builderStartersRef.current
-        if (!savedFlow?.id || !questions.length) return
-        builderStartersRef.current = []
-        const chatbotConfig = withStarterQuestions(savedFlow.chatbotConfig, questions)
-        if (!chatbotConfig) return
-        try {
-            const res = await chatflowsApi.updateChatflow(savedFlow.id, { chatbotConfig })
-            dispatch({ type: SET_CHATFLOW, chatflow: res.data })
-        } catch (error) {
-            errorFailed(apiErrorMessage(error, 'Saving the starter questions failed'))
-        }
-    }
 
     const closeAction = (key) => (
         <Button style={{ color: 'white' }} aria-label='Close' onClick={() => closeSnackbar(key)}>
@@ -939,12 +1210,13 @@ const Canvas = () => {
             if (here) window.location.assign(url)
             else window.open(url, '_blank')
         } catch (error) {
-            errorFailed(apiErrorMessage(error, `Saving the built ${builtAs.what} failed`))
+            errorFailed(saveFailureMessage(error, `Saving the built ${builtAs.what} failed`))
         }
     }
 
     useEffect(() => {
-        if (getSpecificChatflowApi.data) {
+        const flowLoad = flowLoadAction(chatflowId, requestedFlowIdRef.current, getSpecificChatflowApi.data, getSpecificChatflowApi.error)
+        if (flowLoad === 'paint') {
             const loaded = getSpecificChatflowApi.data
             const workspaceId = loaded.workspaceId
             if (!hasAssignedWorkspace(workspaceId)) {
@@ -952,8 +1224,18 @@ const Canvas = () => {
                 return
             }
             let cancelled = false
+            setDraftStatus(null)
+            setDraftStatusLoad((previous) => ({
+                flowId: loaded.id,
+                known: false,
+                loading: true,
+                error: null,
+                request: 'status',
+                retrying: previous.flowId === loaded.id && Boolean(previous.retrying || previous.error)
+            }))
             const paint = (status) => {
                 if (cancelled) return
+                setDraftStatusLoad({ flowId: loaded.id, known: true, loading: false, error: null })
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
                 draftSave.record(status, text)
@@ -980,19 +1262,52 @@ const Canvas = () => {
             if (built) builtNotice(built)
             // Chatflow, agentflow, harness and pipeline canvases load draft status the same way.
             // The canvas shows the draft. Harness runs and pipeline runs keep serving Live until Publish.
+            const signal = openRequest.signalFor(loaded.id)
             flowDraftsApi
-                .getStatus(loaded.id)
-                .then((res) => paint(res.data))
-                .catch(() => paint({ enabled: false, mode: 'live', reason: 'off', draft: null }))
+                .getStatus(loaded.id, { signal })
+                .then((res) => {
+                    const decision = draftStatusOpenDecision(res)
+                    if (decision.paint) paint(decision.status)
+                })
+                .catch((error) => {
+                    const decision = draftStatusOpenDecision(undefined, error)
+                    if (!cancelled && !decision.paint) {
+                        setDraftStatusLoad({ flowId: loaded.id, known: false, loading: false, error: decision.error, request: 'status' })
+                    }
+                })
             return () => {
                 cancelled = true
+                openRequest.abort(loaded.id)
             }
-        } else if (getSpecificChatflowApi.error) {
-            errorFailed(`Failed to retrieve ${canvasTitle}: ${requestFailureMessage(getSpecificChatflowApi.error)}`)
+        } else if (flowLoad === 'fail') {
+            setDraftStatusLoad({
+                flowId: chatflowId,
+                known: false,
+                loading: false,
+                error: getSpecificChatflowApi.error,
+                request: 'flow'
+            })
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getSpecificChatflowApi.data, getSpecificChatflowApi.error])
+    }, [getSpecificChatflowApi.data, getSpecificChatflowApi.error, draftStatusRetry])
+
+    const retryDraftStatusLoad = () => {
+        setDraftStatus(null)
+        setDraftStatusLoad({
+            flowId: routeFlowId,
+            known: false,
+            loading: true,
+            error: null,
+            retrying: true,
+            request: draftStatusLoad.request
+        })
+        if (canvasLoadRetryRequest(chatflowId, draftStatusLoad, getSpecificChatflowApi.data?.id) === 'flow') {
+            requestFlow(chatflowId)
+        } else {
+            setDraftStatusRetry((attempt) => attempt + 1)
+        }
+    }
 
     // A saved flow opens zoomed to fit its cards, once React Flow has measured them.
     useEffect(() => {
@@ -1001,91 +1316,22 @@ const Canvas = () => {
         reactFlowInstance.fitView(FIT_ON_OPEN)
     }, [nodes, reactFlowInstance])
 
-    // Create new chatflow successful
-    useEffect(() => {
-        if (createNewChatflowApi.data) {
-            const chatflow = createNewChatflowApi.data
-            dispatch({ type: SET_CHATFLOW, chatflow })
-            builderStartersRef.current = []
-            firstSaveAsDraftRef.current = false
-            const draft = pendingDraftRef.current
-            pendingDraftRef.current = null
-            const harnessNote = pendingHarnessNoteRef.current
-            pendingHarnessNoteRef.current = ''
-            if (draft) {
-                saveFirstDraft(chatflow, draft, harnessNote)
-            } else {
-                saveChatflowSuccess(chatflow.accessNotice || harnessNote || undefined)
-            }
-            if (!draft) {
-                flowDraftsApi
-                    .getStatus(chatflow.id)
-                    .then((res) => {
-                        setDraftStatus(res.data)
-                        draftSave.record(res.data, canvasFlowText(chatflow, res.data))
-                    })
-                    .catch(() => undefined)
-            }
-            window.history.replaceState(
-                state,
-                null,
-                `/${isEtlCanvas ? 'etlcanvas' : isHarnessCanvas ? 'harnesscanvas' : isAgentCanvas ? 'agentcanvas' : 'canvas'}/${
-                    chatflow.id
-                }`
-            )
-        } else if (createNewChatflowApi.error) {
-            errorFailed(apiErrorText(createNewChatflowApi.error))
-        }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [createNewChatflowApi.data, createNewChatflowApi.error])
-
-    // Update chatflow successful
-    useEffect(() => {
-        if (updateChatflowApi.data) {
-            const retained = pendingHarnessLiveSaveRef.current
-            pendingHarnessLiveSaveRef.current = null
-            dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-            setLasUpdatedDateTime(updateChatflowApi.data.updatedDate)
-            saveChatflowSuccess(retained?.notice)
-        } else if (updateChatflowApi.error) {
-            pendingHarnessLiveSaveRef.current = null
-            errorFailed(apiErrorText(updateChatflowApi.error))
-        }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateChatflowApi.data, updateChatflowApi.error])
-
-    // check if chatflow has changed before saving
-    useEffect(() => {
-        const checkIfHasChanged = async () => {
-            if (getHasChatflowChangedApi.data?.hasChanged === true) {
-                const confirmPayload = {
-                    title: `Confirm Change`,
-                    description: `${canvasTitle} ${chatflow.name} has changed since you have opened, overwrite changes?`,
-                    confirmButtonName: 'Confirm',
-                    cancelButtonName: 'Cancel'
-                }
-                const isConfirmed = await confirm(confirmPayload)
-
-                if (!isConfirmed) {
-                    return
-                }
-            }
-            const updateBody = {
-                name: chatflowName,
-                flowData
-            }
-            updateChatflowApi.request(chatflow.id, updateBody)
-        }
-
-        if (getHasChatflowChangedApi.data) {
-            checkIfHasChanged()
-        }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getHasChatflowChangedApi.data, getHasChatflowChangedApi.error])
-
+    function createdChatflowSuccess(created, { saveRev, notice, starterQuestions, willContinue }) {
+        dispatch({ type: SET_CHATFLOW, chatflow: created })
+        builderStartersRef.current = starterQuestionsAfterCreate({
+            current: builderStartersRef.current,
+            captured: starterQuestions,
+            willContinue
+        })
+        firstSaveAsDraftRef.current = false
+        if (!willContinue) saveChatflowSuccess(created.accessNotice || notice || undefined, saveRev)
+        createdFlowIdRef.current = created.id
+        window.history.replaceState(
+            state,
+            null,
+            `/${isEtlCanvas ? 'etlcanvas' : isHarnessCanvas ? 'harnesscanvas' : isAgentCanvas ? 'agentcanvas' : 'canvas'}/${created.id}`
+        )
+    }
     useEffect(() => {
         setChatflow(canvasDataStore.chatflow)
         if (canvasDataStore.chatflow) {
@@ -1104,9 +1350,7 @@ const Canvas = () => {
     useEffect(() => {
         setIsSyncNodesButtonEnabled(false)
         setIsUpsertButtonEnabled(false)
-        if (chatflowId) {
-            getSpecificChatflowApi.request(chatflowId)
-        } else {
+        if (!chatflowId) {
             let importedName = ''
             const storedFlow = localStorage.getItem('duplicatedFlowData')
             if (storedFlow) {
@@ -1169,6 +1413,23 @@ const Canvas = () => {
     }, [])
 
     useEffect(() => {
+        // A flow created on this canvas already has its cards and draft status; reloading it would replace newer edits.
+        const action = createdFlowRouteAction(createdFlowIdRef.current, chatflowId)
+        if (action !== 'load') return
+        // The exemption belongs only to the create-time address change. Once the route leaves that flow, returning
+        // to it must issue a normal saved-flow request instead of reusing another flow's load state.
+        createdFlowIdRef.current = null
+        setDraftStatus(null)
+        setDraftStatusLoad({ flowId: chatflowId, known: false, loading: true, error: null, request: 'flow' })
+        requestFlow(chatflowId)
+        // The route id is the request identity. A new id must not reuse the previous canvas or its draft mode.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatflowId])
+
+    // Back, unmount, or a route change stops the saved-flow/status retry owned by the route being left.
+    useEffect(() => () => abortOpenRequest(chatflowId), [abortOpenRequest, chatflowId])
+
+    useEffect(() => {
         const rows = getPackIndexApi.data?.nodes
         if (!Array.isArray(rows)) return
         dispatch({ type: SET_NODE_PACK_INDEX, nodePackIndex: rows })
@@ -1206,6 +1467,7 @@ const Canvas = () => {
 
     useEffect(() => {
         function handlePaste(e) {
+            if (canvasBlocked) return
             const pasteData = e.clipboardData.getData('text')
             //TODO: prevent paste event when input focused, temporary fix: catch chatflow syntax
             if (pasteData.includes('{"nodes":[') && pasteData.includes('],"edges":[')) {
@@ -1220,7 +1482,7 @@ const Canvas = () => {
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [canvasBlocked])
 
     // A harness template opens on the person's own model key (see utils/yourKey).
     const loadHarnessTemplate = async (text) => {
@@ -1319,256 +1581,267 @@ const Canvas = () => {
     }, [openPanelNodeId, reactFlowInstance])
 
     return (
-        <>
-            <Box>
-                <AppBar
-                    enableColorOnDark
-                    position='fixed'
-                    color='inherit'
-                    elevation={1}
-                    sx={{
-                        bgcolor: theme.palette.background.default
-                    }}
-                >
-                    <Toolbar sx={{ height: 'auto', alignItems: 'center', py: { xs: 1, md: 0 } }}>
-                        <CanvasHeader
-                            chatflow={chatflow}
-                            handleSaveFlow={handleSaveFlow}
-                            handleDeleteFlow={handleDeleteFlow}
-                            handleLoadFlow={handleLoadFlow}
-                            catalogLoading={getNodesApi.loading}
-                            catalogError={getNodesApi.error}
-                            onRetryCatalog={() => getNodesApi.request()}
-                            onApplyMigration={({ canvas, name }) => {
-                                applyFlowiseCanvas(JSON.stringify(canvas))
-                                if (!chatflowRef.current?.id && name) {
-                                    dispatch({ type: SET_CHATFLOW, chatflow: { name } })
-                                }
-                            }}
-                            isAgentCanvas={isAgentCanvas}
-                            isHarnessCanvas={isHarnessCanvas}
-                            isEtlCanvas={isEtlCanvas}
-                            draftStatus={draftStatus}
-                            onDraftStatus={setDraftStatus}
-                            onChatflowUpdated={(next) => {
-                                dispatch({ type: SET_CHATFLOW, chatflow: next })
-                                if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
-                            }}
-                            onApplyCanvas={applyCanvasText}
-                            draftExpected={draftSave.expected}
-                            onDraftConflict={reviewPublishConflict}
-                        />
-                    </Toolbar>
-                </AppBar>
-                <Box sx={{ pt: { xs: '120px', md: '70px' }, height: '100vh', width: '100%' }}>
-                    <ReactFlowProvider>
-                        <CanvasPanelContext.Provider value={panelContext}>
-                            <div className='reactflow-parent-wrapper'>
-                                <div className='reactflow-wrapper' ref={reactFlowWrapper} style={{ position: 'relative' }}>
-                                    <ReactFlow
-                                        nodes={nodes}
-                                        edges={edges}
-                                        onNodesChange={handleNodesChange}
-                                        onNodeClick={onNodeClick}
-                                        onPaneClick={() => setPanelNodeId(null)}
-                                        onEdgesChange={handleEdgesChange}
-                                        onDrop={onDrop}
-                                        onDragOver={onDragOver}
-                                        onNodeDragStart={onNodeDragStart}
-                                        onNodeDragStop={onNodeDragStop}
-                                        nodeTypes={nodeTypes}
-                                        edgeTypes={edgeTypes}
-                                        onConnect={onConnect}
-                                        onInit={setReactFlowInstance}
-                                        fitView
-                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
-                                        minZoom={0.1}
-                                        snapGrid={[25, 25]}
-                                        snapToGrid={isSnappingEnabled}
-                                        className='chatflow-canvas'
-                                    >
-                                        <Controls
-                                            className={customization.isDarkMode ? 'dark-mode-controls' : ''}
-                                            style={{
-                                                display: 'flex',
-                                                flexDirection: 'row',
-                                                left: '50%',
-                                                transform: 'translate(-50%, -50%)'
-                                            }}
+        <CanvasLoadGuard
+            flowId={routeFlowId}
+            loadState={draftStatusLoad}
+            onRetry={retryDraftStatusLoad}
+            onBack={() => navigate(isEtlCanvas ? '/etl' : isHarnessCanvas ? '/harnesses' : isAgentCanvas ? '/agentflows' : '/')}
+        >
+            <>
+                <Box>
+                    <AppBar
+                        enableColorOnDark
+                        position='fixed'
+                        color='inherit'
+                        elevation={1}
+                        sx={{
+                            bgcolor: theme.palette.background.default
+                        }}
+                    >
+                        <Toolbar sx={{ height: 'auto', alignItems: 'center', py: { xs: 1, md: 0 } }}>
+                            <CanvasHeader
+                                chatflow={chatflow}
+                                handleSaveFlow={handleSaveFlow}
+                                handleSaveFlowName={handleSaveFlowName}
+                                handleDeleteFlow={handleDeleteFlow}
+                                handleLoadFlow={handleLoadFlow}
+                                catalogLoading={getNodesApi.loading}
+                                catalogError={getNodesApi.error}
+                                onRetryCatalog={() => getNodesApi.request()}
+                                onApplyMigration={({ canvas, name }) => {
+                                    applyFlowiseCanvas(JSON.stringify(canvas))
+                                    if (!chatflowRef.current?.id && name) {
+                                        dispatch({ type: SET_CHATFLOW, chatflow: { name } })
+                                    }
+                                }}
+                                isAgentCanvas={isAgentCanvas}
+                                isHarnessCanvas={isHarnessCanvas}
+                                isEtlCanvas={isEtlCanvas}
+                                draftStatus={draftStatus}
+                                onDraftStatus={setDraftStatus}
+                                onChatflowUpdated={(next) => {
+                                    dispatch({ type: SET_CHATFLOW, chatflow: next })
+                                    if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
+                                }}
+                                onApplyCanvas={applyCanvasText}
+                                onDirty={setDirty}
+                                draftExpected={draftSave.expected}
+                                onDraftConflict={reviewPublishConflict}
+                                saveQueueBusy={draftSave.busy}
+                            />
+                        </Toolbar>
+                    </AppBar>
+                    <Box sx={{ pt: { xs: '120px', md: '70px' }, height: '100vh', width: '100%' }}>
+                        <ReactFlowProvider>
+                            <CanvasPanelContext.Provider value={panelContext}>
+                                <div className='reactflow-parent-wrapper'>
+                                    <div className='reactflow-wrapper' ref={reactFlowWrapper} style={{ position: 'relative' }}>
+                                        <ReactFlow
+                                            nodes={nodes}
+                                            edges={edges}
+                                            onNodesChange={handleNodesChange}
+                                            onNodeClick={onNodeClick}
+                                            onPaneClick={() => setPanelNodeId(null)}
+                                            onEdgesChange={handleEdgesChange}
+                                            onDrop={onDrop}
+                                            onDragOver={onDragOver}
+                                            onNodeDragStart={onNodeDragStart}
+                                            onNodeDragStop={onNodeDragStop}
+                                            nodeTypes={nodeTypes}
+                                            edgeTypes={edgeTypes}
+                                            onConnect={onConnect}
+                                            onInit={setReactFlowInstance}
+                                            fitView
+                                            deleteKeyCode={canvasBlocked || canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
+                                            minZoom={0.1}
+                                            snapGrid={[25, 25]}
+                                            snapToGrid={isSnappingEnabled}
+                                            className='chatflow-canvas'
                                         >
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => {
-                                                    setIsSnappingEnabled(!isSnappingEnabled)
+                                            <Controls
+                                                className={customization.isDarkMode ? 'dark-mode-controls' : ''}
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'row',
+                                                    left: '50%',
+                                                    transform: 'translate(-50%, -50%)'
                                                 }}
-                                                title='toggle snapping'
-                                                aria-label='toggle snapping'
                                             >
-                                                {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
-                                            </button>
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => {
-                                                    setIsBackgroundEnabled(!isBackgroundEnabled)
-                                                }}
-                                                title='toggle background'
-                                                aria-label='toggle background'
-                                            >
-                                                {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
-                                            </button>
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => setCanvasLook(sidePanelOn ? 'classic' : 'panel')}
-                                                title={
-                                                    sidePanelOn
-                                                        ? 'New card look (compact cards, settings in a side panel): on'
-                                                        : 'New card look (compact cards, settings in a side panel): off'
-                                                }
-                                                aria-label='toggle side panel'
-                                                aria-pressed={sidePanelOn}
-                                            >
-                                                {sidePanelOn ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
-                                            </button>
-                                            {isHarnessCanvas && (
-                                                <TidyLayoutButton
-                                                    nodes={nodes || []}
-                                                    edges={edges || []}
-                                                    setNodes={setNodes}
-                                                    isDirty={Boolean(canvasDataStore.isDirty)}
-                                                    onDirty={setDirty}
-                                                    enqueueSnackbar={enqueueSnackbar}
-                                                    closeSnackbar={closeSnackbar}
-                                                />
-                                            )}
-                                        </Controls>
-                                        {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
-                                        <AddNodes
-                                            isAgentCanvas={isAgentCanvas}
-                                            isHarnessCanvas={isHarnessCanvas}
-                                            isEtlCanvas={isEtlCanvas}
-                                            nodesData={getNodesApi.data}
-                                            onPlaceNode={onPlaceNode}
-                                            onOpenChange={setPaletteOpen}
-                                            buildKind={buildKind}
-                                            onBuilt={onBuilt}
-                                        />
-                                        <BuildLandingDialog
-                                            show={Boolean(builtResult)}
-                                            title={builtResult?.title}
-                                            onStartNew={startNewBuilt}
-                                            onReplace={replaceWithBuilt}
-                                            onCancel={() => setBuiltResult(null)}
-                                        />
-                                        {isSyncNodesButtonEnabled && (
-                                            <Fab
-                                                sx={{
-                                                    left: buildKind ? 60 : 40,
-                                                    top: 20,
-                                                    color: 'white',
-                                                    background: 'orange',
-                                                    '&:hover': {
-                                                        background: 'orange',
-                                                        backgroundImage: `linear-gradient(rgb(0 0 0/10%) 0 0)`
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => {
+                                                        setIsSnappingEnabled(!isSnappingEnabled)
+                                                    }}
+                                                    title='toggle snapping'
+                                                    aria-label='toggle snapping'
+                                                >
+                                                    {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
+                                                </button>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => {
+                                                        setIsBackgroundEnabled(!isBackgroundEnabled)
+                                                    }}
+                                                    title='toggle background'
+                                                    aria-label='toggle background'
+                                                >
+                                                    {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
+                                                </button>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => setCanvasLook(sidePanelOn ? 'classic' : 'panel')}
+                                                    title={
+                                                        sidePanelOn
+                                                            ? 'New card look (compact cards, settings in a side panel): on'
+                                                            : 'New card look (compact cards, settings in a side panel): off'
                                                     }
-                                                }}
-                                                size='small'
-                                                aria-label='sync'
-                                                title='Sync Nodes'
-                                                onClick={() => syncNodes()}
-                                            >
-                                                <IconRefreshAlert />
-                                            </Fab>
-                                        )}
-                                        {isEtlCanvas ? (
-                                            <EtlPanel
-                                                chatflowId={chatflow?.id}
-                                                getFlowData={getEtlFlowData}
-                                                isDirty={Boolean(canvasDataStore.isDirty)}
-                                                hasDraft={Boolean(draftStatus?.draft)}
-                                                onRestore={restoreEtlVersion}
-                                                savedAt={chatflow?.updatedDate}
-                                                starters={starterQuestionsOf(chatflow?.chatbotConfig)}
+                                                    aria-label='toggle side panel'
+                                                    aria-pressed={sidePanelOn}
+                                                >
+                                                    {sidePanelOn ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
+                                                </button>
+                                                {isHarnessCanvas && (
+                                                    <TidyLayoutButton
+                                                        nodes={nodes || []}
+                                                        edges={edges || []}
+                                                        setNodes={setNodes}
+                                                        isDirty={Boolean(canvasDataStore.isDirty)}
+                                                        onDirty={setDirty}
+                                                        enqueueSnackbar={enqueueSnackbar}
+                                                        closeSnackbar={closeSnackbar}
+                                                        blocked={canvasBlocked}
+                                                    />
+                                                )}
+                                            </Controls>
+                                            {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
+                                            <AddNodes
+                                                isAgentCanvas={isAgentCanvas}
+                                                isHarnessCanvas={isHarnessCanvas}
+                                                isEtlCanvas={isEtlCanvas}
+                                                nodesData={getNodesApi.data}
+                                                onPlaceNode={onPlaceNode}
+                                                onOpenChange={setPaletteOpen}
+                                                buildKind={buildKind}
+                                                onBuilt={onBuilt}
                                             />
-                                        ) : (
-                                            <>
-                                                {isUpsertButtonEnabled && <VectorStorePopUp chatflowid={chatflowId} />}
-                                                <ChatPopUp
-                                                    isAgentCanvas={isAgentCanvas}
-                                                    chatflowid={chatflow?.id || chatflowId}
-                                                    harnessName={isHarnessCanvas ? chatflow?.name || '' : ''}
-                                                    openOnLoad={Boolean(isHarnessCanvas && state?.openChat && chatflow?.id)}
-                                                    harnessBlock={
-                                                        isHarnessCanvas
-                                                            ? harnessChatBlock({
-                                                                  saved: Boolean(chatflow?.id || chatflowId),
-                                                                  flowReady:
-                                                                      !chatflowId ||
-                                                                      Boolean(getSpecificChatflowApi.data) ||
-                                                                      (Array.isArray(nodes) && nodes.length > 0),
-                                                                  nodes,
-                                                                  edges,
-                                                                  nodeDefinitions: getNodesApi.data
-                                                              })
-                                                            : ''
-                                                    }
+                                            <BuildLandingDialog
+                                                show={Boolean(builtResult)}
+                                                title={builtResult?.title}
+                                                onStartNew={startNewBuilt}
+                                                onReplace={replaceWithBuilt}
+                                                onCancel={() => setBuiltResult(null)}
+                                            />
+                                            {isSyncNodesButtonEnabled && (
+                                                <Fab
+                                                    sx={{
+                                                        left: buildKind ? 60 : 40,
+                                                        top: 20,
+                                                        color: 'white',
+                                                        background: 'orange',
+                                                        '&:hover': {
+                                                            background: 'orange',
+                                                            backgroundImage: `linear-gradient(rgb(0 0 0/10%) 0 0)`
+                                                        }
+                                                    }}
+                                                    size='small'
+                                                    aria-label='sync'
+                                                    title='Sync Nodes'
+                                                    onClick={() => syncNodes()}
+                                                >
+                                                    <IconRefreshAlert />
+                                                </Fab>
+                                            )}
+                                            {isEtlCanvas ? (
+                                                <EtlPanel
+                                                    chatflowId={chatflow?.id}
+                                                    getFlowData={getEtlFlowData}
+                                                    isDirty={Boolean(canvasDataStore.isDirty)}
+                                                    hasDraft={Boolean(draftStatus?.draft)}
+                                                    onRestore={restoreEtlVersion}
+                                                    savedAt={chatflow?.updatedDate}
+                                                    starters={starterQuestionsOf(chatflow?.chatbotConfig)}
                                                 />
-                                            </>
+                                            ) : (
+                                                <>
+                                                    {isUpsertButtonEnabled && <VectorStorePopUp chatflowid={chatflowId} />}
+                                                    <ChatPopUp
+                                                        isAgentCanvas={isAgentCanvas}
+                                                        chatflowid={chatflow?.id || chatflowId}
+                                                        harnessName={isHarnessCanvas ? chatflow?.name || '' : ''}
+                                                        openOnLoad={Boolean(isHarnessCanvas && state?.openChat && chatflow?.id)}
+                                                        harnessBlock={
+                                                            isHarnessCanvas
+                                                                ? harnessChatBlock({
+                                                                      saved: Boolean(chatflow?.id || chatflowId),
+                                                                      flowReady:
+                                                                          !chatflowId ||
+                                                                          Boolean(getSpecificChatflowApi.data) ||
+                                                                          (Array.isArray(nodes) && nodes.length > 0),
+                                                                      nodes,
+                                                                      edges,
+                                                                      nodeDefinitions: getNodesApi.data
+                                                                  })
+                                                                : ''
+                                                        }
+                                                    />
+                                                </>
+                                            )}
+                                        </ReactFlow>
+                                        {(!nodes || nodes.length === 0) && !paletteOpen && (
+                                            <Box
+                                                sx={{
+                                                    position: 'absolute',
+                                                    top: 72,
+                                                    left: 20,
+                                                    zIndex: 4,
+                                                    maxWidth: 460,
+                                                    pointerEvents: 'none',
+                                                    color: 'text.secondary',
+                                                    fontSize: '0.95rem',
+                                                    lineHeight: 1.45
+                                                }}
+                                            >
+                                                {isEtlCanvas
+                                                    ? 'Add a source, then a splitter, embeddings, and a vector store.'
+                                                    : isHarnessCanvas
+                                                    ? 'Add a Harness Prime and a Harness Specialist. Connect a chat model to Harness Prime, and connect each specialist to Harness Prime.'
+                                                    : isAgentCanvas
+                                                    ? 'Add an agent, then connect a chat model.'
+                                                    : 'Add a Chain, Agent, or Engine, then connect a chat model to it.'}
+                                            </Box>
                                         )}
-                                    </ReactFlow>
-                                    {(!nodes || nodes.length === 0) && !paletteOpen && (
-                                        <Box
-                                            sx={{
-                                                position: 'absolute',
-                                                top: 72,
-                                                left: 20,
-                                                zIndex: 4,
-                                                maxWidth: 460,
-                                                pointerEvents: 'none',
-                                                color: 'text.secondary',
-                                                fontSize: '0.95rem',
-                                                lineHeight: 1.45
+                                    </div>
+                                    {openPanelNode && (
+                                        <NodeSidePanel
+                                            node={openPanelNode}
+                                            onClose={() => setPanelNodeId(null)}
+                                            onDuplicate={() => {
+                                                const created = duplicateNode(openPanelNode.id)
+                                                if (created?.id) onDuplicated(created)
                                             }}
-                                        >
-                                            {isEtlCanvas
-                                                ? 'Add a source, then a splitter, embeddings, and a vector store.'
-                                                : isHarnessCanvas
-                                                ? 'Add a Harness Prime and a Harness Specialist. Connect a chat model to Harness Prime, and connect each specialist to Harness Prime.'
-                                                : isAgentCanvas
-                                                ? 'Add an agent, then connect a chat model.'
-                                                : 'Add a Chain, Agent, or Engine, then connect a chat model to it.'}
-                                        </Box>
+                                            onDelete={() => deleteNode(openPanelNode.id)}
+                                        />
                                     )}
                                 </div>
-                                {openPanelNode && (
-                                    <NodeSidePanel
-                                        node={openPanelNode}
-                                        onClose={() => setPanelNodeId(null)}
-                                        onDuplicate={() => {
-                                            const created = duplicateNode(openPanelNode.id)
-                                            if (created?.id) onDuplicated(created)
-                                        }}
-                                        onDelete={() => deleteNode(openPanelNode.id)}
-                                    />
-                                )}
-                            </div>
-                        </CanvasPanelContext.Provider>
-                    </ReactFlowProvider>
+                            </CanvasPanelContext.Provider>
+                        </ReactFlowProvider>
+                    </Box>
+                    <ConfirmDialog />
+                    <DraftConflictDialog
+                        open={Boolean(draftSave.conflict)}
+                        conflict={draftSave.conflict}
+                        onReload={reloadSharedDraft}
+                        onSaveAnyway={() => {
+                            draftSave.dismiss()
+                            handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
+                        }}
+                        onApply={applyMergedDraft}
+                        onClose={draftSave.dismiss}
+                        normalize={normalizeForMerge}
+                    />
                 </Box>
-                <ConfirmDialog />
-                <DraftConflictDialog
-                    open={Boolean(draftSave.conflict)}
-                    conflict={draftSave.conflict}
-                    onReload={reloadSharedDraft}
-                    onSaveAnyway={() => {
-                        draftSave.dismiss()
-                        handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
-                    }}
-                    onApply={applyMergedDraft}
-                    onClose={draftSave.dismiss}
-                    normalize={normalizeForMerge}
-                />
-            </Box>
-        </>
+            </>
+        </CanvasLoadGuard>
     )
 }
 

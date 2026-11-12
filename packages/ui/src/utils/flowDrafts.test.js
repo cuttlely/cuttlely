@@ -1,6 +1,8 @@
 import { kindLabel, relativeTime, restoreMessage, versionMarkers } from './versionHistory'
 import {
     STALE_DRAFT_WARNING,
+    publishOutcomeFromStatus,
+    recheckPublish,
     apiErrorMessage,
     badgeText,
     canvasAfterDiscard,
@@ -28,6 +30,7 @@ import {
     draftVersion,
     draftConflictFrom,
     draftConflictMessage,
+    draftStatusOpenDecision,
     DRAFT_CONFLICT_TITLE,
     DRAFT_CONFLICT_RELOAD,
     DRAFT_CONFLICT_SAVE_ANYWAY
@@ -119,6 +122,12 @@ describe('canvas load and save', () => {
         expect(canvasFlowText(chatflow, null)).toBe(live)
     })
 
+    test('does not choose Live when draft status could not be loaded', () => {
+        const error = new Error('connection lost')
+        expect(draftStatusOpenDecision(undefined, error)).toEqual({ paint: false, error })
+        expect(draftStatusOpenDecision({ data: { mode: 'draft' } })).toEqual({ paint: true, status: { mode: 'draft' } })
+    })
+
     test('sends the canvas to the draft, and the name to Live without the canvas', () => {
         expect(planCanvasSave({ mode: 'live', name: 'Bakery helper', savedName: 'Bakery helper', flowData: draft, hasId: true })).toEqual({
             create: false,
@@ -134,6 +143,12 @@ describe('canvas load and save', () => {
             name: 'Bakery'
         })
         expect(planCanvasSave({ mode: 'draft', name: 'New', savedName: '', flowData: draft, hasId: false }).create).toBe(true)
+        expect(planCanvasSave({ mode: undefined, name: 'Bakery', savedName: 'Bakery helper', flowData: draft, hasId: true })).toEqual({
+            create: false,
+            live: null,
+            draft: null,
+            modeUnknown: true
+        })
     })
 })
 
@@ -250,6 +265,9 @@ describe('publish diff', () => {
             'Drafts are off on this server.'
         )
         expect(apiErrorMessage({}, 'Publish failed.')).toBe('Publish failed.')
+        expect(apiErrorMessage({ saveAgain: true, message: 'Your edits remain. Press Save again.' }, 'Save failed.')).toBe(
+            'Your edits remain. Press Save again.'
+        )
         const noAnswer = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
         expect(apiErrorMessage(noAnswer, 'Save failed')).toBe(
             'Save failed. The server could not be reached. Check your connection, then reload the page.'
@@ -460,5 +478,43 @@ describe('ZZ-TEST-shared draft conflict', () => {
         expect(draftConflictMessage({ savedBy: { name: 'ZZ-TEST-Rosa' } }, now)).toBe(
             'ZZ-TEST-Rosa saved this draft after you opened it. Reload to see their changes, or save anyway to replace them.'
         )
+    })
+})
+
+describe('publish re-check after no answer', () => {
+    const before = { draftHash: 'h1', lastPublishedDate: '2026-11-10T10:00:00.000Z' }
+    const landed = { draft: null, lastPublished: { sha: 'new', date: '2026-11-10T10:05:00.000Z' } }
+    const pending = { draft: { hash: 'h1' }, lastPublished: { sha: 'old', date: '2026-11-10T10:00:00.000Z' } }
+
+    test('Live moved and the published draft is gone: published', () => {
+        expect(publishOutcomeFromStatus(before, landed)).toBe('published')
+        expect(publishOutcomeFromStatus({ draftHash: 'h1', lastPublishedDate: null }, landed)).toBe('published')
+    })
+
+    test('Live did not move and the same draft is pending: still unknown', () => {
+        expect(publishOutcomeFromStatus(before, pending)).toBe('unknown')
+    })
+
+    test('a mixed or missing status stays unknown', () => {
+        expect(publishOutcomeFromStatus(before, null)).toBe('unknown')
+        expect(publishOutcomeFromStatus(before, { draft: { hash: 'other' }, lastPublished: pending.lastPublished })).toBe('unknown')
+        expect(publishOutcomeFromStatus(before, { draft: { hash: 'h1' }, lastPublished: landed.lastPublished })).toBe('unknown')
+    })
+
+    test('recheckPublish reads once and reports each outcome; a read with no answer is unknown', async () => {
+        await expect(recheckPublish(() => Promise.resolve({ data: landed }), before)).resolves.toEqual({
+            outcome: 'published',
+            status: landed
+        })
+        await expect(recheckPublish(() => Promise.resolve({ data: pending }), before)).resolves.toEqual({
+            outcome: 'unknown',
+            status: pending
+        })
+        const noAnswer = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
+        const read = jest.fn(() => Promise.reject(noAnswer))
+        const result = await recheckPublish(read, before)
+        expect(result.outcome).toBe('unknown')
+        expect(result.status).toBeNull()
+        expect(read).toHaveBeenCalledTimes(1)
     })
 })

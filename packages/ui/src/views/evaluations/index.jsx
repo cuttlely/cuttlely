@@ -60,6 +60,7 @@ import {
     IconPlayerPause
 } from '@tabler/icons-react'
 import empty_evalSVG from '@/assets/images/empty_evals.svg'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const EvalsEvaluation = () => {
     const theme = useTheme()
@@ -169,9 +170,7 @@ const EvalsEvaluation = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete ${selected.length > 1 ? 'evaluations' : 'evaluation'}: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete ${selected.length > 1 ? 'evaluations' : 'evaluation'}: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -579,9 +578,7 @@ function EvaluationRunRow(props) {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete Evaluation: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete Evaluation: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

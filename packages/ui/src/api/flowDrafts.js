@@ -2,7 +2,7 @@ import client from './client'
 
 const path = (chatflowId) => `/flow-drafts/${encodeURIComponent(chatflowId)}`
 
-const getStatus = (chatflowId) => client.get(path(chatflowId))
+const getStatus = (chatflowId, config) => (config ? client.get(path(chatflowId), config) : client.get(path(chatflowId)))
 
 const saveDraft = (chatflowId, flowData, options = {}) => {
     const body = { flowData }
@@ -11,7 +11,7 @@ const saveDraft = (chatflowId, flowData, options = {}) => {
         if (typeof hash === 'string' || hash === null) body.expectedDraftHash = hash
     }
     if (options && options.overwriteDraftChanges === true) body.overwriteDraftChanges = true
-    return client.put(path(chatflowId), body)
+    return client.put(path(chatflowId), body, { retry: false, authReplay: false })
 }
 
 const discardDraft = (chatflowId) => client.delete(path(chatflowId))

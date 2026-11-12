@@ -6,9 +6,12 @@ import {
     modelToRemember,
     recallModel,
     rememberModel,
+    starterQuestionsSaveEntry,
+    starterQuestionsAfterCreate,
     withStarterQuestions,
     starterQuestionsOf
 } from './buildWithAI'
+import { createSaveQueue, SAVE_AGAIN_NOTICE } from './saveQueue'
 
 const memory = () => {
     const store = {}
@@ -62,6 +65,169 @@ describe('Build with AI', () => {
         expect(starterQuestionsOf({ starterPrompts: { 0: { prompt: ' Bags? ' }, 1: { prompt: '' } } })).toEqual(['Bags?'])
         expect(starterQuestionsOf('not json')).toEqual([])
         expect(starterQuestionsOf(undefined)).toEqual([])
+    })
+
+    test('keeps first-save questions until the queued continuation acknowledges them', () => {
+        const questions = ['One?']
+        expect(starterQuestionsAfterCreate({ current: questions, captured: questions, willContinue: true })).toBe(questions)
+        expect(starterQuestionsAfterCreate({ current: questions, captured: questions, willContinue: false })).toEqual([])
+        const newer = ['Two?']
+        expect(starterQuestionsAfterCreate({ current: newer, captured: questions, willContinue: false })).toBe(newer)
+    })
+
+    test('keeps starter questions until their queued update is acknowledged', async () => {
+        const questions = ['One?']
+        let current = questions
+        const save = jest.fn().mockResolvedValue({ data: { id: 'flow-1' } })
+        const clear = jest.fn(() => {
+            current = []
+        })
+        const onAck = jest.fn()
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions,
+            save,
+            isCurrent: () => current === questions,
+            clear,
+            onAck,
+            rev: 4
+        })
+
+        const response = await entry.send()
+        expect(current).toBe(questions)
+        expect(save).toHaveBeenCalledWith('flow-1', {
+            chatbotConfig: JSON.stringify({ starterPrompts: { 0: { prompt: 'One?' } } })
+        })
+        await entry.onAck(response.data)
+        expect(clear).toHaveBeenCalledTimes(1)
+        expect(current).toEqual([])
+        expect(onAck).toHaveBeenCalledWith({ id: 'flow-1' })
+        expect(entry.rev).toBe(4)
+    })
+
+    test('keeps starter questions and requests another Save when their update gets no answer', async () => {
+        const questions = ['One?']
+        let current = questions
+        const onError = jest.fn()
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions,
+            save: jest.fn().mockRejectedValue({ request: {}, response: undefined }),
+            isCurrent: () => current === questions,
+            clear: () => {
+                current = []
+            },
+            onError,
+            rev: 5
+        })
+        const queue = createSaveQueue({
+            putDraft: jest.fn(),
+            getDraftStatus: jest.fn(),
+            putLive: jest.fn(),
+            getLive: jest.fn()
+        })
+
+        queue.enqueue(entry)
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(current).toBe(questions)
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_AGAIN_NOTICE, saveAgain: true }))
+        expect(queue.getState().state).toBe('idle')
+    })
+
+    test('does not acknowledge older starter questions after a newer set is queued', async () => {
+        const questions = ['One?']
+        let current = ['Two?']
+        const clear = jest.fn()
+        const onAck = jest.fn()
+        const onSettled = jest.fn()
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions,
+            save: jest.fn(),
+            isCurrent: () => current === questions,
+            clear,
+            onAck,
+            onSettled,
+            rev: 6
+        })
+
+        await entry.onAck({ id: 'flow-1' })
+        expect(clear).not.toHaveBeenCalled()
+        expect(onAck).not.toHaveBeenCalled()
+        expect(onSettled).toHaveBeenCalledWith({ id: 'flow-1' }, { current: false })
+        expect(current).toEqual(['Two?'])
+    })
+
+    test('settles an acknowledged starter update even after a newer set is queued', async () => {
+        const captured = ['One?']
+        let current = ['Two?']
+        let editRev = 7
+        let dirty = true
+        const entry = starterQuestionsSaveEntry({
+            savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+            questions: captured,
+            save: jest.fn(),
+            isCurrent: () => current === captured,
+            clear: jest.fn(),
+            onAck: jest.fn(),
+            onSettled: jest.fn((_saved, details) => {
+                if (!details.current && entry.rev === editRev) dirty = false
+            }),
+            rev: 7
+        })
+
+        await entry.onAck({ id: 'flow-1' })
+        expect(dirty).toBe(false)
+        expect(current).toEqual(['Two?'])
+    })
+
+    test('settles the latest of two queued saves after the first clears their shared questions', async () => {
+        const questions = ['One?']
+        let current = questions
+        let dirty = true
+        let releaseFirst
+        const firstResponse = new Promise((resolve) => {
+            releaseFirst = resolve
+        })
+        const makeEntry = (rev, save) =>
+            starterQuestionsSaveEntry({
+                savedFlow: { id: 'flow-1', chatbotConfig: '{}' },
+                questions,
+                save,
+                isCurrent: () => current === questions,
+                clear: () => {
+                    current = []
+                },
+                onSettled: () => {
+                    if (rev === 2) dirty = false
+                },
+                rev
+            })
+        const first = makeEntry(
+            1,
+            jest.fn(() => firstResponse)
+        )
+        const secondSave = jest.fn().mockResolvedValue({ data: { id: 'flow-1' } })
+        const second = makeEntry(2, secondSave)
+        const queue = createSaveQueue({
+            putDraft: jest.fn(),
+            getDraftStatus: jest.fn(),
+            putLive: jest.fn(),
+            getLive: jest.fn()
+        })
+
+        queue.enqueue({ ...first, internal: true })
+        queue.enqueue({ ...second, internal: true })
+        releaseFirst({ data: { id: 'flow-1' } })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(secondSave).toHaveBeenCalledTimes(1)
+        expect(current).toEqual([])
+        expect(dirty).toBe(false)
+        expect(queue.getState().state).toBe('idle')
     })
 
     test('says what is missing and why a build failed in plain words', () => {

@@ -17,6 +17,8 @@ import {
 } from '@mui/material'
 
 import flowDraftsApi from '@/api/flowDrafts'
+import chatflowsApi from '@/api/chatflows'
+import { isConnectionUnavailable } from '@/api/resilience'
 import useConfirm from '@/hooks/useConfirm'
 import { useAuth } from '@/hooks/useAuth'
 import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
@@ -35,9 +37,11 @@ import {
     draftConflictFrom,
     publishChangeLines,
     publishResultMessage,
+    recheckPublish,
     showsPublishCheck
 } from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
+import { publishFailureMessage } from '@/utils/errorSummary'
 
 import PublishCheck from './PublishCheck'
 
@@ -136,6 +140,7 @@ const PublishDialog = ({
     chatflow,
     draftStatus,
     isDirty,
+    saveQueueBusy = false,
     onClose,
     onDraftStatus,
     onChatflowUpdated,
@@ -152,6 +157,7 @@ const PublishDialog = ({
     const [gateBusy, setGateBusy] = useState(false)
     const [runAnyway, setRunAnyway] = useState(false)
     const [error, setError] = useState('')
+    const [publishAgainBlocked, setPublishAgainBlocked] = useState(false)
     // A 409 DRAFT_CHANGED: someone else saved the draft after this canvas loaded it.
     const [publishConflict, setPublishConflict] = useState(null)
 
@@ -174,6 +180,10 @@ const PublishDialog = ({
         setBusy(false)
         setPublishConflict(null)
     }, [open])
+
+    useEffect(() => {
+        setPublishAgainBlocked(false)
+    }, [chatflow?.id])
 
     const onStatus = useRef(onDraftStatus)
     onStatus.current = onDraftStatus
@@ -295,19 +305,47 @@ const PublishDialog = ({
     }
 
     const onPublish = async (overwriteDraftChanges = false) => {
-        if (!chatflow?.id || busy) return
+        if (!chatflow?.id || busy || saveQueueBusy) return
         if (stale && !replaceLiveChanges) return
         setBusy(true)
         setError('')
         setPublishConflict(null)
+        const draft = { ...(draftExpected() || {}), ...(overwriteDraftChanges === true ? { overwriteDraftChanges: true } : {}) }
+        const before = {
+            draftHash: typeof draft.expectedDraftHash === 'string' ? draft.expectedDraftHash : draftStatus?.draft?.hash ?? null,
+            lastPublishedDate: draftStatus?.lastPublished?.date ?? null
+        }
         try {
-            const draft = { ...(draftExpected() || {}), ...(overwriteDraftChanges === true ? { overwriteDraftChanges: true } : {}) }
             const res = await flowDraftsApi.publish(chatflow.id, publishBody(stale, replaceLiveChanges, draft))
             finish(res.data)
         } catch (err) {
             const found = draftConflictFrom(err)
             if (found) setPublishConflict(found)
-            else setError(apiErrorMessage(err, 'Publish failed.'))
+            else if (isConnectionUnavailable(err)) {
+                // No application answer: the publish may have landed. Read the status back (a retried GET) instead of sending it again.
+                // dedupe: false so a status read started before the publish (when the dialog opened) is never reused.
+                const { outcome, status } = await recheckPublish(() => flowDraftsApi.getStatus(chatflow.id, { dedupe: false }), before)
+                if (!mounted.current) return
+                if (outcome === 'published') {
+                    try {
+                        // The status proves the draft moved to Live, but it is not the updated flow record. Fetch a fresh,
+                        // non-deduped copy so later Live checks and test runs use the version that was just published.
+                        const refreshed = await chatflowsApi.getSpecificChatflow(chatflow.id, { dedupe: false })
+                        if (!mounted.current) return
+                        finish({ status, chatflow: refreshed.data })
+                    } catch {
+                        if (!mounted.current) return
+                        if (status) onDraftStatus(status)
+                        setPublishAgainBlocked(true)
+                        setError('Published, but the canvas could not refresh Live. Close and reopen the flow when the connection is back.')
+                        setBusy(false)
+                    }
+                    return
+                }
+                if (status) onDraftStatus(status)
+                setPublishAgainBlocked(true)
+                setError(publishFailureMessage(err))
+            } else setError(publishFailureMessage(err))
             setBusy(false)
         }
     }
@@ -366,6 +404,11 @@ const PublishDialog = ({
                         You have unsaved changes. Save them first, or Publish uses the last saved draft.
                     </Alert>
                 )}
+                {saveQueueBusy && (
+                    <Alert severity='info' sx={{ mb: 1.5 }}>
+                        Save your changes first.
+                    </Alert>
+                )}
                 {stale && (
                     <Alert severity='warning' data-testid='stale-draft-warning' sx={{ mb: 1.5 }}>
                         {STALE_DRAFT_WARNING}
@@ -418,7 +461,13 @@ const PublishDialog = ({
                             <Button variant='outlined' size='small' onClick={onReviewConflict} disabled={busy}>
                                 {PUBLISH_CONFLICT_REVIEW}
                             </Button>
-                            <Button size='small' color='warning' onClick={() => onPublish(true)} disabled={busy}>
+                            <Button
+                                size='small'
+                                color='warning'
+                                title={saveQueueBusy ? 'Save your changes first' : undefined}
+                                onClick={() => onPublish(true)}
+                                disabled={busy || saveQueueBusy}
+                            >
                                 {PUBLISH_CONFLICT_ANYWAY}
                             </Button>
                         </Stack>
@@ -436,7 +485,9 @@ const PublishDialog = ({
                 <Button
                     variant='contained'
                     onClick={() => onPublish(false)}
-                    disabled={busy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)}
+                    disabled={
+                        publishAgainBlocked || busy || saveQueueBusy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)
+                    }
                 >
                     {busy ? 'Publishing…' : 'Publish'}
                 </Button>
@@ -455,6 +506,7 @@ PublishDialog.propTypes = {
     chatflow: PropTypes.object,
     draftStatus: PropTypes.object,
     isDirty: PropTypes.bool,
+    saveQueueBusy: PropTypes.bool,
     onClose: PropTypes.func,
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,

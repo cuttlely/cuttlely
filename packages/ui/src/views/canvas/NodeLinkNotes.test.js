@@ -1,11 +1,11 @@
 const mockEdges = { current: [] }
 jest.mock('reactflow', () => ({ useEdges: () => mockEdges.current }))
 jest.mock('@/store/constant', () => ({ baseURL: 'http://localhost' }))
-jest.mock('axios', () => ({ __esModule: true, default: { post: jest.fn() } }))
+jest.mock('@/api/nodes', () => ({ __esModule: true, default: { executeNodeLoadMethod: jest.fn() } }))
 
 import { createElement } from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
-import axios from 'axios'
+import nodesApi from '@/api/nodes'
 
 import NodeLinkNotes from './NodeLinkNotes'
 import { flowContext } from '@/store/context/ReactFlowContext'
@@ -40,8 +40,8 @@ describe.each([
 ])('link notes with %s', (_, mode) => {
     beforeEach(() => {
         resetAnalystModeCache()
-        axios.post.mockReset()
-        axios.post.mockResolvedValue({ data: [{ label: 'x', name: mode }] })
+        nodesApi.executeNodeLoadMethod.mockReset()
+        nodesApi.executeNodeLoadMethod.mockResolvedValue({ data: [{ label: 'x', name: mode }] })
         mockEdges.current = [
             { source: 'pg_1', target: 'spec_1' },
             { source: 'pg_2', target: 'agent_1' }
@@ -75,8 +75,8 @@ describe.each([
 describe('link notes when the server cannot be read', () => {
     it('shows no turned-off note on a guess', async () => {
         resetAnalystModeCache()
-        axios.post.mockReset()
-        axios.post.mockRejectedValue(new Error('offline'))
+        nodesApi.executeNodeLoadMethod.mockReset()
+        nodesApi.executeNodeLoadMethod.mockRejectedValue(new Error('offline'))
         mockEdges.current = [{ source: 'pg_1', target: 'spec_1' }]
         const tree = await render('spec_1', flowNodes())
         expect(text(tree, 'analyst-off-note')).toHaveLength(0)
@@ -85,21 +85,21 @@ describe('link notes when the server cannot be read', () => {
 
     it('a specialist whose tool has its own credential never asks the server', async () => {
         resetAnalystModeCache()
-        axios.post.mockReset()
+        nodesApi.executeNodeLoadMethod.mockReset()
         const nodes = flowNodes()
         nodes[0].data.credential = 'zz-fake-cred'
         mockEdges.current = [{ source: 'pg_1', target: 'spec_1' }]
         const tree = await render('spec_1', nodes)
         expect(text(tree, 'analyst-off-note')).toHaveLength(0)
-        expect(axios.post).not.toHaveBeenCalled()
+        expect(nodesApi.executeNodeLoadMethod).not.toHaveBeenCalled()
     })
 })
 
 describe('link notes after a connection is picked in the panel', () => {
     it('the specialist drops the turned-off note once its tool has a connection', async () => {
         resetAnalystModeCache()
-        axios.post.mockReset()
-        axios.post.mockResolvedValue({ data: [{ label: 'x', name: 'unavailable' }] })
+        nodesApi.executeNodeLoadMethod.mockReset()
+        nodesApi.executeNodeLoadMethod.mockResolvedValue({ data: [{ label: 'x', name: 'unavailable' }] })
         mockEdges.current = [{ source: 'pg_1', target: 'spec_1' }]
         const nodes = flowNodes()
         const tree = await render('spec_1', nodes)
