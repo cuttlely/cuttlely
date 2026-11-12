@@ -77,6 +77,7 @@ import PromptLangsmithHubDialog from '@/ui-component/dialog/PromptLangsmithHubDi
 import ManageScrapedLinksDialog from '@/ui-component/dialog/ManageScrapedLinksDialog'
 import CredentialInputHandler from './CredentialInputHandler'
 import { credentialMarkOptional } from '@/utils/postgresCredentialHint'
+import { gitSourceUrlHint } from '@/utils/gitSourceUrl'
 import InputHintDialog from '@/ui-component/dialog/InputHintDialog'
 import { useConfig } from '@/store/context/ConfigContext'
 import PinnedQueriesBlock from './pinnedQueries/PinnedQueriesBlock'
@@ -163,6 +164,17 @@ const NodeInputHandler = ({
 
     const [position, setPosition] = useState(0)
     const [credentialHint, setCredentialHint] = useState('')
+    const [gitUrlHintText, setGitUrlHintText] = useState(() =>
+        data.name === 'etlRepoSource' && inputParam?.name === 'gitUrl' ? gitSourceUrlHint(data.inputs?.[inputParam.name]) : ''
+    )
+    useEffect(() => {
+        if (data.name === 'etlRepoSource' && inputParam?.name === 'gitUrl') {
+            setGitUrlHintText(gitSourceUrlHint(data.inputs?.[inputParam.name]))
+        }
+        // data.inputs is mutated in place; the Git URL string is listed below.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+    }, [data.id, data.name, data.inputs?.gitUrl, inputParam?.name])
+
     const [showExpandDialog, setShowExpandDialog] = useState(false)
     const [expandDialogProps, setExpandDialogProps] = useState({})
     const [showExpandRichDialog, setShowExpandRichDialog] = useState(false)
@@ -1332,7 +1344,12 @@ const NodeInputHandler = ({
                                     placeholder={inputParam.placeholder}
                                     disabled={disabled}
                                     inputParam={inputParam}
-                                    onChange={(newValue) => commitCanvasInput(inputParam.name, newValue)}
+                                    onChange={(newValue) => {
+                                        commitCanvasInput(inputParam.name, newValue)
+                                        if (data.name === 'etlRepoSource' && inputParam.name === 'gitUrl') {
+                                            setGitUrlHintText(gitSourceUrlHint(newValue))
+                                        }
+                                    }}
                                     value={data.inputs[inputParam.name] ?? inputParam.default ?? ''}
                                     nodes={reactFlowInstance ? reactFlowInstance.getNodes() : []}
                                     edges={reactFlowInstance ? reactFlowInstance.getEdges() : []}
@@ -1344,13 +1361,35 @@ const NodeInputHandler = ({
                                     placeholder={inputParam.placeholder}
                                     disabled={disabled}
                                     inputParam={inputParam}
-                                    onChange={(newValue) => commitCanvasInput(inputParam.name, newValue)}
+                                    onChange={(newValue) => {
+                                        commitCanvasInput(inputParam.name, newValue)
+                                        if (data.name === 'etlRepoSource' && inputParam.name === 'gitUrl') {
+                                            setGitUrlHintText(gitSourceUrlHint(newValue))
+                                        }
+                                    }}
                                     value={data.inputs[inputParam.name] ?? inputParam.default ?? ''}
                                     nodes={[]}
                                     edges={[]}
                                     nodeId={data.id}
                                 />
                             ))}
+                        {data.name === 'etlRepoSource' && inputParam.name === 'gitUrl' && gitUrlHintText && (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderRadius: 10,
+                                    background: 'rgb(254,252,191)',
+                                    padding: 10,
+                                    marginTop: 10,
+                                    marginBottom: 10
+                                }}
+                            >
+                                <IconAlertTriangle size={30} color='orange' />
+                                <span style={{ color: 'rgb(116,66,16)', marginLeft: 10 }}>{gitUrlHintText}</span>
+                            </div>
+                        )}
                         {inputParam.type === 'json' && (
                             <>
                                 {!inputParam?.acceptVariable && (

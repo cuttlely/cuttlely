@@ -4,6 +4,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { EtlError } from './errors.mjs'
+import { resolveGitSource, TRAVERSAL_HINT } from './git-url.mjs'
 import { etlDir } from './db.mjs'
 import { compareSegments, splitList, walkFiles } from './ignore.mjs'
 import { readDelimitedRows, readHeader, readLines, readSegments } from './readers.mjs'
@@ -371,25 +372,13 @@ function looksBinary(file) {
     }
 }
 
-function safeGitUrl(url) {
-    let parsed
-    try {
-        parsed = new URL(url)
-    } catch {
-        throw new EtlError('bad_source', `"${url}" is not a git URL.`)
-    }
-    if (parsed.protocol !== 'https:') throw new EtlError('bad_source', 'Code Repository clones https URLs only.')
-    const host = parsed.hostname
-    if (/^(localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[?f[cd])/i.test(host)) {
-        throw new EtlError('bad_source', 'Code Repository does not clone from loopback or private addresses.')
-    }
-    return parsed.toString()
-}
-
 // `--` ends git's options, so a branch or URL that starts with `-` (say `--upload-pack=...`) is never read as one.
-export function gitSyncArgs({ dir, url, branch, existing }) {
+export function gitSyncArgs({ dir, url, branch, existing, commit = false }) {
     if (branch.startsWith('-')) throw new EtlError('bad_source', `Branch "${branch}" is not a branch name.`)
     if (existing) return ['-C', dir, 'fetch', '--depth', '1', 'origin', '--', branch || 'HEAD']
+    // A raw commit is not a branch that `git clone --branch` can select. Make the shallow
+    // checkout first, then ensureRepo fetches that exact reachable object and resets to it.
+    if (commit) return ['clone', '--depth', '1', '--no-checkout', '--', url, dir]
     return ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), '--', url, dir]
 }
 
@@ -404,16 +393,22 @@ async function ensureRepo(source, ctx) {
         return { root, label: inputs.repoLabel || path.basename(root), checkout: access.via === 'repo' }
     }
     if (!inputs.gitUrl) throw new EtlError('bad_source', 'Code Repository needs a folder path or a git URL.')
-    const url = safeGitUrl(inputs.gitUrl)
-    const branch = String(inputs.branch || '').trim()
+    const resolved = await resolveGitSource({ gitUrl: inputs.gitUrl, branch: inputs.branch })
+    const url = resolved.cloneUrl
+    const branch = resolved.branch
+    const commit = resolved.commit === true
     const dir = path.join(etlDir(), 'repos', `${ctx.pipelineId || 'preview'}-${source.nodeId}`.replace(/[^A-Za-z0-9_.-]/g, '_'))
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
     if (fs.existsSync(path.join(dir, '.git'))) {
-        await run('git', gitSyncArgs({ dir, url, branch, existing: true }), { env, timeout: 600000 })
+        await run('git', gitSyncArgs({ dir, url, branch, existing: true, commit }), { env, timeout: 600000 })
         await run('git', ['-C', dir, 'reset', '--hard', 'FETCH_HEAD'], { env, timeout: 120000 })
     } else {
         fs.mkdirSync(path.dirname(dir), { recursive: true })
-        await run('git', gitSyncArgs({ dir, url, branch, existing: false }), { env, timeout: 600000 })
+        await run('git', gitSyncArgs({ dir, url, branch, existing: false, commit }), { env, timeout: 600000 })
+        if (commit) {
+            await run('git', gitSyncArgs({ dir, url, branch, existing: true, commit }), { env, timeout: 600000 })
+            await run('git', ['-C', dir, 'reset', '--hard', 'FETCH_HEAD'], { env, timeout: 120000 })
+        }
     }
     return {
         root: dir,
@@ -423,19 +418,49 @@ async function ensureRepo(source, ctx) {
                 .replace(/\.git$/, '')
                 .split('/')
                 .slice(-2)
-                .join('/')
+                .join('/'),
+        subPath: resolved.subPath,
+        kind: resolved.kind
     }
+}
+
+function confinedRepoPath(root, subPath) {
+    const abs = path.join(root, ...String(subPath).split('/').filter(Boolean))
+    if (!fs.existsSync(abs)) {
+        throw new EtlError('bad_source', `Folder or file "${subPath}" was not found in the repository.`)
+    }
+    const rootReal = fs.realpathSync(root)
+    const target = fs.realpathSync(abs)
+    const rel = path.relative(rootReal, target)
+    if (rel.startsWith('..') || path.isAbsolute(rel)) throw new EtlError('bad_source', TRAVERSAL_HINT)
+    return target
 }
 
 // `checkout`: the folder was allowed only as the Cuttlely checkout (O3), so gitignore and the default ignores are on
 // whatever the node says, and the data folder is left out.
-export function repoFiles(root, inputs, { checkout = false } = {}) {
-    return walkFiles(root, {
+export function repoFiles(root, inputs, { checkout = false, subPath = '' } = {}) {
+    const walkRoot = subPath ? confinedRepoPath(root, subPath) : root
+    const options = {
         respectGitignore: checkout || boolInput(inputs.respectGitignore, true),
         useDefaults: checkout || boolInput(inputs.defaultIgnores, true),
         include: splitList(inputs.include),
-        exclude: [...splitList(inputs.exclude), ...(checkout ? repoDataExcludes(root) : [])]
-    })
+        exclude: [...splitList(inputs.exclude), ...(checkout ? repoDataExcludes(root) : [])],
+        gitignoreRoot: root
+    }
+    if (subPath && fs.statSync(walkRoot).isFile()) {
+        const parentSubPath = subPath.includes('/') ? subPath.slice(0, subPath.lastIndexOf('/')) : ''
+        const files = walkFiles(path.dirname(walkRoot), { ...options, targetRel: path.basename(walkRoot) })
+        return prefixRepoRels(files, parentSubPath)
+    }
+    const files = walkFiles(walkRoot, options)
+    if (!subPath) return files
+    return prefixRepoRels(files, subPath)
+}
+
+function* prefixRepoRels(files, subPath) {
+    for (const file of files) {
+        yield { ...file, rel: subPath ? `${subPath}/${file.rel}` : file.rel }
+    }
 }
 
 export async function estimateSource(source, ctx = {}) {
@@ -444,11 +469,11 @@ export async function estimateSource(source, ctx = {}) {
         const files = fileList(source.inputs || {}, ctx)
         return { units: files.length, bytes: files.reduce((sum, file) => sum + file.size, 0) }
     }
-    const { root, checkout } = await ensureRepo(source, ctx)
+    const { root, checkout, subPath } = await ensureRepo(source, ctx)
     const maxBytes = intInput(source.inputs?.maxFileKb, 1024) * 1024
     let units = 0
     let bytes = 0
-    for (const file of repoFiles(root, source.inputs || {}, { checkout })) {
+    for (const file of repoFiles(root, source.inputs || {}, { checkout, subPath })) {
         units += 1
         if (file.size <= maxBytes) bytes += file.size
     }
@@ -473,9 +498,9 @@ export async function* sourceUnits(source, ctx = {}) {
         return
     }
     if (source.nodeName === 'etlRepoSource') {
-        const { root, label, checkout } = await ensureRepo(source, ctx)
+        const { root, label, checkout, subPath } = await ensureRepo(source, ctx)
         const maxBytes = intInput(inputs.maxFileKb, 1024) * 1024
-        for (const file of repoFiles(root, inputs, { checkout })) {
+        for (const file of repoFiles(root, inputs, { checkout, subPath })) {
             const ext = path.extname(file.rel).slice(1).toLowerCase()
             const metadata = {
                 source: file.rel,

@@ -17,7 +17,7 @@ class EtlRepoSource_ETL implements INode {
     constructor() {
         this.label = 'Code Repository'
         this.name = 'etlRepoSource'
-        this.version = 1.0
+        this.version = 1.1
         this.type = 'Document'
         this.icon = 'etlrepo.svg'
         this.category = 'ETL'
@@ -47,7 +47,8 @@ class EtlRepoSource_ETL implements INode {
                 type: 'string',
                 placeholder: 'https://github.com/org/repo.git',
                 optional: true,
-                description: 'Public https repository, shallow-cloned under .cuttlely/etl/repos and fetched again on each run.'
+                description:
+                    'A public https repository, or a GitHub folder or file link. The node clones the repository and loads that folder or file. SSH URLs are not cloned.'
             },
             {
                 label: 'Branch',

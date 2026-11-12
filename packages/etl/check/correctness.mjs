@@ -37,6 +37,61 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
     fs.writeFileSync(path.join(repo, 'node_modules', 'pkg.js'), 'nope')
     const walked = [...ignore.walkFiles(repo)].map((file) => file.rel)
     check('repo walk honors gitignore and default ignores', walked.join() === '.gitignore,src/a.ts', walked.join())
+
+    const selected = path.join(repo, 'docs')
+    fs.mkdirSync(path.join(selected, 'drafts'), { recursive: true })
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'skip.txt\ndocs/drafts/\n*.tmp\n')
+    fs.writeFileSync(path.join(selected, '.gitignore'), '!keep.tmp\n')
+    fs.writeFileSync(path.join(selected, 'guide.md'), 'guide')
+    fs.writeFileSync(path.join(selected, 'drop.tmp'), 'drop')
+    fs.writeFileSync(path.join(selected, 'keep.tmp'), 'keep')
+    fs.writeFileSync(path.join(selected, 'drafts', 'private.md'), 'private')
+    const { repoFiles } = await import('../sources.mjs')
+    const selectedWalk = [...repoFiles(repo, {}, { subPath: 'docs' })].map((file) => file.rel)
+    check(
+        'selected repo folder inherits root and nested gitignore rules',
+        selectedWalk.join() === 'docs/.gitignore,docs/guide.md,docs/keep.tmp',
+        selectedWalk.join()
+    )
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'docs/*/\n')
+    const selectedWithIgnoredChildren = [...repoFiles(repo, {}, { subPath: 'docs' })].map((file) => file.rel)
+    check(
+        'a root rule for selected child folders does not ignore the selected folder itself',
+        selectedWithIgnoredChildren.includes('docs/guide.md') && !selectedWithIgnoredChildren.includes('docs/drafts/private.md'),
+        selectedWithIgnoredChildren.join()
+    )
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'skip.txt\ndocs/drafts/\n*.tmp\n')
+    const selectedByRepoGlob = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs' })].map((file) => file.rel)
+    check('selected repo folder applies include globs from the repository root', selectedByRepoGlob.join() === 'docs/guide.md')
+    const selectedByRepoGlobWithoutGitignore = [
+        ...repoFiles(repo, { include: 'docs/**/*.md', respectGitignore: 'false' }, { subPath: 'docs' })
+    ].map((file) => file.rel)
+    check(
+        'selected repo folder keeps repository-root include globs when gitignore handling is off',
+        selectedByRepoGlobWithoutGitignore.join() === 'docs/drafts/private.md,docs/guide.md',
+        selectedByRepoGlobWithoutGitignore.join()
+    )
+    const excludedFile = [...repoFiles(repo, { exclude: 'docs/**/*.md' }, { subPath: 'docs/guide.md' })]
+    check('selected repo file still applies exclude globs', excludedFile.length === 0)
+    const excludedFileWithoutGitignore = [
+        ...repoFiles(repo, { exclude: 'docs/**/*.md', respectGitignore: 'false' }, { subPath: 'docs/guide.md' })
+    ]
+    check(
+        'selected repo file keeps repository-root exclude globs when gitignore handling is off',
+        excludedFileWithoutGitignore.length === 0
+    )
+    const includedFile = [...repoFiles(repo, { include: 'docs/**/*.md' }, { subPath: 'docs/guide.md' })].map((file) => file.rel)
+    check('selected repo file still applies include globs', includedFile.join() === 'docs/guide.md', includedFile.join())
+    const includedFileWithoutGitignore = [
+        ...repoFiles(repo, { include: 'docs/**/*.md', respectGitignore: 'false' }, { subPath: 'docs/guide.md' })
+    ].map((file) => file.rel)
+    check(
+        'selected repo file keeps repository-root include globs when gitignore handling is off',
+        includedFileWithoutGitignore.join() === 'docs/guide.md',
+        includedFileWithoutGitignore.join()
+    )
+    const ignoredFile = [...repoFiles(repo, {}, { subPath: 'docs/drafts/private.md' })]
+    check('selected repo file still applies ancestor gitignore rules', ignoredFile.length === 0)
 }
 
 // Same content keeps its id; a change does not. Positional metadata does not affect it.

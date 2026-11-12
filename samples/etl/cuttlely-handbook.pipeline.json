@@ -119,7 +119,7 @@
                 "data": {
                     "id": "etlRepoSource_0",
                     "label": "Code Repository",
-                    "version": 1,
+                    "version": 1.1,
                     "name": "etlRepoSource",
                     "type": "Document",
                     "baseClasses": ["Document"],
@@ -141,7 +141,7 @@
                             "type": "string",
                             "placeholder": "https://github.com/org/repo.git",
                             "optional": true,
-                            "description": "Public https repository, shallow-cloned under .cuttlely/etl/repos and fetched again on each run.",
+                            "description": "A public https repository, or a GitHub folder or file link. The node clones the repository and loads that folder or file. SSH URLs are not cloned.",
                             "id": "etlRepoSource_0-input-gitUrl-string"
                         },
                         {
