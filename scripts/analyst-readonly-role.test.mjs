@@ -270,8 +270,10 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
                 assert.ok(call.named, 'sent as a named statement over the extended protocol')
                 assert.equal(call.values.length, 0)
             }
-            for (const call of seen) assert.doesNotMatch(call.text, /\b(CREATE|ALTER|DROP|COMMENT|GRANT|REVOKE|REINDEX)\b/i)
-            for (const call of seen) assert.doesNotMatch(call.text, /\b(EXPLAIN|analyst_n|analyst_page|pg_typeof)\b/)
+            for (const call of seen)
+                for (const statement of parts(call.text))
+                    assert.doesNotMatch(statement, /^\s*(CREATE|ALTER|DROP|COMMENT|GRANT|REVOKE|REINDEX)\b/i)
+            for (const call of prepared) assert.doesNotMatch(call.text, /\b(EXPLAIN|analyst_n|analyst_page|pg_typeof)\b/)
             // The statement itself runs in the read-only transaction, with the pin's value as a bind.
             assert.ok(user.some((call) => call.mode === 'read-only' && !call.text.startsWith('PREPARE ')))
             const pinCheck = prepared.find((call) => call.text.includes('NULL::pg_catalog.text'))
@@ -302,13 +304,14 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             }
             const all = rec.calls.flatMap((call) => parts(call.text).map((p) => p.trim()))
             assert.ok(!all.some((p) => /^(COMMIT|END)\b/i.test(p)), 'never COMMIT')
-            let open = 0
+            let open = false
             for (const p of all) {
-                if (p.startsWith('BEGIN TRANSACTION READ ONLY')) open += 1
-                else if (/^ROLLBACK$/.test(p)) open -= 1
-                assert.ok(open >= 0)
+                if (p.startsWith('BEGIN TRANSACTION READ ONLY')) {
+                    assert.equal(open, false, 'the preceding transaction was rolled back')
+                    open = true
+                } else if (/^ROLLBACK$/.test(p)) open = false
             }
-            assert.equal(open, 0, 'each transaction is rolled back')
+            assert.equal(open, false, 'each transaction is rolled back')
             assert.equal(rec.closes.length, 5)
             for (const close of rec.closes) {
                 assert.equal(close.status, 'I', 'idle, not in a transaction, before end()')

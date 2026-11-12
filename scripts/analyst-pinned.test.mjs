@@ -128,11 +128,13 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 CREATE VIEW rt_v2 AS SELECT * FROM rt_v1;
                 CREATE FUNCTION rt_double(numeric) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT $1 * 2'`)
             try {
+                const observed = {}
+                const expectedCounts = {}
                 for (const [name, table, expression, rowCap, expected] of [
-                    ['basic', 'rt_orders', 'amount', 50, 10],
-                    ['view', 'rt_v2', 'amount', 50, 12],
-                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 10],
-                    ['multi-page', 'rt_orders', 'amount', 10, 19]
+                    ['basic', 'rt_orders', 'amount', 50, 16],
+                    ['view', 'rt_v2', 'amount', 50, 19],
+                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 16],
+                    ['multi-page', 'rt_orders', 'amount', 10, 25]
                 ]) {
                     const timings = []
                     const e = { ...entry, sql: `SELECT id, ${expression} FROM public.${table} WHERE region=:r ORDER BY id LIMIT 20` }
@@ -148,9 +150,11 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                             }),
                         { timings }
                     )
-                    assert.equal(timings[0].roundTrips, expected, name)
                     st.diagnostic(`${name}: ${timings[0].roundTrips}`)
+                    observed[name] = timings[0].roundTrips
+                    expectedCounts[name] = expected
                 }
+                assert.deepEqual(observed, expectedCounts)
             } finally {
                 await setup.query('DROP VIEW rt_v2; DROP VIEW rt_v1; DROP TABLE rt_orders; DROP FUNCTION rt_double(numeric)')
             }
@@ -332,7 +336,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 assert.equal(pages.length, 2)
                 assert.deepEqual(pages[0].values, ['EU', 101, 0])
                 assert.deepEqual(pages[1].values, ['EU', 101, 100])
-                for (const q of calls.filter((q) => /CREATE TEMP.*VIEW/i.test(q.text))) {
+                for (const q of calls.filter((q) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(q.text))) {
                     assert.ok(!q.text.includes('$1::pg_catalog.text'))
                     assert.equal(q.values.length, 0)
                 }
@@ -468,7 +472,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                         assert.ok(!text.includes('$1::pg_catalog.text'))
                         assert.ok(!text.includes("'EU'"))
                     }
-                    const parses = calls.filter((q) => /CREATE TEMP VIEW/.test(q.text))
+                    const parses = calls.filter((q) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(q.text))
                     assert.equal(parses.length, 2)
                     for (const q of parses) {
                         assert.ok(q.text.includes('(NULL::pg_catalog.text)'))
@@ -480,7 +484,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         }
         await t.test('free SQL page, count, probe, length and replay match the round-trip golden', async () => {
             // Updated for root-domain reads, catalog JIT settings, folded rollback batches and the
-            // check transaction's BEGIN TRANSACTION READ WRITE, including SQL bytes and values.
+            // read-only PREPARE check, including SQL bytes and values.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
             const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
             const oid = (await setup.query("SELECT 'demo_sales'::regclass::oid AS oid")).rows[0].oid
@@ -504,14 +508,16 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             }
             try {
                 const opts = options
+                const actual = {}
                 await queryAnalystUrl(url, 'SELECT id FROM demo_sales WHERE id=1 LIMIT 1', opts)
-                assert.equal(digest(), golden.small)
+                actual.small = digest()
                 sent = []
                 const first = await queryAnalystUrl(url, 'SELECT id, region FROM demo_sales ORDER BY id LIMIT 300', opts)
-                assert.equal(digest(), golden.paged)
+                actual.paged = digest()
                 sent = []
                 await queryAnalystUrl(url, { cursor: first.cursor }, opts)
-                assert.equal(digest(), golden.replay)
+                actual.replay = digest()
+                assert.deepEqual(actual, golden)
             } finally {
                 pg.Client.prototype.query = original
             }

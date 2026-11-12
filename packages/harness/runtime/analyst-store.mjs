@@ -2231,7 +2231,7 @@ async function runUrlPostgres(
         }
     }
     const pathEntry = () => (guard.statementPathSql ? [{ exec: guard.statementPathSql }] : [])
-    const begin = async (readOnly) => {
+    const begin = async (readOnly, verifyReadOnly = readOnly) => {
         guard.clearPrefetch?.()
         const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN', `SET LOCAL statement_timeout = ${ms}`]
         settings.push('SET LOCAL standard_conforming_strings = on')
@@ -2250,7 +2250,7 @@ async function runUrlPostgres(
             reads.push({ sql: "SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit" })
         if (readOnlySql) reads.push({ exec: 'SET LOCAL jit = off' })
         if (readOnlySql) reads.push({ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" })
-        if (readOnly) reads.push({ sql: 'SHOW transaction_read_only' })
+        if (verifyReadOnly) reads.push({ sql: 'SHOW transaction_read_only' })
         reads.push({ sql: 'SELECT pg_backend_pid() AS pid' })
         if (readOnly) {
             if (scoped) {
@@ -2273,13 +2273,13 @@ async function runUrlPostgres(
         await guard.prefetch(reads)
         if (readOnly && scoped) guard.locksSetByBatch = true
         if (guard.statementPathSql && reads.at(-1)?.exec === guard.statementPathSql) guard.pathSetByBatch = true
-        if (!readOnly && readOnlySql) {
+        if (readOnlySql && !runner.statementSearchPath) {
             const login = await guard.get("SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit")
             loginJit = login?.jit || 'on'
             setStatementPath(String(login?.p || ''))
         }
     }
-    const beginCheck = () => begin(true)
+    const beginCheck = () => begin(true, false)
     const preparse = async () => {
         if (!guard.batchedGuard) return
         // Other callers can cache the domain scan. Do not speculate that cached read again.

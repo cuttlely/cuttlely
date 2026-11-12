@@ -833,6 +833,9 @@ function catalogLookups(reads) {
         } else if (/SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite/.test(sql)) {
             // The view oid and view name resolve the same dependency rows.
             normalized.push({ transaction, sql: 'SCOPE DEPENDS' })
+        } else if (sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype::oid::int8 AS oid')) {
+            // The safety check names every prepared statement uniquely; the name does not change the lookup shape.
+            normalized.push({ transaction, sql, params: ['cuttlely_scope_check'] })
         } else normalized.push({ transaction, sql, params })
     }
     return normalized.map((entry) => JSON.stringify(entry.allowlist ? { ...entry, allowlist: entry.allowlist.sort() } : entry))
@@ -1328,8 +1331,10 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         if (sql.startsWith('SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc')) return []
         if (sql.startsWith('SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks'))
             return (statementPrepared ? ['900', '101', '102'] : ['900']).map((oid) => ({ oid }))
+        if (sql.startsWith('WITH names AS') && sql.includes('JOIN pg_catalog.pg_class')) return [{ oid: '101' }, { oid: '102' }]
         if (sql.startsWith('WITH names AS')) return [{ oid: '96' }]
         if (sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype')) return [{ oid: '23' }]
+        if (sql.startsWith('SELECT DISTINCT a.atttypid::int8 AS oid')) return [{ oid: '23' }]
         if (sql.includes('guard_mock_user')) return [{ id: 1 }]
         if (
             /^(BEGIN|SET LOCAL|SELECT pg_catalog.set_config|DEALLOCATE|PREPARE|LOCK TABLE|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|SELECT 1 FROM ONLY)/.test(
@@ -1384,7 +1389,7 @@ describe('analyst guard transaction orchestration (offline)', () => {
                             assert.ok(!prepares[0].text.includes('\n;\n'))
                             if (!legacy) {
                                 t.diagnostic(`mock 19 selections, 5 domains: ${calls.length} queries`)
-                                assert.ok(calls.length <= 20)
+                                assert.ok(calls.length <= 20, calls.map(({ text }, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
                                 const allowlistCalls = calls.filter(({ text }) => isAllowlistLookup(text))
                                 assert.equal(allowlistCalls.length, 1)
                                 assert.ok(!allowlistCalls[0].text.includes('\n;\n'), 'Allowlist resolution stays outside prefetch batches')
@@ -1432,7 +1437,7 @@ describe('analyst guard broader callers (offline)', () => {
         assert.equal(calls.filter(({ text }) => text.startsWith('SELECT DISTINCT relation::int8 AS oid')).length, 3)
         assert.ok(calls.every(({ text }) => !text.includes('debug_print_parse')))
         const deallocate = calls.findIndex(({ text }) => /^DEALLOCATE cuttlely_scope_check_\d+$/.test(text))
-        assert.equal(calls[deallocate + 2].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+        assert.equal(calls[deallocate + 1].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
         assert.equal(
             reads.some(({ sql }) => sql.includes('pg_rewrite')),
             false
