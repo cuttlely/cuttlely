@@ -128,11 +128,14 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 CREATE VIEW rt_v2 AS SELECT * FROM rt_v1;
                 CREATE FUNCTION rt_double(numeric) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT $1 * 2'`)
             try {
+                const observed = {}
+                const expectedCounts = {}
+                // Column-type and cast-function catalog reads add two required guard round trips.
                 for (const [name, table, expression, rowCap, expected] of [
-                    ['basic', 'rt_orders', 'amount', 50, 10],
-                    ['view', 'rt_v2', 'amount', 50, 12],
-                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 10],
-                    ['multi-page', 'rt_orders', 'amount', 10, 19]
+                    ['basic', 'rt_orders', 'amount', 50, 18],
+                    ['view', 'rt_v2', 'amount', 50, 21],
+                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 18],
+                    ['multi-page', 'rt_orders', 'amount', 10, 27]
                 ]) {
                     const timings = []
                     const e = { ...entry, sql: `SELECT id, ${expression} FROM public.${table} WHERE region=:r ORDER BY id LIMIT 20` }
@@ -148,9 +151,11 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                             }),
                         { timings }
                     )
-                    assert.equal(timings[0].roundTrips, expected, name)
                     st.diagnostic(`${name}: ${timings[0].roundTrips}`)
+                    observed[name] = timings[0].roundTrips
+                    expectedCounts[name] = expected
                 }
+                assert.deepEqual(observed, expectedCounts)
             } finally {
                 await setup.query('DROP VIEW rt_v2; DROP VIEW rt_v1; DROP TABLE rt_orders; DROP FUNCTION rt_double(numeric)')
             }
@@ -332,7 +337,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 assert.equal(pages.length, 2)
                 assert.deepEqual(pages[0].values, ['EU', 101, 0])
                 assert.deepEqual(pages[1].values, ['EU', 101, 100])
-                for (const q of calls.filter((q) => /CREATE TEMP.*VIEW/i.test(q.text))) {
+                for (const q of calls.filter((q) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(q.text))) {
                     assert.ok(!q.text.includes('$1::pg_catalog.text'))
                     assert.equal(q.values.length, 0)
                 }
@@ -372,11 +377,52 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             assert.ok(second.rows.every((row) => row.region === 'EU'))
             assert.match(second.summary, /of 300.*page 2 of 3/)
         })
-        await t.test('check-copy parse error is refused', async () => {
-            await assert.rejects(
-                queryAnalystUrl(url, null, { ...options, pinned: { entry: { sql: 'SELECT FROM WHERE LIMIT 1' } } }),
-                /syntax error/
-            )
+        await t.test('check-copy parse error is refused before any user query runs', async () => {
+            const original = pg.Client.prototype.query
+            const sent = []
+            pg.Client.prototype.query = function (...args) {
+                sent.push(typeof args[0] === 'string' ? args[0] : args[0].text)
+                return original.apply(this, args)
+            }
+            try {
+                for (const word of [
+                    'WHERE',
+                    'GROUP',
+                    'HAVING',
+                    'ORDER',
+                    'LIMIT',
+                    'OFFSET',
+                    'UNION',
+                    'INTERSECT',
+                    'EXCEPT',
+                    'WINDOW',
+                    'FETCH',
+                    'FOR',
+                    'RETURNING'
+                ]) {
+                    sent.length = 0
+                    await assert.rejects(
+                        queryAnalystUrl(url, null, { ...options, pinned: { entry: { sql: `SELECT FROM ${word} LIMIT 1` } } }),
+                        /syntax error/,
+                        word
+                    )
+                    assert.equal(sent.filter((text) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(text)).length, 1, word)
+                    assert.ok(!sent.some((text) => /AS analyst_page|AS analyst_n|analyst_line_len|pg_typeof/.test(text)), word)
+                }
+            } finally {
+                pg.Client.prototype.query = original
+            }
+        })
+        await t.test('quoted clause keywords remain selected relations', async () => {
+            await setup.query('CREATE TABLE public."where" (id int); INSERT INTO public."where" VALUES (7)')
+            try {
+                const entry = { sql: 'SELECT id FROM "where" LIMIT 1' }
+                await assert.rejects(queryAnalystUrl(url, null, { ...options, pinned: { entry } }), /table selection does not include/)
+                const result = await queryAnalystUrl(url, null, { ...options, relations: ['public."where"'], pinned: { entry } })
+                assert.deepEqual(result.rows, [{ id: 7 }])
+            } finally {
+                await setup.query('DROP TABLE public."where"')
+            }
         })
         await t.test('CASE branch reading an unticked relation is refused', async () => {
             const e = {
@@ -468,7 +514,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                         assert.ok(!text.includes('$1::pg_catalog.text'))
                         assert.ok(!text.includes("'EU'"))
                     }
-                    const parses = calls.filter((q) => /CREATE TEMP VIEW/.test(q.text))
+                    const parses = calls.filter((q) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(q.text))
                     assert.equal(parses.length, 2)
                     for (const q of parses) {
                         assert.ok(q.text.includes('(NULL::pg_catalog.text)'))
@@ -480,9 +526,13 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         }
         await t.test('free SQL page, count, probe, length and replay match the round-trip golden', async () => {
             // Updated for root-domain reads, catalog JIT settings, folded rollback batches and the
-            // check transaction's BEGIN TRANSACTION READ WRITE, including SQL bytes and values.
+            // read-only PREPARE check, whole-row types and full cast targets, including SQL bytes and values.
+            // PostgreSQL 14 has different built-in catalog OIDs, and 14/15 lack prepared-statement
+            // result_types, so each supported metadata shape has its own exact traffic golden.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
-            const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
+            const goldens = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
+            const serverVersion = Number((await setup.query('SHOW server_version_num')).rows[0].server_version_num)
+            const golden = goldens[serverVersion < 150000 ? 'postgres14' : serverVersion < 160000 ? 'postgres15' : 'postgres16Plus']
             const oid = (await setup.query("SELECT 'demo_sales'::regclass::oid AS oid")).rows[0].oid
             const original = pg.Client.prototype.query
             let sent = []
@@ -504,14 +554,16 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             }
             try {
                 const opts = options
+                const actual = {}
                 await queryAnalystUrl(url, 'SELECT id FROM demo_sales WHERE id=1 LIMIT 1', opts)
-                assert.equal(digest(), golden.small)
+                actual.small = digest()
                 sent = []
                 const first = await queryAnalystUrl(url, 'SELECT id, region FROM demo_sales ORDER BY id LIMIT 300', opts)
-                assert.equal(digest(), golden.paged)
+                actual.paged = digest()
                 sent = []
                 await queryAnalystUrl(url, { cursor: first.cursor }, opts)
-                assert.equal(digest(), golden.replay)
+                actual.replay = digest()
+                assert.deepEqual(actual, golden)
             } finally {
                 pg.Client.prototype.query = original
             }

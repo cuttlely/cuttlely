@@ -1,6 +1,6 @@
-// A database login whose role sets default_transaction_read_only=on is a normal deployment. The guard's check creates
-// a temporary view in its own short transaction, which it opens READ WRITE and always rolls back; the query itself
-// still runs in BEGIN TRANSACTION READ ONLY. These tests run against a local disposable Postgres.
+// A database login whose role sets default_transaction_read_only=on is a normal deployment. The guard prepares the
+// statement without running it in its own read-only transaction; the query itself also runs in BEGIN READ ONLY.
+// These tests run against a local disposable Postgres.
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { randomBytes } from 'node:crypto'
@@ -98,7 +98,7 @@ function recordQueries() {
     }
 }
 
-// Splits recorded calls into the check (READ WRITE) and query (READ ONLY) transactions, in order.
+// Splits recorded calls into transactions, in order.
 function windows(calls) {
     let mode = 'none'
     const out = []
@@ -213,7 +213,7 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
                     assert.ok(second.rows.every((row) => row[MARK] === 'EU'))
                 }
                 const described = await describeAnalystUrlRelation(url, { name: 'ZZ-TEST-sales' }, SELECTED)
-                assert.ok(described.values, 'describe samples need the temporary view and run for this login')
+                assert.ok(described.values, 'describe samples run for a default-read-only login')
             } finally {
                 setGuardLegacyRoundTripsForTests(false)
             }
@@ -246,7 +246,7 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             }
         })
 
-        it(`sends the user text in the read-write check only as one named CREATE TEMP VIEW (${mode})`, async (t) => {
+        it(`sends the check as one named PREPARE and performs no DDL (${mode})`, async (t) => {
             if (skipped(t)) return
             setGuardLegacyRoundTripsForTests(legacy)
             const rec = recordQueries()
@@ -259,31 +259,74 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
                 setGuardLegacyRoundTripsForTests(false)
             }
             const seen = windows(rec.calls)
-            const checkBegins = rec.calls
-                .flatMap((call) => parts(call.text))
-                .filter((p) => /^BEGIN/.test(p) && !/^BEGIN TRANSACTION READ ONLY/.test(p))
-            assert.equal(checkBegins.length, 3, 'one check transaction per call')
-            for (const p of checkBegins) assert.ok(p.startsWith('BEGIN TRANSACTION READ WRITE'), p)
+            const begins = rec.calls.flatMap((call) => parts(call.text)).filter((p) => /^BEGIN/.test(p))
+            assert.equal(begins.length, 6, 'one check and one query transaction per call')
+            for (const p of begins) assert.ok(p.startsWith('BEGIN TRANSACTION READ ONLY'), p)
             const user = seen.filter((call) => call.text.includes(MARK))
-            const inCheck = user.filter((call) => call.mode !== 'read-only')
-            assert.equal(inCheck.length, 3, 'exactly one statement with user text per check')
-            for (const call of inCheck) {
-                assert.equal(call.mode, 'read-write')
+            const prepared = user.filter((call) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(call.text))
+            assert.equal(prepared.length, 3, 'exactly one prepared check per call')
+            for (const call of prepared) {
+                assert.equal(call.mode, 'read-only')
                 assert.ok(call.named, 'sent as a named statement over the extended protocol')
-                assert.match(call.text, /^CREATE TEMP VIEW cuttlely_scope_check AS SELECT 1 FROM \(\n/)
                 assert.equal(call.values.length, 0)
             }
-            for (const call of seen.filter((c) => c.mode === 'read-write'))
-                assert.doesNotMatch(call.text, /\b(EXPLAIN|PREPARE|analyst_n|analyst_page|pg_typeof)\b/)
+            for (const call of seen)
+                for (const statement of parts(call.text))
+                    assert.doesNotMatch(statement, /^\s*(CREATE|ALTER|DROP|COMMENT|GRANT|REVOKE|REINDEX)\b/i)
+            for (const call of prepared) assert.doesNotMatch(call.text, /\b(EXPLAIN|analyst_n|analyst_page|pg_typeof)\b/)
             // The statement itself runs in the read-only transaction, with the pin's value as a bind.
-            assert.ok(user.some((call) => call.mode === 'read-only' && !call.text.startsWith('CREATE TEMP VIEW')))
-            const pinCheck = inCheck.find((call) => call.text.includes('NULL::pg_catalog.text'))
+            assert.ok(user.some((call) => call.mode === 'read-only' && !call.text.startsWith('PREPARE ')))
+            const pinCheck = prepared.find((call) => call.text.includes('NULL::pg_catalog.text'))
             assert.ok(pinCheck, 'the pin is checked through its NULL::type check text')
             assert.ok(!pinCheck.text.includes('EU'))
             assert.ok(seen.some((call) => call.mode === 'read-only' && call.values.includes('EU')))
         })
 
-        it(`ends every check with ROLLBACK, never COMMIT, and closes an idle connection with no view left (${mode})`, async (t) => {
+        it(`leaves malformed FROM clause keywords to one PREPARE (${mode})`, async (t) => {
+            if (skipped(t)) return
+            setGuardLegacyRoundTripsForTests(legacy)
+            const rec = recordQueries()
+            try {
+                for (const readOnlySql of [false, true]) {
+                    const start = rec.calls.length
+                    await assert.rejects(
+                        queryAnalystUrl(url, 'SELECT FROM WHERE LIMIT 1', { readOnlySql, relations: SELECTED, env }),
+                        /syntax error/
+                    )
+                    const prepares = rec.calls.slice(start).filter((call) => /^PREPARE /.test(call.text))
+                    assert.equal(prepares.length, 1)
+                    assert.match(prepares[0].text, /^PREPARE cuttlely_scope_check_\d+ AS SELECT FROM WHERE LIMIT 1$/)
+                    assert.equal(prepares[0].named, true)
+                }
+            } finally {
+                rec.restore()
+                setGuardLegacyRoundTripsForTests(false)
+            }
+        })
+
+        it(`resolves column and expression casts with exactly one PREPARE per check (${mode})`, async (t) => {
+            if (skipped(t)) return
+            setGuardLegacyRoundTripsForTests(legacy)
+            const rec = recordQueries()
+            try {
+                for (const expression of ['id::numeric', '(id + 0)::numeric', 'CAST(id + 0 AS numeric)']) {
+                    await queryAnalystUrl(url, `SELECT ${expression} AS ${MARK} FROM ${TABLE} LIMIT 1`, {
+                        readOnlySql: true,
+                        relations: SELECTED,
+                        env
+                    })
+                }
+            } finally {
+                rec.restore()
+                setGuardLegacyRoundTripsForTests(false)
+            }
+            const statements = rec.calls.flatMap((call) => parts(call.text))
+            assert.equal(statements.filter((sql) => /^PREPARE /.test(sql)).length, 3, 'one PREPARE per call, including all probes')
+            assert.equal(statements.filter((sql) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(sql)).length, 3)
+            for (const sql of statements) assert.doesNotMatch(sql, /^\s*(CREATE|ALTER|DROP|COMMENT|GRANT|REVOKE|REINDEX)\b/i)
+        })
+
+        it(`ends every transaction with ROLLBACK, never COMMIT, and closes an idle connection (${mode})`, async (t) => {
             if (skipped(t)) return
             setGuardLegacyRoundTripsForTests(legacy)
             const rec = recordQueries()
@@ -307,12 +350,12 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             assert.ok(!all.some((p) => /^(COMMIT|END)\b/i.test(p)), 'never COMMIT')
             let open = false
             for (const p of all) {
-                if (p.startsWith('BEGIN TRANSACTION READ WRITE')) {
-                    assert.equal(open, false)
+                if (p.startsWith('BEGIN TRANSACTION READ ONLY')) {
+                    assert.equal(open, false, 'the preceding transaction was rolled back')
                     open = true
                 } else if (/^ROLLBACK$/.test(p)) open = false
             }
-            assert.equal(open, false, 'each read-write check is rolled back')
+            assert.equal(open, false, 'each transaction is rolled back')
             assert.equal(rec.closes.length, 5)
             for (const close of rec.closes) {
                 assert.equal(close.status, 'I', 'idle, not in a transaction, before end()')
@@ -334,13 +377,13 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             await assert.rejects(queryAnalystUrl(url, sql, { relations: SELECTED, env }))
             await assert.rejects(queryAnalystUrl(url, sql, { readOnlySql: true, env }))
         }
-        // The check itself, called directly in a read-write transaction: the extended protocol refuses a second command.
+        // The check itself, called directly in a read-only transaction: the extended protocol refuses a second command.
         const client = new Client({ connectionString: url })
         await client.connect()
         try {
             const runner = postgresRunner(client, { transaction: true })
             for (const sql of attempts) {
-                await client.query('BEGIN TRANSACTION READ WRITE')
+                await client.query('BEGIN TRANSACTION READ ONLY')
                 try {
                     const relations = await guard.resolveRelations(runner, SELECTED)
                     await assert.rejects(
@@ -359,90 +402,13 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
         assert.deepEqual(await state(), before)
     })
 
-    it('names a missing TEMP privilege plainly, and does not call it a standby', async (t) => {
+    it('runs queries and describe samples without TEMP privilege', async (t) => {
         if (skipped(t)) return
-        await assert.rejects(queryAnalystUrl(noTempUrl, `SELECT id FROM ${TABLE}`, { relations: SELECTED, env }), (error) => {
-            assert.equal(error.message, guard.SCOPE_NO_TEMP)
-            return true
-        })
-        await assert.rejects(queryAnalystUrl(noTempUrl, `SELECT id FROM ${TABLE} LIMIT 1`, { readOnlySql: true, env }), (error) => {
-            assert.equal(error.message, guard.SCOPE_NO_TEMP_ANY)
-            return true
-        })
-        assert.doesNotMatch(guard.SCOPE_NO_TEMP, /standby|replica/i)
-        assert.doesNotMatch(guard.VALIDATION_STANDBY, /TEMP privilege/)
-    })
-
-    it('names a hot standby when the read-write check cannot start or its view is refused', async (t) => {
-        if (skipped(t)) return
-        const originalQuery = Client.prototype.query
-        let failBegin = true
-        Client.prototype.query = function (...args) {
-            const text = callText(args)
-            if (failBegin && parts(text).some((p) => p.startsWith('BEGIN TRANSACTION READ WRITE'))) {
-                const error = new Error('cannot set transaction read-write mode during recovery')
-                error.code = '0A000'
-                // Leave the session in an aborted transaction, the worst state a failed BEGIN could leave, so the
-                // fallback must clear it before it starts again.
-                return originalQuery.call(this, 'BEGIN TRANSACTION READ WRITE; SELECT 1 / 0').then(
-                    () => Promise.reject(error),
-                    () => Promise.reject(error)
-                )
-            }
-            if (text.includes('pg_is_in_recovery()')) return originalQuery.call(this, 'SELECT true AS r')
-            if (!failBegin && text.startsWith('CREATE TEMP VIEW')) {
-                const error = new Error('cannot execute CREATE VIEW in a read-only transaction')
-                error.code = '25006'
-                return Promise.reject(error)
-            }
-            return originalQuery.apply(this, args)
-        }
-        try {
-            for (const options of [
-                { relations: SELECTED },
-                { readOnlySql: true },
-                { readOnlySql: true, relations: SELECTED, pinned: pinned() }
-            ]) {
-                await assert.rejects(
-                    queryAnalystUrl(url, options.pinned ? null : `SELECT id FROM ${TABLE} LIMIT 1`, { ...options, env }),
-                    (error) => {
-                        assert.equal(error.message, guard.VALIDATION_STANDBY)
-                        return true
-                    }
-                )
-            }
-            // Describe still answers on a standby, without the samples that need the view.
-            const described = await describeAnalystUrlRelation(url, { name: 'ZZ-TEST-sales' }, SELECTED)
-            assert.equal(described.values, undefined)
-            assert.ok(described.columns.length)
-            failBegin = false
-            for (const options of [{ relations: SELECTED }, { readOnlySql: true }]) {
-                await assert.rejects(queryAnalystUrl(url, `SELECT id FROM ${TABLE} LIMIT 1`, { ...options, env }), (error) => {
-                    assert.equal(error.message, guard.VALIDATION_STANDBY)
-                    return true
-                })
-            }
-        } finally {
-            Client.prototype.query = originalQuery
-        }
-        // Without the standby, an unrelated failure to start the check keeps its own error.
-        assert.equal(
-            guard.validationFailure?.({ code: '0A000', message: 'cannot set transaction read-write mode during recovery' }),
-            'standby'
-        )
-    })
-
-    it('classifies standby and TEMP errors from SQLSTATE and recovery state', () => {
-        const vf = guard.validationFailure
-        assert.equal(typeof vf, 'function')
-        assert.equal(vf({ code: '25006', message: 'cannot execute CREATE VIEW in a read-only transaction' }), 'standby')
-        assert.equal(vf({ code: '0A000', message: 'cannot set transaction read-write mode during recovery' }), 'standby')
-        assert.equal(vf({ code: '57P03', message: 'the database system is starting up' }, { inRecovery: true }), 'standby')
-        assert.equal(vf({ code: '42501', message: 'permission denied to create temporary tables in database "x"' }), 'no-temp')
-        assert.equal(vf({ code: '42501', message: 'permission denied for table t' }), '')
-        assert.equal(vf({ code: '42P01', message: 'relation "t" does not exist' }), '')
-        assert.equal(vf(new Error('boom')), '')
-        assert.notEqual(guard.VALIDATION_STANDBY, guard.SCOPE_NO_TEMP)
-        assert.notEqual(guard.VALIDATION_STANDBY, guard.SCOPE_UNCHECKABLE)
+        const scoped = await queryAnalystUrl(noTempUrl, `SELECT id FROM ${TABLE}`, { relations: SELECTED, env })
+        assert.deepEqual(scoped.rows, [{ id: '1' }])
+        const unscoped = await queryAnalystUrl(noTempUrl, `SELECT id FROM ${TABLE} LIMIT 1`, { readOnlySql: true, env })
+        assert.deepEqual(unscoped.rows, [{ id: '1' }])
+        const described = await describeAnalystUrlRelation(noTempUrl, { name: 'ZZ-TEST-sales' }, SELECTED, { readOnlySql: true })
+        assert.ok(described.values)
     })
 })

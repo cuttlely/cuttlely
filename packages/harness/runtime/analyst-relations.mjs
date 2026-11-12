@@ -3,14 +3,13 @@
 // describes one on demand, and runs only SELECT statements whose every relation is ticked.
 //
 // Enforcement runs inside the query's own transaction, before the statement:
-//   1. The statement is wrapped as a temporary view. Postgres parses and resolves it exactly as it will run.
-//   2. The view's stored rule tree (pg_rewrite.ev_action) lists every relation id, function id and operator id
-//      the statement uses, including CTEs, subqueries, system catalogs and built-in functions, which pg_depend
-//      does not record. A relation that is not ticked, a function or operator outside pg_catalog, or a built-in
-//      that runs SQL from text or reads data outside a relation is refused.
-//   3. The view is dropped and that transaction rolls back. The statement then runs in a new BEGIN READ ONLY transaction.
-// The check transaction opens READ WRITE, so a login whose role defaults to read-only transactions can still create the
-// view. It only creates the view and reads the catalog, never runs the statement, and always rolls back.
+//   1. Postgres prepares the statement without planning or running it. Relation locks and catalog lookups resolve the
+//      tables, views, functions, operators and types named by the statement.
+//   2. A relation that is not ticked, a function or operator outside pg_catalog, or a built-in that runs SQL from text
+//      or reads data outside a relation is refused. Stored view and policy trees are followed through the catalogs.
+//   3. The prepared statement is released and the read-only check transaction rolls back. The statement then runs
+//      in a new BEGIN READ ONLY transaction.
+// The check performs no DDL and never runs the statement.
 // A ticked view is the gate: it may read relations that are not ticked. For the PostgreSQL MCP node, the functions,
 // operators and types inside every view it reads are checked too.
 
@@ -23,11 +22,7 @@ export const RELATION_KINDS = { r: 'table', p: 'table', f: 'foreign table', v: '
 export const SCOPE_ONLY_SELECT =
     'This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.'
 export const SCOPE_UNCHECKABLE =
-    'Cuttlely could not check this query against the table selection: the temporary view the check uses could not be read. Queries are refused while a selection is set.'
-export const SCOPE_NO_TEMP =
-    'Cuttlely could not check this query against the table selection: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses. Run GRANT TEMPORARY ON DATABASE <database> TO <role>. Queries are refused while a selection is set.'
-export const VALIDATION_STANDBY =
-    'Cuttlely could not check this query: the database is a read-only standby (in recovery), and the check needs a server where it can create a temporary view, which it always rolls back. Point the credential at the primary. The query did not run.'
+    'Cuttlely could not check this query against the table selection because Postgres did not return its analyzed object information. Queries are refused while a selection is set.'
 export function scopeRiskyDomains(names) {
     return `Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: ${refusedList(
         names
@@ -35,7 +30,6 @@ export function scopeRiskyDomains(names) {
 }
 export const SCOPE_NONE_LEFT = 'None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.'
 
-const SCOPE_VIEW = 'cuttlely_scope_check'
 const SCOPE_STATEMENT_NAME = 'cuttlely_scope_check'
 // The pg client remembers each statement name it prepared, so a second check on one connection (describe samples
 // several columns) needs a name of its own.
@@ -392,10 +386,8 @@ async function inSavepoint(client, name, fn) {
     }
 }
 
-// A sample is a query, so it passes the same checks a query does: the risky-domain check and the temporary-view
-// check on its own statement (D87, D88). A column whose statement does not pass is not sampled. Call this last in
-// a read-write transaction: the checks need a temporary view, then the transaction turns read only for the samples
-// and keeps the shorter timeout.
+// A sample is a query, so it passes the same catalog and parsed-tree checks as a query (D87, D88). A column whose
+// statement does not pass is not sampled. The transaction is read only before samples run and uses a shorter timeout.
 export async function sampleRelationValues(client, runner, relation, relations, { isRowQuery, cacheKey = '', followViews = false }) {
     if (!SAMPLED_KINDS.has(relation.kind) || !relations.length) return null
     const candidates = (await runner.all(COLUMNS_SQL, [relation.oid])).filter((column) => column.textual).slice(0, SAMPLE_COLUMNS)
@@ -860,25 +852,7 @@ function refusedList(names) {
     return names.length > REFUSED_LIST ? `${shown}, and ${names.length - REFUSED_LIST} more` : shown
 }
 
-// Why the check could not create its temporary view: 'standby' for a server in recovery (the check transaction is
-// READ WRITE, so a read-only refusal there means the server itself is read only), 'no-temp' for a login without the
-// TEMP privilege, '' for anything else.
-export function validationFailure(error, { inRecovery = false } = {}) {
-    const code = String(error?.code || '')
-    const message = String(error?.message || '')
-    if (inRecovery || code === '25006' || (code === '0A000' && /during recovery/i.test(message))) return 'standby'
-    if (code === '42501' && /temporary/i.test(message)) return 'no-temp'
-    return ''
-}
-
-function uncheckableRefusal(error) {
-    const failure = validationFailure(error)
-    if (failure === 'standby') return new ScopeRefusal(VALIDATION_STANDBY)
-    if (failure === 'no-temp') return new ScopeRefusal(SCOPE_NO_TEMP)
-    return null
-}
-
-// Runs inside a read-write transaction that the caller rolls back. The statement runs later, in its own read-only one.
+// Runs inside a read-only transaction that the caller rolls back. The statement runs later, in its own read-only one.
 export async function checkStatementScope(
     client,
     runner,
@@ -897,7 +871,8 @@ export async function checkStatementScope(
     // Compute the catalog stamp only when the caller needs view/policy bodies (followViews=true).
     let stamp = ''
     if (followViews) stamp = await routineCatalogStamp(runner)
-    const ids = await parsedStatementIds(client, runner, statement, cacheKey)
+    const ids = await parsedStatementIds(client, runner, statement, cacheKey, relations)
+    const statementTypes = new Set(ids.types)
     // Scoped reg* rule. Every statement, view, materialized view and policy tree must pass before
     // regconfig and regdictionary oids are removed from the type set. Any other reg* type stays.
     async function filteredTypesWithRegTsearchException(bodyTexts) {
@@ -914,7 +889,7 @@ export async function checkStatementScope(
             if (!text.includes('{')) continue
             regUsesAreDirectConsts(text, regSet, allowedFnIds)
         }
-        return new Set([...ids.types].filter((oid) => !regSet.has(Number(oid))))
+        return new Set([...ids.types].filter((oid) => !regSet.has(Number(oid)) || statementTypes.has(Number(oid))))
     }
     if (!followViews) {
         await refuseRoutines(runner, ids.functions, ids.operators, {
@@ -995,89 +970,1080 @@ export const SAFE_VOLATILE = new Set([
 
 const nodeDenied = (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name)
 
-// Parses the statement into a temporary view, inside the caller's transaction (which rolls back), and returns the
-// relations, functions, operators and types its query tree names. Nothing in the statement runs.
-async function parsedStatementIds(client, runner, statement, cacheKey) {
-    const risky = await riskyDomains(runner, cacheKey)
-    if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
-    if (runner.batchedGuard) return parsedStatementIdsBatched(client, runner, statement)
-    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
-    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
-    try {
-        // The node parses the statement with the login's path behind pg_catalog, and runs its own queries without it.
-        if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        // A named statement is sent with the extended protocol, which refuses a second command.
-        await client.query({
-            name: statementName,
-            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
-        })
-    } catch (error) {
-        throw uncheckableRefusal(error) ?? error
-    } finally {
-        await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-        // After a failed parse the transaction is aborted and rolls back, which resets the path anyway.
-        if (runner.statementSearchPath)
-            await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
+const STATEMENT_NON_CALL_WORDS = new Set([
+    'as',
+    'by',
+    'case',
+    'cast',
+    'coalesce',
+    'distinct',
+    'else',
+    'end',
+    'filter',
+    'from',
+    'greatest',
+    'in',
+    'limit',
+    'least',
+    'not',
+    'nulls',
+    'nullif',
+    'offset',
+    'on',
+    'operator',
+    'order',
+    'over',
+    'select',
+    'then',
+    'values',
+    'when',
+    'where',
+    'window',
+    'with'
+])
+
+export function statementObjects(statement) {
+    const tokens = sqlTokens(statement)
+    if (tokens.some((token) => token.type === 'symbol' && token.value === ';'))
+        throw new ScopeRefusal('Cuttlely refused this query: multiple commands are not allowed.')
+    if (
+        tokens.some(
+            (token, index) =>
+                token.type === 'word' &&
+                !token.quoted &&
+                WRITE_KEYWORDS.has(token.value) &&
+                !(token.value === 'update' && tokens[index - 1]?.type === 'word' && tokens[index - 1].value === 'for')
+        )
+    ) {
+        throw new ScopeRefusal('Cuttlely refused this query: a data-modifying statement inside WITH is not allowed.')
     }
-    const rule = await runner.get(
-        `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`
-    )
-    if (!rule?.tree) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-    const ids = treeObjectIds(rule.tree)
-    ids.tree = String(rule.tree || '')
-    // pg_depend adds relations named only by a regclass constant. It skips built-in objects, which the tree has.
-    const depends = await runner.all(
-        "SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid WHERE r.ev_class = ?::oid AND d.refclassid = 'pg_class'::regclass",
-        [rule.view]
-    )
-    await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`)
-    for (const row of depends) ids.relations.add(Number(row.oid))
-    ids.relations.delete(Number(rule.view))
-    return ids
-}
+    const calls = []
+    const casts = []
+    const columnNames = new Set()
+    const relationLiterals = new Set()
+    const relations = new Map()
+    const relationBindings = []
+    const joinedGroups = new Map()
+    const relationDeclarations = new Set()
+    const operators = new Map()
+    const types = new Set()
+    const frames = []
+    const symbol = (at, value) => tokens[at]?.type === 'symbol' && tokens[at].value === value
+    const identifier = (token) => `"${String(token?.value || '').replaceAll('"', '""')}"`
+    const typeName = (first, second = null) => (second ? `${identifier(first)}.${identifier(second)}` : identifier(first))
+    const literalType = (token, negative = false) => {
+        if (token?.type === 'number') {
+            const value = token.value
+            if (/^[0-9]+$/.test(value)) {
+                const integer = value.replace(/^0+(?=[0-9])/, '')
+                if (integer.length < 10 || (integer.length === 10 && integer <= (negative ? '2147483648' : '2147483647')))
+                    return 'pg_catalog.int4'
+                if (integer.length < 19 || (integer.length === 19 && integer <= (negative ? '9223372036854775808' : '9223372036854775807')))
+                    return 'pg_catalog.int8'
+                return 'pg_catalog.numeric'
+            }
+            if (/^[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?$/.test(value) && /[.eE]/.test(value)) return 'pg_catalog.numeric'
+            return null
+        }
+        if (token?.type === 'string') return 'pg_catalog.text'
+        if (token?.type === 'word' && !token.quoted && ['true', 'false'].includes(token.value)) return 'pg_catalog.bool'
+        return null
+    }
 
-const SCOPE_RULE_SQL = `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`
-const SCOPE_DEPENDS_SQL = `SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass AND d.refclassid = 'pg_class'::regclass`
-
-async function parsedStatementIdsBatched(client, runner, statement) {
-    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
-    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
-    let parsed = false
-    try {
-        if (runner.pathSetByBatch) runner.pathSetByBatch = false
-        else if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        // Alone and named: the user text is never sent in a simple-protocol batch.
-        await client.query({
-            name: statementName,
-            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
-        })
-        parsed = true
-    } catch (error) {
-        throw uncheckableRefusal(error) ?? error
-    } finally {
-        if (!parsed) {
-            // Preserve the legacy swallowing cleanup on an aborted parse transaction.
-            await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-            if (runner.statementSearchPath)
-                await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
+    // A CTE shadows an unqualified catalog relation only in its query scope. Record the visibility intervals instead
+    // of removing every matching name globally: the body of a non-recursive `WITH orders AS (...)` may itself read a
+    // real table named orders, while later CTEs and the main query see the CTE.
+    const containingParen = new Array(tokens.length).fill(null)
+    const closingParen = new Map()
+    const openingParen = new Map()
+    const parens = []
+    for (let i = 0; i < tokens.length; i += 1) {
+        containingParen[i] = parens.at(-1) ?? null
+        if (symbol(i, '(')) parens.push(i)
+        else if (symbol(i, ')')) {
+            const open = parens.pop()
+            if (open !== undefined) {
+                closingParen.set(open, i)
+                openingParen.set(i, open)
+            }
         }
     }
-    await runner.prefetch([
-        { exec: `DEALLOCATE ${statementName}` },
-        ...(runner.statementSearchPath ? [{ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" }] : []),
-        { sql: SCOPE_RULE_SQL },
-        { sql: SCOPE_DEPENDS_SQL },
-        { exec: `DROP VIEW pg_temp.${SCOPE_VIEW}` }
+    const openingBracket = new Map()
+    const brackets = []
+    for (let i = 0; i < tokens.length; i += 1) {
+        if (symbol(i, '[')) brackets.push(i)
+        else if (symbol(i, ']')) {
+            const open = brackets.pop()
+            if (open !== undefined) openingBracket.set(i, open)
+        }
+    }
+    // Keep SQL type syntax intact for to_regtype: it understands aliases, typmods and arrays.
+    // Quoted/schema-qualified names must retain their identity ("char" is not SQL CHAR).
+    const typeTokens = new Set()
+    const wordAt = (at, value) => tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === value
+    const readType = (start) => {
+        const first = tokens[start]
+        if (first?.type !== 'word') return null
+        let end = start + 1
+        let name = typeName(first)
+        const qualified = symbol(end, '.') && tokens[end + 1]?.type === 'word'
+        if (qualified) {
+            name = typeName(first, tokens[end + 1])
+            end += 2
+        } else if (!first.quoted) {
+            // SQL aliases are grammar, not quoted catalog identifiers.
+            name = first.value
+            if (['character', 'char', 'bit'].includes(first.value) && wordAt(end, 'varying')) {
+                name += ' varying'
+                end += 1
+            } else if (first.value === 'double' && wordAt(end, 'precision')) {
+                name += ' precision'
+                end += 1
+            } else if (first.value === 'national') {
+                if (wordAt(end, 'character') || wordAt(end, 'char')) {
+                    name += ` ${tokens[end++].value}`
+                    if (wordAt(end, 'varying')) {
+                        name += ' varying'
+                        end += 1
+                    }
+                }
+            }
+        }
+        if (symbol(end, '(') && closingParen.has(end)) {
+            const close = closingParen.get(end)
+            name +=
+                '(' +
+                tokens
+                    .slice(end + 1, close)
+                    .map((t) => t.value)
+                    .join(' ') +
+                ')'
+            end = close + 1
+        }
+        if (
+            !qualified &&
+            !first.quoted &&
+            ['time', 'timestamp'].includes(first.value) &&
+            (wordAt(end, 'with') || wordAt(end, 'without')) &&
+            wordAt(end + 1, 'time') &&
+            wordAt(end + 2, 'zone')
+        ) {
+            name += ` ${tokens[end].value} time zone`
+            end += 3
+        }
+        while (symbol(end, '[')) {
+            let close = end + 1
+            if (tokens[close]?.type === 'number') close += 1
+            if (!symbol(close, ']')) break
+            name += '[]'
+            end = close + 1
+        }
+        for (let at = start; at < end; at += 1) typeTokens.add(at)
+        return { name, end }
+    }
+    const cteVisibility = []
+    for (let i = 0; i < tokens.length; i += 1) {
+        if (tokens[i]?.type !== 'word' || tokens[i].quoted || tokens[i].value !== 'with') continue
+        let at = i + 1
+        const recursive = tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'recursive'
+        if (recursive) at += 1
+        const declarations = []
+        while (at < tokens.length) {
+            const name = tokens[at]
+            if (name?.type !== 'word') break
+            at += 1
+            if (symbol(at, '(')) {
+                const close = closingParen.get(at)
+                if (close === undefined) break
+                at = close + 1
+            }
+            if (tokens[at]?.type !== 'word' || tokens[at].quoted || tokens[at].value !== 'as') break
+            at += 1
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'not') at += 1
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'materialized') at += 1
+            if (!symbol(at, '(')) break
+            const bodyOpen = at
+            const bodyClose = closingParen.get(bodyOpen)
+            if (bodyClose === undefined) break
+            declarations.push({ name: name.value, bodyOpen, bodyClose })
+            at = bodyClose + 1
+            if (!symbol(at, ',')) break
+            at += 1
+        }
+        if (!declarations.length) continue
+        const owner = containingParen[i]
+        const queryEnd = owner === null ? tokens.length : closingParen.get(owner) ?? tokens.length
+        const recursiveStart = declarations[0].bodyOpen + 1
+        for (const declaration of declarations) {
+            cteVisibility.push({
+                name: declaration.name,
+                start: recursive ? recursiveStart : declaration.bodyClose + 1,
+                end: queryEnd
+            })
+        }
+    }
+    const isCteReference = (at, name) => cteVisibility.some((cte) => cte.name === name && at >= cte.start && at < cte.end)
+    const fromIsCallSyntax = (at) => {
+        const open = containingParen[at]
+        if (open === null) return false
+        const before = tokens[open - 1]
+        if (before?.type !== 'word') return false
+        return !tokens.some(
+            (token, index) =>
+                index > open &&
+                index < at &&
+                containingParen[index] === open &&
+                token.type === 'word' &&
+                !token.quoted &&
+                ['select', 'values', 'with'].includes(token.value)
+        )
+    }
+
+    const relationAlias = (at) => {
+        const explicit = wordAt(at, 'as')
+        if (explicit) at += 1
+        const token = tokens[at]
+        if (
+            token?.type === 'word' &&
+            (token.quoted ||
+                explicit ||
+                (!FROM_END_WORDS.has(token.value) &&
+                    !['cross', 'join', 'inner', 'left', 'right', 'full', 'natural', 'on', 'using', 'tablesample'].includes(token.value)))
+        ) {
+            const columns = []
+            if (symbol(at + 1, '(')) {
+                const close = closingParen.get(at + 1)
+                for (let index = at + 1; index <= close; index += 1) {
+                    relationDeclarations.add(index)
+                    if (tokens[index]?.type === 'word') columns.push(tokens[index].value)
+                }
+            }
+            return { name: token.value, declaration: at, columns }
+        }
+        return null
+    }
+    const addRelation = (start) => {
+        let at = start
+        if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'lateral') at += 1
+        const only = tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'only'
+        if (only) at += 1
+        if (symbol(at, '(')) {
+            // Register enclosing joined-table aliases before descending into their first item,
+            // which can itself be a derived SELECT. Its later siblings still belong to the join.
+            const groups = []
+            while (symbol(at, '(')) groups.push(at++)
+            for (const open of groups) {
+                if (['select', 'with', 'values'].some((word) => wordAt(open + 1, word))) continue
+                const close = closingParen.get(open)
+                const alias = relationAlias(close + 1)
+                if (alias) joinedGroups.set(open, { close, ...alias })
+            }
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && ['select', 'with', 'values'].includes(tokens[at].value)) return
+        }
+        const first = tokens[at]
+        if (first?.type !== 'word') return
+        // Clause keywords cannot start an unquoted relation name. Leave malformed FROM items
+        // to the single PREPARE's parser instead of reporting a fictitious unticked table.
+        // Quoted names and the leftmost relation inside a grouped JOIN still need scope checks.
+        if (!first.quoted && FROM_END_WORDS.has(first.value)) return
+        const qualified = symbol(at + 1, '.') && tokens[at + 2]?.type === 'word'
+        const next = qualified ? at + 3 : at + 1
+        if (symbol(next, '(') || (!qualified && isCteReference(at, first.value))) return
+        const relation = qualified ? { schema: first.value, name: tokens[at + 2].value } : { schema: null, name: first.value }
+        relations.set(`${relation.schema || ''}\0${relation.name}`, relation)
+        for (let index = at; index < next; index += 1) relationDeclarations.add(index)
+        let aliasAt = next
+        if (only && symbol(aliasAt, ')')) aliasAt += 1
+        if (symbol(aliasAt, '*')) aliasAt += 1
+        const alias = relationAlias(aliasAt)
+        relationBindings.push({ relation, ...(alias || { name: relation.name, declaration: next - 1 }) })
+    }
+    const FROM_END_WORDS = new Set([
+        'except',
+        'fetch',
+        'for',
+        'group',
+        'having',
+        'intersect',
+        'limit',
+        'offset',
+        'order',
+        'returning',
+        'union',
+        'where',
+        'window'
     ])
-    const rule = await runner.get(SCOPE_RULE_SQL)
-    if (!rule?.tree) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-    const ids = treeObjectIds(rule.tree)
-    ids.tree = String(rule.tree || '')
-    const depends = await runner.all(SCOPE_DEPENDS_SQL)
-    for (const row of depends) ids.relations.add(Number(row.oid))
-    ids.relations.delete(Number(rule.view))
+    for (let i = 0; i < tokens.length; i += 1) {
+        const token = tokens[i]
+        if (token.type !== 'word' || token.quoted || !['from', 'join', 'table'].includes(token.value)) continue
+        if (token.value === 'from' && tokens[i - 1]?.type === 'word' && !tokens[i - 1].quoted && tokens[i - 1].value === 'distinct')
+            continue
+        if (token.value === 'from' && fromIsCallSyntax(i)) continue
+        addRelation(i + 1)
+        if (token.value !== 'from') continue
+        let depth = 0
+        let bracketDepth = 0
+        for (let at = i + 1; at < tokens.length; at += 1) {
+            if (symbol(at, '[')) bracketDepth += 1
+            else if (symbol(at, ']')) bracketDepth -= 1
+            else if (symbol(at, '(')) depth += 1
+            else if (symbol(at, ')')) {
+                if (depth === 0) break
+                depth -= 1
+            } else if (
+                depth === 0 &&
+                bracketDepth === 0 &&
+                !symbol(at - 1, '.') &&
+                tokens[at]?.type === 'word' &&
+                !tokens[at].quoted &&
+                FROM_END_WORDS.has(tokens[at].value)
+            ) {
+                break
+            } else if (depth === 0 && bracketDepth === 0 && symbol(at, ',')) addRelation(at + 1)
+        }
+    }
+    // A joined-table alias is an anonymous composite of its constituent relations.
+    // Feed each constituent through the existing type closure, including nested joins.
+    const baseBindings = [...relationBindings]
+    for (const [open, { close, name, declaration, columns }] of joinedGroups) {
+        const members = baseBindings.filter((binding) => binding.declaration > open && binding.declaration < close)
+        // Ordinary JOIN/CROSS JOIN concatenate visible columns in FROM order. Derived
+        // outputs and USING/NATURAL joins can change that layout: retain all constituent
+        // types for a referenced rename when a catalog-only positional map is insufficient.
+        const allColumns = tokens.some(
+            (token, at) =>
+                at > open &&
+                at < close &&
+                token.type === 'word' &&
+                !token.quoted &&
+                ['select', 'with', 'values', 'using', 'natural'].includes(token.value)
+        )
+        for (let index = 0; index < members.length; index += 1) {
+            relationBindings.push({
+                relation: members[index].relation,
+                name,
+                declaration,
+                columns,
+                allColumns,
+                preceding: members.slice(0, index).map(({ relation }) => relation)
+            })
+        }
+    }
+
+    const outputDeclarations = new Set()
+    const outputReferences = new Set()
+    for (let select = 0; select < tokens.length; select += 1) {
+        if (!wordAt(select, 'select')) continue
+        const owner = containingParen[select]
+        const sameLevel = (at) => containingParen[at] === owner
+        let end = owner === null ? tokens.length : closingParen.get(owner)
+        for (let at = select + 1; at < end; at += 1) {
+            if (sameLevel(at) && ['union', 'intersect', 'except'].some((word) => wordAt(at, word))) {
+                end = at
+                break
+            }
+        }
+        const outputs = new Set()
+        const addOutput = (start, end) => {
+            const last = end - 1
+            if (tokens[last]?.type !== 'word') return
+            const column = (end) => {
+                for (let at = start; at < end; at += 1) {
+                    if ((at - start) % 2 === 0 ? tokens[at]?.type !== 'word' : !symbol(at, '.')) return false
+                }
+                return end > start && (end - start) % 2 === 1
+            }
+            // Recognize explicit aliases and the unambiguous "column alias" form.
+            // Other expressions remain conservative; do not mistake a final operand
+            // for an alias and remove a real whole-row dependency.
+            if (wordAt(last - 1, 'as') || (last > start && column(last))) {
+                outputs.add(tokens[last].value)
+                outputDeclarations.add(last)
+            } else if (column(end)) outputs.add(tokens[last].value)
+        }
+        let start = select + 1
+        if (wordAt(start, 'all')) start += 1
+        else if (wordAt(start, 'distinct')) {
+            start += 1
+            if (wordAt(start, 'on') && symbol(start + 1, '(')) start = (closingParen.get(start + 1) ?? start) + 1
+        }
+        let bracketDepth = 0
+        for (let at = start; at <= end; at += 1) {
+            if (symbol(at, '[')) bracketDepth += 1
+            else if (symbol(at, ']')) bracketDepth -= 1
+            if (
+                at === end ||
+                (sameLevel(at) &&
+                    bracketDepth === 0 &&
+                    (symbol(at, ',') || wordAt(at, 'from') || wordAt(at, 'order') || wordAt(at, 'limit')))
+            ) {
+                addOutput(start, at)
+                if (!symbol(at, ',')) break
+                start = at + 1
+            }
+        }
+        // PostgreSQL gives output names precedence only for a standalone ORDER BY item.
+        // An expression such as row_to_json(n) still refers to the range variable n.
+        for (let at = select + 1; at < end; at += 1) {
+            if (!sameLevel(at) || !wordAt(at, 'order') || !wordAt(at + 1, 'by')) continue
+            let item = at + 2
+            while (item < end) {
+                let next = item + 1
+                if (wordAt(next, 'asc') || wordAt(next, 'desc')) next += 1
+                if (wordAt(next, 'nulls') && (wordAt(next + 1, 'first') || wordAt(next + 1, 'last'))) next += 2
+                if (
+                    outputs.has(tokens[item]?.value) &&
+                    (next === end ||
+                        symbol(next, ',') ||
+                        (tokens[next]?.type === 'word' && !tokens[next].quoted && FROM_END_WORDS.has(tokens[next].value)))
+                )
+                    outputReferences.add(item)
+                while (
+                    next < end &&
+                    !(
+                        sameLevel(next) &&
+                        (symbol(next, ',') ||
+                            (tokens[next]?.type === 'word' && !tokens[next].quoted && FROM_END_WORDS.has(tokens[next].value)))
+                    )
+                )
+                    next += 1
+                if (!symbol(next, ',')) break
+                item = next + 1
+            }
+        }
+    }
+    for (let i = 0; i < tokens.length - 2; i += 1) {
+        if (tokens[i]?.type !== 'word' || tokens[i].quoted || tokens[i].value !== 'cast' || !symbol(i + 1, '(')) continue
+        let depth = 1
+        for (let at = i + 2; at < tokens.length && depth > 0; at += 1) {
+            if (symbol(at, '(')) depth += 1
+            else if (symbol(at, ')')) depth -= 1
+            else if (depth === 1 && tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'as') {
+                const first = tokens[at + 1]
+                if (first?.type === 'word') {
+                    const target = readType(at + 1).name
+                    types.add(target)
+                    const source = at === i + 3 ? literalType(tokens[i + 2]) : null
+                    casts.push({ source, target })
+                }
+                break
+            }
+        }
+    }
+    const operandStart = (end) => {
+        if (end < 0) return null
+        const token = tokens[end]
+        let start = end
+        if (symbol(end, ')')) {
+            const open = openingParen.get(end)
+            if (open === undefined) return null
+            start = open
+            const name = tokens[start - 1]
+            if (name?.type === 'word' && (name.quoted || !STATEMENT_NON_CALL_WORDS.has(name.value))) {
+                start -= 1
+                if (symbol(start - 1, '.') && tokens[start - 2]?.type === 'word') start -= 2
+            }
+            return start
+        }
+        if (symbol(end, ']')) {
+            const open = openingBracket.get(end)
+            if (open === undefined) return null
+            return operandStart(open - 1)
+        }
+        if (!['word', 'number', 'string'].includes(token?.type)) return null
+        while (symbol(start - 1, '.') && tokens[start - 2]?.type === 'word') start -= 2
+        return start
+    }
+    const castEnds = new Map()
+    const hint = (from, to) => {
+        // A hint must describe the entire argument. Even a trailing cast can belong only
+        // to the right operand of an operator, or to a call nested inside this argument.
+        while (symbol(from, '(') && closingParen.get(from) === to - 1) {
+            from += 1
+            to -= 1
+        }
+        const part = tokens.slice(from, to)
+        if (part.length === 1 && literalType(part[0])) return literalType(part[0])
+        if (part.length === 2 && ['+', '-'].includes(part[0]?.value) && part[1]?.type === 'number')
+            return literalType(part[1], part[0].value === '-')
+        const cast = castEnds.get(to)
+        if (cast && cast.start === from) return cast.name
+        return null
+    }
+    // PostgreSQL's grammar lowers these SQL forms to catalog routines. Collect the
+    // lowered arity before cast lookup so the routine's argument types supply the
+    // implicit coercion targets even when the query returns only a boolean.
+    const syntaxCall = (open, name) => {
+        const close = closingParen.get(open)
+        if (close === undefined) return null
+        let start = open + 1
+        let routine = name
+        if (name === 'trim') {
+            routine = wordAt(start, 'leading') ? 'ltrim' : wordAt(start, 'trailing') ? 'rtrim' : 'btrim'
+            if (['both', 'leading', 'trailing'].some((word) => wordAt(start, word))) start += 1
+        }
+        let args = 0
+        let argStart = start
+        let depth = 0
+        const keywords = new Set()
+        for (let at = start; at < close; at += 1) {
+            if (symbol(at, '(') || symbol(at, '[')) depth += 1
+            else if (symbol(at, ')') || symbol(at, ']')) depth -= 1
+            else if (depth === 0) {
+                const separator =
+                    !symbol(at - 1, '.') &&
+                    (name === 'trim' ? ['from'] : ['from', 'for', 'similar', 'escape']).some((word) => wordAt(at, word))
+                if (symbol(at, ',') || separator) {
+                    if (argStart < at) args += 1
+                    argStart = at + 1
+                    if (separator) keywords.add(tokens[at].value)
+                }
+            }
+        }
+        if (argStart < close) args += 1
+        // Comma-style substring is an ordinary, search-path-resolved call.
+        if (name === 'substring' && !keywords.size) return null
+        // SUBSTRING(value FOR length) inserts a start position of one.
+        if (name === 'substring' && keywords.has('for') && !keywords.has('from')) args += 1
+        // Keep all candidate overloads: SQL argument reordering and expressions
+        // cannot be narrowed using a hint from just one token of an argument.
+        return { schema: 'pg_catalog', name: routine, args, hints: Array(args).fill(null) }
+    }
+    const valueTypes = new Map([
+        ['current_date', 'pg_catalog.date'],
+        ['current_time', 'pg_catalog.timetz'],
+        ['current_timestamp', 'pg_catalog.timestamptz'],
+        ['localtime', 'pg_catalog.time'],
+        ['localtimestamp', 'pg_catalog.timestamp'],
+        ['current_user', 'pg_catalog.name'],
+        ['session_user', 'pg_catalog.name'],
+        ['current_role', 'pg_catalog.name'],
+        ['current_schema', 'pg_catalog.name'],
+        ['current_catalog', 'pg_catalog.name'],
+        ['xmlparse', 'pg_catalog.xml'],
+        ['xmlelement', 'pg_catalog.xml'],
+        ['xmlforest', 'pg_catalog.xml'],
+        ['xmlconcat', 'pg_catalog.xml'],
+        ['xmlpi', 'pg_catalog.xml'],
+        ['xmlroot', 'pg_catalog.xml']
+    ])
+    for (let i = 0; i < tokens.length; i += 1) {
+        const token = tokens[i]
+        if (token.type === 'word' && !token.quoted && valueTypes.has(token.value)) types.add(valueTypes.get(token.value))
+        // SQL typed literals (including user types) need not use CAST or ::.
+        if (token.type === 'string' && tokens[i - 1]?.type === 'word') {
+            types.add(
+                symbol(i - 2, '.') && tokens[i - 3]?.type === 'word' ? typeName(tokens[i - 3], tokens[i - 1]) : typeName(tokens[i - 1])
+            )
+            if (tokens[i - 1].value === 'zone') {
+                const first = tokens[i - 4]?.value
+                if (first === 'timestamp' || first === 'time')
+                    types.add(`pg_catalog.${first}${tokens[i - 3]?.value === 'with' ? 'tz' : ''}`)
+            }
+        }
+        if (token.type === 'word' && !token.quoted && token.value === 'operator' && symbol(i + 1, '(')) {
+            const schema = tokens[i + 2]?.type === 'word' && symbol(i + 3, '.') ? tokens[i + 2].value : null
+            const from = schema ? i + 4 : i + 2
+            let name = ''
+            let at = from
+            while (tokens[at]?.type === 'symbol' && BODY_OPERATOR_CHARS.has(tokens[at].value)) {
+                name += tokens[at].value
+                at += 1
+            }
+            if (name && symbol(at, ')')) operators.set(`${schema || ''}\0${name}`, { schema, name })
+        }
+        if (token.type === 'symbol' && token.value === ':' && symbol(i + 1, ':') && tokens[i + 2]?.type === 'word') {
+            const target = readType(i + 2)
+            const name = target.name
+            const targetToken = symbol(i + 3, '.') && tokens[i + 4]?.type === 'word' ? tokens[i + 4] : tokens[i + 2]
+            if (targetToken.value === 'regclass' && tokens[i - 1]?.type === 'string' && typeof tokens[i - 1].value === 'string')
+                relationLiterals.add(tokens[i - 1].value)
+            const frame = frames.at(-1)
+            const safeRegConst =
+                ['regconfig', 'regdictionary'].includes(targetToken.value) &&
+                tokens[i - 1]?.type === 'string' &&
+                frame &&
+                TEXT_SEARCH_FUNCTIONS.includes(frame.name) &&
+                frame.args === 0 &&
+                frame.argStart === i - 1
+            if (!safeRegConst) types.add(name)
+            const sourceStart = operandStart(i - 1)
+            const previous = castEnds.get(i)
+            const source = previous?.name || (sourceStart === i - 1 ? literalType(tokens[i - 1]) : null)
+            casts.push({ source, target: name })
+            castEnds.set(target.end, { name, start: previous?.start ?? sourceStart })
+        }
+        if (typeTokens.has(i)) continue
+        if (token.type === 'symbol' && token.value === '(') {
+            const name = tokens[i - 1]
+            const qualified = symbol(i - 2, '.') && tokens[i - 3]?.type === 'word'
+            const syntax =
+                name?.type === 'word' &&
+                !name.quoted &&
+                !qualified &&
+                !relationDeclarations.has(i) &&
+                ['trim', 'substring'].includes(name.value)
+                    ? syntaxCall(i, name.value)
+                    : null
+            if (syntax) {
+                calls.push(syntax)
+                frames.push(null)
+                continue
+            }
+            const callable =
+                name?.type === 'word' &&
+                !relationDeclarations.has(i) &&
+                (name.quoted || !STATEMENT_NON_CALL_WORDS.has(name.value)) &&
+                !(tokens[i - 2]?.type === 'word' && !tokens[i - 2].quoted && tokens[i - 2].value === 'operator')
+            if (callable) {
+                const call = {
+                    schema: qualified ? tokens[i - 3].value : null,
+                    name: name.value,
+                    args: 0,
+                    hints: [],
+                    argStart: i + 1
+                }
+                calls.push(call)
+                frames.push(call)
+            } else frames.push(null)
+            continue
+        }
+        if (token.type === 'symbol' && token.value === '[') {
+            frames.push(null)
+            continue
+        }
+        if (token.type === 'symbol' && token.value === ',' && frames.at(-1)) {
+            const call = frames.at(-1)
+            call.hints.push(hint(call.argStart, i))
+            call.args += 1
+            call.argStart = i + 1
+            continue
+        }
+        if (token.type === 'symbol' && token.value === ')') {
+            const call = frames.pop()
+            if (call && call.argStart < i) {
+                call.hints.push(hint(call.argStart, i))
+                call.args += 1
+            }
+            continue
+        }
+        if (token.type === 'symbol' && token.value === ']') {
+            frames.pop()
+            continue
+        }
+        // PostgreSQL lowers these SQL spellings to operators before inserting implicit
+        // casts. Resolve them with symbol operators so their argument types participate
+        // in the cast-helper check, even when no text literal/type appears in the SQL.
+        if (token.type === 'word' && !token.quoted && !symbol(i - 1, '.') && !symbol(i + 1, '.')) {
+            const operator =
+                token.value === 'like'
+                    ? '~~'
+                    : token.value === 'ilike'
+                    ? '~~*'
+                    : token.value === 'similar' && wordAt(i + 1, 'to')
+                    ? '~'
+                    : null
+            if (operator) {
+                const name = `${wordAt(i - 1, 'not') ? '!' : ''}${operator}`
+                operators.set(`\0${name}`, { schema: null, name })
+            }
+        }
+        if (token.type !== 'symbol' || !BODY_OPERATOR_CHARS.has(token.value)) continue
+        let name = token.value
+        let end = token.start
+        while (tokens[i + 1]?.type === 'symbol' && tokens[i + 1].start === end + 1 && BODY_OPERATOR_CHARS.has(tokens[i + 1].value)) {
+            i += 1
+            end = tokens[i].start
+            name += tokens[i].value
+        }
+        // Cast punctuation and SQL comments are not operators.
+        const wildcard =
+            name === '*' &&
+            ((tokens[i - 1]?.type === 'word' && !tokens[i - 1].quoted && tokens[i - 1].value === 'select') ||
+                symbol(i - 1, '.') ||
+                (symbol(i - 1, '(') && symbol(i + 1, ')')) ||
+                (tokens[i + 1]?.type === 'word' && !tokens[i + 1].quoted && tokens[i + 1].value === 'from') ||
+                symbol(i + 1, ','))
+        if (wildcard && !(symbol(i - 1, '(') && symbol(i + 1, ')'))) columnNames.add('*')
+        if (!wildcard && name !== '::' && name !== '--' && name !== '/*') operators.set(`\0${name}`, { schema: null, name })
+    }
+    for (let at = 0; at < tokens.length; at += 1) {
+        if (tokens[at].type === 'word' && !relationDeclarations.has(at) && !relationBindings.some((binding) => binding.declaration === at))
+            columnNames.add(tokens[at].value)
+    }
+    return {
+        calls: calls.map(({ schema, name, args, hints }) => ({ schema, name, args, hints })),
+        casts,
+        // Rename lists use visible attribute positions, not attnum (dropped columns leave gaps).
+        // Declarations alone are not reads: selecting the renamed id must not inspect obj.
+        columnAliases: relationBindings
+            .filter(({ columns }) => columns?.length)
+            .map(({ relation, columns, preceding, allColumns }) => ({
+                ...relation,
+                ...(preceding ? { preceding, allColumns } : {}),
+                positions: columns.flatMap((name, index) =>
+                    tokens.some(
+                        (token, at) =>
+                            token.type === 'word' &&
+                            token.value === name &&
+                            !relationDeclarations.has(at) &&
+                            !outputDeclarations.has(at) &&
+                            !outputReferences.has(at) &&
+                            !typeTokens.has(at) &&
+                            !symbol(at + 1, '.') &&
+                            !symbol(at + 1, '(') &&
+                            !relationBindings.some((binding) => binding.declaration === at)
+                    )
+                        ? [index + 1]
+                        : []
+                )
+            }))
+            .filter(({ positions }) => positions.length),
+        // A bare range variable denotes its relation's composite type, including when a
+        // function consumes it and PREPARE exposes only that function's result type.
+        wholeRowRelations: relationBindings
+            .filter(({ name, declaration }) =>
+                tokens.some(
+                    (token, at) =>
+                        token.type === 'word' &&
+                        token.value === name &&
+                        at !== declaration &&
+                        !relationDeclarations.has(at) &&
+                        !outputDeclarations.has(at) &&
+                        !outputReferences.has(at) &&
+                        !symbol(at + 1, '.') &&
+                        !symbol(at + 1, '(') &&
+                        !symbol(at - 1, '.') &&
+                        !wordAt(at - 1, 'as') &&
+                        !relationBindings.some((binding) => binding.declaration === at)
+                )
+            )
+            .map(({ relation }) => relation),
+        columnNames: [...columnNames],
+        literalTypes: [...new Set(tokens.map((token) => literalType(token)).filter(Boolean))],
+        operators: [...operators.values()],
+        relations: [...relations.values()],
+        relationLiterals: [...relationLiterals],
+        types: [...types]
+    }
+}
+
+// Refuse a direct relation name that cannot name anything in the saved selection before asking Postgres to parse
+// the statement. The later lock/catalog check remains authoritative for an unqualified name that could resolve to
+// more than one schema. This early check also covers a missing name: PREPARE must not get the chance to turn an
+// unticked name into a "relation does not exist" error first.
+async function refuseDirectRelations(runner, named, selected) {
+    const selectedNames = selected.map((relation) => nameParts(relation.name)).filter(Boolean)
+    const outside = named.relations.filter((relation) =>
+        selectedNames.every(([schema, name]) => relation.name !== name || (relation.schema !== null && relation.schema !== schema))
+    )
+    if (!outside.length) return
+    const resolvedRows = await runner.all(STATEMENT_RELATION_IDS_RUNNER_SQL, [JSON.stringify(outside)])
+    const resolved = new Map(resolvedRows.map((row) => [`${row.requested_schema || ''}\0${row.requested_name}`, row.resolved]))
+    const names = outside.map(
+        (relation) =>
+            resolved.get(`${relation.schema || ''}\0${relation.name}`) ||
+            (relation.schema === null ? relation.name : `${relation.schema}.${relation.name}`)
+    )
+    const missing = outside.filter((relation) => !resolved.has(`${relation.schema || ''}\0${relation.name}`))
+    const closest = missing.flatMap((relation) =>
+        closestRelationNames(
+            relation.name,
+            selected.map((item) => item.name)
+        )
+    )
+    const hint = closest.length ? ` Closest tables: ${[...new Set(closest)].join(', ')}.` : ''
+    throw new ScopeRefusal(
+        `Cuttlely refused this query: it reads ${refusedList(
+            names
+        )}, which this node's table selection does not include. Selected: ${refusedList(selected.map((relation) => relation.name))}.${hint}`
+    )
+}
+
+const STATEMENT_FUNCTION_IDS_SQL = `WITH calls AS (
+    SELECT * FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(i int, schema text, name text, args int, hints text[])
+), candidates AS (
+    SELECT c.*, p.oid::int8 AS oid, p.prorettype::int8 AS result_type, n.nspname,
+           pg_catalog.array_position(pg_catalog.current_schemas(true), n.nspname) AS path_rank,
+           p.proargtypes::oid[] AS argtypes
+    FROM calls c JOIN pg_catalog.pg_proc p ON p.proname = c.name
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE c.args BETWEEN p.pronargs - p.pronargdefaults - CASE WHEN p.provariadic <> 0 THEN 1 ELSE 0 END
+                     AND CASE WHEN p.provariadic <> 0 THEN 2147483647 ELSE p.pronargs END
+      AND (c.schema IS NULL OR n.nspname = c.schema)
+), visible AS (
+    SELECT x.* FROM candidates x
+    WHERE x.schema IS NOT NULL OR x.path_rank IS NOT NULL
+), exact AS (
+    SELECT v.i, v.oid FROM visible v
+    WHERE v.args = pg_catalog.cardinality(v.argtypes)
+      AND v.args = pg_catalog.cardinality(v.hints)
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(v.hints) h WHERE h IS NULL)
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.unnest(v.argtypes) WITH ORDINALITY AS a(oid, i)
+          WHERE a.oid <> pg_catalog.to_regtype(v.hints[a.i])::oid
+      )
+), resolved AS (
+    SELECT DISTINCT v.oid, v.result_type, v.argtypes FROM visible v
+    WHERE NOT EXISTS (SELECT 1 FROM exact e WHERE e.i = v.i) OR v.oid IN (SELECT e.oid FROM exact e WHERE e.i = v.i)
+)
+SELECT DISTINCT oid, result_type FROM resolved
+`
+
+const STATEMENT_OPERATOR_IDS_SQL = `WITH names AS (
+    SELECT DISTINCT * FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS x(schema text, name text)
+), candidates AS (
+    SELECT o.oid::int8 AS oid, x.schema, x.name, n.nspname, o.oprleft, o.oprright,
+           pg_catalog.array_position(pg_catalog.current_schemas(true), n.nspname) AS path_rank
+    FROM names x JOIN pg_catalog.pg_operator o ON o.oprname = x.name
+    JOIN pg_catalog.pg_namespace n ON n.oid = o.oprnamespace
+    WHERE x.schema IS NULL OR n.nspname = x.schema
+), visible AS (
+    SELECT * FROM candidates WHERE schema IS NOT NULL OR path_rank IS NOT NULL
+), resolved AS (
+    SELECT v.* FROM visible v
+    WHERE v.schema IS NOT NULL OR v.nspname = 'pg_catalog'
+       OR NOT EXISTS (SELECT 1 FROM visible b WHERE b.schema IS NULL AND b.nspname = 'pg_catalog' AND b.name = v.name)
+)
+SELECT DISTINCT 'operator' AS kind, oid FROM resolved
+`
+
+const STATEMENT_TYPE_IDS_SQL = `WITH types AS (
+    SELECT DISTINCT pg_catalog.to_regtype(value)::oid AS oid
+    FROM pg_catalog.jsonb_array_elements_text(?::jsonb) WHERE pg_catalog.to_regtype(value) IS NOT NULL
+)
+SELECT 'type' AS kind, oid::int8 AS oid FROM types
+`
+
+// Resolve cast source candidates from the statement's catalog objects, never from a rewritten PREPARE.
+// For an expression without a literal type hint, keep all of its possible catalog types. This is conservative
+// for overloaded expressions: a helper is never discarded just because the scanner cannot pick one overload.
+// Include implicit coercions as well as written casts, and descend through domains/arrays/composites/ranges
+// because PostgreSQL can coerce their elements with an ordinary function-backed cast.
+const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH RECURSIVE casts AS (
+    SELECT pg_catalog.to_regtype(source)::oid AS source, pg_catalog.to_regtype(target)::oid AS target
+    FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, target text)
+), explicit_sources(root, oid) AS (
+    SELECT source, source FROM casts WHERE source IS NOT NULL
+    UNION
+    SELECT parent.root, child.oid FROM explicit_sources parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (SELECT t.typbasetype AS oid UNION SELECT t.typelem) child WHERE child.oid > 0
+), explicit_targets(root, oid) AS (
+    SELECT target, target FROM casts WHERE target IS NOT NULL
+    UNION
+    SELECT parent.root, child.oid FROM explicit_targets parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (SELECT t.typbasetype AS oid UNION SELECT t.typelem) child WHERE child.oid > 0
+), routines AS (
+    SELECT p.* FROM pg_catalog.pg_proc p WHERE p.oid = ANY(?::oid[])
+), operators AS (
+    SELECT o.* FROM pg_catalog.pg_operator o WHERE o.oid = ANY(?::oid[])
+), roots AS (
+    SELECT unnest(?::oid[]) AS oid
+    UNION SELECT prorettype FROM routines
+    UNION SELECT oprresult FROM operators
+    UNION SELECT source FROM casts WHERE source IS NOT NULL
+    UNION SELECT target FROM casts WHERE target IS NOT NULL
+), types(oid) AS (
+    SELECT oid FROM roots WHERE oid > 0
+    UNION
+    SELECT child.oid FROM types parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (
+        SELECT t.typbasetype AS oid UNION SELECT t.typelem UNION SELECT t.typarray
+        UNION SELECT a.atttypid FROM pg_catalog.pg_attribute a
+            WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+        UNION SELECT r.rngsubtype FROM pg_catalog.pg_range r WHERE r.rngtypid = t.oid OR r.rngmultitypid = t.oid
+    ) child WHERE child.oid > 0
+), target_roots AS (
+    SELECT unnest(proargtypes::oid[]) AS oid FROM routines
+    UNION SELECT provariadic FROM routines WHERE provariadic <> 0
+    UNION SELECT oprleft FROM operators UNION SELECT oprright FROM operators
+    UNION SELECT oid FROM types
+), targets(oid) AS (
+    SELECT oid FROM target_roots WHERE oid > 0
+    UNION
+    SELECT child.oid FROM targets parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (
+        SELECT t.typbasetype AS oid UNION SELECT t.typelem
+        UNION SELECT a.atttypid FROM pg_catalog.pg_attribute a
+            WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+        UNION SELECT r.rngsubtype FROM pg_catalog.pg_range r WHERE r.rngtypid = t.oid OR r.rngmultitypid = t.oid
+    ) child WHERE child.oid > 0
+)
+SELECT DISTINCT c.castfunc::int8 AS oid FROM pg_catalog.pg_cast c
+WHERE c.castfunc <> 0 AND (
+    -- Written casts admit explicit and assignment cast functions too, including array element coercions.
+    EXISTS (SELECT 1 FROM casts x JOIN explicit_targets target ON target.root = x.target
+        WHERE target.oid = c.casttarget
+        AND (EXISTS (SELECT 1 FROM explicit_sources source WHERE source.root = x.source AND source.oid = c.castsource)
+            OR (x.source IS NULL AND c.castsource IN (SELECT oid FROM types))))
+    OR (c.castcontext = 'i' AND c.castsource IN (SELECT oid FROM types) AND c.casttarget IN (SELECT oid FROM targets))
+)`
+
+const STATEMENT_RELATION_IDS_SQL = `WITH names AS (
+    SELECT * FROM pg_catalog.jsonb_to_recordset($1::jsonb) AS x(schema text, name text)
+)
+SELECT DISTINCT c.oid::int8 AS oid, x.schema AS requested_schema, x.name AS requested_name,
+       pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(c.relname) AS resolved
+FROM names x JOIN pg_catalog.pg_class c ON c.relname = x.name
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE (x.schema IS NOT NULL AND n.nspname = x.schema)
+   OR (x.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid))`
+const STATEMENT_RELATION_IDS_RUNNER_SQL = STATEMENT_RELATION_IDS_SQL.replace('$1', '?')
+
+const STATEMENT_LITERAL_RELATION_IDS_SQL = `SELECT DISTINCT pg_catalog.to_regclass(value)::oid::int8 AS oid
+FROM pg_catalog.jsonb_array_elements_text($1::jsonb) WHERE pg_catalog.to_regclass(value) IS NOT NULL`
+
+const STATEMENT_COLUMN_TYPE_IDS_SQL = `SELECT DISTINCT a.atttypid::int8 AS oid FROM pg_catalog.pg_attribute a
+WHERE a.attrelid = ANY(?::oid[]) AND (a.attname = ANY(?::text[]) OR '*' = ANY(?::text[])) AND a.attnum > 0 AND NOT a.attisdropped
+UNION SELECT c.reltype::int8 AS oid FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text) ON r.name = c.relname
+WHERE c.reltype <> 0 AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
+    OR (r.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid)))`
+
+const STATEMENT_ALIASED_COLUMN_TYPE_IDS_SQL = `${STATEMENT_COLUMN_TYPE_IDS_SQL}
+UNION SELECT a.atttypid::int8 AS oid
+FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text, positions int[], preceding jsonb, "allColumns" boolean)
+JOIN pg_catalog.pg_class c ON c.relname = r.name
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL (
+    SELECT a.atttypid, row_number() OVER (ORDER BY a.attnum) AS position
+    FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+) a
+CROSS JOIN LATERAL (
+    SELECT count(*) AS columns
+    FROM pg_catalog.jsonb_to_recordset(coalesce(r.preceding, '[]'::jsonb)) AS p(schema text, name text)
+    JOIN pg_catalog.pg_class pc ON pc.relname = p.name
+    JOIN pg_catalog.pg_namespace pn ON pn.oid = pc.relnamespace
+    JOIN pg_catalog.pg_attribute pa ON pa.attrelid = pc.oid AND pa.attnum > 0 AND NOT pa.attisdropped
+    WHERE (p.schema IS NOT NULL AND p.schema = pn.nspname)
+        OR (p.schema IS NULL AND pg_catalog.pg_table_is_visible(pc.oid))
+) preceding
+WHERE (r."allColumns" OR a.position + preceding.columns = ANY(r.positions))
+    AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
+    OR (r.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid)))`
+
+const HELD_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks
+WHERE pid = pg_catalog.pg_backend_pid() AND locktype = 'relation' AND relation IS NOT NULL`
+
+const HELD_ROOT_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks h
+WHERE h.pid = pg_catalog.pg_backend_pid() AND h.locktype = 'relation' AND h.relation IS NOT NULL
+  AND h.relation <> ALL($1::oid[])
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks v JOIN pg_catalog.pg_class vc ON vc.oid = v.relation AND vc.relkind = 'v'
+    JOIN pg_catalog.pg_rewrite r ON r.ev_class = v.relation AND r.rulename = '_RETURN'
+    JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass
+      AND d.objid = r.oid AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+    WHERE v.pid = pg_catalog.pg_backend_pid() AND v.locktype = 'relation' AND v.relation IS NOT NULL
+      AND v.relation <> ALL($1::oid[]) AND d.refobjid = h.relation AND h.relation <> v.relation
+)`
+
+const PREPARED_RESULT_TYPES_SQL = `SELECT DISTINCT value::pg_catalog.regtype::oid::int8 AS oid
+FROM pg_catalog.pg_prepared_statements p,
+LATERAL pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(p) -> 'result_types', '[]'::jsonb))
+WHERE p.name = ?`
+
+// PREPARE performs parse analysis without planning or running the statement. PostgreSQL keeps relation locks acquired
+// by that analysis until the transaction ends; their OIDs, plus catalog-resolved names from the SQL text and the
+// prepared result types, feed the existing refusal engine. This uses ordinary result rows only: no DDL, debug settings,
+// notices, or server logs. The outer command uses the extended protocol, which refuses a second injected command.
+async function preparedStatementIds(client, runner, statement, named) {
+    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
+    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
+    const parseName = `${statementName}_parse`
+    let before = new Set()
+    let prepared = false
+    try {
+        if (runner.statementSearchPath)
+            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
+        if (runner.batchedGuard) runner.pathSetByBatch = false
+        // The first read acquires the lock and view-dependency catalogs; the second is the stable baseline.
+        await client.query(HELD_ROOT_RELATIONS_SQL, [[]])
+        before = new Set((await client.query(HELD_RELATIONS_SQL)).rows.map((row) => Number(row.oid)))
+        await client.query({
+            name: parseName,
+            text: `PREPARE ${statementName} AS ${statement}`
+        })
+        prepared = true
+        const relations = new Set(
+            (await client.query(HELD_ROOT_RELATIONS_SQL, [[...before]])).rows
+                .map((row) => Number(row.oid))
+                .filter((oid) => !before.has(oid))
+        )
+        // A view's dependency can also be read directly. Lock counts cannot distinguish those uses.
+        if (named.relations.length) {
+            for (const row of (await client.query(STATEMENT_RELATION_IDS_SQL, [JSON.stringify(named.relations)])).rows)
+                relations.add(Number(row.oid))
+        }
+        if (named.relationLiterals.length) {
+            for (const row of (await client.query(STATEMENT_LITERAL_RELATION_IDS_SQL, [JSON.stringify(named.relationLiterals)])).rows)
+                relations.add(Number(row.oid))
+        }
+        const columnParams = [[...relations], named.columnNames, named.columnNames, JSON.stringify(named.wholeRowRelations)]
+        const columnSql = named.columnAliases.length ? STATEMENT_ALIASED_COLUMN_TYPE_IDS_SQL : STATEMENT_COLUMN_TYPE_IDS_SQL
+        if (named.columnAliases.length) columnParams.push(JSON.stringify(named.columnAliases))
+        const typeNames = [...new Set([...named.types, ...named.literalTypes])]
+        const metadataReads = [
+            ...(named.calls.length
+                ? [{ sql: STATEMENT_FUNCTION_IDS_SQL, params: [JSON.stringify(named.calls.map((call, i) => ({ i, ...call })))] }]
+                : []),
+            ...(named.operators.length ? [{ sql: STATEMENT_OPERATOR_IDS_SQL, params: [JSON.stringify(named.operators)] }] : []),
+            ...(typeNames.length ? [{ sql: STATEMENT_TYPE_IDS_SQL, params: [JSON.stringify(typeNames)] }] : []),
+            { sql: PREPARED_RESULT_TYPES_SQL, params: [statementName] },
+            ...(relations.size ? [{ sql: columnSql, params: columnParams }] : [])
+        ]
+        if (runner.batchedGuard) await runner.prefetch(metadataReads)
+        const functionRows = named.calls.length
+            ? await runner.all(STATEMENT_FUNCTION_IDS_SQL, [JSON.stringify(named.calls.map((call, i) => ({ i, ...call })))])
+            : []
+        const operatorRows = named.operators.length ? await runner.all(STATEMENT_OPERATOR_IDS_SQL, [JSON.stringify(named.operators)]) : []
+        const explicitTypeRows = typeNames.length ? await runner.all(STATEMENT_TYPE_IDS_SQL, [JSON.stringify(typeNames)]) : []
+        const resultTypeRows = await runner.all(PREPARED_RESULT_TYPES_SQL, [statementName])
+        const columnTypeRows = relations.size ? await runner.all(columnSql, columnParams) : []
+        const castFunctionRows = await runner.all(STATEMENT_CAST_FUNCTION_IDS_SQL, [
+            JSON.stringify(named.casts),
+            functionRows.map((row) => Number(row.oid)),
+            operatorRows.map((row) => Number(row.oid)),
+            [...explicitTypeRows, ...columnTypeRows, ...resultTypeRows].map((row) => Number(row.oid))
+        ])
+        return {
+            relations,
+            functions: new Set(
+                [
+                    ...functionRows,
+                    ...castFunctionRows,
+                    ...operatorRows.filter((row) => row.kind === 'function'),
+                    ...explicitTypeRows.filter((row) => row.kind === 'function')
+                ].map((row) => Number(row.oid))
+            ),
+            operators: new Set(operatorRows.filter((row) => row.kind !== 'function').map((row) => Number(row.oid))),
+            types: new Set(
+                [
+                    ...explicitTypeRows.filter((row) => row.kind !== 'function'),
+                    ...resultTypeRows,
+                    ...columnTypeRows,
+                    ...functionRows.map((row) => ({ oid: row.result_type }))
+                ].map((row) => Number(row.oid))
+            ),
+            // Only stored pg_node_tree text belongs in the node-tag/type walker. SQL literals and comments do not.
+            tree: ''
+        }
+    } finally {
+        if (prepared) await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
+        if (runner.statementSearchPath)
+            await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
+        if (runner.batchedGuard) runner.pathSetByBatch = false
+    }
+}
+
+// Returns the relations, functions, operators and types in the analyzed statement. Nothing in the statement runs.
+async function parsedStatementIds(client, runner, statement, cacheKey, selected = null) {
+    const risky = await riskyDomains(runner, cacheKey)
+    if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
+    const named = statementObjects(statement)
+    if (selected) await refuseDirectRelations(runner, named, selected)
+    const ids = await preparedStatementIds(client, runner, statement, named)
+    if (!runner.batchedGuard) return ids
     // Predictions use the same Set iteration and builders as the eventual JS consumers. If a body adds
     // ids, or the scoped reg* exception removes types, the later lookup misses the exact key and reads
     // the catalog normally. JS still decides in order.
@@ -1091,37 +2057,12 @@ async function parsedStatementIdsBatched(client, runner, statement) {
     return ids
 }
 
-// Returns the stored rule tree text for a parsed statement (fresh temp view), then drops it.
-async function statementTree(client, runner, statement) {
-    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
-    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
-    try {
-        if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        await client.query({
-            name: statementName,
-            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
-        })
-    } catch (error) {
-        throw uncheckableRefusal(error) ?? error
-    } finally {
-        await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-        if (runner.statementSearchPath)
-            await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
-    }
-    const row = await runner.get(`SELECT r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`)
-    await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`).catch(() => {})
-    return String(row?.tree || '')
-}
-
 // Without a table selection, the PostgreSQL MCP node still resolves every function, operator function and cast
 // function the statement calls through the catalog first, and refuses anything outside pg_catalog that is not on
 // ALLOWED_ROUTINES, any denied built-in, and any type whose input or output is not built in.
 export const ALLOWED_ROUTINES = new Set()
 export const SCOPE_UNCHECKABLE_ANY =
-    'Cuttlely could not check which functions this query calls: the temporary view the check uses could not be read. The query did not run.'
-export const SCOPE_NO_TEMP_ANY =
-    'Cuttlely could not check which functions this query calls: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses. Run GRANT TEMPORARY ON DATABASE <database> TO <role>. The query did not run.'
+    'Cuttlely could not check which functions this query calls because Postgres did not return its analyzed object information. The query did not run.'
 
 export async function checkStatementRoutines(client, runner, statement, isRowQuery, cacheKey = '') {
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
@@ -1131,7 +2072,6 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
         ids = await parsedStatementIds(client, runner, statement, cacheKey)
     } catch (error) {
         if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
-        if (error instanceof ScopeRefusal && error.message === SCOPE_NO_TEMP) throw new ScopeRefusal(SCOPE_NO_TEMP_ANY)
         throw error
     }
     const bodies = await followRelations(runner, ids)
@@ -1287,18 +2227,16 @@ WHERE c.relkind = 'f' AND EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid =
 UNION
 -- Every other catalog object that calls a function outside pg_catalog: a cast to json or jsonb, which to_json
 -- and to_jsonb look up without it appearing in the statement (other casts and operators appear in the statement
--- and are checked per query), an index expression or predicate the planner can simplify, a domain or table constraint, an event
--- trigger that fires on the check's temporary view, a range, operator or text search object. Views and policies
--- are followed per query instead, and triggers and column defaults do not run on a read. A domain constraint
+-- and are checked per query), an index expression or predicate the planner can simplify, a domain or table constraint,
+-- a range, operator or text search object. Views and policies are followed per query instead. Event triggers cannot
+-- run because the check performs no DDL, and row triggers and column defaults do not run on a read. A domain constraint
 -- calling a volatile built-in such as nextval is refused too, since parsing a literal runs it.
 SELECT pg_describe_object(d.classid, d.objid, d.objsubid)
 FROM pg_depend d JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace pn ON pn.oid = p.pronamespace
 WHERE d.refclassid = 'pg_proc'::regclass AND d.deptype IN ('n', 'a')
-  AND d.classid NOT IN ('pg_rewrite'::regclass, 'pg_policy'::regclass, 'pg_trigger'::regclass, 'pg_attrdef'::regclass, 'pg_proc'::regclass, 'pg_operator'::regclass)
+  AND d.classid NOT IN ('pg_rewrite'::regclass, 'pg_policy'::regclass, 'pg_trigger'::regclass, 'pg_event_trigger'::regclass, 'pg_attrdef'::regclass, 'pg_proc'::regclass, 'pg_operator'::regclass)
   AND (d.classid <> 'pg_cast'::regclass OR EXISTS (SELECT 1 FROM pg_cast c WHERE c.oid = d.objid AND c.casttarget IN ('json'::regtype, 'jsonb'::regtype)))
   AND (pn.nspname <> 'pg_catalog' OR (p.provolatile = 'v' AND d.classid = 'pg_constraint'::regclass))
-UNION
-SELECT 'event trigger ' || quote_ident(e.evtname) FROM pg_event_trigger e WHERE e.evtenabled <> 'D'
 UNION
 -- A function or operator with a built-in's name can win overload resolution over the built-in (an exact argument
 -- match beats an implicit cast, whatever the search path order), so a name the check read as the built-in could
@@ -2343,25 +3281,31 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
             throw new ScopeRefusal('Cuttlely refused this query: write names and text without U& escapes.')
         }
         if (ch === "'" || (/[eEbBxXnN]/.test(ch) && text[i + 1] === "'")) {
+            const start = i
             const escapes = /[eE]/.test(ch)
             i = ch === "'" ? i + 1 : i + 2
             let closed = false
+            let value = ''
+            let exact = true
             while (i < text.length) {
                 if (text[i] === '\\') {
                     // How Postgres reads a backslash in '...' depends on standard_conforming_strings, so refuse the
                     // ambiguity instead of guessing. E'...' always treats it as an escape. A function body read
                     // while standard_conforming_strings is on (backslashLiteral) takes it as a plain character.
                     if (!escapes && backslashLiteral) {
+                        value += '\\'
                         i += 1
                         continue
                     }
                     if (!escapes) {
                         throw new ScopeRefusal("Cuttlely refused this query: write a backslash in text as E'...' with \\\\, not in '...'.")
                     }
+                    exact = false
                     i += 2
                     continue
                 }
                 if (text[i] === "'" && text[i + 1] === "'") {
+                    value += "'"
                     i += 2
                     continue
                 }
@@ -2370,10 +3314,11 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
                     closed = true
                     break
                 }
+                value += text[i]
                 i += 1
             }
             if (!closed) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quote.')
-            tokens.push({ type: 'string' })
+            tokens.push(exact ? { type: 'string', value, start, end: i } : { type: 'string', start, end: i })
             continue
         }
         if (ch === '"') {
@@ -2395,7 +3340,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
                 j += 1
             }
             if (!closed) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quoted name.')
-            tokens.push({ type: 'word', value, quoted: true })
+            tokens.push({ type: 'word', value, quoted: true, start: i, end: j })
             i = j
             continue
         }
@@ -2404,7 +3349,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
             if (tag) {
                 const close = text.indexOf(tag[0], i + tag[0].length)
                 if (close === -1) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quote.')
-                tokens.push({ type: 'string' })
+                tokens.push({ type: 'string', start: i, end: close + tag[0].length })
                 i = close + tag[0].length
                 continue
             }
@@ -2415,17 +3360,17 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
         }
         const word = text.slice(i).match(/^[A-Za-z_\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*/)
         if (word) {
-            tokens.push({ type: 'word', value: word[0].toLowerCase(), quoted: false })
+            tokens.push({ type: 'word', value: word[0].toLowerCase(), quoted: false, start: i, end: i + word[0].length })
             i += word[0].length
             continue
         }
         const number = text.slice(i).match(/^[0-9][0-9A-Za-z_.]*/)
         if (number) {
-            tokens.push({ type: 'number' })
+            tokens.push({ type: 'number', value: number[0], start: i, end: i + number[0].length })
             i += number[0].length
             continue
         }
-        tokens.push({ type: 'symbol', value: ch, start: i })
+        tokens.push({ type: 'symbol', value: ch, start: i, end: i + 1 })
         i += 1
     }
     return tokens
