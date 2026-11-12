@@ -4555,6 +4555,18 @@
             "reason": "tests for chatArtifacts.js, which is inherited"
         },
         {
+            "path": "packages/ui/src/utils/credentialMarks.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
+            "path": "packages/ui/src/utils/credentialRebind.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
+            "path": "packages/ui/src/utils/credentialRebind.test.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
             "path": "packages/ui/src/utils/flowCategoryPermission.js",
             "reason": "The Agent Team list and the Chatflows list menu share the Update Category permission so the two lists gate tagging the same way"
         },

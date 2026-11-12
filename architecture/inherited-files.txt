@@ -1825,6 +1825,9 @@ packages/ui/src/utils/__fixtures__/savedFlows.golden.json
 packages/ui/src/utils/authUtils.js
 packages/ui/src/utils/chatArtifacts.js
 packages/ui/src/utils/chatArtifacts.test.js
+packages/ui/src/utils/credentialMarks.js
+packages/ui/src/utils/credentialRebind.js
+packages/ui/src/utils/credentialRebind.test.js
 packages/ui/src/utils/customMention.js
 packages/ui/src/utils/errorHandler.js
 packages/ui/src/utils/exportImport.js
