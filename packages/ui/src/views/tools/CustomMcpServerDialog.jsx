@@ -60,6 +60,7 @@ import useNotifier from '@/utils/useNotifier'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import { MCP_SERVER_STATUS, MCP_AUTH_TYPE } from '@/store/constant'
 import { generateRandomGradient } from '@/utils/genericHelper'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // Server-side masking placeholder. Must match REDACTED_VALUE in the service.
 const MASK_TOKEN = '************'
@@ -538,8 +539,7 @@ const CustomMcpServerDialog = ({ show, dialogProps, onCancel, onConfirm, onAutho
         })
     }
 
-    const getErrorMsg = (error) =>
-        typeof error.response?.data === 'object' ? error.response.data.message : error.response?.data || error.message
+    const getErrorMsg = (error) => requestFailureMessage(error)
 
     const addNewServer = async () => {
         if (!validateServerUrl(serverUrl)) return

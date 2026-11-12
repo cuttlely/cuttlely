@@ -1,14 +1,15 @@
 import client from './client'
 
-const getAllCredentials = () => client.get('/credentials')
+const getAllCredentials = (config) => client.get('/credentials', config)
 
-const getCredentialsByName = (componentCredentialName) => client.get(`/credentials?credentialName=${componentCredentialName}`)
+const getCredentialsByName = (componentCredentialName, config) =>
+    client.get(`/credentials?credentialName=${componentCredentialName}`, config)
 
 const getAllComponentsCredentials = () => client.get('/components-credentials')
 
 const getSpecificCredential = (id) => client.get(`/credentials/${id}`)
 
-const getSpecificComponentCredential = (name) => client.get(`/components-credentials/${name}`)
+const getSpecificComponentCredential = (name, config) => client.get(`/components-credentials/${name}`, config)
 
 const createCredential = (body) => client.post(`/credentials`, body)
 

@@ -109,6 +109,7 @@ import { canvasFieldKey } from '@/utils/canvasFieldKey'
 import { notifyConnectionPicked } from '@/utils/analystStatus'
 import { POSTGRES_NODE } from '@/utils/nodeDisplayNames'
 import { markdownToHtml } from '@/utils/markdownToHtml'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const EDITABLE_OPTIONS = ['selectedTool', 'selectedAssistant']
 
@@ -749,7 +750,7 @@ const NodeInputHandler = ({
                 console.error('Error generating doc store tool desc', error)
                 setLoading(false)
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -797,7 +798,7 @@ const NodeInputHandler = ({
                 console.error('Error generating doc store tool desc', error)
                 setLoading(false)
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

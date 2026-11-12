@@ -60,6 +60,7 @@ import { useError } from '@/store/context/ErrorContext'
 import { useConfig } from '@/store/context/ConfigContext'
 import { workspaceSwitchSuccess } from '@/store/reducers/authSlice'
 import { Link } from 'react-router-dom'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 function ShowWorkspaceRow(props) {
     const customization = useSelector((state) => state.customization)
@@ -350,9 +351,7 @@ const Workspaces = () => {
             } catch (error) {
                 console.error('Failed to delete workspace:', error)
                 enqueueSnackbar({
-                    message: `Failed to delete workspace: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete workspace: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

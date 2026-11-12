@@ -49,6 +49,7 @@ import { flowContext } from '@/store/context/ReactFlowContext'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import { baseURL } from '@/store/constant'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 function TabPanel(props) {
     const { children, value, index, ...other } = props
@@ -323,7 +324,7 @@ formData.append("openAIApiKey[openAIEmbeddings_0]", "sk-my-openai-2nd-key")`
             if (res && res.data && typeof res.data === 'object') onIndexResult(res.data)
         } catch (error) {
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

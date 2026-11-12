@@ -1,4 +1,12 @@
-import { canvasSaveDocument, duplicateFlowData } from './canvasSave'
+import {
+    canvasSaveDocument,
+    duplicateFlowData,
+    firstDraftNeedsStatus,
+    liveSavePreflightForRoute,
+    liveSaveUpdateForRoute,
+    saveApiResultReady,
+    saveCompletionForRoute
+} from './canvasSave'
 import { planCanvasSave } from './flowDrafts'
 import { missingNodeInfo } from './missingNode'
 import { normalizeCanvasFlow } from './normalizeCanvasFlow'
@@ -182,4 +190,40 @@ it('duplicate transfer preserves its source identity without copying access-key 
     expect(copied.cuttlelyDuplicateSourceId).toBe(source.id)
     expect(copied.nodes).toEqual(original.nodes)
     expect(copied.apikeyid).toBeUndefined()
+})
+
+describe('Live save preflight route identity', () => {
+    const preflight = { flowId: 'flow-a', name: 'A', flowData: '{"nodes":[]}', rev: 4 }
+
+    test('keeps the captured payload only on the route that started it', () => {
+        expect(liveSavePreflightForRoute(preflight, 'flow-a')).toBe(preflight)
+        expect(liveSavePreflightForRoute(preflight, 'flow-b')).toBeNull()
+        expect(liveSavePreflightForRoute(null, 'flow-a')).toBeNull()
+        expect(liveSaveUpdateForRoute(preflight, 'flow-a')).toEqual({
+            flowId: 'flow-a',
+            body: { name: 'A', flowData: '{"nodes":[]}' },
+            rev: 4
+        })
+        expect(liveSaveUpdateForRoute(preflight, 'flow-b')).toBeNull()
+    })
+
+    test('accepts every save completion only on the route that started it', () => {
+        expect(saveCompletionForRoute({ flowId: 'flow-a', rev: 5 }, 'flow-a')).toEqual({ flowId: 'flow-a', rev: 5 })
+        expect(saveCompletionForRoute({ flowId: 'flow-a', rev: 5 }, 'flow-b')).toBeNull()
+        expect(saveCompletionForRoute({ flowId: null, rev: 1 }, undefined)).toEqual({ flowId: null, rev: 1 })
+        expect(saveCompletionForRoute({ flowId: null, rev: 1 }, 'flow-b')).toBeNull()
+    })
+
+    test('does not consume a pending save while a current-only request clears its old result', () => {
+        expect(saveApiResultReady(null, null)).toBe(false)
+        expect(saveApiResultReady({ id: 'flow-a' }, null)).toBe(true)
+        expect(saveApiResultReady(null, new Error('write failed'))).toBe(true)
+    })
+
+    test('reads created status after every first-draft outcome except success or a stale route', () => {
+        expect(firstDraftNeedsStatus(true)).toBe(false)
+        expect(firstDraftNeedsStatus(null)).toBe(false)
+        expect(firstDraftNeedsStatus(false)).toBe(true)
+        expect(firstDraftNeedsStatus(undefined)).toBe(true)
+    })
 })

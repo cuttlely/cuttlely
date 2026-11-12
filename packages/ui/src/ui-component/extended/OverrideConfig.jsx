@@ -37,6 +37,7 @@ import configApi from '@/api/config'
 import variablesApi from '@/api/variables'
 
 import { CODE_INPUT_WARNING } from './overrideConfigWarning'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 // utils
 
@@ -355,9 +356,7 @@ const OverrideConfig = ({ dialogProps, hideTitle = false }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Override Configuration: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: settingFailureMessage(error, 'Failed to save Override Configuration'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

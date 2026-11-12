@@ -25,6 +25,7 @@ import { AsyncDropdown } from '@/ui-component/dropdown/AsyncDropdown'
 // Icons
 import { IconX } from '@tabler/icons-react'
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const promptDescription =
     'Prompt to generate questions based on the conversation history. You can use variable {history} to refer to the conversation history.'
@@ -394,9 +395,9 @@ const FollowUpPrompts = ({ dialogProps }) => {
                 dispatch({ type: SET_CHATFLOW, chatflow: saveResp.data })
             }
         } catch (error) {
-            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
+            const errorData = settingFailureMessage(error, 'Failed to save follow-up prompts configuration')
             enqueueSnackbar({
-                message: `Failed to save follow-up prompts configuration: ${errorData}`,
+                message: errorData,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

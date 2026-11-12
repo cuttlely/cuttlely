@@ -129,6 +129,10 @@ describe('planNewHarnessSave', () => {
             })
         ).toBe(true)
         expect(draftSaveWasTurnedOff({ response: { status: 409, data: { message: 'Someone else saved this draft.' } } })).toBe(false)
+        for (const status of [500, 502, 503, 504]) {
+            expect(draftSaveWasTurnedOff({ response: { status, data: { message: 'Drafts are off on this server.' } } })).toBe(false)
+        }
+        expect(draftSaveWasTurnedOff({ isAxiosError: true, request: {} })).toBe(false)
     })
 
     test('a complete harness still goes live on the first save', () => {

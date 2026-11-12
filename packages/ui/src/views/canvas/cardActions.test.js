@@ -437,7 +437,7 @@ describe('keyboard delete on a connected card', () => {
         const canvas = fs.readFileSync(path.join(__dirname, '../agentflowsv2/Canvas.jsx'), 'utf8')
         expect(dialog).toContain('onKeyDown={onPanelKeyDown}')
         expect(dialog).toContain("if (event.key === 'Delete' || event.key === 'Backspace') event.stopPropagation()")
-        expect(canvas).toContain("deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}")
+        expect(canvas).toContain("deleteKeyCode={canvasBlocked || canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}")
         const edge = fs.readFileSync(path.join(__dirname, '../agentflowsv2/AgentFlowEdge.jsx'), 'utf8')
         expect(edge).toContain('react-flow__edge-path')
         expect(edge).toContain('addSelectedEdges')
@@ -697,6 +697,8 @@ describe('keyboard delete on a connected card', () => {
             expect(source).toContain('deleteSelection')
             expect(source).toContain('onNodesChange={handleNodesChange}')
             expect(source).toContain('onEdgesChange={handleEdgesChange}')
+            expect(source).toContain('if (canvasBlocked) return')
+            expect(source).toContain('deleteKeyCode={canvasBlocked ||')
             expect(source).not.toContain('onNodesChange={onNodesChange}')
         }
     })
