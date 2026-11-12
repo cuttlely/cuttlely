@@ -485,8 +485,12 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         await t.test('free SQL page, count, probe, length and replay match the round-trip golden', async () => {
             // Updated for root-domain reads, catalog JIT settings, folded rollback batches and the
             // read-only PREPARE check, including SQL bytes and values.
+            // PostgreSQL 14 has different built-in catalog OIDs, and 14/15 lack prepared-statement
+            // result_types, so each supported metadata shape has its own exact traffic golden.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
-            const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
+            const goldens = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
+            const serverVersion = Number((await setup.query('SHOW server_version_num')).rows[0].server_version_num)
+            const golden = goldens[serverVersion < 150000 ? 'postgres14' : serverVersion < 160000 ? 'postgres15' : 'postgres16Plus']
             const oid = (await setup.query("SELECT 'demo_sales'::regclass::oid AS oid")).rows[0].oid
             const original = pg.Client.prototype.query
             let sent = []
