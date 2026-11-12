@@ -3,7 +3,7 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 <p align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/readme/cuttlely-readme-header-dark.png">
-<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. Your applications deserve agents. The open-source agent platform for applications." width="880">
+<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. Context-aware agent orchestration." width="880">
 </picture>
 </p>
 
