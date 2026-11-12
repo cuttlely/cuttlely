@@ -3,7 +3,7 @@
 <p align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/readme/cuttlely-readme-header-dark.png">
-<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. 여러분의 애플리케이션에는 에이전트가 필요합니다. 애플리케이션을 위한 오픈소스 에이전트 플랫폼." width="880">
+<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. 컨텍스트 인식 에이전트 오케스트레이션. 오픈소스, Apache-2.0." width="880">
 </picture>
 </p>
 
