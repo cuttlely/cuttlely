@@ -1,1 +1,1 @@
-The open-source agent platform for applications.
+Context-aware agent orchestration. Open source, Apache-2.0.

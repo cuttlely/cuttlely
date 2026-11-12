@@ -3,7 +3,7 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 <p align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/readme/cuttlely-readme-header-dark.png">
-<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. Your applications deserve agents. The open-source agent platform for applications." width="880">
+<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely. Context-aware agent orchestration." width="880">
 </picture>
 </p>
 
@@ -15,9 +15,9 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
-Open-source agent platform · Apache-2.0
+Context-aware agent orchestration. Open source, Apache-2.0.
 
-Cuttlely is open-source, context-aware agent orchestration: you build AI agent teams visually, and each agent gets only the context it needs, so you see what every run uses and costs before you publish. Replay real questions on Live and a draft, side by side, before anything changes.
+Cuttlely lets you build AI agent teams visually, and each agent gets only the context it needs, so you see what every run uses and costs before you publish. Replay real questions on Live and a draft, side by side, before anything changes.
 
 ```bash
 npx cuttlely start
@@ -25,19 +25,13 @@ npx cuttlely start
 
 Node 20+ and Docker
 
-**Open-source agent platform for lean AI agent teams.**
-
-Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0. Cuttlely (said like "cuddly") runs on infrastructure you control: every change waits in a draft, you replay real questions on Live and the draft side by side before you publish, and each specialist gets only the task it needs.
-
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
 **1.7.3 keeps the page you are on when a request gets no answer, and keeps imported connections when only a handle type name changed.** The page says the server could not be reached instead of showing **Something went wrong**. Brief connection drops while you edit are retried quietly, a save no longer marks later edits as saved, and self-hosted installs behind a reverse proxy keep idle connections open longer.
 
-**1.7.2 makes tool status optional and fixes access dialogs and calls between flows.** Chatflows start with **Show tool events** Off; agentflows and Harnesses keep it On. Access-key checks also cover calls between flows and external workers. The setup steps now explain what the first-account code does.
+Latest stable is **1.7.3**. Pin image `1.7.3` or install `cuttlely@1.7.3`. [1.7.3 release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.3) · [Changelog](./CHANGELOG.md).
 
-**1.7.1 makes access keys easier to use and fixes private-flow access.** Flow-first presets include prediction prerequisites and referenced Harness grants, saved Private access reloads correctly, copies start private, and PostgreSQL flow deletion cleans up grants atomically. [Create a working key](./docs/how-to/access-keys.md).
-
-**1.7.0 adds scoped API keys and host-backed service administration.** This security-exception release requires upgrade action. Back up the database, encryption key and settings, then arrange [operator onboarding and recovery](./docs/how-to/instance-operator.md) before deployment to avoid browser administration lockout. Only actual verified host CLI bindings grandfather automatically. Legacy installs without one claim explicitly from Server settings with a one-time host-log code. Routine transfer/revoke and fresh-proof rebind are in the panel; the CLI is emergency recovery only. Only the designated instance operator can change service-wide settings; other owners gain nothing. Read host-log proof in the hosting dashboard or Docker/Compose logs. Host JSON `CUTTLELY_INSTANCE_OPERATOR` overrides the file and `none` revokes browser administration. Fresh setup requires host-configured sign-in. The setup code creates only the first account, and only when local sign-in is already on at the host (Docker and `npx cuttlely start` turn this on by default). It cannot configure the service, and it does not designate the instance operator — that is a separate step. [Sign in](./docs/how-to/sign-in.md) · [Instance operator](./docs/how-to/instance-operator.md). Access-key enforcement stays off by default. [Upgrade warnings](./docs/upgrading.md) · [Changelog](./CHANGELOG.md). To select 1.7.3, pin image `1.7.3` or install `cuttlely@1.7.3`.
+**1.7.0 is a security-exception release. If you're upgrading from an earlier version, it needs action.** Back up the database, encryption key and settings, then read [operator onboarding and recovery](./docs/how-to/instance-operator.md) before you deploy, so you don't lock yourself out of browser administration. The full checklist, including the host-log claim, `CUTTLELY_INSTANCE_OPERATOR`, and access-key enforcement staying off by default, is in [Upgrade warnings](./docs/upgrading.md) (section "1.7.0 security-exception upgrade") and the [changelog](./CHANGELOG.md). The setup code creates only the first account, and only when local sign-in is already on at the host (Docker and `npx cuttlely start` turn this on by default). It cannot configure the service, and it does not designate the instance operator. [Sign in](./docs/how-to/sign-in.md) · [Your first 10 minutes](#your-first-10-minutes).
 
 ## Contents
 

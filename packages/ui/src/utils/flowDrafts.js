@@ -99,6 +99,8 @@ export const canvasFlowText = (chatflow, status) => {
     return typeof chatflow?.flowData === 'string' ? chatflow.flowData : ''
 }
 
+export const draftStatusOpenDecision = (response, error) => (error ? { paint: false, error } : { paint: true, status: response?.data })
+
 // The flow the canvas test chat runs: the draft when there is one (the server runs it there too), otherwise Live.
 // A flow saved only as a draft has an empty Live, and the test chat must not call it unready.
 export const testChatFlow = (chatflow, status) => (chatflow ? { ...chatflow, flowData: canvasFlowText(chatflow, status) } : chatflow)
@@ -107,7 +109,8 @@ export const testChatFlow = (chatflow, status) => (chatflow ? { ...chatflow, flo
 // and a renamed flow still updates the name on Live without sending the canvas (that route writes Live).
 export const planCanvasSave = ({ mode, name, savedName, flowData, hasId }) => {
     if (!hasId) return { create: true, live: { name, flowData }, draft: null }
-    if (mode !== 'draft') return { create: false, live: { name, flowData }, draft: null }
+    if (mode !== 'draft' && mode !== 'live') return { create: false, live: null, draft: null, modeUnknown: true }
+    if (mode === 'live') return { create: false, live: { name, flowData }, draft: null }
     return {
         create: false,
         live: name !== savedName ? { name } : null,
@@ -273,7 +276,34 @@ export const publishResultMessage = (data = {}) => {
     return { message: 'Published.', variant: 'success' }
 }
 
+// What a Publish that got no answer did, read back from the draft status. `before` is the draft hash that was
+// published and the last publish date before it. Live moved and that draft is no longer pending: it landed.
+// An unchanged status is not proof that the original request has finished, so every other result stays unknown.
+export const publishOutcomeFromStatus = (before, status) => {
+    if (!status || typeof status !== 'object') return 'unknown'
+    const hash = typeof before?.draftHash === 'string' && before.draftHash ? before.draftHash : null
+    const beforeDate = before?.lastPublishedDate ?? null
+    const afterDate = status.lastPublished?.date ?? null
+    const pendingHash = status.draft?.hash ?? null
+    const moved = Boolean(afterDate) && afterDate !== beforeDate
+    if (moved && pendingHash !== hash) return 'published'
+    return 'unknown'
+}
+
+// Re-reads the status after a Publish got no answer. `read` is a GET on the shared client, which retries quietly.
+// The publish itself is never sent again here.
+export const recheckPublish = async (read, before) => {
+    try {
+        const response = await read()
+        const status = response?.data || null
+        return { outcome: publishOutcomeFromStatus(before, status), status }
+    } catch (error) {
+        return { outcome: 'unknown', status: null, error }
+    }
+}
+
 export const apiErrorMessage = (error, fallback) => {
+    if (error?.saveAgain === true && typeof error.message === 'string' && error.message) return error.message
     const data = error?.response?.data
     if (data && typeof data === 'object' && typeof data.message === 'string' && data.message) return data.message
     if (typeof data === 'string' && data) return data

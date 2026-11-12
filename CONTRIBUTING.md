@@ -6,6 +6,8 @@ English | [中文](./i18n/CONTRIBUTING-ZH.md)
 
 We appreciate any form of contributions.
 
+Looking for a first change? Start with issues labeled [good first issue](https://github.com/cuttlely/cuttlely/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or [help wanted](https://github.com/cuttlely/cuttlely/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+
 ## ⭐ Star
 
 Star and share the [Cuttlely repository](https://github.com/cuttlely/cuttlely).
@@ -38,7 +40,7 @@ Not sure what to contribute? Some ideas:
 
 ### Developers
 
-Cuttlely has 3 different modules in a single mono repository. New modules follow the boundary map in [ARCHITECTURE.md](./ARCHITECTURE.md).
+Cuttlely is a pnpm monorepo. The packages a first change usually touches are `server` (Node API), `ui` (React frontend) and `components` (nodes and integrations); [ARCHITECTURE.md](./ARCHITECTURE.md) maps every package and the boundaries new modules follow.
 
 -   `server`: Node backend to serve API logics
 -   `ui`: React frontend
@@ -191,6 +193,8 @@ Cuttlely supports the environment variables below. Put them in the `.env` file i
 | CANVAS_CARD_LOOK                     | Canvas cards for people who have not picked a look. `new`: compact cards, a click opens the settings in a side panel. `classic`: every setting on the card. Each person can still turn Classic cards on or off in the profile menu                                                                                                                                                                                                                                  | Enum String: `new`, `classic`                    | `new`                                |
 | DISABLED_NODES                       | Hide nodes from UI (comma separated list of node names)                                                                                                                                                                                                                                                                                                                                                                                                             | String                                           |                                      |
 | TRUST_PROXY                          | Configure proxy trust settings for proper IP detection. Values: 'true' (trust all), 'false' (disable), number (hop count), or Express proxy values (e.g., 'loopback', 'linklocal', 'uniquelocal', IP addresses). [Learn More](https://expressjs.com/en/guide/behind-proxies.html)                                                                                                                                                                                   | Boolean/String/Number                            | true                                 |
+| HTTP_KEEP_ALIVE_TIMEOUT_MS           | How long the server keeps an idle HTTP connection open for reuse, in milliseconds. A whole number from 1000 to 600000.                                                                                                                                                                                                                                                                                                                                              | Number                                           | 65000                                |
+| HTTP_HEADERS_TIMEOUT_MS              | Time allowed for complete request headers, in milliseconds. Must be above the keep-alive timeout and no more than 601000.                                                                                                                                                                                                                                                                                                                                           | Number                                           | keep-alive plus 1000                 |
 
 From this repository, start Cuttlely and Hermes together with `bash scripts/start-cuttlely.sh`. That script sets `PORT=43117` unless `PORT` is already set, and runs Hermes with `HERMES_PYTHON`, else `hermes/.venv/bin/python` (created by `bash scripts/setup-hermes.sh`), else `python3` (see [Build from source and run the dev server](./docs/how-to/from-source.md)). The server package binary is still named `flowise`:
 
@@ -206,7 +210,7 @@ npx cuttlely-server start --PORT=3000 --DEBUG=true
 
 ## Docs
 
-Update the README, this file, and `docker/README.md` so they describe Cuttlely.
+If your change alters what users see or run, update the matching page under `docs/` and the README section in the same pull request. Docs-only pull requests can run `pnpm verify --fast`.
 
 ## Vendored Hermes
 

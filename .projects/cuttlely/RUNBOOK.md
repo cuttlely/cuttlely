@@ -54,6 +54,13 @@ node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and 
 
 ## Local verify
 
+For focused canvas-save work, run the queue, draft-state, API, and dirty-revision tests from `packages/ui` with no more than three workers, then lint the changed UI files. The local browser scenarios are in the separate run workspace and require a running test server; do not treat an unrun script as execution evidence.
+
+```bash
+nice -n 19 npx jest -w 3 src/utils/saveQueue.test.js src/hooks/useSaveQueue.test.js src/utils/flowDrafts.test.js src/utils/buildWithAI.test.js src/hooks/useDraftSave.test.js src/api/flowDrafts.test.js src/store/reducers/canvasReducer.test.js src/utils/canvasSave.test.js
+nice -n 19 npx eslint <changed-ui-files>
+```
+
 ```bash
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 27 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, identity-migration
@@ -161,6 +168,8 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `CUTTLELY_LOCAL_ADMIN`                                      | unset                                       | `true` enables the older owner compatibility route. While Local is selected it creates an ordinary Local session; under another active method it uses recovery treatment. `/owner-recovery` stays available independently                                                                       |
 | `CUTTLELY_LOCAL_USERS`                                      | off                                         | `true` lets an active user with a password sign in while Local is the durable selected method. Restart to apply. WorkOS and generic OIDC leave `POST /api/v1/auth/local/login` at 404                                                                                                           |
 | `TRUST_PROXY`                                               | unset (trust none)                          | Proxy hop count in front of the server (D20)                                                                                                                                                                                                                                                    |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS`                                | `65000`                                     | Idle HTTP connection reuse timeout. Whole milliseconds from 1000 to 600000. Keep the proxy's upstream idle timeout below it                                                                                                                                                                     |
+| `HTTP_HEADERS_TIMEOUT_MS`                                   | keep-alive plus `1000`                      | Complete request-header timeout. It must be above keep-alive and no more than 601000                                                                                                                                                                                                            |
 | `MODEL_LIST_CONFIG_JSON`                                    | unset                                       | `bundled` turns off the daily model list fetch (D32)                                                                                                                                                                                                                                            |
 | `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                                                                                                                                                                                                                        |
 | `CUTTLELY_DRAIN_TIMEOUT_MS`                                 | `25000`                                     | How long running answers and streams may finish after SIGTERM before they get a `503`. Kept from 0 to 300000. 0 does not wait. A saved value applies on the next shutdown (D76, D81)                                                                                                            |
@@ -331,9 +340,23 @@ Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.tes
 
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
 
+## Proxy-safe HTTP timeouts
+
+This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
+
 ## Canvas error page after no response
 
 Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). Keep this fix under `## [1.7.3] - Unreleased`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
+
+## Silent canvas read retries
+
+Run the focused UI set from `packages/ui` with at most three workers:
+
+```bash
+nice -n 19 npx jest src/api/client.test.js src/api/resilience.test.js src/utils/analystStatus.test.js src/ui-component/dropdown/AsyncDropdown.test.js src/views/canvas/NodeLinkNotes.test.js src/store/reducers/canvasReducer.test.js src/utils/flowDrafts.test.js src/ui-component/connection/connectionVisibility.test.js src/hooks/useDraftSave.test.js src/views/canvas/CanvasHeader.test.js -w 3
+```
+
+GET and HEAD retry by default. A non-GET call retries only with `retry: true` or `retry: { network: true }`; use that only for read-only load methods. Do not add it to saves, creates, publishing, uploads, or other writes. A request with its own signal is not shared with another caller. Keep the app-wide timeout unchanged.
 
 ## Import target-handle types
 

@@ -34,3 +34,10 @@ export function canvasSaveDocument(instance, { workflow = false } = {}) {
     saved.nodes = nodes
     return saved
 }
+
+// A Live save can wait on a retrying change check while the mounted canvas moves to another route.
+// Keep the captured payload tied to the route that started it; a late check must never write it to the new flow.
+export function liveSavePreflightForRoute(preflight, routeFlowId) {
+    if (!preflight || !routeFlowId || preflight.flowId !== routeFlowId) return null
+    return preflight
+}

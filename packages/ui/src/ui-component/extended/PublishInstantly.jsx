@@ -6,8 +6,9 @@ import { Alert, Box } from '@mui/material'
 
 import flowDraftsApi from '@/api/flowDrafts'
 import { SwitchInput } from '@/ui-component/switch/Switch'
-import { apiErrorMessage, PUBLISH_INSTANTLY_LOCKED, publishInstantlyLocked } from '@/utils/flowDrafts'
+import { PUBLISH_INSTANTLY_LOCKED, publishInstantlyLocked } from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const PublishInstantly = ({ dialogProps }) => {
     const dispatch = useDispatch()
@@ -34,7 +35,7 @@ const PublishInstantly = ({ dialogProps }) => {
             )
         } catch (err) {
             setOn(Boolean(draftStatus?.publishInstantly))
-            setError(apiErrorMessage(err, 'That setting could not be saved.'))
+            setError(settingFailureMessage(err))
         }
     }
 

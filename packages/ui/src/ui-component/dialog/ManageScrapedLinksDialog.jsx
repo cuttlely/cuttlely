@@ -32,6 +32,7 @@ import {
     closeSnackbar as closeSnackbarAction,
     enqueueSnackbar as enqueueSnackbarAction
 } from '@/store/actions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const ManageScrapedLinksDialog = ({ show, dialogProps, onCancel, onSave }) => {
     const portalElement = document.getElementById('portal')
@@ -83,7 +84,7 @@ const ManageScrapedLinksDialog = ({ show, dialogProps, onCancel, onSave }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

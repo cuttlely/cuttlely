@@ -8,7 +8,7 @@ const recoveryLogin = (body) => client.post(`/auth/recovery/login`, body, { head
 
 // permissions
 const getAllPermissions = (type) => client.get(`/auth/permissions/${type}`)
-const ssoSuccess = (token) => client.get(`/auth/sso-success?token=${token}`)
+const ssoSuccess = (token) => client.get(`/auth/sso-success?token=${token}`, { retry: false })
 const refreshSession = () => client.post(`/auth/refreshToken`)
 
 export default {

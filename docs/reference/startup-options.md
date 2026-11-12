@@ -99,6 +99,8 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `IFRAME_ORIGINS`                             | This server only                            | —                 | —             | Host, then Server settings     | Yes     |
 | `MCP_CORS_ORIGINS`                           | Built-in rule                               | —                 | —             | Host, then Server settings     | Yes     |
 | `TRUST_PROXY`                                | None                                        | —                 | —             | Host, then Server settings     | Yes     |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS`                 | 65000                                       | 1000 to 600000    | ms            | Host, then Server settings     | Yes     |
+| `HTTP_HEADERS_TIMEOUT_MS`                    | Idle connection timeout plus 1000 ms        | 1001 to 601000    | ms            | Host, then Server settings     | Yes     |
 | `APP_URL`                                    | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `GLOBAL_AGENT_HTTP_PROXY`                    | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `GLOBAL_AGENT_HTTPS_PROXY`                   | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |

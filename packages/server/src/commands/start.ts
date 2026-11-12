@@ -67,7 +67,7 @@ export default class Start extends BaseCommand {
             logger.info(`Shutting down Cuttlely...`)
             await Server.shutdown()
         } catch (error) {
-            logger.error('There was an error shutting down Flowise...', error)
+            logger.error('There was an error shutting down Cuttlely...', error)
             await this.failExit()
         }
 

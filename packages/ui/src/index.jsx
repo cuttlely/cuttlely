@@ -19,6 +19,7 @@ import ConfirmContextProvider from '@/store/context/ConfirmContextProvider'
 import { ReactFlowContext } from '@/store/context/ReactFlowContext'
 import { ConfigProvider } from '@/store/context/ConfigContext'
 import { ErrorProvider } from '@/store/context/ErrorContext'
+import { ConnectionProvider } from '@/store/context/ConnectionContext'
 
 // The providers sit inside the router because ErrorProvider navigates. A data router is what lets
 // the canvas block navigation while it has unsaved changes (useBlocker).
@@ -26,11 +27,13 @@ const AppShell = () => (
     <SnackbarProvider>
         <ConfigProvider>
             <ErrorProvider>
-                <ConfirmContextProvider>
-                    <ReactFlowContext>
-                        <App />
-                    </ReactFlowContext>
-                </ConfirmContextProvider>
+                <ConnectionProvider>
+                    <ConfirmContextProvider>
+                        <ReactFlowContext>
+                            <App />
+                        </ReactFlowContext>
+                    </ConfirmContextProvider>
+                </ConnectionProvider>
             </ErrorProvider>
         </ConfigProvider>
     </SnackbarProvider>

@@ -79,6 +79,7 @@ import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackba
 
 import '@/views/chatmessage/ChatMessage.css'
 import 'react-datepicker/dist/react-datepicker.css'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const StyledMenu = styled((props) => (
     <Menu
@@ -342,7 +343,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
         } catch (error) {
             console.error(error)
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -477,7 +478,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                 })
             } catch (error) {
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

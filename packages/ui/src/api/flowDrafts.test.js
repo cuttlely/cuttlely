@@ -23,7 +23,7 @@ describe('flowDrafts api', () => {
         flowDrafts.rollback('id', 'abc1234')
 
         expect(client.get).toHaveBeenCalledWith('/flow-drafts/a%20b')
-        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', { flowData })
+        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', { flowData }, { retry: false, authReplay: false })
         expect(client.delete).toHaveBeenCalledWith('/flow-drafts/id')
         expect(client.put).toHaveBeenCalledWith('/flow-drafts/id/settings', { publishInstantly: true })
         expect(client.post).toHaveBeenCalledWith('/flow-drafts/id/publish', { overwriteLiveChanges: true })
@@ -44,20 +44,32 @@ describe('flowDrafts api', () => {
         flowDrafts.saveDraft('id', flowData, { overwriteDraftChanges: 'true' })
         expect(client.put).toHaveBeenCalledTimes(4)
         for (const call of client.put.mock.calls) {
-            expect(call).toEqual(['/flow-drafts/id', { flowData }])
+            expect(call).toEqual(['/flow-drafts/id', { flowData }, { retry: false, authReplay: false }])
         }
         client.put.mockClear()
         flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 'abc123' })
-        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', { flowData, expectedDraftHash: 'abc123' })
+        expect(client.put).toHaveBeenCalledWith(
+            '/flow-drafts/id',
+            { flowData, expectedDraftHash: 'abc123' },
+            { retry: false, authReplay: false }
+        )
         flowDrafts.saveDraft('id', flowData, { expectedDraftHash: null })
-        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', { flowData, expectedDraftHash: null })
+        expect(client.put).toHaveBeenCalledWith(
+            '/flow-drafts/id',
+            { flowData, expectedDraftHash: null },
+            { retry: false, authReplay: false }
+        )
         flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 'abc123', overwriteDraftChanges: true })
-        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', {
-            flowData,
-            expectedDraftHash: 'abc123',
-            overwriteDraftChanges: true
-        })
+        expect(client.put).toHaveBeenCalledWith(
+            '/flow-drafts/id',
+            {
+                flowData,
+                expectedDraftHash: 'abc123',
+                overwriteDraftChanges: true
+            },
+            { retry: false, authReplay: false }
+        )
         flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 5, overwriteDraftChanges: 1 })
-        expect(client.put).toHaveBeenLastCalledWith('/flow-drafts/id', { flowData })
+        expect(client.put).toHaveBeenLastCalledWith('/flow-drafts/id', { flowData }, { retry: false, authReplay: false })
     })
 })

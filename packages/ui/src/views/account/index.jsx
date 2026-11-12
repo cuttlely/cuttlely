@@ -48,6 +48,7 @@ import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackba
 import { gridSpacing } from '@/store/constant'
 import { useConfig } from '@/store/context/ConfigContext'
 import { logoutSuccess, userProfileUpdated } from '@/store/reducers/authSlice'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| ACCOUNT SETTINGS ||============================== //
 
@@ -272,9 +273,7 @@ const AccountSettings = () => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to update profile: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to update profile: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -349,9 +348,7 @@ const AccountSettings = () => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to update password: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to update password: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -396,9 +393,7 @@ const AccountSettings = () => {
         } catch (error) {
             console.error('Error updating seats:', error)
             enqueueSnackbar({
-                message: `Failed to update seats: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to update seats: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
