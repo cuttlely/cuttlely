@@ -1521,6 +1521,12 @@ export class GithubSync {
         }
     }
 
+    // True when this commit is a saved version. The history's first commit is not.
+    private async carriesVersion(sha: string): Promise<boolean> {
+        const body = (await runGit(this.deps.store().dir, ['log', '-1', '--format=%B', sha])).stdout
+        return Boolean(readTrailer(body, 'Flow'))
+    }
+
     // One local version, parented on the remote history, with the same message plus the local and remote ids.
     private async commitGraft(tree: string, parent: string, localSha: string, foreign: string): Promise<string> {
         const dir = this.deps.store().dir
@@ -1977,7 +1983,10 @@ export class GithubSync {
                 return
             }
             const tree = await this.overlayTree(foreign, sha)
-            if (tree === parentTree) continue
+            // The history start has no version of its own, so an unchanged tree can be left out.
+            // A version commit still has to land: its message is what another server reads, even when
+            // every file already matches the repository.
+            if (tree === parentTree && !(await this.carriesVersion(sha))) continue
             parent = await this.commitGraft(tree, parent, sha, foreign)
             parentTree = tree
             created = true

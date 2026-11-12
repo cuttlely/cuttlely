@@ -197,6 +197,16 @@ function bareGrep(repo: string, rev: string, text: string): string {
     return execFileSync('git', ['--git-dir', repo, 'grep', '-l', text, rev], { encoding: 'utf8', env: cleanEnv() })
 }
 
+function versionFiles(dir: string): Record<string, string> {
+    const names = plainGit(dir, 'ls-tree', '-r', '--name-only', 'HEAD')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line && line !== 'README.md')
+    const files: Record<string, string> = {}
+    for (const name of names) files[name] = plainGit(dir, 'show', `HEAD:${name}`)
+    return files
+}
+
 function pushesOf(branch = 'main') {
     return gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes(`refs/heads/${branch}`)))
 }
@@ -539,6 +549,39 @@ describe('copying history to a repository', () => {
         expect(bareGrep(bare, resumed!, 'Three')).toContain('flows/')
         expect(resumed).not.toBe(third)
         expectFastForwardOnly()
+    })
+
+    test('a version whose files already match is still copied, so another server can read it', async () => {
+        await save('One')
+        const folder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        foreignCommit(bare, path.join(tmp, 'same-files'), 'main', versionFiles(versionsDir()))
+        const foreign = bareMain(bare)!
+        expect(bareFile(bare, foreign, folder)).toBe(plainGit(versionsDir(), 'show', `HEAD:${folder}`))
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const tip = bareMain(bare)!
+        expect(status.state).toBe('up-to-date')
+        expect(tip).not.toBe(foreign)
+        expect(bareRef(bare, `${tip}^`)).toBe(foreign)
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'rev-list', '--count', `${foreign}..${tip}`], {
+                encoding: 'utf8',
+                env: cleanEnv()
+            }).trim()
+        ).toBe('1')
+        expect(execFileSync('git', ['--git-dir', bare, 'log', '-1', '--format=%B', tip], { encoding: 'utf8', env: cleanEnv() })).toContain(
+            'Version-Flow:'
+        )
+        expect(bareFile(bare, tip, 'README.md')).toBe('# made on GitHub\n')
+        expect(bareFile(bare, tip, folder)).toBe(plainGit(versionsDir(), 'show', `HEAD:${folder}`))
+        expect(remoteNote(bare, tip, path.join(tmp, 'note-same'))).toBe(environmentListFingerprint(sync.environments()))
+        expectFastForwardOnly()
+
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        const read = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(read).toMatchObject({ role: 'read', state: 'up-to-date' })
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(tip)
+        expect(bareMain(bare)).toBe(tip)
     })
 
     test('a commit added on GitHub after a copy stops the next copy and is kept', async () => {
