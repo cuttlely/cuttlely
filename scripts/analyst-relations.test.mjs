@@ -136,6 +136,31 @@ describe('analyst relations: pure helpers', () => {
         ])
     })
 
+    it('resolves SQL TRIM and SUBSTRING routines without counting nested argument separators', () => {
+        for (const [expression, name, args] of [
+            ['trim(m)', 'btrim', 1],
+            ['trim(LEADING FROM m)', 'ltrim', 1],
+            ['trim(TRAILING m FROM m)', 'rtrim', 2],
+            ['trim(BOTH FROM (ARRAY[m, m])[1])', 'btrim', 1],
+            ['substring((ARRAY[m, m])[1] FROM 1 FOR 2)', 'substring', 3],
+            ['substring(m FOR 2)', 'substring', 3],
+            ['substring(m FROM 1)', 'substring', 2],
+            ['substring(m SIMILAR m ESCAPE m)', 'substring', 3]
+        ]) {
+            assert.deepEqual(statementObjects(`SELECT ${expression} IS NULL FROM moods`).calls, [
+                { schema: 'pg_catalog', name, args, hints: Array(args).fill(null) }
+            ])
+        }
+        for (const expression of ['substring(m, 1, 2)', '"substring"(m, 1, 2)', 'public.substring(m, 1, 2)']) {
+            const [call] = statementObjects(`SELECT ${expression}`).calls
+            assert.equal(call.schema, expression.startsWith('public.') ? 'public' : null)
+            assert.equal(call.args, 3)
+            assert.deepEqual(call.hints, [null, 'pg_catalog.int4', 'pg_catalog.int4'])
+        }
+        assert.equal(statementObjects('SELECT public.trim(m)').calls[0].name, 'trim')
+        assert.equal(statementObjects('SELECT "trim"(m)').calls[0].name, 'trim')
+    })
+
     it('types numeric literals the way PostgreSQL resolves integer and numeric overloads', () => {
         const hint = (literal) => statementObjects(`SELECT public.literal_pick(${literal})`).calls[0].hints[0]
         assert.equal(hint('1'), 'pg_catalog.int4')
@@ -1800,13 +1825,26 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             const queries = [
                 'SELECT length(m) AS n FROM moods LIMIT 1',
                 "SELECT m = 'calm'::text AS same FROM moods LIMIT 1",
-                'SELECT public.mood_same(ARRAY[m], ARRAY[m]) AS same FROM moods LIMIT 1'
+                'SELECT public.mood_same(ARRAY[m], ARRAY[m]) AS same FROM moods LIMIT 1',
+                'SELECT trim(m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(BOTH FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(LEADING FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(TRAILING FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(m FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FROM 1) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FOR 2) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FROM 1 FOR 2) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FOR 2 FROM 1) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m, 1, 2) IS NULL FROM public.moods LIMIT 1'
             ]
             for (const sql of queries) {
-                // PostgreSQL accepts both without explicit cast syntax on m.
+                // PostgreSQL accepts each form without explicit cast syntax on m.
                 assert.equal((await owner.query(sql)).rows.length, 1)
-                for (const relations of [undefined, ['public.moods']]) {
-                    await refusal(queryAnalystUrl(url, sql, { readOnlySql: true, relations }), /mood_text/)
+                for (const readOnlySql of [false, true]) {
+                    for (const relations of readOnlySql ? [undefined, ['public.moods']] : [['public.moods']]) {
+                        await refusal(queryAnalystUrl(url, sql, { readOnlySql, relations }), /mood_text/)
+                    }
                 }
             }
             // An unrelated implicit cast must not poison a query that cannot use it.
@@ -1816,6 +1854,34 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         } finally {
             await owner.query(`DROP FUNCTION public.mood_same(text[], text[]);
                 DROP CAST (public.mood AS text); DROP FUNCTION public.mood_text(public.mood); DROP TABLE public.moods`)
+        }
+    })
+
+    it('allows built-in SQL TRIM and SUBSTRING forms with ordinary text inputs', async (t) => {
+        if (skipped(t)) return
+        for (const expression of [
+            'trim(name)',
+            'trim(BOTH FROM name)',
+            "trim(LEADING 'R' FROM name)",
+            "trim(TRAILING 'e' FROM name)",
+            "trim('R' FROM name)",
+            "trim(name, 'R')",
+            'trim((ARRAY[name, name])[1])',
+            'trim(substring(name FROM 1 FOR 2))',
+            'substring(name FROM 1)',
+            'substring(name FOR 2)',
+            'substring(name FROM 1 FOR 2)',
+            'substring(name FOR 2 FROM 1)',
+            'substring((ARRAY[name, name])[1] FROM 1 FOR 2)',
+            "substring(name FROM '.*')",
+            "substring(name SIMILAR '%' ESCAPE '#')",
+            'substring(name, 1, 2)'
+        ]) {
+            const sql = `SELECT ${expression} AS value FROM public.items ORDER BY id LIMIT 1`
+            const expected = (await owner.query(sql)).rows
+            for (const readOnlySql of [false, true]) {
+                assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, expected, sql)
+            }
         }
     })
 

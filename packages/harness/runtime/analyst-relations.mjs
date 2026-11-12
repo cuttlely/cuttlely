@@ -994,9 +994,7 @@ const STATEMENT_NON_CALL_WORDS = new Set([
     'order',
     'over',
     'select',
-    'substring',
     'then',
-    'trim',
     'values',
     'when',
     'where',
@@ -1472,6 +1470,45 @@ export function statementObjects(statement) {
         if (cast && cast.start === from) return cast.name
         return null
     }
+    // PostgreSQL's grammar lowers these SQL forms to catalog routines. Collect the
+    // lowered arity before cast lookup so the routine's argument types supply the
+    // implicit coercion targets even when the query returns only a boolean.
+    const syntaxCall = (open, name) => {
+        const close = closingParen.get(open)
+        if (close === undefined) return null
+        let start = open + 1
+        let routine = name
+        if (name === 'trim') {
+            routine = wordAt(start, 'leading') ? 'ltrim' : wordAt(start, 'trailing') ? 'rtrim' : 'btrim'
+            if (['both', 'leading', 'trailing'].some((word) => wordAt(start, word))) start += 1
+        }
+        let args = 0
+        let argStart = start
+        let depth = 0
+        const keywords = new Set()
+        for (let at = start; at < close; at += 1) {
+            if (symbol(at, '(') || symbol(at, '[')) depth += 1
+            else if (symbol(at, ')') || symbol(at, ']')) depth -= 1
+            else if (depth === 0) {
+                const separator =
+                    !symbol(at - 1, '.') &&
+                    (name === 'trim' ? ['from'] : ['from', 'for', 'similar', 'escape']).some((word) => wordAt(at, word))
+                if (symbol(at, ',') || separator) {
+                    if (argStart < at) args += 1
+                    argStart = at + 1
+                    if (separator) keywords.add(tokens[at].value)
+                }
+            }
+        }
+        if (argStart < close) args += 1
+        // Comma-style substring is an ordinary, search-path-resolved call.
+        if (name === 'substring' && !keywords.size) return null
+        // SUBSTRING(value FOR length) inserts a start position of one.
+        if (name === 'substring' && keywords.has('for') && !keywords.has('from')) args += 1
+        // Keep all candidate overloads: SQL argument reordering and expressions
+        // cannot be narrowed using a hint from just one token of an argument.
+        return { schema: 'pg_catalog', name: routine, args, hints: Array(args).fill(null) }
+    }
     const valueTypes = new Map([
         ['current_date', 'pg_catalog.date'],
         ['current_time', 'pg_catalog.timetz'],
@@ -1540,6 +1577,19 @@ export function statementObjects(statement) {
         if (token.type === 'symbol' && token.value === '(') {
             const name = tokens[i - 1]
             const qualified = symbol(i - 2, '.') && tokens[i - 3]?.type === 'word'
+            const syntax =
+                name?.type === 'word' &&
+                !name.quoted &&
+                !qualified &&
+                !relationDeclarations.has(i) &&
+                ['trim', 'substring'].includes(name.value)
+                    ? syntaxCall(i, name.value)
+                    : null
+            if (syntax) {
+                calls.push(syntax)
+                frames.push(null)
+                continue
+            }
             const callable =
                 name?.type === 'word' &&
                 !relationDeclarations.has(i) &&
