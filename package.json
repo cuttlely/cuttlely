@@ -3,7 +3,7 @@
     "version": "1.7.3",
     "private": true,
     "license": "Apache-2.0",
-    "description": "The open-source agent platform for applications.",
+    "description": "Context-aware agent orchestration. Open source, Apache-2.0.",
     "homepage": "https://github.com/cuttlely/cuttlely",
     "workspaces": [
         "packages/*"

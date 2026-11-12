@@ -12,7 +12,7 @@ const html = (mode, props = {}) =>
 describe('UI strings', () => {
     test('returns the English string for a key, English for a missing locale and the key when unknown', () => {
         expect(t('hero.headline')).toBe('Your applications deserve agents.')
-        expect(t('hero.tagline')).toBe('The open-source agent platform for applications.')
+        expect(t('hero.tagline')).toBe('Context-aware agent orchestration. Open source, Apache-2.0.')
         expect(t('hero.headline', 'xx')).toBe(en['hero.headline'])
         expect(t('no.such.key')).toBe('no.such.key')
         expect(t('demo.needsKey')).toBe('Add a model key first')
@@ -35,7 +35,7 @@ describe('AppHero', () => {
             expect(out).toContain('data-testid="app-hero"')
             expect(out).toContain('<h2')
             expect(out).toContain('Your applications deserve agents.')
-            expect(out).toContain('The open-source agent platform for applications.')
+            expect(out).toContain('Context-aware agent orchestration. Open source, Apache-2.0.')
             expect(out).toContain('alt=""')
             expect(out).toContain('aria-hidden="true"')
             const width = Number(out.match(/<img[^>]*width="(\d+)"/)[1])
