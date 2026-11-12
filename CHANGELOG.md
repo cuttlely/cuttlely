@@ -42,6 +42,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   **#454 (`95c64dab`):** Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
 
+-   An organization Admin, or a caller whose active team role includes `users:manage`, can cancel a pending invitation from User Management (`/users`), including a pending owner invitation. The same removal revokes that organization's invite links. Removing an active or disabled person from every team stays limited to an active organization owner. Self-removal, the last active owner, and a current SCIM link are still refused.
+
 ## [1.7.2] - 2026-11-10
 
 ### Added

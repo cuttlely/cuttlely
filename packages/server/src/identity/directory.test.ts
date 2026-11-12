@@ -228,6 +228,65 @@ describe('pending organization owner invitation removal', () => {
         expect(db.prepare('SELECT userId FROM organization_user').all()).toHaveLength(2)
     })
 
+    it('lets an admin cancel the pending owner invitation and refuses a caller without users:manage', async () => {
+        const { sql, db, id } = await pendingOwner()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
+                ('admin-1', 'Admin', 'admin@example.com', 'active', 0),
+                ('clerk-1', 'Clerk', 'clerk@example.com', 'active', 0);
+            INSERT INTO role (id, "organizationId", name, permissions) VALUES ('role-admin', NULL, 'admin', '[]');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES
+                ('${ORG}', 'admin-1', '${ROLE}', 'active'),
+                ('${ORG}', 'clerk-1', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES
+                ('${TEAM}', 'admin-1', 'role-admin', 'active'),
+                ('${TEAM}', 'clerk-1', '${ROLE}', 'active');
+        `)
+        const clerk = { id: 'clerk-1', organizationId: ORG, workspaceId: TEAM }
+        const unlinkOnly = { id: 'clerk-1', organizationId: ORG, workspaceId: TEAM, permissions: ['workspace:unlink-user'] }
+        const admin = { id: 'admin-1', organizationId: ORG, workspaceId: TEAM }
+        await expect(deleteOrganizationUser(sql, clerk, ORG, id, { invitationOnly: true })).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, unlinkOnly, ORG, id, { invitationOnly: true })).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE userId = ?').all(id)).toEqual([{ usedAt: null }])
+        await expect(deleteOrganizationUser(sql, admin, ORG, OWNER)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, id, { invitationOnly: true })).resolves.toEqual({ id })
+        expect(db.prepare('SELECT usedAt, consumeId FROM identity_action_link WHERE userId = ?').all(id)).toEqual([
+            { usedAt: expect.any(String), consumeId: 'revoked' }
+        ])
+        expect(db.prepare('SELECT userId FROM organization_user WHERE userId = ?').all(OWNER)).toHaveLength(1)
+        expect(db.prepare('SELECT status FROM "user" WHERE id = ?').all(OWNER)).toEqual([{ status: 'active' }])
+    })
+
+    it('refuses an admin cancellation once the pending owner has become active', async () => {
+        const { sql, db, id } = await pendingOwner()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion)
+                VALUES ('admin-1', 'Admin', 'admin@example.com', 'active', 0);
+            INSERT INTO role (id, "organizationId", name, permissions) VALUES ('role-admin', NULL, 'admin', '[]');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status)
+                VALUES ('${ORG}', 'admin-1', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status)
+                VALUES ('${TEAM}', 'admin-1', 'role-admin', 'active');
+        `)
+        db.prepare('UPDATE "user" SET status = ? WHERE id = ?').run('active', id)
+        const admin = { id: 'admin-1', organizationId: ORG, workspaceId: TEAM }
+        await expect(deleteOrganizationUser(sql, admin, ORG, id, { invitationOnly: true })).rejects.toMatchObject({
+            status: 409,
+            message: 'This invitation is no longer pending. Refresh the user list.'
+        })
+        expect(db.prepare('SELECT userId FROM organization_user WHERE userId = ?').all(id)).toHaveLength(1)
+        expect(db.prepare('SELECT usedAt FROM identity_action_link WHERE userId = ?').all(id)).toEqual([{ usedAt: null }])
+    })
+
     it('refuses cancellation when the pending owner has become active', async () => {
         const { sql, db, id } = await pendingOwner()
         db.prepare('UPDATE "user" SET status = ? WHERE id = ?').run('active', id)

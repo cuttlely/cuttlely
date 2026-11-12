@@ -201,7 +201,7 @@ This read-only report prints aggregate counts for legacy bindings and Harness-na
 
 To roll back enforcement, restore `off` and restart. Scoped principals are then refused and legacy principals use the compatibility path. Retain the added schema: modern credentials cannot be reconstructed as legacy secrets by downgrading tables. [Full migration and rollback reference](./reference/access-keys.md#rollout-and-migration).
 
-User Management also supports cancellation of another pending owner invitation by an active organization owner in **Users** (`/users`). Invite links are revoked; accepted invitations, self-removal and the last active owner are refused. Active owners remain read-only in the UI.
+User Management also supports cancellation of a pending invitation, including another pending owner invitation, by an active organization owner or by an Admin in **Users** (`/users`). Admin is the built-in Admin role, or any active team role with `users:manage`. Invite links are revoked. Removing an active or disabled person from every team stays limited to an active organization owner. Accepted invitations, self-removal and the last active owner are refused. Active owners remain read-only in the UI.
 
 ## Invites after 1.3.0
 

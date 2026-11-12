@@ -148,7 +148,7 @@ For an OIDC invitation, the provider asks the person to sign in again even when 
 
 Until they accept, the person is a pending invite: the Users list shows them as `invited`, and they have no access to any team. Signing in through WorkOS or generic OIDC without the link shows `You have a pending invite. Open the invite link from your email to join.` and leaves them pending.
 
-In **User Management** (`/users`), an active organization owner can use the trash action to cancel another pending owner invitation. Confirmation names the email and revokes invite links across the organization’s teams. Cancellation is refused if acceptance has already completed; refresh the list. Self-removal and the last active owner are protected, and active owners stay **Super User, read-only** in this UI.
+In **User Management** (`/users`), an active organization owner, or an Admin (the built-in Admin role or a role with `users:manage`), can use the trash action to cancel a pending invitation, including another pending owner invitation. Confirmation names the email and revokes invite links across the organization’s teams. Removing an active or disabled person from every team stays limited to an active organization owner. Cancellation is refused if acceptance has already completed; refresh the list. Self-removal and the last active owner are protected, and active owners stay **Super User, read-only** in this UI.
 
 An invite link:
 

@@ -411,9 +411,56 @@ async function assertSameWorkspace(query: QueryFn, sql: Sql, actor: DirectoryAct
     if (!actor.workspaceId || actor.workspaceId !== workspaceId) throw new DirectoryError(404, 'Team not found')
 }
 
-/** A non-owner may change a person only when that person is on the caller's active team. */
-async function assertSharedActiveTeam(query: QueryFn, sql: Sql, actor: DirectoryActor, userId: string): Promise<void> {
+/**
+ * Active non-owner who may cancel a pending invite.
+ * Organization owners stay on the active-owner path, including a disabled owner.
+ * A passed permission list is the grant. Otherwise the active team's role is:
+ * the built-in Admin role (by name) or any role whose stored keys include users:manage.
+ */
+async function actorCanCancelInvites(query: QueryFn, sql: Sql, actor: DirectoryActor): Promise<boolean> {
+    if (await ownerUser(query, sql, actor.organizationId, actor.id)) return false
+    if (!actor.workspaceId) return false
+    const rows = await query(
+        `SELECT u.${q(sql, 'status')} AS userStatus, ou.${q(sql, 'status')} AS orgStatus,
+                wu.${q(sql, 'status')} AS teamStatus, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
+         FROM ${q(sql, 'user')} u
+         LEFT JOIN ${q(sql, 'organization_user')} ou
+           ON ou.${q(sql, 'userId')} = u.${q(sql, 'id')} AND ou.${q(sql, 'organizationId')} = ?
+         LEFT JOIN ${q(sql, 'workspace_user')} wu
+           ON wu.${q(sql, 'userId')} = u.${q(sql, 'id')} AND wu.${q(sql, 'workspaceId')} = ?
+         LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = wu.${q(sql, 'roleId')}
+         WHERE u.${q(sql, 'id')} = ?`,
+        [actor.organizationId, actor.workspaceId, actor.id]
+    )
+    const row = rows[0]
+    if (!row) return false
+    if (text(cell(row, 'userStatus')).toLowerCase() !== 'active') return false
+    if (text(cell(row, 'orgStatus')).toLowerCase() !== 'active') return false
+    const teamStatus = text(cell(row, 'teamStatus')).toLowerCase()
+    if (teamStatus !== 'active' && teamStatus !== 'invited') return false
+    if (text(cell(row, 'name')).toLowerCase() === OWNER_ROLE) return false
+    if (Array.isArray(actor.permissions)) return actor.permissions.includes('users:manage')
+    return permissionsOn(row).includes('users:manage')
+}
+
+async function userAccountStatus(query: QueryFn, sql: Sql, userId: string): Promise<string> {
+    const rows = await query(`SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ?`, [userId])
+    return text(cell(rows[0] || {}, 'status')).toLowerCase()
+}
+
+/** A non-owner may change a person only when that person is on the caller's active team.
+ *  Organization removal sets allowInvitedManager so a users:manage actor can reach a pending
+ *  invite that has no team membership.
+ */
+async function assertSharedActiveTeam(
+    query: QueryFn,
+    sql: Sql,
+    actor: DirectoryActor,
+    userId: string,
+    options: { allowInvitedManager?: boolean } = {}
+): Promise<void> {
     if (await ownerUser(query, sql, actor.organizationId, actor.id)) return
+    if (options.allowInvitedManager && (await userAccountStatus(query, sql, userId)) === 'invited') return
     if (!actor.workspaceId) throw new DirectoryError(400, 'Active workspace is required')
     const rows = await query(
         `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')}
@@ -857,14 +904,16 @@ export async function deleteOrganizationUser(
     let scimLinkRefused = false
     try {
         return await sql.transaction(async (query) => {
-            await assertSharedActiveTeam(query, sql, actor, userId)
-            if (!(await ownerUser(query, sql, organizationId, actor.id))) {
+            const canCancelInvites = await actorCanCancelInvites(query, sql, actor)
+            await assertSharedActiveTeam(query, sql, actor, userId, { allowInvitedManager: canCancelInvites })
+            // Someone who is neither an owner nor able to cancel invites is refused before the lock.
+            if (!canCancelInvites && !(await ownerUser(query, sql, organizationId, actor.id))) {
                 throw new DirectoryError(403, 'Only an owner can remove someone from every team')
             }
             await lockOrgOwners(query, sql, organizationId, userId)
             // Check current, active ownership under the lock, including on repeatable-read databases.
             const owners = await enabledOwnerIds(query, sql, organizationId, true)
-            if (!owners.includes(actor.id)) {
+            if (!canCancelInvites && !owners.includes(actor.id)) {
                 throw new DirectoryError(403, 'Only an active owner can remove someone from every team')
             }
             const membership = await query(
@@ -875,9 +924,20 @@ export async function deleteOrganizationUser(
                 [organizationId, userId]
             )
             if (!membership.length) throw new DirectoryError(404, 'User not found')
+            const invited = text(cell(membership[0], 'userStatus')).toLowerCase() === 'invited'
+            // Re-read status under the lock. An invite that was accepted is not an admin removal.
+            if (!owners.includes(actor.id) && !(canCancelInvites && invited)) {
+                if (options.invitationOnly && !invited) {
+                    throw new DirectoryError(409, 'This invitation is no longer pending. Refresh the user list.')
+                }
+                if (!(await ownerUser(query, sql, organizationId, actor.id))) {
+                    throw new DirectoryError(403, 'Only an owner can remove someone from every team')
+                }
+                throw new DirectoryError(403, 'Only an active owner can remove someone from every team')
+            }
             if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
             if (userId === actor.id) throw new DirectoryError(403, 'You cannot remove yourself from the organization')
-            if (options.invitationOnly && text(cell(membership[0], 'userStatus')).toLowerCase() !== 'invited') {
+            if (options.invitationOnly && !invited) {
                 throw new DirectoryError(409, 'This invitation is no longer pending. Refresh the user list.')
             }
             const scimLinks = await scimLinksForOrganizationRemoval(query, sql, organizationId, userId)
