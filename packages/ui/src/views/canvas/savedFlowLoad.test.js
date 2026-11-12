@@ -142,53 +142,43 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toContain('getSpecificChatflowApi.request(id, { signal: openRequest.start(id) })')
         expect(source).toContain('const signal = openRequest.signalFor(loaded.id)')
         expect(source).toContain('.getStatus(loaded.id, { signal })')
-        expect(source).toContain('.getStatus(created.id, { signal })')
+        expect(source).toContain('openRequestSignalFor: openRequest.signalFor')
         expect(source).toContain('openRequest.abort(loaded.id)')
         expect(source).toContain('useEffect(() => () => abortOpenRequest(chatflowId), [abortOpenRequest, chatflowId])')
         expect(source).not.toMatch(/if \(getSpecificChatflowApi\.(data|error)\)/)
-        // A flow created on this canvas is blocked by its own id until its status is known, and Retry re-reads that
-        // status instead of reloading the saved copy over the cards on the canvas.
+        // A newly created flow is exposed only by the queue's acknowledgement, after its status callback made the
+        // exact id usable. The queue tests cover retrying that status read without another creation request.
         expect(source).toContain('const routeFlowId = chatflowId || createdFlowIdRef.current')
+        expect(source).toContain("const saveQueueRouteKey = createdFlowIdRef.current === chatflowId ? '' : chatflowId")
+        expect(source).toContain('routeKey: saveQueueRouteKey')
         expect(source).toContain('const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)')
+        expect(source).toMatch(/onStatus: \(status, created\) => \{\s+setDraftStatus\(status\)/)
+        expect(source).toContain('setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null })')
+        expect(source).toContain('onDirty={setDirty}')
         expect(source).toContain('const action = createdFlowRouteAction(createdFlowIdRef.current, chatflowId)')
         expect(source).toMatch(/if \(action !== 'load'\) return\s+\/\/[\s\S]*?createdFlowIdRef\.current = null\s+setDraftStatus\(null\)/)
-        expect(source).toMatch(
-            /if \(createdFlowIdRef\.current === routeFlowId && draftStatusLoad\.request === 'status'\) \{\s+\/\/[^\n]*\n\s+loadCreatedStatus\(/
-        )
-        // Every save records the route that started it. Awaited draft/name writes and API-hook completions check the
-        // current route before changing canvas state, clearing dirty, or showing a result.
-        expect(source).toContain('const activeRouteFlowIdRef = useRef(chatflowId || null)')
-        expect(source).toContain('pendingCreateSaveRef.current = { flowId: chatflowId || null, rev: saveRev }')
-        expect(source).toMatch(
-            /await draftSave\.save\([\s\S]*?if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
-        )
-        expect(source).toMatch(
-            /await chatflowsApi\.updateChatflow\([\s\S]*?if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
-        )
-        expect(source).toMatch(
-            /const pendingSave = pendingUpdateSaveRef\.current[\s\S]*?pendingUpdateSaveRef\.current = undefined\s+if \(!saveCompletionForRoute\(pendingSave, activeRouteFlowIdRef\.current\)\) return/
-        )
-        expect(source).toMatch(
-            /if \(!saveApiResultReady\(createNewChatflowApi\.data, createNewChatflowApi\.error\)\) return\s+const pendingSave = pendingCreateSaveRef\.current\s+pendingCreateSaveRef\.current = undefined/
-        )
-        expect(source).toContain('pendingCreateSaveRef.current = undefined')
-        expect(source).toContain('pendingUpdateSaveRef.current = undefined')
-        expect(source).not.toContain('pendingCreateSaveRevRef')
-        expect(source).not.toContain('pendingUpdateSaveRevRef')
+        expect(source).not.toContain('loadCreatedStatus')
     })
 
-    test('agentflow Live updates keep their pending token until a result arrives', () => {
-        const source = fs.readFileSync(path.join(__dirname, '..', 'agentflowsv2', 'Canvas.jsx'), 'utf8')
-        expect(source).toMatch(
-            /if \(!saveApiResultReady\(updateChatflowApi\.data, updateChatflowApi\.error\)\) return\s+const pendingSave = pendingUpdateSaveRef\.current\s+pendingUpdateSaveRef\.current = undefined/
-        )
-    })
-
-    test('a first-draft outcome that did not establish status always reads the created flow status', () => {
+    test('the classic queued Live save keeps its starting route through its change check and callbacks', () => {
         const source = fs.readFileSync(path.join(__dirname, 'index.jsx'), 'utf8')
-        expect(source).toMatch(
-            /saveFirstDraft\(chatflow, draft, harnessNote, saveRev\)\.then\(\(known\) => \{\s+if \(\s*firstDraftNeedsStatus\(known\)/
-        )
-        expect(source).toContain('if (!saveCompletionForRoute(pendingSave, activeRouteFlowIdRef.current)) return null')
+        expect(source).toContain('const routeFlowIdRef = useRef(routeFlowId)')
+        expect(source).toContain('routeFlowIdRef.current = routeFlowId')
+        expect(source).toContain('id: flowId')
+        expect(source).toMatch(/beforeWrite: async[\s\S]*?getHasChatflowChanged\(flowId, baseUpdatedDate\)/)
+        expect(source).toMatch(/onAck: \(saved\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onChanged: async \(stored\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onError: \(error\) => \{\s+if \(isStartingRoute\(\)\)/)
+    })
+
+    test('the v2 queued Live save ignores a late acknowledgement after the route changes', () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', 'agentflowsv2', 'Canvas.jsx'), 'utf8')
+        expect(source).toContain('const routeFlowIdRef = useRef(routeFlowId)')
+        expect(source).toContain('routeFlowIdRef.current = routeFlowId')
+        expect(source).toContain('id: flowId')
+        expect(source).toMatch(/onAck: \(saved\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onChanged: async \(stored\) => \{\s+if \(!isStartingRoute\(\)\) return/)
+        expect(source).toMatch(/onError: \(error\) => \{\s+if \(isStartingRoute\(\)\)/)
+        expect(source).toMatch(/if \(isConfirmed && isStartingRoute\(\)\)[\s\S]*?flowId, flowName\)/)
     })
 })

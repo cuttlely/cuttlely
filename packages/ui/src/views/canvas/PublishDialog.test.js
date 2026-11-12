@@ -613,7 +613,7 @@ describe('Publish checks that nobody else saved the draft', () => {
         }
     }
 
-    const open = async () => {
+    const open = async (overrides = {}) => {
         flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
         flowDraftsApi.getStatus.mockImplementation(() => new Promise(() => {}))
         const props = {
@@ -626,7 +626,8 @@ describe('Publish checks that nobody else saved the draft', () => {
             onChatflowUpdated: jest.fn(),
             onApplyCanvas: jest.fn(),
             draftExpected: () => ({ expectedDraftHash: 'zz-test-loaded' }),
-            onDraftConflict: jest.fn()
+            onDraftConflict: jest.fn(),
+            ...overrides
         }
         const container = document.createElement('div')
         document.body.appendChild(container)
@@ -665,6 +666,34 @@ describe('Publish checks that nobody else saved the draft', () => {
         expect(view.props.onClose).toHaveBeenCalled()
         expect(view.props.onDraftConflict).toHaveBeenCalledWith({ savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' }, savedAt: null })
         expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
+        act(() => view.root.unmount())
+    })
+
+    test('waits for the save queue and reads the current draft hash at click time', async () => {
+        let hash = 'zz-test-before'
+        const draftExpected = jest.fn(() => ({ expectedDraftHash: hash }))
+        const view = await open({ saveQueueBusy: true, draftExpected })
+        const publish = [...document.body.querySelectorAll('button')].find((item) => item.textContent === 'Publish')
+        expect(publish.disabled).toBe(true)
+        expect(document.body.textContent).toContain('Save your changes first.')
+        expect(draftExpected).not.toHaveBeenCalled()
+
+        hash = 'zz-test-after'
+        await act(async () => {
+            view.root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, { ...view.props, saveQueueBusy: false })
+                )
+            )
+        })
+        flowDraftsApi.publish.mockResolvedValueOnce({
+            data: { chatflow: { id: 'flow-1', type: 'ETL' }, status: { mode: 'draft', draft: null }, recorded: true }
+        })
+        await clickButton('Publish')
+        expect(draftExpected).toHaveBeenCalledTimes(1)
+        expect(flowDraftsApi.publish).toHaveBeenCalledWith('flow-1', { expectedDraftHash: 'zz-test-after' })
         act(() => view.root.unmount())
     })
 })

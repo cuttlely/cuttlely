@@ -109,7 +109,8 @@ export const testChatFlow = (chatflow, status) => (chatflow ? { ...chatflow, flo
 // and a renamed flow still updates the name on Live without sending the canvas (that route writes Live).
 export const planCanvasSave = ({ mode, name, savedName, flowData, hasId }) => {
     if (!hasId) return { create: true, live: { name, flowData }, draft: null }
-    if (mode !== 'draft') return { create: false, live: { name, flowData }, draft: null }
+    if (mode !== 'draft' && mode !== 'live') return { create: false, live: null, draft: null, modeUnknown: true }
+    if (mode === 'live') return { create: false, live: { name, flowData }, draft: null }
     return {
         create: false,
         live: name !== savedName ? { name } : null,
@@ -302,6 +303,7 @@ export const recheckPublish = async (read, before) => {
 }
 
 export const apiErrorMessage = (error, fallback) => {
+    if (error?.saveAgain === true && typeof error.message === 'string' && error.message) return error.message
     const data = error?.response?.data
     if (data && typeof data === 'object' && typeof data.message === 'string' && data.message) return data.message
     if (typeof data === 'string' && data) return data
