@@ -170,6 +170,24 @@ describe('save queue core', () => {
         expect(calls.onExhausted).not.toHaveBeenCalled()
     })
 
+    test('reconciles an earlier lost response when the next draft retry reports a conflict', async () => {
+        const conflict = { response: { status: 409, data: { code: 'DRAFT_CHANGED', savedBy: { id: 'me' } } } }
+        const save = entry()
+        const stored = status('stored', FLOW_A)
+        const { queue, calls } = makeQueue({
+            putDraft: jest.fn().mockRejectedValueOnce(noResponse()).mockRejectedValueOnce(conflict),
+            getDraftStatus: jest.fn().mockRejectedValueOnce(noResponse()).mockResolvedValueOnce({ data: stored })
+        })
+
+        queue.enqueue(save)
+        await flush()
+        expect(calls.putDraft).toHaveBeenCalledTimes(2)
+        expect(calls.getDraftStatus).toHaveBeenCalledTimes(2)
+        expect(save.onAck).toHaveBeenCalledWith(stored, expect.objectContaining({ reconciled: true }))
+        expect(save.onConflict).not.toHaveBeenCalled()
+        expect(calls.onExhausted).not.toHaveBeenCalled()
+    })
+
     test('rejects recent content from another tab and opens review through the replay guard', async () => {
         const save = entry()
         const other = status('other', FLOW_B)

@@ -416,6 +416,16 @@ export const createSaveQueue = ({
                 entry.lastAttemptSettledAt = attemptTiming.settledAt
                 const conflict = draftConflictFrom(error)
                 if (conflict) {
+                    // An earlier no-response attempt in this burst may be the write that moved the draft. Check
+                    // the stored canvas before treating this answered retry as somebody else's conflicting save.
+                    if (attempt > 0) {
+                        const checked = await reconcileDraft(entry)
+                        if (checked.result === 'landed') {
+                            await ackDraft(entry, checked.status, true)
+                            return 'done'
+                        }
+                        if (checked.result === 'conflict') return openDraftConflict(entry, null, checked.status)
+                    }
                     return openDraftConflict(entry, conflict)
                 }
                 if (!isNoResponse(error) || isCancel(error)) throw error
