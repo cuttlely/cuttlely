@@ -27,7 +27,9 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-최신 안정 버전은 **1.7.2**입니다. 이미지 `1.7.2`를 지정하거나 `cuttlely@1.7.2`를 설치하세요. [1.7.2 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.2) · [변경 기록](./CHANGELOG.md).
+**1.7.3은 요청에 응답이 없을 때도 현재 페이지를 유지하고, 핸들 유형 이름만 바뀐 가져오기 연결을 유지합니다.** **Something went wrong** 대신 서버에 연결할 수 없다고 알려 줍니다. 편집 중 짧은 연결 끊김은 읽기 요청을 조용히 다시 시도하고, 저장이 끝난 뒤에도 그 사이 편집을 저장된 것으로 표시하지 않으며, 리버스 프록시 뒤의 자체 호스팅은 유휴 연결을 더 오래 유지합니다.
+
+최신 안정 버전은 **1.7.3**입니다. 이미지 `1.7.3`을 지정하거나 `cuttlely@1.7.3`을 설치하세요. [1.7.3 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.3) · [변경 기록](./CHANGELOG.md).
 
 **1.7.0은 보안 예외 릴리스입니다. 이전 버전에서 업그레이드하는 경우 작업이 필요합니다.** 데이터베이스, 암호화 키, 설정을 백업한 다음, 브라우저 관리에서 잠기지 않도록 배포 전에 [운영자 지정 및 복구](./docs/how-to/instance-operator.md)를 읽으세요. 호스트 로그 일회용 코드로 하는 신청, `CUTTLELY_INSTANCE_OPERATOR`, 액세스 키 적용이 기본적으로 꺼져 있다는 점을 포함한 전체 체크리스트는 [업그레이드 주의사항](./docs/upgrading.md)("1.7.0 security-exception upgrade" 절)과 [변경 기록](./CHANGELOG.md)에 있습니다. 설정 코드는 첫 계정만 만들며, 호스트에서 로컬 로그인이 이미 켜져 있어야 합니다(Docker와 `npx cuttlely start`는 기본적으로 이를 켭니다). 이 코드로 서비스를 구성하거나 인스턴스 운영자를 지정할 수는 없습니다. [로그인](./docs/how-to/sign-in.md) · [처음 10분](#your-first-10-minutes).
 
