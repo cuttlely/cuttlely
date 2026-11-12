@@ -1631,6 +1631,23 @@ export function statementObjects(statement) {
             frames.pop()
             continue
         }
+        // PostgreSQL lowers these SQL spellings to operators before inserting implicit
+        // casts. Resolve them with symbol operators so their argument types participate
+        // in the cast-helper check, even when no text literal/type appears in the SQL.
+        if (token.type === 'word' && !token.quoted && !symbol(i - 1, '.') && !symbol(i + 1, '.')) {
+            const operator =
+                token.value === 'like'
+                    ? '~~'
+                    : token.value === 'ilike'
+                    ? '~~*'
+                    : token.value === 'similar' && wordAt(i + 1, 'to')
+                    ? '~'
+                    : null
+            if (operator) {
+                const name = `${wordAt(i - 1, 'not') ? '!' : ''}${operator}`
+                operators.set(`\0${name}`, { schema: null, name })
+            }
+        }
         if (token.type !== 'symbol' || !BODY_OPERATOR_CHARS.has(token.value)) continue
         let name = token.value
         let end = token.start

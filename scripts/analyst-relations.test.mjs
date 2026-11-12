@@ -136,6 +136,27 @@ describe('analyst relations: pure helpers', () => {
         ])
     })
 
+    it('resolves word-form pattern operators, including negation, without reading identifiers as operators', () => {
+        for (const [expression, name] of [
+            ['m LIKE m', '~~'],
+            ['m NOT LIKE m', '!~~'],
+            ['m ILIKE m', '~~*'],
+            ['m NOT ILIKE m', '!~~*'],
+            ['m SIMILAR TO m', '~'],
+            ['m NOT SIMILAR TO m', '!~']
+        ]) {
+            assert.deepEqual(statementObjects(`SELECT ${expression} FROM moods`).operators, [{ schema: null, name }])
+        }
+        for (const sql of [
+            'SELECT "like", "ilike", "similar" FROM moods',
+            'SELECT m.like, m.ilike, m.similar FROM moods m',
+            "SELECT 'LIKE ILIKE SIMILAR TO' FROM moods /* NOT LIKE */",
+            "SELECT substring(m SIMILAR m ESCAPE '#') FROM moods"
+        ]) {
+            assert.deepEqual(statementObjects(sql).operators, [], sql)
+        }
+    })
+
     it('resolves SQL TRIM and SUBSTRING routines without counting nested argument separators', () => {
         for (const [expression, name, args] of [
             ['trim(m)', 'btrim', 1],
@@ -1823,6 +1844,12 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             ALTER FUNCTION public.mood_same(text[], text[]) OWNER TO "${writer}";`)
         try {
             const queries = [
+                'SELECT m LIKE m FROM public.moods LIMIT 1',
+                'SELECT m NOT LIKE m FROM public.moods LIMIT 1',
+                'SELECT m ILIKE m FROM public.moods LIMIT 1',
+                'SELECT m NOT ILIKE m FROM public.moods LIMIT 1',
+                'SELECT m SIMILAR TO m FROM public.moods LIMIT 1',
+                'SELECT m NOT SIMILAR TO m FROM public.moods LIMIT 1',
                 'SELECT length(m) AS n FROM moods LIMIT 1',
                 "SELECT m = 'calm'::text AS same FROM moods LIMIT 1",
                 'SELECT public.mood_same(ARRAY[m], ARRAY[m]) AS same FROM moods LIMIT 1',
@@ -1881,6 +1908,19 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             const expected = (await owner.query(sql)).rows
             for (const readOnlySql of [false, true]) {
                 assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, expected, sql)
+            }
+        }
+    })
+
+    it('allows word-form pattern operators with ordinary text inputs', async (t) => {
+        if (skipped(t)) return
+        for (const operator of ['LIKE', 'NOT LIKE', 'ILIKE', 'NOT ILIKE', 'SIMILAR TO', 'NOT SIMILAR TO']) {
+            for (const expression of [`name ${operator} name`, `name ${operator} (name) ESCAPE '#'`]) {
+                const sql = `SELECT ${expression} AS matches FROM public.items ORDER BY id LIMIT 1`
+                const expected = (await owner.query(sql)).rows
+                for (const readOnlySql of [false, true]) {
+                    assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, expected, sql)
+                }
             }
         }
     })

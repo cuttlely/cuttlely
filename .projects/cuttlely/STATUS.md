@@ -38,6 +38,8 @@ FROM column rename lists on base tables and joined tables resolve referenced ali
 
 SQL-syntax `TRIM` resolves to the catalog `btrim`, `ltrim` or `rtrim` routine, and SQL-syntax `SUBSTRING` resolves with its lowered argument count before implicit cast helpers are filtered. Their routine argument types supply coercion targets even when the query returns only `IS NULL`. The PostgreSQL mood-to-text regression refuses the disallowed helper in both policy modes; ordinary text inputs remain allowed. Comma-style `substring` and quoted or qualified routine names retain ordinary function lookup. This uses the existing catalog reads and single PREPARE.
 
+Word-form `LIKE`, `ILIKE` and `SIMILAR TO`, including their negated forms, resolve to their catalog operators before implicit cast helpers are filtered. Operator argument types expose the text coercions even when both operands are enum columns and no text literal appears. PostgreSQL-backed regressions check refusal of the disallowed mood-to-text helper in both policy modes, with and without a table selection when policy is enabled, and allow ordinary text operands. Quoted and qualified column names are not interpreted as word-form operators. The existing cast-helper guarantee and single-PREPARE check are unchanged.
+
 `scripts/analyst-relations.test.mjs` enables the existing `watch_ddl` fixture with a sequence counter, runs a read-only query, and confirms that the counter was not called. `scripts/analyst-readonly-role.test.mjs` covers a login without `TEMP` and checks that the safety and query transactions remain read only. The `analyst-postgres` CI matrix runs these checks on Postgres 14, 15, 16, 17 and 18.
 
 ## Code Repository GitHub page links
