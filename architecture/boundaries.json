@@ -329,6 +329,8 @@
             "packages/ui/public/icon-maskable-192.png",
             "packages/ui/public/icon-maskable-512.png",
             "packages/ui/src/hooks/useCanvasLook.js",
+            "packages/ui/src/hooks/useCanvasOpenRequest.js",
+            "packages/ui/src/hooks/useCanvasOpenRequest.test.js",
             "packages/ui/src/layout/MainLayout/Sidebar/MenuList/AdminSection.jsx",
             "packages/ui/src/layout/MainLayout/Sidebar/MenuList/activeRoute.js",
             "packages/ui/src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js",
