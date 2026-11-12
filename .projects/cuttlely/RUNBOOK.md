@@ -346,7 +346,7 @@ This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused covera
 
 ## Canvas error page after no response
 
-This branch is `fix/canvas-save-crash` from `main` at `95c64dab`. Keep this fix under `## [Unreleased]`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
+Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). Keep this fix under `## [1.7.3] - Unreleased`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
 
 ## Silent canvas read retries
 
@@ -360,11 +360,15 @@ GET and HEAD retry by default. A non-GET call retries only with `retry: true` or
 
 ## Import target-handle types
 
-Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Keep this fix under `## [Unreleased]`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Keep this fix under `## [1.7.3] - Unreleased`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+
+## Local 1.7.3 release preparation
+
+This branch is `release/1.7.3` from `origin/main` at `932bd8df`. The four product manifests and current docs pins are 1.7.3. Keep the exact `## [1.7.3] - Unreleased` heading for the release tool. After PR-1, PR-2 and PR-3 merge, take a normal merge of `origin/main` and finalize their changelog and docs from each PR. Then run the Infra prebuild check and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
 ## Historical local 1.7.2 release preparation
 
-1.7.2 was prepared after a normal merge of `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization, and landed on main as `712cb85d`. The four product manifests and current docs pins are 1.7.2. That release's notes are dated `## [1.7.2] - 2026-11-10` and retain #450 with `76c5a7ee`. The prep included the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
+1.7.2 was prepared after a normal merge of `origin/main` at `76c5a7ee` ([#450](https://github.com/cuttlely/cuttlely/pull/450)), including the per-chat and external-worker nested authorization, and landed on main as `712cb85d`. The four product manifests and docs pins were 1.7.2 at that release. That release's notes are dated `## [1.7.2] - 2026-11-10` and retain #450 with `76c5a7ee`. The prep included the target-scope and active-chat wording and empty-session assertion corrections, with patch 0002 and the fingerprint saved through the documented vendor workflow.
 
 That local preparation used focused release, documentation and runtime checks, then an exact-head full gate. Publication, deployment and enforcement activation remained separate authorized steps; the 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 

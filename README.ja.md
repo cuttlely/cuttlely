@@ -27,7 +27,9 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-最新の安定版は **1.7.2** です。イメージ `1.7.2` を指定するか、`cuttlely@1.7.2` をインストールしてください。[1.7.2 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.2) · [変更履歴](./CHANGELOG.md)。
+**1.7.3 は、サーバーから応答がないときも今のページを使い続けられるようにし、接続の型名だけが変わったフローの取り込みを直します。** **Something went wrong** の代わりに、サーバーに到達できないと表示します。編集中の短い切断は読み取りを静かに再試行し、保存の完了が後から行った編集を保存済みにはしません。リバースプロキシ配下の自己ホストでは、アイドル接続をより長く維持します。
+
+最新の安定版は **1.7.3** です。イメージ `1.7.3` を指定するか、`cuttlely@1.7.3` をインストールしてください。[1.7.3 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.3) · [変更履歴](./CHANGELOG.md)。
 
 **1.7.0 はセキュリティ例外リリースです。以前のバージョンからアップグレードする場合は、作業が必要です。** データベース、暗号化キー、設定をバックアップし、ブラウザー管理から締め出されないように、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を読んでください。ホストログのワンタイムコードによる申請、`CUTTLELY_INSTANCE_OPERATOR`、アクセスキーの適用が既定でオフのままであることなど、チェックリストの全体は[アップグレード時の注意](./docs/upgrading.md)（「1.7.0 security-exception upgrade」の節）と[変更履歴](./CHANGELOG.md)にあります。セットアップコードが作成するのは最初のアカウントだけで、ホスト側のローカルサインインがあらかじめオンになっている必要があります（Docker と `npx cuttlely start` は既定でオンにします）。このコードでサービスを設定したり、インスタンスオペレーターを指定したりはできません。[サインイン](./docs/how-to/sign-in.md) · [最初の 10 分](#your-first-10-minutes)。
 
