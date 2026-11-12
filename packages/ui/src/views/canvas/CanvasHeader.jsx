@@ -1,4 +1,4 @@
-import { duplicateFlowData, saveCompletionForRoute } from '@/utils/canvasSave'
+import { duplicateFlowData } from '@/utils/canvasSave'
 import PropTypes from 'prop-types'
 import { useNavigate } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
@@ -64,7 +64,7 @@ import { generateExportFlowData, showHideInputAnchors, showHideInputParams, upda
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
-import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW } from '@/store/actions'
+import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import { saveFailureMessage, settingFailureMessage } from '@/utils/errorSummary'
 
 // Clock icon (unchecked) and calendar-check icon (checked), mirroring MaterialUISwitch style
@@ -153,6 +153,7 @@ const CanvasHeader = ({
     isAgentflowV2,
     isEtlCanvas,
     handleSaveFlow,
+    handleSaveFlowName,
     handleDeleteFlow,
     handleLoadFlow,
     onApplyMigration,
@@ -160,8 +161,10 @@ const CanvasHeader = ({
     onDraftStatus = () => undefined,
     onChatflowUpdated = () => undefined,
     onApplyCanvas = () => undefined,
+    onDirty = () => undefined,
     draftExpected = () => ({}),
     onDraftConflict = () => undefined,
+    saveQueueBusy = false,
     catalogLoading = false,
     catalogError = null,
     onRetryCatalog
@@ -175,11 +178,10 @@ const CanvasHeader = ({
     const { confirm } = useConfirm()
     const flowNameRef = useRef()
     const settingsRef = useRef()
-    const pendingNameSaveRef = useRef()
-    const nameRouteRef = useRef(chatflow?.id)
 
     const [isEditingFlowName, setEditingFlowName] = useState(null)
     const [flowName, setFlowName] = useState('')
+    const storedFlowName = chatflow?.name
     const [isSettingsOpen, setSettingsOpen] = useState(false)
     const [flowDialogOpen, setFlowDialogOpen] = useState(false)
     const [apiDialogOpen, setAPIDialogOpen] = useState(false)
@@ -211,19 +213,11 @@ const CanvasHeader = ({
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
-    const updateChatflowApi = useApi(chatflowsApi.updateChatflow, { currentOnly: true, localUnavailable: true })
     const getScheduleStatusApi = useApi(chatflowsApi.getScheduleStatus)
     const toggleScheduleEnabledApi = useApi(chatflowsApi.toggleScheduleEnabled, { currentOnly: true, localUnavailable: true })
     const canvas = useSelector((state) => state.canvas)
     const isDark = useSelector((state) => state.customization.isDarkMode)
     const nodeSpecsReady = Array.isArray(canvas.componentNodes) && canvas.componentNodes.length > 0
-
-    useEffect(() => {
-        if (nameRouteRef.current === chatflow?.id) return
-        nameRouteRef.current = chatflow?.id
-        pendingNameSaveRef.current = undefined
-        setEditingFlowName(false)
-    }, [chatflow?.id])
 
     const [scheduleEnabled, setScheduleEnabled] = useState(false)
     const [scheduleCanEnable, setScheduleCanEnable] = useState(false)
@@ -329,6 +323,7 @@ const CanvasHeader = ({
     }
 
     const submitFlowName = () => {
+        if (saveQueueBusy) return
         if (chatflow.id) {
             const next = flowNameRef.current.value
             if (isHarnessCanvas) {
@@ -350,11 +345,32 @@ const CanvasHeader = ({
                     return
                 }
             }
-            const updateBody = {
-                name: next
-            }
-            pendingNameSaveRef.current = { flowId: chatflow.id }
-            updateChatflowApi.request(chatflow.id, updateBody)
+            setFlowName(next)
+            handleSaveFlowName?.(next, {
+                onAck: (saved) => {
+                    setFlowName(saved.name)
+                    onChatflowUpdated(saved)
+                    setEditingFlowName(false)
+                },
+                onError: (error) => {
+                    setFlowName(next)
+                    onDirty()
+                    enqueueSnackbar({
+                        message: saveFailureMessage(error),
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'error',
+                            persist: true,
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                    setEditingFlowName(false)
+                }
+            })
         }
     }
 
@@ -443,52 +459,17 @@ const CanvasHeader = ({
     }
 
     useEffect(() => {
-        if (!updateChatflowApi.data) return
-        const pendingSave = pendingNameSaveRef.current
-        pendingNameSaveRef.current = undefined
-        if (!saveCompletionForRoute(pendingSave, chatflow?.id)) return
-        if (updateChatflowApi.data.id !== pendingSave.flowId) return
-        setFlowName(updateChatflowApi.data.name)
-        dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
-        setEditingFlowName(false)
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateChatflowApi.data])
+        if (storedFlowName !== undefined) setFlowName(storedFlowName)
+    }, [storedFlowName])
 
     useEffect(() => {
-        if (!updateChatflowApi.error) return
-        const pendingSave = pendingNameSaveRef.current
-        pendingNameSaveRef.current = undefined
-        if (!saveCompletionForRoute(pendingSave, chatflow?.id)) return
-        enqueueSnackbar({
-            message: saveFailureMessage(updateChatflowApi.error),
-            options: {
-                key: new Date().getTime() + Math.random(),
-                variant: 'error',
-                persist: true,
-                action: (key) => (
-                    <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                        <IconX />
-                    </Button>
-                )
-            }
+        if (!chatflow || !chatflowConfigurationDialogOpen) return
+        setChatflowConfigurationDialogProps({
+            title: `${title} Configuration`,
+            chatflow,
+            draftStatus,
+            onDraftStatus
         })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateChatflowApi.error])
-
-    useEffect(() => {
-        if (chatflow) {
-            setFlowName(chatflow.name)
-            // if configuration dialog is open, update its data
-            if (chatflowConfigurationDialogOpen) {
-                setChatflowConfigurationDialogProps({
-                    title: `${title} Configuration`,
-                    chatflow,
-                    draftStatus,
-                    onDraftStatus
-                })
-            }
-        }
     }, [chatflow, title, chatflowConfigurationDialogOpen, draftStatus, onDraftStatus])
 
     // Version history shows when the server keeps it: on by default, off with CUTTLELY_VERSIONS=off.
@@ -744,7 +725,12 @@ const CanvasHeader = ({
                                         }
                                     }}
                                 />
-                                <ButtonBase title='Save Name' sx={{ borderRadius: '50%' }}>
+                                <ButtonBase
+                                    title={saveQueueBusy ? 'Saving…' : 'Save Name'}
+                                    disabled={saveQueueBusy}
+                                    onClick={submitFlowName}
+                                    sx={{ borderRadius: '50%' }}
+                                >
                                     <Avatar
                                         variant='rounded'
                                         sx={{
@@ -760,7 +746,6 @@ const CanvasHeader = ({
                                             }
                                         }}
                                         color='inherit'
-                                        onClick={submitFlowName}
                                     >
                                         <IconCheck stroke={1.5} size='1.3rem' />
                                     </Avatar>
@@ -883,7 +868,8 @@ const CanvasHeader = ({
                                 variant='contained'
                                 size='small'
                                 data-testid='publish-button'
-                                disabled={!draftStatus?.draft}
+                                title={saveQueueBusy ? 'Save your changes first' : 'Publish'}
+                                disabled={!draftStatus?.draft || saveQueueBusy}
                                 onClick={() => setPublishOpen(true)}
                                 sx={{ mr: 2, borderRadius: 2, textTransform: 'none', whiteSpace: 'nowrap' }}
                             >
@@ -949,7 +935,13 @@ const CanvasHeader = ({
                     action={
                         <Available permission={draftPermission}>
                             <Stack direction='row' spacing={1}>
-                                <Button color='inherit' size='small' onClick={() => setPublishOpen(true)}>
+                                <Button
+                                    color='inherit'
+                                    size='small'
+                                    title={saveQueueBusy ? 'Save your changes first' : 'Review'}
+                                    disabled={saveQueueBusy}
+                                    onClick={() => setPublishOpen(true)}
+                                >
                                     Review
                                 </Button>
                                 <Button color='inherit' size='small' onClick={discardDraft}>
@@ -1053,6 +1045,7 @@ const CanvasHeader = ({
                 chatflow={chatflow}
                 draftStatus={draftStatus}
                 isDirty={Boolean(canvas.isDirty)}
+                saveQueueBusy={saveQueueBusy}
                 onClose={() => setPublishOpen(false)}
                 onDraftStatus={onDraftStatus}
                 onChatflowUpdated={onChatflowUpdated}
@@ -1074,6 +1067,7 @@ const CanvasHeader = ({
 CanvasHeader.propTypes = {
     chatflow: PropTypes.object,
     handleSaveFlow: PropTypes.func,
+    handleSaveFlowName: PropTypes.func,
     handleDeleteFlow: PropTypes.func,
     handleLoadFlow: PropTypes.func,
     onApplyMigration: PropTypes.func,
@@ -1085,8 +1079,10 @@ CanvasHeader.propTypes = {
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
     onApplyCanvas: PropTypes.func,
+    onDirty: PropTypes.func,
     draftExpected: PropTypes.func,
     onDraftConflict: PropTypes.func,
+    saveQueueBusy: PropTypes.bool,
     catalogLoading: PropTypes.bool,
     catalogError: PropTypes.any,
     onRetryCatalog: PropTypes.func

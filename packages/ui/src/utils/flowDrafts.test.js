@@ -143,6 +143,12 @@ describe('canvas load and save', () => {
             name: 'Bakery'
         })
         expect(planCanvasSave({ mode: 'draft', name: 'New', savedName: '', flowData: draft, hasId: false }).create).toBe(true)
+        expect(planCanvasSave({ mode: undefined, name: 'Bakery', savedName: 'Bakery helper', flowData: draft, hasId: true })).toEqual({
+            create: false,
+            live: null,
+            draft: null,
+            modeUnknown: true
+        })
     })
 })
 
@@ -259,6 +265,9 @@ describe('publish diff', () => {
             'Drafts are off on this server.'
         )
         expect(apiErrorMessage({}, 'Publish failed.')).toBe('Publish failed.')
+        expect(apiErrorMessage({ saveAgain: true, message: 'Your edits remain. Press Save again.' }, 'Save failed.')).toBe(
+            'Your edits remain. Press Save again.'
+        )
         const noAnswer = Object.assign(new Error('Network Error'), { isAxiosError: true, request: {} })
         expect(apiErrorMessage(noAnswer, 'Save failed')).toBe(
             'Save failed. The server could not be reached. Check your connection, then reload the page.'
