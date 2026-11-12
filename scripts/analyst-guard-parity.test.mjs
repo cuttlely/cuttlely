@@ -1333,8 +1333,12 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
             return (statementPrepared ? ['900', '101', '102'] : ['900']).map((oid) => ({ oid }))
         if (sql.startsWith('WITH names AS') && sql.includes('JOIN pg_catalog.pg_class')) return [{ oid: '101' }, { oid: '102' }]
         if (sql.startsWith('WITH names AS')) return [{ oid: '96' }]
+        // LIMIT 50 contributes an int4 literal even though the selected expression is a column.
+        if (sql.startsWith('WITH types AS') && sql.includes("SELECT 'type' AS kind")) return [{ kind: 'type', oid: '23' }]
         if (sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype')) return [{ oid: '23' }]
         if (sql.startsWith('SELECT DISTINCT a.atttypid::int8 AS oid')) return [{ oid: '23' }]
+        // The fixture's int4 columns, literal and equality operator need no function-backed casts.
+        if (sql.startsWith('WITH RECURSIVE casts AS') && sql.includes('FROM pg_catalog.pg_cast c')) return []
         if (sql.includes('guard_mock_user')) return [{ id: 1 }]
         if (
             /^(BEGIN|SET LOCAL|SELECT pg_catalog.set_config|DEALLOCATE|PREPARE|LOCK TABLE|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|SELECT 1 FROM ONLY)/.test(
@@ -1382,14 +1386,22 @@ describe('analyst guard transaction orchestration (offline)', () => {
                             const result = await decision('postgresql://127.0.0.1:55440/mock', statement, options, legacy)
                             assert.equal(result.ok, true, result.message)
                             captures.push(catalogLookups(reads))
+                            const literalTypes = reads.findIndex(({ sql }) => sql.startsWith('WITH types AS'))
+                            assert.ok(literalTypes > 0, 'The literal type lookup is recorded in logical read order')
+                            assert.ok(reads[literalTypes - 1].sql.includes("'operator' AS kind"))
+                            assert.deepEqual(reads[literalTypes].params, [JSON.stringify(['pg_catalog.int4'])])
+                            assert.ok(reads[literalTypes + 1].sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype'))
+                            assert.ok(reads[literalTypes + 2].sql.startsWith('SELECT DISTINCT a.atttypid::int8 AS oid'))
+                            assert.ok(reads[literalTypes + 3].sql.startsWith('WITH RECURSIVE casts AS'))
+                            assert.deepEqual(reads[literalTypes + 3].params, ['[]', [], [96], [23, 23, 23]])
                             assert.equal(calls.at(-1).text.split('\n;\n').at(-1), 'ROLLBACK')
                             const prepares = calls.filter(({ text }) => text.startsWith('PREPARE cuttlely_scope_check_'))
                             assert.equal(prepares.length, 1)
                             assert.equal(prepares[0].named, true)
                             assert.ok(!prepares[0].text.includes('\n;\n'))
                             if (!legacy) {
+                                assert.deepEqual(captures[1], captures[0])
                                 t.diagnostic(`mock 19 selections, 5 domains: ${calls.length} queries`)
-                                assert.ok(calls.length <= 20, calls.map(({ text }, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
                                 const allowlistCalls = calls.filter(({ text }) => isAllowlistLookup(text))
                                 assert.equal(allowlistCalls.length, 1)
                                 assert.ok(!allowlistCalls[0].text.includes('\n;\n'), 'Allowlist resolution stays outside prefetch batches')
@@ -1404,11 +1416,13 @@ describe('analyst guard transaction orchestration (offline)', () => {
                                     const policyLock = calls.findLastIndex(({ text }) => text.startsWith('LOCK TABLE'))
                                     assert.ok(policyLock >= 0 && policyLock < definitionBatch)
                                 }
+                                // 22 accounts for required literal type-id / cast catalog reads plus policy lock traffic.
+                                const queryCeiling = policy ? 22 : 20
+                                assert.ok(calls.length <= queryCeiling, calls.map(({ text }, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
                             }
                         },
                         { scoped, policy }
                     )
-                assert.deepEqual(captures[1], captures[0])
             })
 })
 
