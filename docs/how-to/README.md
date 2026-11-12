@@ -8,6 +8,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   Brief connection drops while you edit are retried quietly for reads and option loads. A save no longer marks later edits as saved. A canvas whose draft status cannot be loaded stays closed with Retry. [Canvas cards](./canvas.md).
 -   Self-hosted installs behind a reverse proxy keep idle connections open for 65 seconds by default. See the [reverse proxy guide](./reverse-proxy.md). [Install with Docker](./docker.md).
 -   Draft and Live saves of an existing flow, without new file data, are kept and retried quietly when a request gets no answer. If that still fails, the canvas keeps the edits and offers Retry. A save with new file data is attempted once per Save and is not resent automatically. After an unanswered create, check your flows in another tab before trying again.
+-   [Pending invitations](./users-without-authkit.md). An active owner or an Admin (`users:manage`) can cancel a pending invitation from User Management, including another pending owner invite, and revoke its links. Removing an active or disabled person from every team stays limited to an active owner.
 
 ## New in 1.7.2
 
@@ -24,7 +25,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   [Designate the instance operator](./instance-operator.md). Only actual host bindings grandfather; legacy installs claim in the panel with one host-log code. Routine lifecycle is in the panel; the CLI is emergency recovery. Overrides, revocation and recovery. Read the [1.7.0 upgrade warnings](../upgrading.md) before deployment.
 
 -   [Create and manage access keys](./access-keys.md). Create a scoped key, restrict callers, call a private flow, rotate and revoke it. Enforcement defaults to `off`; follow operator rollout first. [Policy and route reference](../reference/access-keys.md).
--   [Pending owner invitations](./users-without-authkit.md). An active owner or an Admin (`users:manage`) can cancel a pending invitation, including another pending owner invite, and revoke its links. Removing an active or disabled person from every team stays owner-only. Active owners remain read-only in the Users UI.
+-   [Pending owner invitations](./users-without-authkit.md). An active owner can cancel another pending owner invite and revoke its links; active owners remain read-only in the Users UI.
 
 ## New in 1.6.1
 

@@ -904,16 +904,21 @@ export async function deleteOrganizationUser(
     let scimLinkRefused = false
     try {
         return await sql.transaction(async (query) => {
-            const canCancelInvites = await actorCanCancelInvites(query, sql, actor)
-            await assertSharedActiveTeam(query, sql, actor, userId, { allowInvitedManager: canCancelInvites })
-            // Someone who is neither an owner nor able to cancel invites is refused before the lock.
-            if (!canCancelInvites && !(await ownerUser(query, sql, organizationId, actor.id))) {
+            const fastCancelInvites = await actorCanCancelInvites(query, sql, actor)
+            await assertSharedActiveTeam(query, sql, actor, userId, { allowInvitedManager: fastCancelInvites })
+            // Fast-fail before the lock. This read is not the final grant for a non-owner.
+            if (!fastCancelInvites && !(await ownerUser(query, sql, organizationId, actor.id))) {
                 throw new DirectoryError(403, 'Only an owner can remove someone from every team')
             }
             await lockOrgOwners(query, sql, organizationId, userId)
+            // The non-owner grant is read again under the lock, so a role lost after the fast-fail cannot authorize the removal.
+            const canCancelInvites = await actorCanCancelInvites(query, sql, actor)
             // Check current, active ownership under the lock, including on repeatable-read databases.
             const owners = await enabledOwnerIds(query, sql, organizationId, true)
             if (!canCancelInvites && !owners.includes(actor.id)) {
+                if (!(await ownerUser(query, sql, organizationId, actor.id))) {
+                    throw new DirectoryError(403, 'Only an owner can remove someone from every team')
+                }
                 throw new DirectoryError(403, 'Only an active owner can remove someone from every team')
             }
             const membership = await query(

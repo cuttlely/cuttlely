@@ -814,6 +814,46 @@ describe('local directory rules', () => {
         expect(db.prepare('SELECT status FROM "user" WHERE id = ?').get(OWNER)).toMatchObject({ status: 'active' })
     })
 
+    it('refuses an invited removal when users:manage is gone before the locked check', async () => {
+        const made = memorySql()
+        const invited = await createEmailUser(made.sql, owner, {
+            user: { name: 'Late Change', email: 'late-change@example.com' },
+            workspace: { id: TEAM },
+            role: { id: 'role-member' }
+        })
+        made.db
+            .prepare(
+                `INSERT INTO identity_action_link (id, tokenHash, purpose, organizationId, workspaceId, userId)
+                 VALUES ('link-late', 'hash-late', 'invite', ?, ?, ?)`
+            )
+            .run(ORG, TEAM, invited.id)
+        let eligibilityReads = 0
+        const query = async (statement: string, params: unknown[] = []) => {
+            const rows = await made.sql.query(statement, params)
+            if (statement.includes('userStatus') && statement.includes('orgStatus') && statement.includes('teamStatus')) {
+                eligibilityReads += 1
+                if (eligibilityReads === 1) {
+                    made.db.prepare(`UPDATE workspace_user SET "roleId" = 'role-viewer' WHERE "userId" = ?`).run(ADMIN)
+                }
+            }
+            return rows
+        }
+        const wrapped: Sql = {
+            type: 'sqlite',
+            query,
+            transaction: (fn) => made.sql.transaction(async () => fn(query))
+        }
+        await expect(deleteOrganizationUser(wrapped, admin, ORG, invited.id)).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        expect(eligibilityReads).toBe(2)
+        expect(made.db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').get(invited.id)).toEqual({
+            userId: invited.id
+        })
+        expect(made.db.prepare('SELECT usedAt FROM identity_action_link WHERE id = ?').get('link-late')).toEqual({ usedAt: null })
+    })
+
     it('still refuses an admin removing an active or disabled person, themselves, or the last owner', async () => {
         const { sql, db } = memorySql()
         db.exec(`
