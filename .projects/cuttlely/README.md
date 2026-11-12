@@ -2,7 +2,7 @@
 
 These notes let a new contributor, or an AI agent running the `take-over` skill, pick up Cuttlely where the work stands instead of starting from zero. They describe the code on `main`, the decisions behind it, the work that is open, and how to check and ship a change.
 
-Cuttlely is the open-source agent platform for applications. It gives applications agent teams (harnesses) that apps call through the API and people chat with, plus the knowledge pipelines (ETL), chatflows and agentflows those teams use. Everything runs on infrastructure the operator controls. The user-facing story is in the root [README](../../README.md) and the [docs index](../../docs/README.md).
+Context-aware agent orchestration. Open source, Apache-2.0. Cuttlely gives applications agent teams (harnesses) that apps call through the API and people chat with, plus the knowledge pipelines (ETL), chatflows and agentflows those teams use. Everything runs on infrastructure the operator controls. The user-facing story is in the root [README](../../README.md) and the [docs index](../../docs/README.md).
 
 ## Files
 
