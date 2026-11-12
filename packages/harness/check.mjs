@@ -10307,11 +10307,25 @@ check(
     )
     const limited = turnImages(imageDir, since, { limits: { ...TURN_IMAGE_LIMITS, count: 1 } })
     const tooBig = turnImages(imageDir, since, { limits: { ...TURN_IMAGE_LIMITS, bytes: 4 } })
+    // The same name from another specialist is a different file. The count cap keeps the newest, so with a cap of 2
+    // either analyst image may be dropped; only the specialist and name pair has to be unique.
+    const imageKey = (image) => `${image.specialist}/${image.name}`
     const merged = mergeTurnImages([found, found, [{ ...found[0], specialist: 'writer' }]], 2)
+    const mergedAll = mergeTurnImages([found, found, [{ ...found[0], specialist: 'writer' }]], 10)
     check(
         'the image count and size limits hold, and the same file is returned once',
-        limited.length === 1 && tooBig.length === 0 && merged.length === 2 && merged[1].name !== merged[0].name,
-        JSON.stringify({ limited: limited.length, tooBig: tooBig.length, merged: merged.map((image) => image.name) })
+        limited.length === 1 &&
+            tooBig.length === 0 &&
+            merged.length === 2 &&
+            new Set(merged.map(imageKey)).size === 2 &&
+            mergedAll.length === 3 &&
+            new Set(mergedAll.map(imageKey)).size === 3,
+        JSON.stringify({
+            limited: limited.length,
+            tooBig: tooBig.length,
+            merged: merged.map(imageKey),
+            mergedAll: mergedAll.map(imageKey)
+        })
     )
     const coder = { name: 'coder', profileName: 'demo-images--coder', codeExecution: true }
     const writer = { name: 'writer', profileName: 'demo-images--writer' }
