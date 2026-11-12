@@ -2520,8 +2520,8 @@ describe('analyst URL path', () => {
                 if (this.connectionParameters?.database === dbName) sent.push(typeof text === 'string' ? text : text?.text || '')
                 return query.call(this, text, ...rest)
             }
-            // A run reads the statement's rows. The scope check's temporary view only defines it.
-            const runs = () => sent.filter((sql) => sql.includes('FROM orders') && !/^\s*CREATE TEMP VIEW/i.test(sql)).length
+            // A run reads the statement's rows. The scope check's PREPARE parses and locks it without executing it.
+            const runs = () => sent.filter((sql) => sql.includes('FROM orders') && !/^\s*PREPARE\b/i.test(sql)).length
             const run = async (input, relations) => {
                 sent.length = 0
                 const timings = []
