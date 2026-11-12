@@ -1277,9 +1277,9 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
     const reads = []
     const names = [...selection, ...Array.from({ length: 12 }, (_, i) => `${schema}.bench_${i}`)]
     const selected = names.map((name, i) => ({ name, oid: String(101 + i), relkind: 'r', columns: 1, column_names: ['id'], comment: '' }))
-    const tree = '{QUERY :relid 101 :relid 102 :opno 96 :opfuncid 65 :vartype 23}'
     const domainTree = '{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :consttype 23}'
     let transaction = 0
+    let statementPrepared = false
     const rows = (sql, params) => {
         if (sql.startsWith('SELECT pg_catalog.current_setting')) return [{ p: schema }]
         if (sql.startsWith('SELECT pg_backend_pid')) return [{ pid: 777 }]
@@ -1326,6 +1326,10 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         if (sql.startsWith("SELECT 'regconfig'")) return [{ regconfig: '3734', regdictionary: '3769' }]
         if (isAllowlistLookup(sql)) return [{ oid: '501' }]
         if (sql.startsWith('SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc')) return []
+        if (sql.startsWith('SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks'))
+            return (statementPrepared ? ['900', '101', '102'] : ['900']).map((oid) => ({ oid }))
+        if (sql.startsWith('WITH names AS')) return [{ oid: '96' }]
+        if (sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype')) return [{ oid: '23' }]
         if (sql.includes('guard_mock_user')) return [{ id: 1 }]
         if (
             /^(BEGIN|SET LOCAL|SELECT pg_catalog.set_config|DEALLOCATE|PREPARE|LOCK TABLE|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|SELECT 1 FROM ONLY)/.test(
@@ -1341,7 +1345,7 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         const text = typeof query === 'string' ? query : query.text
         calls.push({ text, named: typeof query === 'object' && Boolean(query.name) })
         if (text.split(/\n;\n|; /).some((part) => part.startsWith('BEGIN'))) transaction++
-        if (text.startsWith('PREPARE cuttlely_scope_check_')) this.emit('notice', { message: 'parse tree:', detail: tree })
+        if (text.startsWith('PREPARE cuttlely_scope_check_')) statementPrepared = true
         const parts = text.split(text.includes('\n;\n') ? '\n;\n' : /; /)
         const results = parts.map((sql) => ({ rows: rows(sql, params) }))
         return results.length === 1 ? results[0] : results
@@ -1410,7 +1414,8 @@ describe('analyst guard broader callers (offline)', () => {
             async query(query, params) {
                 const text = typeof query === 'string' ? query : query.text
                 calls.push({ query, text, params })
-                if (text.startsWith('PREPARE cuttlely_scope_check_')) this.emit('notice', { message: 'parse tree:', detail: '{QUERY}' })
+                if (text.startsWith('SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks'))
+                    return { rows: ['900'].map((oid) => ({ oid })) }
                 return { rows: [] }
             }
         })
@@ -1421,14 +1426,13 @@ describe('analyst guard broader callers (offline)', () => {
         assert.equal(runner.batchedGuard, undefined)
         assert.equal(runner.legacyRoundTrips, undefined)
         await checkStatementScope(client, runner, 'SELECT 1', [{ oid: 101 }], () => true)
-        const start = calls.findIndex(({ text }) => text.startsWith('SET LOCAL client_min_messages'))
-        const parse = calls.slice(start, start + 4)
-        assert.equal(parse.length, 4)
-        assert.match(parse[0].text, /debug_print_parse = on/)
-        assert.ok(parse[1].query.name, 'PREPARE uses a named statement')
-        assert.match(parse[1].text, /^PREPARE cuttlely_scope_check_\d+ AS SELECT 1 FROM \(\n/)
-        assert.match(parse[2].text, /^SET LOCAL debug_print_parse = off; DEALLOCATE/)
-        assert.equal(parse[3].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+        const parse = calls.find(({ text }) => text.startsWith('PREPARE cuttlely_scope_check_'))
+        assert.ok(parse.query.name, 'PREPARE uses a named statement')
+        assert.match(parse.text, /^PREPARE cuttlely_scope_check_\d+ AS SELECT 1$/)
+        assert.equal(calls.filter(({ text }) => text.startsWith('SELECT DISTINCT relation::int8 AS oid')).length, 3)
+        assert.ok(calls.every(({ text }) => !text.includes('debug_print_parse')))
+        const deallocate = calls.findIndex(({ text }) => /^DEALLOCATE cuttlely_scope_check_\d+$/.test(text))
+        assert.equal(calls[deallocate + 2].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
         assert.equal(
             reads.some(({ sql }) => sql.includes('pg_rewrite')),
             false

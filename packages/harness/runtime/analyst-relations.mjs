@@ -3,10 +3,10 @@
 // describes one on demand, and runs only SELECT statements whose every relation is ticked.
 //
 // Enforcement runs inside the query's own transaction, before the statement:
-//   1. Postgres prepares the statement without running it and returns the resolved parse tree as a client message.
-//   2. The tree lists every relation id, function id and operator id the statement uses, including CTEs, subqueries,
-//      system catalogs and built-in functions. A relation that is not ticked, a function or operator outside
-//      pg_catalog, or a built-in that runs SQL from text or reads data outside a relation is refused.
+//   1. Postgres prepares the statement without planning or running it. Relation locks and catalog lookups resolve the
+//      tables, views, functions, operators and types named by the statement.
+//   2. A relation that is not ticked, a function or operator outside pg_catalog, or a built-in that runs SQL from text
+//      or reads data outside a relation is refused. Stored view and policy trees are followed through the catalogs.
 //   3. The prepared statement is released and the read-only check transaction rolls back. The statement then runs
 //      in a new BEGIN READ ONLY transaction.
 // The check performs no DDL and never runs the statement.
@@ -22,7 +22,7 @@ export const RELATION_KINDS = { r: 'table', p: 'table', f: 'foreign table', v: '
 export const SCOPE_ONLY_SELECT =
     'This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.'
 export const SCOPE_UNCHECKABLE =
-    'Cuttlely could not check this query against the table selection because Postgres did not return its parsed query tree. Queries are refused while a selection is set.'
+    'Cuttlely could not check this query against the table selection because Postgres did not return its analyzed object information. Queries are refused while a selection is set.'
 export function scopeRiskyDomains(names) {
     return `Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: ${refusedList(
         names
@@ -969,64 +969,265 @@ export const SAFE_VOLATILE = new Set([
 
 const nodeDenied = (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name)
 
-function parseTreeNotice(notice) {
-    const message = String(notice?.message || '')
-    const marker = 'parse tree:'
-    const at = message.indexOf(marker)
-    if (at < 0) return ''
-    // Postgres sends the tree in the LOG message's DETAIL field. Keep the message fallback for proxies that combine
-    // the fields before forwarding them.
-    return String(notice?.detail || '').trim() || message.slice(at + marker.length).trim()
+const STATEMENT_NON_CALL_WORDS = new Set([
+    'as',
+    'by',
+    'case',
+    'distinct',
+    'else',
+    'end',
+    'filter',
+    'from',
+    'in',
+    'limit',
+    'not',
+    'nulls',
+    'offset',
+    'on',
+    'operator',
+    'order',
+    'over',
+    'select',
+    'then',
+    'values',
+    'when',
+    'where',
+    'window',
+    'with'
+])
+
+function statementObjects(statement) {
+    const tokens = sqlTokens(statement)
+    const calls = []
+    const operators = new Map()
+    const types = new Set()
+    const frames = []
+    const symbol = (at, value) => tokens[at]?.type === 'symbol' && tokens[at].value === value
+    for (let i = 0; i < tokens.length - 2; i += 1) {
+        if (tokens[i]?.type !== 'word' || tokens[i].quoted || tokens[i].value !== 'cast' || !symbol(i + 1, '(')) continue
+        let depth = 1
+        for (let at = i + 2; at < tokens.length && depth > 0; at += 1) {
+            if (symbol(at, '(')) depth += 1
+            else if (symbol(at, ')')) depth -= 1
+            else if (depth === 1 && tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'as') {
+                const first = tokens[at + 1]
+                if (first?.type === 'word')
+                    types.add(
+                        symbol(at + 2, '.') && tokens[at + 3]?.type === 'word' ? `${first.value}.${tokens[at + 3].value}` : first.value
+                    )
+                break
+            }
+        }
+    }
+    const hint = (from, to) => {
+        const part = tokens.slice(from, to)
+        for (let i = part.length - 3; i >= 0; i -= 1) {
+            if (part[i]?.value !== ':' || part[i + 1]?.value !== ':' || part[i + 2]?.type !== 'word') continue
+            if (part[i + 3]?.value === '.' && part[i + 4]?.type === 'word') return `${part[i + 2].value}.${part[i + 4].value}`
+            return part[i + 2].value
+        }
+        if (part.length === 1 && part[0].type === 'number') return 'pg_catalog.int4'
+        if (part.length === 1 && part[0].type === 'string') return 'pg_catalog.text'
+        if (part.length === 1 && part[0].type === 'word' && ['true', 'false'].includes(part[0].value)) return 'pg_catalog.bool'
+        return null
+    }
+    for (let i = 0; i < tokens.length; i += 1) {
+        const token = tokens[i]
+        if (token.type === 'word' && !token.quoted && token.value === 'operator' && symbol(i + 1, '(')) {
+            const schema = tokens[i + 2]?.type === 'word' && symbol(i + 3, '.') ? tokens[i + 2].value : null
+            const from = schema ? i + 4 : i + 2
+            let name = ''
+            let at = from
+            while (tokens[at]?.type === 'symbol' && BODY_OPERATOR_CHARS.has(tokens[at].value)) {
+                name += tokens[at].value
+                at += 1
+            }
+            if (name && symbol(at, ')')) operators.set(`${schema || ''}\0${name}`, { schema, name })
+        }
+        if (token.type === 'symbol' && token.value === ':' && symbol(i + 1, ':') && tokens[i + 2]?.type === 'word') {
+            const name =
+                symbol(i + 3, '.') && tokens[i + 4]?.type === 'word' ? `${tokens[i + 2].value}.${tokens[i + 4].value}` : tokens[i + 2].value
+            types.add(name)
+        }
+        if (token.type === 'symbol' && token.value === '(') {
+            const name = tokens[i - 1]
+            const qualified = symbol(i - 2, '.') && tokens[i - 3]?.type === 'word'
+            const callable =
+                name?.type === 'word' &&
+                (name.quoted || !STATEMENT_NON_CALL_WORDS.has(name.value)) &&
+                !(tokens[i - 2]?.type === 'word' && !tokens[i - 2].quoted && tokens[i - 2].value === 'operator')
+            if (callable) {
+                const call = {
+                    schema: qualified ? tokens[i - 3].value : null,
+                    name: name.value,
+                    args: 0,
+                    hints: [],
+                    argStart: i + 1
+                }
+                calls.push(call)
+                frames.push(call)
+            } else frames.push(null)
+            continue
+        }
+        if (token.type === 'symbol' && token.value === ',' && frames.at(-1)) {
+            const call = frames.at(-1)
+            call.hints.push(hint(call.argStart, i))
+            call.args += 1
+            call.argStart = i + 1
+            continue
+        }
+        if (token.type === 'symbol' && token.value === ')') {
+            const call = frames.pop()
+            if (call && call.argStart < i) {
+                call.hints.push(hint(call.argStart, i))
+                call.args += 1
+            }
+            continue
+        }
+        if (token.type !== 'symbol' || !BODY_OPERATOR_CHARS.has(token.value)) continue
+        let name = token.value
+        let end = token.start
+        while (tokens[i + 1]?.type === 'symbol' && tokens[i + 1].start === end + 1 && BODY_OPERATOR_CHARS.has(tokens[i + 1].value)) {
+            i += 1
+            end = tokens[i].start
+            name += tokens[i].value
+        }
+        // Cast punctuation and SQL comments are not operators.
+        const wildcard =
+            name === '*' &&
+            ((tokens[i - 1]?.type === 'word' && !tokens[i - 1].quoted && tokens[i - 1].value === 'select') ||
+                symbol(i - 1, '.') ||
+                (symbol(i - 1, '(') && symbol(i + 1, ')')) ||
+                (tokens[i + 1]?.type === 'word' && !tokens[i + 1].quoted && tokens[i + 1].value === 'from') ||
+                symbol(i + 1, ','))
+        if (!wildcard && name !== '::' && name !== '--' && name !== '/*') operators.set(`\0${name}`, { schema: null, name })
+    }
+    return {
+        calls: calls.map(({ schema, name, args, hints }) => ({ schema, name, args, hints })),
+        operators: [...operators.values()],
+        types: [...types, ...calls.map(({ schema, name }) => (schema ? `${schema}.${name}` : name))]
+    }
 }
 
-// PREPARE analyzes and resolves the statement without planning or running it. debug_print_parse sends that resolved
-// tree to this client as a LOG message. PostgreSQL also writes that LOG message to its server log by default, so the
-// docs tell operators that parsed query literals can be retained there. PREPARE and DEALLOCATE are session commands,
-// not DDL, so event triggers cannot fire during the check. The outer command uses the extended protocol, which refuses
-// a second injected command.
-async function preparedStatementTree(client, runner, statement) {
+const STATEMENT_FUNCTION_IDS_SQL = `WITH calls AS (
+    SELECT * FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(i int, schema text, name text, args int, hints text[])
+), candidates AS (
+    SELECT c.*, p.oid::int8 AS oid, n.nspname,
+           pg_catalog.array_position(pg_catalog.current_schemas(true), n.nspname) AS path_rank,
+           p.proargtypes::oid[] AS argtypes
+    FROM calls c JOIN pg_catalog.pg_proc p ON p.proname = c.name
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE c.args BETWEEN p.pronargs - p.pronargdefaults - CASE WHEN p.provariadic <> 0 THEN 1 ELSE 0 END
+                     AND CASE WHEN p.provariadic <> 0 THEN 2147483647 ELSE p.pronargs END
+      AND (c.schema IS NULL OR n.nspname = c.schema)
+), visible AS (
+    SELECT x.* FROM candidates x
+    WHERE x.schema IS NOT NULL OR x.path_rank IS NOT NULL
+), exact AS (
+    SELECT v.i, v.oid FROM visible v
+    WHERE v.args = pg_catalog.cardinality(v.argtypes)
+      AND v.args = pg_catalog.cardinality(v.hints)
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(v.hints) h WHERE h IS NULL)
+      AND v.argtypes = ARRAY(SELECT pg_catalog.to_regtype(h)::oid FROM pg_catalog.unnest(v.hints) h)
+), resolved AS (
+    SELECT DISTINCT v.oid, v.argtypes FROM visible v
+    WHERE NOT EXISTS (SELECT 1 FROM exact e WHERE e.i = v.i) OR v.oid IN (SELECT e.oid FROM exact e WHERE e.i = v.i)
+)
+SELECT DISTINCT oid FROM resolved
+UNION
+SELECT DISTINCT c.castfunc::int8 AS oid FROM resolved r JOIN pg_catalog.pg_cast c ON c.casttarget = ANY(r.argtypes)
+WHERE c.castfunc <> 0`
+
+const STATEMENT_OPERATOR_IDS_SQL = `WITH names AS (
+    SELECT DISTINCT * FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS x(schema text, name text)
+), candidates AS (
+    SELECT o.oid::int8 AS oid, x.schema, o.oprleft, o.oprright,
+           pg_catalog.array_position(pg_catalog.current_schemas(true), n.nspname) AS path_rank
+    FROM names x JOIN pg_catalog.pg_operator o ON o.oprname = x.name
+    JOIN pg_catalog.pg_namespace n ON n.oid = o.oprnamespace
+    WHERE x.schema IS NULL OR n.nspname = x.schema
+), visible AS (
+    SELECT * FROM candidates WHERE schema IS NOT NULL OR path_rank IS NOT NULL
+)
+SELECT DISTINCT 'operator' AS kind, oid FROM visible
+UNION
+SELECT DISTINCT 'function' AS kind, c.castfunc::int8 AS oid FROM visible v
+JOIN pg_catalog.pg_cast c ON c.casttarget IN (v.oprleft, v.oprright) WHERE c.castfunc <> 0`
+
+const STATEMENT_TYPE_IDS_SQL = `WITH types AS (
+    SELECT DISTINCT pg_catalog.to_regtype(value)::oid AS oid
+    FROM pg_catalog.jsonb_array_elements_text(?::jsonb) WHERE pg_catalog.to_regtype(value) IS NOT NULL
+)
+SELECT 'type' AS kind, oid::int8 AS oid FROM types
+UNION
+SELECT 'function' AS kind, c.castfunc::int8 AS oid FROM types t
+JOIN pg_catalog.pg_cast c ON c.casttarget = t.oid WHERE c.castfunc <> 0`
+
+const HELD_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks
+WHERE pid = pg_catalog.pg_backend_pid() AND locktype = 'relation' AND relation IS NOT NULL`
+
+const PREPARED_RESULT_TYPES_SQL = `SELECT DISTINCT value::pg_catalog.regtype::oid::int8 AS oid
+FROM pg_catalog.pg_prepared_statements p,
+LATERAL pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(p) -> 'result_types', '[]'::jsonb))
+WHERE p.name = ?`
+
+// PREPARE performs parse analysis without planning or running the statement. PostgreSQL keeps relation locks acquired
+// by that analysis until the transaction ends; their OIDs, plus catalog-resolved names from the SQL text and the
+// prepared result types, feed the existing refusal engine. This uses ordinary result rows only: no DDL, debug settings,
+// notices, or server logs. The outer command uses the extended protocol, which refuses a second injected command.
+async function preparedStatementIds(client, runner, statement) {
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
     const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
     const parseName = `${statementName}_parse`
-    const trees = []
-    const onNotice = (notice) => {
-        const tree = parseTreeNotice(notice)
-        if (tree) trees.push(tree)
-    }
+    const named = statementObjects(statement)
+    let before = new Set()
     let prepared = false
     try {
         if (runner.batchedGuard && runner.pathSetByBatch) runner.pathSetByBatch = false
         else if (runner.statementSearchPath)
             await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-        await client.query('SET LOCAL client_min_messages = log; SET LOCAL debug_pretty_print = off; SET LOCAL debug_print_parse = on')
-        client.on('notice', onNotice)
+        // The first read acquires the lock view's own catalog locks; the second is the stable baseline.
+        await client.query(HELD_RELATIONS_SQL)
+        before = new Set((await client.query(HELD_RELATIONS_SQL)).rows.map((row) => Number(row.oid)))
         await client.query({
             name: parseName,
-            text: `PREPARE ${statementName} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
+            text: `PREPARE ${statementName} AS ${statement}`
         })
         prepared = true
+        const after = (await client.query(HELD_RELATIONS_SQL)).rows.map((row) => Number(row.oid))
+        const relations = new Set(after.filter((oid) => !before.has(oid)))
+        const functionRows = named.calls.length
+            ? await runner.all(STATEMENT_FUNCTION_IDS_SQL, [JSON.stringify(named.calls.map((call, i) => ({ i, ...call })))])
+            : []
+        const operatorRows = named.operators.length ? await runner.all(STATEMENT_OPERATOR_IDS_SQL, [JSON.stringify(named.operators)]) : []
+        const explicitTypeRows = named.types.length ? await runner.all(STATEMENT_TYPE_IDS_SQL, [JSON.stringify(named.types)]) : []
+        const resultTypeRows = (await client.query(PREPARED_RESULT_TYPES_SQL.replace('?', '$1'), [statementName])).rows || []
+        return {
+            relations,
+            functions: new Set(
+                [
+                    ...functionRows,
+                    ...operatorRows.filter((row) => row.kind === 'function'),
+                    ...explicitTypeRows.filter((row) => row.kind === 'function')
+                ].map((row) => Number(row.oid))
+            ),
+            operators: new Set(operatorRows.filter((row) => row.kind !== 'function').map((row) => Number(row.oid))),
+            types: new Set([...explicitTypeRows.filter((row) => row.kind !== 'function'), ...resultTypeRows].map((row) => Number(row.oid))),
+            tree: statement
+        }
     } finally {
-        client.removeListener('notice', onNotice)
-        // Turning debug output off is the first command. This cleanup is fixed text and cannot run user SQL.
-        await client
-            .query(
-                `SET LOCAL debug_print_parse = off; DEALLOCATE ${statementName}; DEALLOCATE ${parseName}; SET LOCAL client_min_messages = notice; SET LOCAL debug_pretty_print = on`
-            )
-            .catch(() => {})
+        if (prepared) await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
+        await client.query(`DEALLOCATE ${parseName}`).catch(() => {})
         if (runner.statementSearchPath)
             await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
     }
-    if (!prepared || !trees.length) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-    return trees.at(-1)
 }
 
-// Returns the relations, functions, operators and types in the resolved query tree. Nothing in the statement runs.
+// Returns the relations, functions, operators and types in the analyzed statement. Nothing in the statement runs.
 async function parsedStatementIds(client, runner, statement, cacheKey) {
     const risky = await riskyDomains(runner, cacheKey)
     if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
-    const tree = await preparedStatementTree(client, runner, statement)
-    const ids = treeObjectIds(tree)
-    ids.tree = tree
+    const ids = await preparedStatementIds(client, runner, statement)
     if (!runner.batchedGuard) return ids
     // Predictions use the same Set iteration and builders as the eventual JS consumers. If a body adds
     // ids, or the scoped reg* exception removes types, the later lookup misses the exact key and reads
@@ -1046,7 +1247,7 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
 // ALLOWED_ROUTINES, any denied built-in, and any type whose input or output is not built in.
 export const ALLOWED_ROUTINES = new Set()
 export const SCOPE_UNCHECKABLE_ANY =
-    'Cuttlely could not check which functions this query calls because Postgres did not return its parsed query tree. The query did not run.'
+    'Cuttlely could not check which functions this query calls because Postgres did not return its analyzed object information. The query did not run.'
 
 export async function checkStatementRoutines(client, runner, statement, isRowQuery, cacheKey = '') {
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)

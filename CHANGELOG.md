@@ -10,7 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   PostgreSQL MCP queries now work on databases with enabled event triggers, including Supabase and other managed Postgres services. The safety check prepares the query without running it and performs no DDL, so event-trigger functions do not run during the check. Postgres writes the parsed tree at `LOG` level to its server log by default; it can contain literal values in an internal form, so database logs need restricted access and appropriate retention.
+-   PostgreSQL MCP queries now work on databases with enabled event triggers, including Supabase and other managed Postgres services. The safety check prepares the query without planning or running it, reads relation locks and system catalogs, and performs no DDL, so event-trigger functions do not run during the check.
 
 -   Self-hosted installs behind a reverse proxy or cloud gateway now keep idle server connections open for 65 seconds by default, instead of 5 seconds, so the proxy does not reuse a connection the server already closed. Tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`; see the [reverse proxy guide](./docs/how-to/reverse-proxy.md). Follow-up to #455.
 

@@ -263,7 +263,7 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             assert.equal(begins.length, 6, 'one check and one query transaction per call')
             for (const p of begins) assert.ok(p.startsWith('BEGIN TRANSACTION READ ONLY'), p)
             const user = seen.filter((call) => call.text.includes(MARK))
-            const prepared = user.filter((call) => /^PREPARE cuttlely_scope_check_\d+ AS SELECT 1 FROM \(\n/.test(call.text))
+            const prepared = user.filter((call) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(call.text))
             assert.equal(prepared.length, 3, 'exactly one prepared check per call')
             for (const call of prepared) {
                 assert.equal(call.mode, 'read-only')
