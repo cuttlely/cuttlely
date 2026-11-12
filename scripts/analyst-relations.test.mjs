@@ -96,6 +96,32 @@ describe('analyst relations: pure helpers', () => {
         assert.deepEqual(names("SELECT extract(year FROM current_date), trim('x' FROM label) FROM v"), ['v'])
     })
 
+    it('leaves unquoted FROM clause keywords to the parser but retains quoted relation names', () => {
+        for (const word of [
+            'where',
+            'group',
+            'having',
+            'order',
+            'limit',
+            'offset',
+            'union',
+            'intersect',
+            'except',
+            'window',
+            'fetch',
+            'for',
+            'returning'
+        ]) {
+            assert.deepEqual(statementObjects(`SELECT FROM ${word.toUpperCase()} LIMIT 1`).relations, [], word)
+            assert.deepEqual(statementObjects(`SELECT * FROM "${word}" LIMIT 1`).relations, [{ schema: null, name: word }])
+        }
+        assert.deepEqual(statementObjects('SELECT * FROM public."where" LIMIT 1').relations, [{ schema: 'public', name: 'where' }])
+        assert.deepEqual(statementObjects('SELECT * FROM (invoices CROSS JOIN account_balances) LIMIT 1').relations, [
+            { schema: null, name: 'invoices' },
+            { schema: null, name: 'account_balances' }
+        ])
+    })
+
     it('types numeric literals the way PostgreSQL resolves integer and numeric overloads', () => {
         const hint = (literal) => statementObjects(`SELECT public.literal_pick(${literal})`).calls[0].hints[0]
         assert.equal(hint('1'), 'pg_catalog.int4')
@@ -108,6 +134,33 @@ describe('analyst relations: pure helpers', () => {
         for (const value of ['-1', '+1', '-2147483648']) assert.equal(hint(value), 'pg_catalog.int4', value)
         for (const value of ['-2147483649', '+2147483648', '-9223372036854775808']) assert.equal(hint(value), 'pg_catalog.int8', value)
         for (const value of ['-1.5', '+1e2', '-9223372036854775809']) assert.equal(hint(value), 'pg_catalog.numeric', value)
+    })
+
+    it('uses a cast hint only when the cast covers the entire argument', () => {
+        const hint = (value) => statementObjects(`SELECT public.literal_pick(${value})`).calls[0].hints[0]
+        for (const value of ['1::int4 + 0.5', '0.5 + 1::int4', 'abs(1::int4)', '(1::int4) + 0.5']) assert.equal(hint(value), null, value)
+        for (const value of ['1::int4', '(1 + 2)::int4', '((1 + 2)::int4)', '1::numeric::int4']) assert.equal(hint(value), 'int4', value)
+    })
+
+    it('retains full explicit cast type names, typmods, arrays and quoted identities', () => {
+        for (const [target, expected] of [
+            ['character varying', 'character varying'],
+            ['character varying(12)', 'character varying(12)'],
+            ['timestamp(3) with time zone', 'timestamp(3) with time zone'],
+            ['timestamp without time zone', 'timestamp without time zone'],
+            ['double precision', 'double precision'],
+            ['bit varying(4)', 'bit varying(4)'],
+            ['mood[]', 'mood[]'],
+            ['public.mood[]', '"public"."mood"[]'],
+            ['numeric(12,2)[][]', 'numeric(12 , 2)[][]'],
+            ['"character"', '"character"'],
+            ['"Odd"."Type"[]', '"Odd"."Type"[]']
+        ]) {
+            for (const sql of [`SELECT CAST(col AS ${target})`, `SELECT col::${target}`]) {
+                assert.deepEqual(statementObjects(sql).casts, [{ source: null, target: expected }], sql)
+                assert.deepEqual(statementObjects(sql).calls, [], sql)
+            }
+        }
     })
 
     it('does not count commas inside array constructors as outer function arguments', () => {
@@ -1618,6 +1671,64 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
     })
 
+    it('does not use an inner cast to choose the overload of a complete expression', async (t) => {
+        if (skipped(t)) return
+        assert.equal((await owner.query('SELECT pg_typeof(1::pg_catalog.int4 + 0.5)::text AS t')).rows[0].t, 'numeric')
+        await refusal(
+            queryAnalystUrl(url, 'SELECT public.literal_pick(1::pg_catalog.int4 + 0.5) LIMIT 1', { readOnlySql: true }),
+            /literal_pick\(numeric\).*VOLATILE/
+        )
+        assert.equal(
+            String(
+                (await queryAnalystUrl(url, 'SELECT public.literal_pick((1 + 0.5)::pg_catalog.int4) AS v LIMIT 1', { readOnlySql: true }))
+                    .rows[0].v
+            ),
+            '2'
+        )
+    })
+
+    it('checks explicit multi-word and array cast functions', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.cast_inputs (m public.mood, id int);
+            INSERT INTO public.cast_inputs VALUES ('calm', 1);
+            GRANT SELECT ON public.cast_inputs TO "${writer}"`)
+        try {
+            for (const [source, target, expression, value, context] of [
+                ['public.mood', 'character varying', 'm', "'calm'", 'AS ASSIGNMENT'],
+                ['public.mood', 'timestamp with time zone', 'm', "'2026-01-01'", ''],
+                ['public.mood', 'double precision', 'm', '1', ''],
+                ['public.mood', 'bit varying', 'm', "B'1'", ''],
+                ['int', 'public.mood[]', 'id', "ARRAY['calm'::public.mood]", '']
+            ]) {
+                await owner.query(`CREATE FUNCTION public.explicit_cast_probe(${source}) RETURNS ${target}
+                    LANGUAGE sql STABLE SECURITY DEFINER AS $f$SELECT ${value}::${target}$f$;
+                    ALTER FUNCTION public.explicit_cast_probe(${source}) OWNER TO "${writer}";
+                    CREATE CAST (${source} AS ${target}) WITH FUNCTION public.explicit_cast_probe(${source}) ${context}`)
+                try {
+                    const modified = {
+                        'character varying': 'character varying(12)',
+                        'timestamp with time zone': 'timestamp(3) with time zone',
+                        'bit varying': 'bit varying(4)',
+                        'public.mood[]': 'mood[]'
+                    }[target]
+                    const targets = modified ? [target, modified] : [target]
+                    for (const cast of targets.flatMap((type) => [`CAST(${expression} AS ${type})`, `${expression}::${type}`])) {
+                        const sql = `SELECT ${cast} FROM cast_inputs LIMIT 1`
+                        assert.equal((await owner.query(sql)).rows.length, 1)
+                        await refusal(
+                            queryAnalystUrl(url, sql, { readOnlySql: true, relations: ['public.cast_inputs'] }),
+                            /explicit_cast_probe.*SECURITY DEFINER/
+                        )
+                    }
+                } finally {
+                    await owner.query(`DROP CAST (${source} AS ${target}); DROP FUNCTION public.explicit_cast_probe(${source})`)
+                }
+            }
+        } finally {
+            await owner.query('DROP TABLE public.cast_inputs')
+        }
+    })
+
     it('checks the one-argument array overload despite commas inside ARRAY brackets', async (t) => {
         if (skipped(t)) return
         await refusal(
@@ -1639,7 +1750,9 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             for (const sql of [
                 'SELECT (items.id + 0)::public.alert_mood AS m FROM items LIMIT 1',
-                'SELECT CAST(items.id + 0 AS public.alert_mood) AS m FROM items LIMIT 1'
+                'SELECT CAST(items.id + 0 AS public.alert_mood) AS m FROM items LIMIT 1',
+                'SELECT ARRAY[items.id]::public.alert_mood[] AS m FROM items LIMIT 1',
+                'SELECT CAST(ARRAY[items.id] AS public.alert_mood[]) AS m FROM items LIMIT 1'
             ]) {
                 await refusal(
                     queryAnalystUrl(url, sql, {
@@ -1703,7 +1816,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
     })
 
-    it('refuses reg* columns projected by wildcards, including on PostgreSQL 14 and 15', async (t) => {
+    it('refuses reg* columns projected by wildcards and whole rows, including on PostgreSQL 14 and 15', async (t) => {
         if (skipped(t)) return
         await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
             INSERT INTO public.object_names VALUES (1, 'items'::regclass);
@@ -1711,9 +1824,21 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             for (const readOnlySql of [false, true]) {
                 const options = { readOnlySql, relations: ['public.object_names'] }
-                for (const sql of ['SELECT * FROM object_names LIMIT 1', 'SELECT n.* FROM object_names n LIMIT 1'])
+                for (const sql of [
+                    'SELECT * FROM object_names LIMIT 1',
+                    'SELECT n.* FROM object_names n LIMIT 1',
+                    'SELECT row_to_json(n) FROM object_names n LIMIT 1',
+                    'SELECT n FROM object_names n LIMIT 1',
+                    'SELECT row_to_json(object_names) FROM object_names LIMIT 1',
+                    'SELECT row_to_json(n) FROM public.object_names AS n LIMIT 1'
+                ])
                     await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
                 assert.deepEqual((await queryAnalystUrl(url, 'SELECT id FROM object_names LIMIT 1', options)).rows, [{ id: 1 }])
+                assert.deepEqual((await queryAnalystUrl(url, 'SELECT n.id FROM object_names n LIMIT 1', options)).rows, [{ id: 1 }])
+                assert.deepEqual(
+                    (await queryAnalystUrl(url, 'SELECT object_names.id FROM object_names object_names LIMIT 1', options)).rows,
+                    [{ id: 1 }]
+                )
                 assert.deepEqual((await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM object_names LIMIT 1', options)).rows, [
                     { n: 1 }
                 ])

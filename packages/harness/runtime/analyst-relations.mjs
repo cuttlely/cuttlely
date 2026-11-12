@@ -1024,6 +1024,8 @@ export function statementObjects(statement) {
     const columnNames = new Set(tokens.filter((token) => token.type === 'word').map((token) => token.value))
     const relationLiterals = new Set()
     const relations = new Map()
+    const relationBindings = []
+    const relationDeclarations = new Set()
     const operators = new Map()
     const types = new Set()
     const frames = []
@@ -1075,6 +1077,70 @@ export function statementObjects(statement) {
             const open = brackets.pop()
             if (open !== undefined) openingBracket.set(i, open)
         }
+    }
+    // Keep SQL type syntax intact for to_regtype: it understands aliases, typmods and arrays.
+    // Quoted/schema-qualified names must retain their identity ("char" is not SQL CHAR).
+    const typeTokens = new Set()
+    const wordAt = (at, value) => tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === value
+    const readType = (start) => {
+        const first = tokens[start]
+        if (first?.type !== 'word') return null
+        let end = start + 1
+        let name = typeName(first)
+        const qualified = symbol(end, '.') && tokens[end + 1]?.type === 'word'
+        if (qualified) {
+            name = typeName(first, tokens[end + 1])
+            end += 2
+        } else if (!first.quoted) {
+            // SQL aliases are grammar, not quoted catalog identifiers.
+            name = first.value
+            if (['character', 'char', 'bit'].includes(first.value) && wordAt(end, 'varying')) {
+                name += ' varying'
+                end += 1
+            } else if (first.value === 'double' && wordAt(end, 'precision')) {
+                name += ' precision'
+                end += 1
+            } else if (first.value === 'national') {
+                if (wordAt(end, 'character') || wordAt(end, 'char')) {
+                    name += ` ${tokens[end++].value}`
+                    if (wordAt(end, 'varying')) {
+                        name += ' varying'
+                        end += 1
+                    }
+                }
+            }
+        }
+        if (symbol(end, '(') && closingParen.has(end)) {
+            const close = closingParen.get(end)
+            name +=
+                '(' +
+                tokens
+                    .slice(end + 1, close)
+                    .map((t) => t.value)
+                    .join(' ') +
+                ')'
+            end = close + 1
+        }
+        if (
+            !qualified &&
+            !first.quoted &&
+            ['time', 'timestamp'].includes(first.value) &&
+            (wordAt(end, 'with') || wordAt(end, 'without')) &&
+            wordAt(end + 1, 'time') &&
+            wordAt(end + 2, 'zone')
+        ) {
+            name += ` ${tokens[end].value} time zone`
+            end += 3
+        }
+        while (symbol(end, '[')) {
+            let close = end + 1
+            if (tokens[close]?.type === 'number') close += 1
+            if (!symbol(close, ']')) break
+            name += '[]'
+            end = close + 1
+        }
+        for (let at = start; at < end; at += 1) typeTokens.add(at)
+        return { name, end }
     }
     const cteVisibility = []
     for (let i = 0; i < tokens.length; i += 1) {
@@ -1147,11 +1213,29 @@ export function statementObjects(statement) {
         }
         const first = tokens[at]
         if (first?.type !== 'word') return
+        // Clause keywords cannot start an unquoted relation name. Leave malformed FROM items
+        // to the single PREPARE's parser instead of reporting a fictitious unticked table.
+        // Quoted names and the leftmost relation inside a grouped JOIN still need scope checks.
+        if (!first.quoted && FROM_END_WORDS.has(first.value)) return
         const qualified = symbol(at + 1, '.') && tokens[at + 2]?.type === 'word'
         const next = qualified ? at + 3 : at + 1
         if (symbol(next, '(') || (!qualified && isCteReference(at, first.value))) return
         const relation = qualified ? { schema: first.value, name: tokens[at + 2].value } : { schema: null, name: first.value }
         relations.set(`${relation.schema || ''}\0${relation.name}`, relation)
+        for (let index = at; index < next; index += 1) relationDeclarations.add(index)
+        let aliasAt = next
+        if (only && symbol(aliasAt, ')')) aliasAt += 1
+        if (symbol(aliasAt, '*')) aliasAt += 1
+        const explicitAlias = wordAt(aliasAt, 'as')
+        if (explicitAlias) aliasAt += 1
+        const alias = tokens[aliasAt]
+        const hasAlias =
+            alias?.type === 'word' &&
+            (alias.quoted ||
+                explicitAlias ||
+                (!FROM_END_WORDS.has(alias.value) &&
+                    !['cross', 'join', 'inner', 'left', 'right', 'full', 'natural', 'on', 'using', 'tablesample'].includes(alias.value)))
+        relationBindings.push({ relation, name: hasAlias ? alias.value : relation.name, declaration: hasAlias ? aliasAt : next - 1 })
     }
     const FROM_END_WORDS = new Set([
         'except',
@@ -1196,8 +1280,7 @@ export function statementObjects(statement) {
             else if (depth === 1 && tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'as') {
                 const first = tokens[at + 1]
                 if (first?.type === 'word') {
-                    const target =
-                        symbol(at + 2, '.') && tokens[at + 3]?.type === 'word' ? typeName(first, tokens[at + 3]) : typeName(first)
+                    const target = readType(at + 1).name
                     types.add(target)
                     const source = at === i + 3 ? literalType(tokens[i + 2]) : null
                     casts.push({ source, target })
@@ -1230,25 +1313,21 @@ export function statementObjects(statement) {
         while (symbol(start - 1, '.') && tokens[start - 2]?.type === 'word') start -= 2
         return start
     }
+    const castEnds = new Map()
     const hint = (from, to) => {
-        const part = tokens.slice(from, to)
-        for (let i = part.length - 3; i >= 0; i -= 1) {
-            if (part[i]?.value !== ':' || part[i + 1]?.value !== ':' || part[i + 2]?.type !== 'word') continue
-            if (part[i + 3]?.value === '.' && part[i + 4]?.type === 'word') return typeName(part[i + 2], part[i + 4])
-            return typeName(part[i + 2])
+        // A hint must describe the entire argument. Even a trailing cast can belong only
+        // to the right operand of an operator, or to a call nested inside this argument.
+        while (symbol(from, '(') && closingParen.get(from) === to - 1) {
+            from += 1
+            to -= 1
         }
+        const part = tokens.slice(from, to)
         if (part.length === 1 && literalType(part[0])) return literalType(part[0])
         if (part.length === 2 && ['+', '-'].includes(part[0]?.value) && part[1]?.type === 'number')
             return literalType(part[1], part[0].value === '-')
+        const cast = castEnds.get(to)
+        if (cast && cast.start === from) return cast.name
         return null
-    }
-    const precedingCastTarget = (colon) => {
-        const last = tokens[colon - 1]
-        if (last?.type !== 'word') return null
-        const qualified = symbol(colon - 2, '.') && tokens[colon - 3]?.type === 'word'
-        const start = qualified ? colon - 3 : colon - 1
-        if (!symbol(start - 1, ':') || !symbol(start - 2, ':')) return null
-        return qualified ? typeName(tokens[colon - 3], last) : typeName(last)
     }
     const valueTypes = new Map([
         ['current_date', 'pg_catalog.date'],
@@ -1294,8 +1373,8 @@ export function statementObjects(statement) {
             if (name && symbol(at, ')')) operators.set(`${schema || ''}\0${name}`, { schema, name })
         }
         if (token.type === 'symbol' && token.value === ':' && symbol(i + 1, ':') && tokens[i + 2]?.type === 'word') {
-            const name =
-                symbol(i + 3, '.') && tokens[i + 4]?.type === 'word' ? typeName(tokens[i + 2], tokens[i + 4]) : typeName(tokens[i + 2])
+            const target = readType(i + 2)
+            const name = target.name
             const targetToken = symbol(i + 3, '.') && tokens[i + 4]?.type === 'word' ? tokens[i + 4] : tokens[i + 2]
             if (targetToken.value === 'regclass' && tokens[i - 1]?.type === 'string' && typeof tokens[i - 1].value === 'string')
                 relationLiterals.add(tokens[i - 1].value)
@@ -1309,9 +1388,12 @@ export function statementObjects(statement) {
                 frame.argStart === i - 1
             if (!safeRegConst) types.add(name)
             const sourceStart = operandStart(i - 1)
-            const source = precedingCastTarget(i) || (sourceStart === i - 1 ? literalType(tokens[i - 1]) : null)
+            const previous = castEnds.get(i)
+            const source = previous?.name || (sourceStart === i - 1 ? literalType(tokens[i - 1]) : null)
             casts.push({ source, target: name })
+            castEnds.set(target.end, { name, start: previous?.start ?? sourceStart })
         }
+        if (typeTokens.has(i)) continue
         if (token.type === 'symbol' && token.value === '(') {
             const name = tokens[i - 1]
             const qualified = symbol(i - 2, '.') && tokens[i - 3]?.type === 'word'
@@ -1377,6 +1459,24 @@ export function statementObjects(statement) {
     return {
         calls: calls.map(({ schema, name, args, hints }) => ({ schema, name, args, hints })),
         casts,
+        // A bare range variable denotes its relation's composite type, including when a
+        // function consumes it and PREPARE exposes only that function's result type.
+        wholeRowRelations: relationBindings
+            .filter(({ name, declaration }) =>
+                tokens.some(
+                    (token, at) =>
+                        token.type === 'word' &&
+                        token.value === name &&
+                        at !== declaration &&
+                        !relationDeclarations.has(at) &&
+                        !symbol(at + 1, '.') &&
+                        !symbol(at + 1, '(') &&
+                        !symbol(at - 1, '.') &&
+                        !wordAt(at - 1, 'as') &&
+                        !relationBindings.some((binding) => binding.declaration === at)
+                )
+            )
+            .map(({ relation }) => relation),
         columnNames: [...columnNames],
         literalTypes: [...new Set(tokens.map((token) => literalType(token)).filter(Boolean))],
         operators: [...operators.values()],
@@ -1481,6 +1581,11 @@ SELECT 'type' AS kind, oid::int8 AS oid FROM types
 const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH RECURSIVE casts AS (
     SELECT pg_catalog.to_regtype(source)::oid AS source, pg_catalog.to_regtype(target)::oid AS target
     FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, target text)
+), explicit_targets(root, oid) AS (
+    SELECT target, target FROM casts WHERE target IS NOT NULL
+    UNION
+    SELECT parent.root, child.oid FROM explicit_targets parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (SELECT t.typbasetype AS oid UNION SELECT t.typelem) child WHERE child.oid > 0
 ), routines AS (
     SELECT p.* FROM pg_catalog.pg_proc p WHERE p.oid = ANY(?::oid[])
 ), operators AS (
@@ -1519,7 +1624,9 @@ const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH RECURSIVE casts AS (
 )
 SELECT DISTINCT c.castfunc::int8 AS oid FROM pg_catalog.pg_cast c
 WHERE c.castfunc <> 0 AND (
-    EXISTS (SELECT 1 FROM casts x WHERE x.target = c.casttarget
+    -- Written casts admit explicit and assignment cast functions too, including array element coercions.
+    EXISTS (SELECT 1 FROM casts x JOIN explicit_targets target ON target.root = x.target
+        WHERE target.oid = c.casttarget
         AND (x.source = c.castsource OR (x.source IS NULL AND c.castsource IN (SELECT oid FROM types))))
     OR (c.castcontext = 'i' AND c.castsource IN (SELECT oid FROM types) AND c.casttarget IN (SELECT oid FROM targets))
 )`
@@ -1539,7 +1646,12 @@ const STATEMENT_LITERAL_RELATION_IDS_SQL = `SELECT DISTINCT pg_catalog.to_regcla
 FROM pg_catalog.jsonb_array_elements_text($1::jsonb) WHERE pg_catalog.to_regclass(value) IS NOT NULL`
 
 const STATEMENT_COLUMN_TYPE_IDS_SQL = `SELECT DISTINCT a.atttypid::int8 AS oid FROM pg_catalog.pg_attribute a
-WHERE a.attrelid = ANY(?::oid[]) AND (a.attname = ANY(?::text[]) OR '*' = ANY(?::text[])) AND a.attnum > 0 AND NOT a.attisdropped`
+WHERE a.attrelid = ANY(?::oid[]) AND (a.attname = ANY(?::text[]) OR '*' = ANY(?::text[])) AND a.attnum > 0 AND NOT a.attisdropped
+UNION SELECT c.reltype::int8 AS oid FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text) ON r.name = c.relname
+WHERE c.reltype <> 0 AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
+    OR (r.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid)))`
 
 const HELD_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks
 WHERE pid = pg_catalog.pg_backend_pid() AND locktype = 'relation' AND relation IS NOT NULL`
@@ -1597,7 +1709,7 @@ async function preparedStatementIds(client, runner, statement, named) {
             for (const row of (await client.query(STATEMENT_LITERAL_RELATION_IDS_SQL, [JSON.stringify(named.relationLiterals)])).rows)
                 relations.add(Number(row.oid))
         }
-        const columnParams = [[...relations], named.columnNames, named.columnNames]
+        const columnParams = [[...relations], named.columnNames, named.columnNames, JSON.stringify(named.wholeRowRelations)]
         const typeNames = [...new Set([...named.types, ...named.literalTypes])]
         const metadataReads = [
             ...(named.calls.length

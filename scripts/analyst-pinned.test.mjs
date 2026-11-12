@@ -130,11 +130,12 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             try {
                 const observed = {}
                 const expectedCounts = {}
+                // Column-type and cast-function catalog reads add two required guard round trips.
                 for (const [name, table, expression, rowCap, expected] of [
-                    ['basic', 'rt_orders', 'amount', 50, 16],
-                    ['view', 'rt_v2', 'amount', 50, 19],
-                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 16],
-                    ['multi-page', 'rt_orders', 'amount', 10, 25]
+                    ['basic', 'rt_orders', 'amount', 50, 18],
+                    ['view', 'rt_v2', 'amount', 50, 21],
+                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 18],
+                    ['multi-page', 'rt_orders', 'amount', 10, 27]
                 ]) {
                     const timings = []
                     const e = { ...entry, sql: `SELECT id, ${expression} FROM public.${table} WHERE region=:r ORDER BY id LIMIT 20` }
@@ -376,11 +377,52 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             assert.ok(second.rows.every((row) => row.region === 'EU'))
             assert.match(second.summary, /of 300.*page 2 of 3/)
         })
-        await t.test('check-copy parse error is refused', async () => {
-            await assert.rejects(
-                queryAnalystUrl(url, null, { ...options, pinned: { entry: { sql: 'SELECT FROM WHERE LIMIT 1' } } }),
-                /syntax error/
-            )
+        await t.test('check-copy parse error is refused before any user query runs', async () => {
+            const original = pg.Client.prototype.query
+            const sent = []
+            pg.Client.prototype.query = function (...args) {
+                sent.push(typeof args[0] === 'string' ? args[0] : args[0].text)
+                return original.apply(this, args)
+            }
+            try {
+                for (const word of [
+                    'WHERE',
+                    'GROUP',
+                    'HAVING',
+                    'ORDER',
+                    'LIMIT',
+                    'OFFSET',
+                    'UNION',
+                    'INTERSECT',
+                    'EXCEPT',
+                    'WINDOW',
+                    'FETCH',
+                    'FOR',
+                    'RETURNING'
+                ]) {
+                    sent.length = 0
+                    await assert.rejects(
+                        queryAnalystUrl(url, null, { ...options, pinned: { entry: { sql: `SELECT FROM ${word} LIMIT 1` } } }),
+                        /syntax error/,
+                        word
+                    )
+                    assert.equal(sent.filter((text) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(text)).length, 1, word)
+                    assert.ok(!sent.some((text) => /AS analyst_page|AS analyst_n|analyst_line_len|pg_typeof/.test(text)), word)
+                }
+            } finally {
+                pg.Client.prototype.query = original
+            }
+        })
+        await t.test('quoted clause keywords remain selected relations', async () => {
+            await setup.query('CREATE TABLE public."where" (id int); INSERT INTO public."where" VALUES (7)')
+            try {
+                const entry = { sql: 'SELECT id FROM "where" LIMIT 1' }
+                await assert.rejects(queryAnalystUrl(url, null, { ...options, pinned: { entry } }), /table selection does not include/)
+                const result = await queryAnalystUrl(url, null, { ...options, relations: ['public."where"'], pinned: { entry } })
+                assert.deepEqual(result.rows, [{ id: 7 }])
+            } finally {
+                await setup.query('DROP TABLE public."where"')
+            }
         })
         await t.test('CASE branch reading an unticked relation is refused', async () => {
             const e = {
@@ -484,7 +526,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         }
         await t.test('free SQL page, count, probe, length and replay match the round-trip golden', async () => {
             // Updated for root-domain reads, catalog JIT settings, folded rollback batches and the
-            // read-only PREPARE check, including SQL bytes and values.
+            // read-only PREPARE check, whole-row types and full cast targets, including SQL bytes and values.
             // PostgreSQL 14 has different built-in catalog OIDs, and 14/15 lack prepared-statement
             // result_types, so each supported metadata shape has its own exact traffic golden.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.

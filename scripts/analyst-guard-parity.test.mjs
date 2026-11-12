@@ -1336,7 +1336,10 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         // LIMIT 50 contributes an int4 literal even though the selected expression is a column.
         if (sql.startsWith('WITH types AS') && sql.includes("SELECT 'type' AS kind")) return [{ kind: 'type', oid: '23' }]
         if (sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype')) return [{ oid: '23' }]
-        if (sql.startsWith('SELECT DISTINCT a.atttypid::int8 AS oid')) return [{ oid: '23' }]
+        if (sql.startsWith('SELECT DISTINCT a.atttypid::int8 AS oid')) {
+            assert.ok(sql.includes('UNION SELECT c.reltype::int8 AS oid'))
+            return [{ oid: '23' }]
+        }
         // The fixture's int4 columns, literal and equality operator need no function-backed casts.
         if (sql.startsWith('WITH RECURSIVE casts AS') && sql.includes('FROM pg_catalog.pg_cast c')) return []
         if (sql.includes('guard_mock_user')) return [{ id: 1 }]
@@ -1392,7 +1395,9 @@ describe('analyst guard transaction orchestration (offline)', () => {
                             assert.deepEqual(reads[literalTypes].params, [JSON.stringify(['pg_catalog.int4'])])
                             assert.ok(reads[literalTypes + 1].sql.startsWith('SELECT DISTINCT value::pg_catalog.regtype'))
                             assert.ok(reads[literalTypes + 2].sql.startsWith('SELECT DISTINCT a.atttypid::int8 AS oid'))
+                            assert.equal(reads[literalTypes + 2].params[3], '[]')
                             assert.ok(reads[literalTypes + 3].sql.startsWith('WITH RECURSIVE casts AS'))
+                            assert.ok(reads[literalTypes + 3].sql.includes('explicit_targets(root, oid)'))
                             assert.deepEqual(reads[literalTypes + 3].params, ['[]', [], [96], [23, 23, 23]])
                             assert.equal(calls.at(-1).text.split('\n;\n').at(-1), 'ROLLBACK')
                             const prepares = calls.filter(({ text }) => text.startsWith('PREPARE cuttlely_scope_check_'))
@@ -1418,7 +1423,10 @@ describe('analyst guard transaction orchestration (offline)', () => {
                                 }
                                 // 22 accounts for required literal type-id / cast catalog reads plus policy lock traffic.
                                 const queryCeiling = policy ? 22 : 20
-                                assert.ok(calls.length <= queryCeiling, calls.map(({ text }, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
+                                assert.ok(
+                                    calls.length <= queryCeiling,
+                                    calls.map(({ text }, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n')
+                                )
                             }
                         },
                         { scoped, policy }
