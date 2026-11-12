@@ -47,6 +47,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 
 // Hooks
 import useApi from '@/hooks/useApi'
+import useCanvasOpenRequest from '@/hooks/useCanvasOpenRequest'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import useDraftSave from '@/hooks/useDraftSave'
@@ -187,6 +188,8 @@ const Canvas = () => {
     const routeFlowId = chatflowId || createdFlowIdRef.current
     const activeRouteFlowIdRef = useRef(chatflowId || null)
     activeRouteFlowIdRef.current = chatflowId || null
+    const openRequest = useCanvasOpenRequest()
+    const abortOpenRequest = openRequest.abort
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -266,7 +269,7 @@ const Canvas = () => {
     const requestedFlowIdRef = useRef(null)
     const requestFlow = (id) => {
         requestedFlowIdRef.current = id
-        getSpecificChatflowApi.request(id)
+        getSpecificChatflowApi.request(id, { signal: openRequest.start(id) })
     }
     const getHasChatflowChangedApi = useApi(chatflowsApi.getHasChatflowChanged, { currentOnly: true, localUnavailable: true })
 
@@ -826,9 +829,10 @@ const Canvas = () => {
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
     // The draft status of a flow this canvas just created. Its new address does not reload it (createdFlowIdRef),
     // so this read is what lets the canvas leave its inert state.
-    const loadCreatedStatus = (created) =>
-        flowDraftsApi
-            .getStatus(created.id)
+    const loadCreatedStatus = (created) => {
+        const signal = openRequest.start(created.id)
+        return flowDraftsApi
+            .getStatus(created.id, { signal })
             .then((res) => {
                 if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
                 setDraftStatus(res.data)
@@ -836,9 +840,11 @@ const Canvas = () => {
                 draftSave.record(res.data, canvasFlowText(created, res.data))
             })
             .catch((error) => {
+                if (signal.aborted) return
                 if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
                 setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' })
             })
+    }
 
     // Resolves true when the draft save set the draft status; otherwise the caller reads it.
     const saveFirstDraft = async (created, draft, notice, rev) => {
@@ -1069,8 +1075,9 @@ const Canvas = () => {
             if (built) builtNotice(built)
             // Chatflow, agentflow, harness and pipeline canvases load draft status the same way.
             // The canvas shows the draft. Harness runs and pipeline runs keep serving Live until Publish.
+            const signal = openRequest.signalFor(loaded.id)
             flowDraftsApi
-                .getStatus(loaded.id)
+                .getStatus(loaded.id, { signal })
                 .then((res) => {
                     const decision = draftStatusOpenDecision(res)
                     if (decision.paint) paint(decision.status)
@@ -1083,6 +1090,7 @@ const Canvas = () => {
                 })
             return () => {
                 cancelled = true
+                openRequest.abort(loaded.id)
             }
         } else if (flowLoad === 'fail') {
             setDraftStatusLoad({
@@ -1327,6 +1335,9 @@ const Canvas = () => {
         // The route id is the request identity. A new id must not reuse the previous canvas or its draft mode.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [chatflowId])
+
+    // Back, unmount, or a route change stops the saved-flow/status retry owned by the route being left.
+    useEffect(() => () => abortOpenRequest(chatflowId), [abortOpenRequest, chatflowId])
 
     useEffect(() => {
         const rows = getPackIndexApi.data?.nodes

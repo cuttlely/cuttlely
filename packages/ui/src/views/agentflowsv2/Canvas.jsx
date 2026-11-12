@@ -50,6 +50,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 
 // Hooks
 import useApi from '@/hooks/useApi'
+import useCanvasOpenRequest from '@/hooks/useCanvasOpenRequest'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import useDraftSave from '@/hooks/useDraftSave'
@@ -129,6 +130,8 @@ const AgentflowCanvas = () => {
     const routeFlowId = chatflowId || createdFlowIdRef.current
     const activeRouteFlowIdRef = useRef(chatflowId || null)
     activeRouteFlowIdRef.current = chatflowId || null
+    const openRequest = useCanvasOpenRequest()
+    const abortOpenRequest = openRequest.abort
     const canvasBlocked = canvasLoadBlocked(routeFlowId, draftStatusLoad)
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
@@ -208,7 +211,7 @@ const AgentflowCanvas = () => {
     const requestedFlowIdRef = useRef(null)
     const requestFlow = (id) => {
         requestedFlowIdRef.current = id
-        getSpecificChatflowApi.request(id)
+        getSpecificChatflowApi.request(id, { signal: openRequest.start(id) })
     }
 
     // ==============================|| Events & Actions ||============================== //
@@ -833,8 +836,9 @@ const AgentflowCanvas = () => {
                 dispatch({ type: SET_CHATFLOW, chatflow: loaded })
                 dispatch({ type: REMOVE_DIRTY })
             }
+            const signal = openRequest.signalFor(loaded.id)
             flowDraftsApi
-                .getStatus(loaded.id)
+                .getStatus(loaded.id, { signal })
                 .then((res) => {
                     const decision = draftStatusOpenDecision(res)
                     if (decision.paint) paint(decision.status)
@@ -847,6 +851,7 @@ const AgentflowCanvas = () => {
                 })
             return () => {
                 cancelled = true
+                openRequest.abort(loaded.id)
             }
         } else if (flowLoad === 'fail') {
             setDraftStatusLoad({
@@ -863,9 +868,10 @@ const AgentflowCanvas = () => {
 
     // The draft status of a flow this canvas just created. Its new address does not reload it (createdFlowIdRef),
     // so this read is what lets the canvas leave its inert state.
-    const loadCreatedStatus = (created) =>
-        flowDraftsApi
-            .getStatus(created.id)
+    const loadCreatedStatus = (created) => {
+        const signal = openRequest.start(created.id)
+        return flowDraftsApi
+            .getStatus(created.id, { signal })
             .then((res) => {
                 if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
                 setDraftStatus(res.data)
@@ -873,9 +879,11 @@ const AgentflowCanvas = () => {
                 draftSave.record(res.data, canvasFlowText(created, res.data))
             })
             .catch((error) => {
+                if (signal.aborted) return
                 if (!saveCompletionForRoute({ flowId: created.id }, activeRouteFlowIdRef.current)) return
                 setDraftStatusLoad({ flowId: created.id, known: false, loading: false, error, request: 'status' })
             })
+    }
 
     const retryDraftStatusLoad = () => {
         setDraftStatus(null)
@@ -1026,6 +1034,9 @@ const AgentflowCanvas = () => {
         requestFlow(chatflowId)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [chatflowId])
+
+    // Back, unmount, or a route change stops the saved-flow/status retry owned by the route being left.
+    useEffect(() => () => abortOpenRequest(chatflowId), [abortOpenRequest, chatflowId])
 
     useEffect(() => {
         setCanvasDataStore(canvas)

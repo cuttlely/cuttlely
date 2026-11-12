@@ -138,7 +138,13 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toMatch(
             /flowLoadAction\(chatflowId, requestedFlowIdRef\.current, getSpecificChatflowApi\.data, getSpecificChatflowApi\.error\)/
         )
-        expect(source).not.toMatch(/getSpecificChatflowApi\.request\((?!id\))/)
+        expect(source).toContain('const openRequest = useCanvasOpenRequest()')
+        expect(source).toContain('getSpecificChatflowApi.request(id, { signal: openRequest.start(id) })')
+        expect(source).toContain('const signal = openRequest.signalFor(loaded.id)')
+        expect(source).toContain('.getStatus(loaded.id, { signal })')
+        expect(source).toContain('.getStatus(created.id, { signal })')
+        expect(source).toContain('openRequest.abort(loaded.id)')
+        expect(source).toContain('useEffect(() => () => abortOpenRequest(chatflowId), [abortOpenRequest, chatflowId])')
         expect(source).not.toMatch(/if \(getSpecificChatflowApi\.(data|error)\)/)
         // A flow created on this canvas is blocked by its own id until its status is known, and Retry re-reads that
         // status instead of reloading the saved copy over the cards on the canvas.
