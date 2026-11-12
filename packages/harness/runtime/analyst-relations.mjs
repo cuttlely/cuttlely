@@ -1030,13 +1030,15 @@ export function statementObjects(statement) {
     const symbol = (at, value) => tokens[at]?.type === 'symbol' && tokens[at].value === value
     const identifier = (token) => `"${String(token?.value || '').replaceAll('"', '""')}"`
     const typeName = (first, second = null) => (second ? `${identifier(first)}.${identifier(second)}` : identifier(first))
-    const literalType = (token) => {
+    const literalType = (token, negative = false) => {
         if (token?.type === 'number') {
             const value = token.value
             if (/^[0-9]+$/.test(value)) {
                 const integer = value.replace(/^0+(?=[0-9])/, '')
-                if (integer.length < 10 || (integer.length === 10 && integer <= '2147483647')) return 'pg_catalog.int4'
-                if (integer.length < 19 || (integer.length === 19 && integer <= '9223372036854775807')) return 'pg_catalog.int8'
+                if (integer.length < 10 || (integer.length === 10 && integer <= (negative ? '2147483648' : '2147483647')))
+                    return 'pg_catalog.int4'
+                if (integer.length < 19 || (integer.length === 19 && integer <= (negative ? '9223372036854775808' : '9223372036854775807')))
+                    return 'pg_catalog.int8'
                 return 'pg_catalog.numeric'
             }
             if (/^[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?$/.test(value) && /[.eE]/.test(value)) return 'pg_catalog.numeric'
@@ -1138,8 +1140,10 @@ export function statementObjects(statement) {
         const only = tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'only'
         if (only) at += 1
         if (symbol(at, '(')) {
-            if (!only) return
-            at += 1
+            // A grouped JOIN starts with a relation, unlike a derived SELECT. Keep descending
+            // through grouping parentheses so its leftmost relation cannot hide behind a view.
+            while (symbol(at, '(')) at += 1
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && ['select', 'with', 'values'].includes(tokens[at].value)) return
         }
         const first = tokens[at]
         if (first?.type !== 'word') return
@@ -1196,7 +1200,7 @@ export function statementObjects(statement) {
                         symbol(at + 2, '.') && tokens[at + 3]?.type === 'word' ? typeName(first, tokens[at + 3]) : typeName(first)
                     types.add(target)
                     const source = at === i + 3 ? literalType(tokens[i + 2]) : null
-                    casts.push({ source, target, probeStart: tokens[i + 2]?.start, probeEnd: tokens[at]?.start })
+                    casts.push({ source, target })
                 }
                 break
             }
@@ -1234,6 +1238,8 @@ export function statementObjects(statement) {
             return typeName(part[i + 2])
         }
         if (part.length === 1 && literalType(part[0])) return literalType(part[0])
+        if (part.length === 2 && ['+', '-'].includes(part[0]?.value) && part[1]?.type === 'number')
+            return literalType(part[1], part[0].value === '-')
         return null
     }
     const precedingCastTarget = (colon) => {
@@ -1244,8 +1250,38 @@ export function statementObjects(statement) {
         if (!symbol(start - 1, ':') || !symbol(start - 2, ':')) return null
         return qualified ? typeName(tokens[colon - 3], last) : typeName(last)
     }
+    const valueTypes = new Map([
+        ['current_date', 'pg_catalog.date'],
+        ['current_time', 'pg_catalog.timetz'],
+        ['current_timestamp', 'pg_catalog.timestamptz'],
+        ['localtime', 'pg_catalog.time'],
+        ['localtimestamp', 'pg_catalog.timestamp'],
+        ['current_user', 'pg_catalog.name'],
+        ['session_user', 'pg_catalog.name'],
+        ['current_role', 'pg_catalog.name'],
+        ['current_schema', 'pg_catalog.name'],
+        ['current_catalog', 'pg_catalog.name'],
+        ['xmlparse', 'pg_catalog.xml'],
+        ['xmlelement', 'pg_catalog.xml'],
+        ['xmlforest', 'pg_catalog.xml'],
+        ['xmlconcat', 'pg_catalog.xml'],
+        ['xmlpi', 'pg_catalog.xml'],
+        ['xmlroot', 'pg_catalog.xml']
+    ])
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i]
+        if (token.type === 'word' && !token.quoted && valueTypes.has(token.value)) types.add(valueTypes.get(token.value))
+        // SQL typed literals (including user types) need not use CAST or ::.
+        if (token.type === 'string' && tokens[i - 1]?.type === 'word') {
+            types.add(
+                symbol(i - 2, '.') && tokens[i - 3]?.type === 'word' ? typeName(tokens[i - 3], tokens[i - 1]) : typeName(tokens[i - 1])
+            )
+            if (tokens[i - 1].value === 'zone') {
+                const first = tokens[i - 4]?.value
+                if (first === 'timestamp' || first === 'time')
+                    types.add(`pg_catalog.${first}${tokens[i - 3]?.value === 'with' ? 'tz' : ''}`)
+            }
+        }
         if (token.type === 'word' && !token.quoted && token.value === 'operator' && symbol(i + 1, '(')) {
             const schema = tokens[i + 2]?.type === 'word' && symbol(i + 3, '.') ? tokens[i + 2].value : null
             const from = schema ? i + 4 : i + 2
@@ -1274,12 +1310,7 @@ export function statementObjects(statement) {
             if (!safeRegConst) types.add(name)
             const sourceStart = operandStart(i - 1)
             const source = precedingCastTarget(i) || (sourceStart === i - 1 ? literalType(tokens[i - 1]) : null)
-            casts.push({
-                source,
-                target: name,
-                probeStart: sourceStart === null ? undefined : tokens[sourceStart]?.start,
-                probeEnd: token.start
-            })
+            casts.push({ source, target: name })
         }
         if (token.type === 'symbol' && token.value === '(') {
             const name = tokens[i - 1]
@@ -1340,12 +1371,14 @@ export function statementObjects(statement) {
                 (symbol(i - 1, '(') && symbol(i + 1, ')')) ||
                 (tokens[i + 1]?.type === 'word' && !tokens[i + 1].quoted && tokens[i + 1].value === 'from') ||
                 symbol(i + 1, ','))
+        if (wildcard && !(symbol(i - 1, '(') && symbol(i + 1, ')'))) columnNames.add('*')
         if (!wildcard && name !== '::' && name !== '--' && name !== '/*') operators.set(`\0${name}`, { schema: null, name })
     }
     return {
         calls: calls.map(({ schema, name, args, hints }) => ({ schema, name, args, hints })),
         casts,
         columnNames: [...columnNames],
+        literalTypes: [...new Set(tokens.map((token) => literalType(token)).filter(Boolean))],
         operators: [...operators.values()],
         relations: [...relations.values()],
         relationLiterals: [...relationLiterals],
@@ -1440,13 +1473,56 @@ const STATEMENT_TYPE_IDS_SQL = `WITH types AS (
 SELECT 'type' AS kind, oid::int8 AS oid FROM types
 `
 
-const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH casts AS (
-    SELECT coalesce(source_oid::oid, pg_catalog.to_regtype(source)::oid) AS source,
-           pg_catalog.to_regtype(target)::oid AS target
-    FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, source_oid int8, target text)
+// Resolve cast source candidates from the statement's catalog objects, never from a rewritten PREPARE.
+// For an expression without a literal type hint, keep all of its possible catalog types. This is conservative
+// for overloaded expressions: a helper is never discarded just because the scanner cannot pick one overload.
+// Include implicit coercions as well as written casts, and descend through domains/arrays/composites/ranges
+// because PostgreSQL can coerce their elements with an ordinary function-backed cast.
+const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH RECURSIVE casts AS (
+    SELECT pg_catalog.to_regtype(source)::oid AS source, pg_catalog.to_regtype(target)::oid AS target
+    FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, target text)
+), routines AS (
+    SELECT p.* FROM pg_catalog.pg_proc p WHERE p.oid = ANY(?::oid[])
+), operators AS (
+    SELECT o.* FROM pg_catalog.pg_operator o WHERE o.oid = ANY(?::oid[])
+), roots AS (
+    SELECT unnest(?::oid[]) AS oid
+    UNION SELECT prorettype FROM routines
+    UNION SELECT oprresult FROM operators
+    UNION SELECT source FROM casts WHERE source IS NOT NULL
+    UNION SELECT target FROM casts WHERE target IS NOT NULL
+), types(oid) AS (
+    SELECT oid FROM roots WHERE oid > 0
+    UNION
+    SELECT child.oid FROM types parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (
+        SELECT t.typbasetype AS oid UNION SELECT t.typelem UNION SELECT t.typarray
+        UNION SELECT a.atttypid FROM pg_catalog.pg_attribute a
+            WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+        UNION SELECT r.rngsubtype FROM pg_catalog.pg_range r WHERE r.rngtypid = t.oid OR r.rngmultitypid = t.oid
+    ) child WHERE child.oid > 0
+), target_roots AS (
+    SELECT unnest(proargtypes::oid[]) AS oid FROM routines
+    UNION SELECT provariadic FROM routines WHERE provariadic <> 0
+    UNION SELECT oprleft FROM operators UNION SELECT oprright FROM operators
+    UNION SELECT oid FROM types
+), targets(oid) AS (
+    SELECT oid FROM target_roots WHERE oid > 0
+    UNION
+    SELECT child.oid FROM targets parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (
+        SELECT t.typbasetype AS oid UNION SELECT t.typelem
+        UNION SELECT a.atttypid FROM pg_catalog.pg_attribute a
+            WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+        UNION SELECT r.rngsubtype FROM pg_catalog.pg_range r WHERE r.rngtypid = t.oid OR r.rngmultitypid = t.oid
+    ) child WHERE child.oid > 0
 )
-SELECT DISTINCT c.castfunc::int8 AS oid FROM casts x JOIN pg_catalog.pg_cast c
-ON c.castsource = x.source AND c.casttarget = x.target WHERE c.castfunc <> 0`
+SELECT DISTINCT c.castfunc::int8 AS oid FROM pg_catalog.pg_cast c
+WHERE c.castfunc <> 0 AND (
+    EXISTS (SELECT 1 FROM casts x WHERE x.target = c.casttarget
+        AND (x.source = c.castsource OR (x.source IS NULL AND c.castsource IN (SELECT oid FROM types))))
+    OR (c.castcontext = 'i' AND c.castsource IN (SELECT oid FROM types) AND c.casttarget IN (SELECT oid FROM targets))
+)`
 
 const STATEMENT_RELATION_IDS_SQL = `WITH names AS (
     SELECT * FROM pg_catalog.jsonb_to_recordset($1::jsonb) AS x(schema text, name text)
@@ -1463,7 +1539,7 @@ const STATEMENT_LITERAL_RELATION_IDS_SQL = `SELECT DISTINCT pg_catalog.to_regcla
 FROM pg_catalog.jsonb_array_elements_text($1::jsonb) WHERE pg_catalog.to_regclass(value) IS NOT NULL`
 
 const STATEMENT_COLUMN_TYPE_IDS_SQL = `SELECT DISTINCT a.atttypid::int8 AS oid FROM pg_catalog.pg_attribute a
-WHERE a.attrelid = ANY(?::oid[]) AND a.attname = ANY(?::text[]) AND a.attnum > 0 AND NOT a.attisdropped`
+WHERE a.attrelid = ANY(?::oid[]) AND (a.attname = ANY(?::text[]) OR '*' = ANY(?::text[])) AND a.attnum > 0 AND NOT a.attisdropped`
 
 const HELD_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks
 WHERE pid = pg_catalog.pg_backend_pid() AND locktype = 'relation' AND relation IS NOT NULL`
@@ -1484,55 +1560,6 @@ const PREPARED_RESULT_TYPES_SQL = `SELECT DISTINCT value::pg_catalog.regtype::oi
 FROM pg_catalog.pg_prepared_statements p,
 LATERAL pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(p) -> 'result_types', '[]'::jsonb))
 WHERE p.name = ?`
-
-// PREPARE does not expose its analyzed expression tree, but PostgreSQL can still resolve an expression's type
-// without running it. Put one otherwise-untyped parameter in a dead CASE arm beside the cast source, prepare that
-// statement, and read the inferred parameter type. Keeping the original cast around the CASE preserves its context.
-// Each probe is parse analysis only, like the statement PREPARE below.
-async function resolvedStatementCasts(client, statement, casts) {
-    const resolved = casts.filter((cast) => cast.source).map(({ source, target }) => ({ source, target }))
-    const tokens = sqlTokens(statement)
-    let parameter = 0
-    for (let i = 0; i < tokens.length - 1; i += 1) {
-        if (
-            tokens[i]?.type === 'symbol' &&
-            tokens[i].value === '$' &&
-            tokens[i + 1]?.type === 'number' &&
-            /^\d+$/.test(tokens[i + 1].value)
-        )
-            parameter = Math.max(parameter, Number(tokens[i + 1].value))
-    }
-    parameter += 1
-    if (parameter > 65535) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
-    for (const cast of casts) {
-        if (cast.source) continue
-        if (!Number.isInteger(cast.probeStart) || !Number.isInteger(cast.probeEnd) || cast.probeStart >= cast.probeEnd)
-            throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
-        scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
-        const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
-        const source = statement.slice(cast.probeStart, cast.probeEnd)
-        const probe = `${statement.slice(0, cast.probeStart)}(CASE WHEN false THEN $${parameter} ELSE (${source}) END)${statement.slice(
-            cast.probeEnd
-        )}`
-        let prepared = false
-        try {
-            await client.query({ queryMode: 'extended', text: `PREPARE ${statementName} AS ${probe}` })
-            prepared = true
-            const row = (
-                await client.query(
-                    `SELECT (p.parameter_types)[$1]::oid::int8 AS oid FROM pg_catalog.pg_prepared_statements p WHERE p.name = $2`,
-                    [parameter, statementName]
-                )
-            ).rows[0]
-            const oid = Number(row?.oid)
-            if (!Number.isInteger(oid) || oid <= 0) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
-            resolved.push({ source_oid: oid, target: cast.target })
-        } finally {
-            if (prepared) await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
-        }
-    }
-    return resolved
-}
 
 // PREPARE performs parse analysis without planning or running the statement. PostgreSQL keeps relation locks acquired
 // by that analysis until the transaction ends; their OIDs, plus catalog-resolved names from the SQL text and the
@@ -1561,9 +1588,8 @@ async function preparedStatementIds(client, runner, statement, named) {
                 .map((row) => Number(row.oid))
                 .filter((oid) => !before.has(oid))
         )
-        // PREPARE locks ordinary referenced relations. Resolve names only when catalog locks or CTE names mean the
-        // lock delta cannot account for every direct relation token.
-        if (named.relations.length > relations.size) {
+        // A view's dependency can also be read directly. Lock counts cannot distinguish those uses.
+        if (named.relations.length) {
             for (const row of (await client.query(STATEMENT_RELATION_IDS_SQL, [JSON.stringify(named.relations)])).rows)
                 relations.add(Number(row.oid))
         }
@@ -1571,26 +1597,31 @@ async function preparedStatementIds(client, runner, statement, named) {
             for (const row of (await client.query(STATEMENT_LITERAL_RELATION_IDS_SQL, [JSON.stringify(named.relationLiterals)])).rows)
                 relations.add(Number(row.oid))
         }
-        const casts = named.casts.length ? await resolvedStatementCasts(client, statement, named.casts) : []
+        const columnParams = [[...relations], named.columnNames, named.columnNames]
+        const typeNames = [...new Set([...named.types, ...named.literalTypes])]
         const metadataReads = [
             ...(named.calls.length
                 ? [{ sql: STATEMENT_FUNCTION_IDS_SQL, params: [JSON.stringify(named.calls.map((call, i) => ({ i, ...call })))] }]
                 : []),
             ...(named.operators.length ? [{ sql: STATEMENT_OPERATOR_IDS_SQL, params: [JSON.stringify(named.operators)] }] : []),
-            ...(named.types.length ? [{ sql: STATEMENT_TYPE_IDS_SQL, params: [JSON.stringify(named.types)] }] : []),
-            ...(casts.length ? [{ sql: STATEMENT_CAST_FUNCTION_IDS_SQL, params: [JSON.stringify(casts)] }] : []),
+            ...(typeNames.length ? [{ sql: STATEMENT_TYPE_IDS_SQL, params: [JSON.stringify(typeNames)] }] : []),
             { sql: PREPARED_RESULT_TYPES_SQL, params: [statementName] },
-            ...(relations.size ? [{ sql: STATEMENT_COLUMN_TYPE_IDS_SQL, params: [[...relations], named.columnNames] }] : [])
+            ...(relations.size ? [{ sql: STATEMENT_COLUMN_TYPE_IDS_SQL, params: columnParams }] : [])
         ]
         if (runner.batchedGuard) await runner.prefetch(metadataReads)
         const functionRows = named.calls.length
             ? await runner.all(STATEMENT_FUNCTION_IDS_SQL, [JSON.stringify(named.calls.map((call, i) => ({ i, ...call })))])
             : []
         const operatorRows = named.operators.length ? await runner.all(STATEMENT_OPERATOR_IDS_SQL, [JSON.stringify(named.operators)]) : []
-        const explicitTypeRows = named.types.length ? await runner.all(STATEMENT_TYPE_IDS_SQL, [JSON.stringify(named.types)]) : []
-        const castFunctionRows = casts.length ? await runner.all(STATEMENT_CAST_FUNCTION_IDS_SQL, [JSON.stringify(casts)]) : []
+        const explicitTypeRows = typeNames.length ? await runner.all(STATEMENT_TYPE_IDS_SQL, [JSON.stringify(typeNames)]) : []
         const resultTypeRows = await runner.all(PREPARED_RESULT_TYPES_SQL, [statementName])
-        const columnTypeRows = relations.size ? await runner.all(STATEMENT_COLUMN_TYPE_IDS_SQL, [[...relations], named.columnNames]) : []
+        const columnTypeRows = relations.size ? await runner.all(STATEMENT_COLUMN_TYPE_IDS_SQL, columnParams) : []
+        const castFunctionRows = await runner.all(STATEMENT_CAST_FUNCTION_IDS_SQL, [
+            JSON.stringify(named.casts),
+            functionRows.map((row) => Number(row.oid)),
+            operatorRows.map((row) => Number(row.oid)),
+            [...explicitTypeRows, ...columnTypeRows, ...resultTypeRows].map((row) => Number(row.oid))
+        ])
         return {
             relations,
             functions: new Set(
@@ -1610,7 +1641,8 @@ async function preparedStatementIds(client, runner, statement, named) {
                     ...functionRows.map((row) => ({ oid: row.result_type }))
                 ].map((row) => Number(row.oid))
             ),
-            tree: statement
+            // Only stored pg_node_tree text belongs in the node-tag/type walker. SQL literals and comments do not.
+            tree: ''
         }
     } finally {
         if (prepared) await client.query(`DEALLOCATE ${statementName}`).catch(() => {})

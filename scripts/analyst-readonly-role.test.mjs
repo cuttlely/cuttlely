@@ -282,6 +282,28 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             assert.ok(seen.some((call) => call.mode === 'read-only' && call.values.includes('EU')))
         })
 
+        it(`resolves column and expression casts with exactly one PREPARE per check (${mode})`, async (t) => {
+            if (skipped(t)) return
+            setGuardLegacyRoundTripsForTests(legacy)
+            const rec = recordQueries()
+            try {
+                for (const expression of ['id::numeric', '(id + 0)::numeric', 'CAST(id + 0 AS numeric)']) {
+                    await queryAnalystUrl(url, `SELECT ${expression} AS ${MARK} FROM ${TABLE} LIMIT 1`, {
+                        readOnlySql: true,
+                        relations: SELECTED,
+                        env
+                    })
+                }
+            } finally {
+                rec.restore()
+                setGuardLegacyRoundTripsForTests(false)
+            }
+            const statements = rec.calls.flatMap((call) => parts(call.text))
+            assert.equal(statements.filter((sql) => /^PREPARE /.test(sql)).length, 3, 'one PREPARE per call, including all probes')
+            assert.equal(statements.filter((sql) => /^PREPARE cuttlely_scope_check_\d+ AS /.test(sql)).length, 3)
+            for (const sql of statements) assert.doesNotMatch(sql, /^\s*(CREATE|ALTER|DROP|COMMENT|GRANT|REVOKE|REINDEX)\b/i)
+        })
+
         it(`ends every transaction with ROLLBACK, never COMMIT, and closes an idle connection (${mode})`, async (t) => {
             if (skipped(t)) return
             setGuardLegacyRoundTripsForTests(legacy)

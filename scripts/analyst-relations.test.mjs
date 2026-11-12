@@ -89,6 +89,9 @@ describe('analyst relations: pure helpers', () => {
         const names = (sql) => statementObjects(sql).relations.map(({ schema, name }) => (schema ? `${schema}.${name}` : name))
         assert.deepEqual(names('SELECT * FROM v, b LIMIT 1'), ['v', 'b'])
         assert.deepEqual(names('SELECT * FROM b, v LIMIT 1'), ['b', 'v'])
+        assert.deepEqual(names('SELECT * FROM (b CROSS JOIN v) LIMIT 1'), ['b', 'v'])
+        assert.deepEqual(names('SELECT * FROM ((b JOIN v ON true) JOIN c ON true) LIMIT 1'), ['b', 'v', 'c'])
+        assert.deepEqual(names('SELECT * FROM v JOIN (b JOIN c ON true) ON true LIMIT 1'), ['v', 'b', 'c'])
         assert.deepEqual(names('SELECT * FROM (SELECT * FROM v, b, c) nested LIMIT 1'), ['v', 'b', 'c'])
         assert.deepEqual(names("SELECT extract(year FROM current_date), trim('x' FROM label) FROM v"), ['v'])
     })
@@ -102,6 +105,9 @@ describe('analyst relations: pure helpers', () => {
         assert.equal(hint('9223372036854775807'), 'pg_catalog.int8')
         assert.equal(hint('9223372036854775808'), 'pg_catalog.numeric')
         assert.equal(hint('1e2'), 'pg_catalog.numeric')
+        for (const value of ['-1', '+1', '-2147483648']) assert.equal(hint(value), 'pg_catalog.int4', value)
+        for (const value of ['-2147483649', '+2147483648', '-9223372036854775808']) assert.equal(hint(value), 'pg_catalog.int8', value)
+        for (const value of ['-1.5', '+1e2', '-9223372036854775809']) assert.equal(hint(value), 'pg_catalog.numeric', value)
     })
 
     it('does not count commas inside array constructors as outer function arguments', () => {
@@ -593,6 +599,33 @@ describe('analyst relations: bakery database', () => {
             StoreClient.prototype.query = original
         }
         assert.equal(prepared, false, 'an unticked name inside a derived table is refused before PREPARE')
+    })
+
+    it('refuses every unticked grouped-join relation before PREPARE, including missing names', async (t) => {
+        if (skipped(t)) return
+        const { Client: StoreClient } = createRequire(path.join(ROOT, 'packages', 'components', 'package.json'))('pg')
+        const original = StoreClient.prototype.query
+        const prepared = []
+        StoreClient.prototype.query = function (config, ...rest) {
+            const text = typeof config === 'string' ? config : config?.text
+            if (/^PREPARE /.test(text || '')) prepared.push(text)
+            return original.call(this, config, ...rest)
+        }
+        try {
+            for (const sql of [
+                'SELECT invoices.id FROM (invoices CROSS JOIN account_balances) LIMIT 1',
+                'SELECT invoices.id FROM ((invoices CROSS JOIN account_balances)) LIMIT 1',
+                'SELECT invoices.id FROM (invoices JOIN account_balances ON true) LIMIT 1',
+                'SELECT invoices.id FROM account_balances CROSS JOIN (invoices CROSS JOIN invoice_items) LIMIT 1',
+                'SELECT missing_name.id FROM (missing_name CROSS JOIN account_balances) LIMIT 1',
+                'SELECT invoices.id FROM (invoices CROSS JOIN account_balances) CROSS JOIN missing_name LIMIT 1'
+            ]) {
+                await refusal(queryAnalystUrl(url, sql, { relations: ['public.account_balances'] }), /table selection does not include/)
+            }
+            assert.deepEqual(prepared, [], 'grouped unticked names never reach PREPARE')
+        } finally {
+            StoreClient.prototype.query = original
+        }
     })
 
     it('adds the column list of a mentioned selected relation to an undefined or ambiguous column error', async (t) => {
@@ -1550,13 +1583,34 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         assert.deepEqual(result.rows, [{ id: 7 }])
     })
 
+    it('keeps the MCP selected-view boundary for grouped joins', async (t) => {
+        if (skipped(t)) return
+        for (const sql of [
+            'SELECT items.id FROM (items CROSS JOIN outer_names) LIMIT 1',
+            'SELECT missing_name.id FROM (missing_name CROSS JOIN outer_names) LIMIT 1'
+        ])
+            await refusal(
+                queryAnalystUrl(url, sql, { readOnlySql: true, relations: ['public.outer_names'] }),
+                /table selection does not include/
+            )
+        assert.equal(
+            (await queryAnalystUrl(url, 'SELECT name FROM outer_names LIMIT 1', { readOnlySql: true, relations: ['public.outer_names'] }))
+                .rows.length,
+            1
+        )
+    })
+
     it('checks the overload PostgreSQL resolves for decimal and large numeric literals', async (t) => {
         if (skipped(t)) return
         const options = { readOnlySql: true }
-        const integer = await queryAnalystUrl(url, 'SELECT public.literal_pick(1) AS v LIMIT 1', options)
-        assert.equal(String(integer.rows[0].v), '1')
+        for (const value of ['1', '-1', '+1', '-2147483648']) {
+            const integer = await queryAnalystUrl(url, `SELECT public.literal_pick(${value}) AS v LIMIT 1`, options)
+            assert.equal(String(integer.rows[0].v), String(Number(value)))
+        }
         for (const sql of [
             'SELECT public.literal_pick(1.5) AS v LIMIT 1',
+            'SELECT public.literal_pick(-1.5) AS v LIMIT 1',
+            'SELECT public.literal_pick(-2147483649) AS v LIMIT 1',
             'SELECT public.literal_pick(2147483648) AS v LIMIT 1',
             'SELECT public.literal_pick(9223372036854775808) AS v LIMIT 1'
         ]) {
@@ -1599,6 +1653,73 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             await owner.query(`DROP CAST (int AS public.alert_mood);
                 DROP FUNCTION public.int_to_alert_mood(int);
                 DROP TYPE public.alert_mood;`)
+        }
+    })
+
+    it('checks implicit function-backed casts inserted for built-in function and operator calls', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.moods (m public.mood);
+            INSERT INTO public.moods VALUES ('calm');
+            GRANT SELECT ON public.moods TO "${writer}";
+            CREATE FUNCTION public.mood_text(public.mood) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT ''calm''::text';
+            ALTER FUNCTION public.mood_text(public.mood) OWNER TO "${writer}";
+            CREATE CAST (public.mood AS text) WITH FUNCTION public.mood_text(public.mood) AS IMPLICIT;
+            CREATE FUNCTION public.mood_same(text[], text[]) RETURNS boolean LANGUAGE sql IMMUTABLE RETURN true;
+            ALTER FUNCTION public.mood_same(text[], text[]) OWNER TO "${writer}";`)
+        try {
+            const queries = [
+                'SELECT length(m) AS n FROM moods LIMIT 1',
+                "SELECT m = 'calm'::text AS same FROM moods LIMIT 1",
+                'SELECT public.mood_same(ARRAY[m], ARRAY[m]) AS same FROM moods LIMIT 1'
+            ]
+            for (const sql of queries) {
+                // PostgreSQL accepts both without explicit cast syntax on m.
+                assert.equal((await owner.query(sql)).rows.length, 1)
+                for (const relations of [undefined, ['public.moods']]) {
+                    await refusal(queryAnalystUrl(url, sql, { readOnlySql: true, relations }), /mood_text/)
+                }
+            }
+            // An unrelated implicit cast must not poison a query that cannot use it.
+            assert.deepEqual((await queryAnalystUrl(url, 'SELECT id FROM items ORDER BY id LIMIT 1', { readOnlySql: true })).rows, [
+                { id: 1 }
+            ])
+        } finally {
+            await owner.query(`DROP FUNCTION public.mood_same(text[], text[]);
+                DROP CAST (public.mood AS text); DROP FUNCTION public.mood_text(public.mood); DROP TABLE public.moods`)
+        }
+    })
+
+    it('does not interpret SQL strings, quoted identifiers or comments as stored node tags', async (t) => {
+        if (skipped(t)) return
+        for (const readOnlySql of [false, true]) {
+            for (const sql of [
+                "SELECT '{Hello}' AS v FROM items LIMIT 1",
+                "SELECT '{ID}' AS v FROM items WHERE name NOT LIKE '%{ID}%' LIMIT 1",
+                'SELECT \'{Hello}\' AS "{ID}" FROM items /* {UNKNOWN_NODE} */ LIMIT 1',
+                'SELECT $$ {ID} $$ AS v FROM items -- {UNKNOWN_NODE}\n LIMIT 1'
+            ]) {
+                assert.equal((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows.length, 1)
+            }
+        }
+    })
+
+    it('refuses reg* columns projected by wildcards, including on PostgreSQL 14 and 15', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names'] }
+                for (const sql of ['SELECT * FROM object_names LIMIT 1', 'SELECT n.* FROM object_names n LIMIT 1'])
+                    await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
+                assert.deepEqual((await queryAnalystUrl(url, 'SELECT id FROM object_names LIMIT 1', options)).rows, [{ id: 1 }])
+                assert.deepEqual((await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM object_names LIMIT 1', options)).rows, [
+                    { n: 1 }
+                ])
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
         }
     })
 
