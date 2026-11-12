@@ -41,6 +41,7 @@ import SpeechToTextDialog from '../dialog/SpeechToTextDialog'
 import ExportAsTemplateDialog from '@/ui-component/dialog/ExportAsTemplateDialog'
 import { canCopyToNewFlow } from '@/utils/legacyAgentflows'
 import { flowCategoryPermission } from '@/utils/flowCategoryPermission'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const StyledMenu = styled((props) => (
     <Menu
@@ -203,7 +204,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -250,7 +251,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                message: requestFailureMessage(error),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -292,7 +293,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
             } catch (error) {
                 if (setError) setError(error)
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

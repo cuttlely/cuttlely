@@ -9,6 +9,7 @@ import themes from '@/themes'
 
 // project imports
 import NavigationScroll from '@/layout/NavigationScroll'
+import ReconnectingChip from '@/ui-component/connection/ReconnectingChip'
 
 // ==============================|| APP ||============================== //
 
@@ -19,6 +20,7 @@ const App = () => {
         <StyledEngineProvider injectFirst>
             <ThemeProvider theme={themes(customization)}>
                 <CssBaseline />
+                <ReconnectingChip />
                 <NavigationScroll>
                     <Outlet />
                 </NavigationScroll>

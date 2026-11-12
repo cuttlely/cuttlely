@@ -49,6 +49,7 @@ import { IconEdit, IconX, IconUnlink, IconUserPlus } from '@tabler/icons-react'
 // store
 import { useError } from '@/store/context/ErrorContext'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const WorkspaceDetails = () => {
     const theme = useTheme()
@@ -215,9 +216,7 @@ const WorkspaceDetails = () => {
                 onConfirm()
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to unlink users: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to unlink users: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

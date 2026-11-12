@@ -47,6 +47,7 @@ import { useAuth } from '@/hooks/useAuth'
 import empty_datasetSVG from '@/assets/images/empty_datasets.svg'
 import { IconTrash, IconPlus, IconX, IconUpload, IconArrowsDownUp } from '@tabler/icons-react'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| Dataset Items ||============================== //
 
@@ -239,9 +240,7 @@ const EvalDatasetRows = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete dataset items: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete dataset items: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

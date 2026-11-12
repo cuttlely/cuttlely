@@ -32,6 +32,7 @@ import GithubSVG from '@/assets/images/github.svg'
 
 // const
 import { gridSpacing } from '@/store/constant'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // API never sends clientSecret; show asterisks when a secret is already configured
 const PLACEHOLDER_SECRET = '********'
@@ -216,7 +217,7 @@ const SSOConfigPage = () => {
             }
         } catch (error) {
             setLoading(false)
-            setAuthErrors([typeof error.response.data === 'object' ? error.response.data.message : error.response.data])
+            setAuthErrors([requestFailureMessage(error)])
             enqueueSnackbar({
                 message: `Failed to update SSO Configuration.`,
                 options: {
@@ -293,7 +294,7 @@ const SSOConfigPage = () => {
             }
         } catch (error) {
             setLoading(false)
-            setAuthErrors([typeof error.response.data === 'object' ? error.response.data.message : error.response.data])
+            setAuthErrors([requestFailureMessage(error)])
             enqueueSnackbar({
                 message: `Failed to verify ${getSelectedProviderName()} SSO Configuration.`,
                 options: {

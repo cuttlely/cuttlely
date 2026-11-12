@@ -37,6 +37,7 @@ import { useError } from '@/store/context/ErrorContext'
 // Utils
 import { initNode, showHideInputParams } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
     background: theme.palette.card.main,
@@ -190,9 +191,7 @@ const LoaderConfigPreviewChunks = () => {
             } catch (error) {
                 setLoading(false)
                 enqueueSnackbar({
-                    message: `Failed to preview chunks: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to preview chunks: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -234,9 +233,7 @@ const LoaderConfigPreviewChunks = () => {
             } catch (error) {
                 setLoading(false)
                 enqueueSnackbar({
-                    message: `Failed to process chunking: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to process chunking: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

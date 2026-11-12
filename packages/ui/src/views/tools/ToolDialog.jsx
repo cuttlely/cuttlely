@@ -33,6 +33,7 @@ import useApi from '@/hooks/useApi'
 import useNotifier from '@/utils/useNotifier'
 import { generateRandomGradient, formatDataGridRows } from '@/utils/genericHelper'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const exampleAPIFunc = `/*
 * You can use any libraries imported in Cuttlely
@@ -258,9 +259,7 @@ const ToolDialog = ({ show, dialogProps, onUseTemplate, onCancel, onConfirm, set
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to export Tool: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to export Tool: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -304,9 +303,7 @@ const ToolDialog = ({ show, dialogProps, onUseTemplate, onCancel, onConfirm, set
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to add new Tool: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new Tool: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -348,9 +345,7 @@ const ToolDialog = ({ show, dialogProps, onUseTemplate, onCancel, onConfirm, set
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Tool: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to save Tool: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -395,9 +390,7 @@ const ToolDialog = ({ show, dialogProps, onUseTemplate, onCancel, onConfirm, set
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete Tool: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete Tool: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

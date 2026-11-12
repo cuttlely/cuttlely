@@ -16,6 +16,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // API
 import chatflowsApi from '@/api/chatflows'
+import { settingFailureMessage } from '@/utils/errorSummary'
 
 const EnhancedStatusMessages = ({ dialogProps, onConfirm }) => {
     const dispatch = useDispatch()
@@ -57,9 +58,7 @@ const EnhancedStatusMessages = ({ dialogProps, onConfirm }) => {
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Enhanced Status Messages Settings: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: settingFailureMessage(error, 'Failed to save Enhanced Status Messages Settings'),
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

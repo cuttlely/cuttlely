@@ -341,6 +341,16 @@ This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused covera
 
 This branch is `fix/canvas-save-crash` from `main` at `95c64dab`. Keep this fix under `## [Unreleased]`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
 
+## Silent canvas read retries
+
+Run the focused UI set from `packages/ui` with at most three workers:
+
+```bash
+nice -n 19 npx jest src/api/client.test.js src/api/resilience.test.js src/utils/analystStatus.test.js src/ui-component/dropdown/AsyncDropdown.test.js src/views/canvas/NodeLinkNotes.test.js src/store/reducers/canvasReducer.test.js src/utils/flowDrafts.test.js src/ui-component/connection/connectionVisibility.test.js src/hooks/useDraftSave.test.js src/views/canvas/CanvasHeader.test.js -w 3
+```
+
+GET and HEAD retry by default. A non-GET call retries only with `retry: true` or `retry: { network: true }`; use that only for read-only load methods. Do not add it to saves, creates, publishing, uploads, or other writes. A request with its own signal is not shared with another caller. Keep the app-wide timeout unchanged.
+
 ## Import target-handle types
 
 Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). Keep this fix under `## [Unreleased]`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.

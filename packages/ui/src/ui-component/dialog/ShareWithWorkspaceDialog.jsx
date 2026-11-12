@@ -28,6 +28,7 @@ import useNotifier from '@/utils/useNotifier'
 
 // const
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const ShareWithWorkspaceDialog = ({ show, dialogProps, onCancel, setError }) => {
     const portalElement = document.getElementById('portal')
@@ -146,9 +147,7 @@ const ShareWithWorkspaceDialog = ({ show, dialogProps, onCancel, setError }) => 
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: `Failed to share Item: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to share Item: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
