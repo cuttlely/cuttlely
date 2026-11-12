@@ -24,6 +24,14 @@ A no-answer Publish is never sent again automatically. `PublishDialog` re-reads 
 
 Draft-setting and schedule failures ask the person to try that setting again; page-level load failures retain their reload guidance. Canvas writes keep no-answer failures local to the canvas, while answered failures still use the existing handler. A nested agentflow configuration load that fails after retries shows a message with Retry and names either the missing answer or the server's reason. The saved-canvas open screen likewise names the reason through `canvasLoadFailureReason`. Unit tests cover the client, retry helpers, exact-id draft-status decision, delayed opening screen, route-specific saved-flow reads, current save result, action-specific write messages, dirty reducer, dropdown client path, analyst lookup, publish reconciliation, and the save queue. Every UI error handler reads `error.response` only after checking it (`requestFailureMessage`), and `utils/responseReads.test.js` also refuses handlers that call that helper only inside a response-body branch.
 
+## Code Repository GitHub page links
+
+This branch is `fix/etl-git-browser-url` from `origin/main` at `05701570` ([#463](https://github.com/cuttlely/cuttlely/pull/463)). It fixes [#461](https://github.com/cuttlely/cuttlely/issues/461). `CHANGELOG.md` keeps the fix under `## [Unreleased]`.
+
+A Code Repository source on an ETL pipeline treated a GitHub folder or file link as the clone URL, so `git clone` failed with "repository not found". The node now turns a GitHub `/tree/<revision>/<path>` or `/blob/<revision>/<path>` link into the repository URL, the branch, tag, or full commit, and the folder or file path. It shallow-clones that repository and loads only that path while retaining repository-root and ancestor `.gitignore` rules, default ignores, and configured include and exclude globs. Full-commit links made with GitHub's Copy permalink action fetch and check out that exact reachable commit. A repository-root rule for child directories, such as `docs/*/`, does not suppress the selected `docs` folder itself. URL path components are decoded exactly once in both the canvas hint and the server parser, so filenames containing literal percent text keep their identity. A plain https repository URL or a `.git` URL is unchanged. SSH URLs are still refused. The Git URL field shows a short hint for an unsupported or malformed value; access and branch errors appear during a preview or run. Branch names with slashes are resolved with `git ls-remote`. A non-empty Branch wins while the link's longest matching remote branch is still resolved to preserve the selected path; this includes a Branch that is a proper prefix of the link branch. A path that leaves the repository is refused.
+
+The parser is `packages/etl/git-url.mjs`. Tests are in `packages/etl/git-url.test.mjs`, `packages/etl/check/correctness.mjs`, and `packages/ui/src/utils/gitSourceUrl.test.js`. The Code Repository node is version 1.1. The how-to is in `docs/how-to/etl.md`.
+
 ## Product name in user-facing text
 
 This work landed on `origin/main` as `05701570` ([#463](https://github.com/cuttlely/cuttlely/pull/463)). Display text that still named this product incorrectly now says Cuttlely. Identifiers, package names, API and environment names, stored keys, attribution, import-format labels, and historical changelog entries are unchanged. `CHANGELOG.md` records the wording under `## [Unreleased]`.
@@ -32,7 +40,7 @@ The ETL Pipeline panel warning for an unverified embeddings node now says it is 
 
 ## Proxy-safe HTTP timeouts
 
-Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
+Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)), from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). It is a server-side follow-up to [#455](https://github.com/cuttlely/cuttlely/issues/455).
 
 The HTTP server keeps idle connections open for 65 seconds instead of Node's 5-second default. `HTTP_KEEP_ALIVE_TIMEOUT_MS` accepts whole numbers from 1000 to 600000. `HTTP_HEADERS_TIMEOUT_MS` defaults to the keep-alive value plus 1000, must be greater than keep-alive, and is capped at 601000. Invalid values warn and use the applicable default. Startup applies only `keepAliveTimeout` and `headersTimeout`; Node's `requestTimeout` is unchanged. `docs/how-to/reverse-proxy.md` covers upstream reuse, stream timeouts and buffering, upload size, gateway idle time, and `TRUST_PROXY`.
 
