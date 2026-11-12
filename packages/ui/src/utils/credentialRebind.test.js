@@ -29,7 +29,7 @@ function flow() {
                     inputAnchors: [],
                     inputs: {
                         modelName: 'gpt-5.6-luna',
-                        apiKey: 'sk-not-a-real-key',
+                        apiKey: 'not-a-real-password',
                         FLOWISE_CREDENTIAL_ID: SOURCE_ID
                     },
                     outputAnchors: [],
@@ -78,7 +78,7 @@ describe('credential export and import', () => {
         expect(text).not.toContain(SOURCE_ID)
         expect(text).not.toContain(POSTGRES_SOURCE)
         expect(text).not.toContain('FLOWISE_CREDENTIAL_ID')
-        expect(text).not.toContain('sk-not-a-real-key')
+        expect(text).not.toContain('not-a-real-password')
         expect(text).not.toContain('db-password-must-not-travel')
         expect(exported.nodes[0].data.credential).toEqual({ $credential: { name: 'Bakery model', credentialName: 'openAIApi' } })
         expect(exported.nodes[1].data.credential).toEqual({ $credential: { name: 'Bakery warehouse', credentialName: 'PostgresUrl' } })
