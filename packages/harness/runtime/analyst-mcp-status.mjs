@@ -9,8 +9,10 @@ import { dataRoot } from '../paths.mjs'
 
 export const ANALYST_MCP_STATUS_NAME = 'analyst-mcp.json'
 
-// query, or a pinned query. describe and other specialist tools do not count.
-const ANALYST_OFFER_NAME = /(?:^|__)(?:query|pq_[a-z0-9_]+)$/
+// query, or a pinned query (pq_ plus at least one letter, digit, or underscore),
+// either as the whole name or after __. describe and other tools do not count.
+// A scan, not a regex: /(?:^|__)(?:query|pq_[a-z0-9_]+)$/ backtracks on a name
+// that starts with pq_ and repeats __pq_.
 const STATUS_LOCK_WAIT_MS = 2000
 const STATUS_LOCK_STALE_MS = 5000
 
@@ -47,6 +49,29 @@ export function readAnalystMcpStatus(dataDir) {
     }
 }
 
+function isOfferChar(code) {
+    return (code >= 48 && code <= 57) || (code >= 97 && code <= 122) || code === 95
+}
+
+function isPinnedOffer(name, at, cleanFrom) {
+    if (at < cleanFrom || at + 4 > name.length) return false
+    return name.startsWith('pq_', at)
+}
+
+export function isAnalystOfferName(name) {
+    if (name === 'query' || name.endsWith('__query')) return true
+    let cleanFrom = name.length
+    for (let i = name.length - 1; i >= 0; i -= 1) {
+        if (!isOfferChar(name.charCodeAt(i))) break
+        cleanFrom = i
+    }
+    if (isPinnedOffer(name, 0, cleanFrom)) return true
+    for (let i = 0; i + 1 < name.length; i += 1) {
+        if (name.charCodeAt(i) === 95 && name.charCodeAt(i + 1) === 95 && isPinnedOffer(name, i + 2, cleanFrom)) return true
+    }
+    return false
+}
+
 export function analystOfferCount(tools) {
     if (!Array.isArray(tools)) return 0
     let count = 0
@@ -55,7 +80,7 @@ export function analystOfferCount(tools) {
         if (typeof tool === 'string') raw = tool
         else if (tool && typeof tool === 'object' && typeof tool.name === 'string') raw = tool.name
         const name = raw.trim().toLowerCase()
-        if (ANALYST_OFFER_NAME.test(name)) count += 1
+        if (isAnalystOfferName(name)) count += 1
     }
     return count
 }

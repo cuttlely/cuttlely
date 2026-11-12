@@ -11,6 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Counting analyst tool names no longer uses a regular expression. A tools/list name that starts with `pq_` and repeats `__pq_` cannot stall the bridge. The count is still only `query` and pinned query (`pq_...`) tools.
 -   Postgres (MCP) **Tools it can use** stays listed after an analyst specialist has offered a query or pinned query tool. A later tool list that returns nothing, fails, or lists only other tools no longer sets `X-Cuttlely-Analyst` back to `missing` or replaces that menu with **Analyst tool unavailable**. Refreshing the menu reads the status again.
 
 ## [1.7.3] - 2026-11-12

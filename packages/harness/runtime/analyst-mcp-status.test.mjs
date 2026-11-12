@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
     analystOfferCount,
+    isAnalystOfferName,
     analystPingHeader,
     analystToolsMissing,
     noteAnalystToolCount,
@@ -53,6 +54,19 @@ test('a query or pinned query counts, and other tools do not', () => {
     assert.equal(analystOfferCount([{ name: 'xpq_sales' }, { name: 'query_tool' }]), 0)
     assert.equal(analystOfferCount([]), 0)
     assert.equal(analystOfferCount(3), 0)
+    assert.equal(analystOfferCount([{ name: '  MCP__Analyst__Query  ' }]), 1)
+    assert.equal(isAnalystOfferName('pq_'), false)
+    assert.equal(isAnalystOfferName('pq_sales__describe'), true)
+    assert.equal(isAnalystOfferName('foo__pq_sales__describe'), true)
+    assert.equal(isAnalystOfferName('foo__querybar'), false)
+    assert.equal(isAnalystOfferName('mcp__analyst__query_tool'), false)
+    assert.equal(isAnalystOfferName('hello world__pq_sales'), true)
+    assert.equal(isAnalystOfferName('hello world__pq_sales!'), false)
+    const crafted = `pq_${'__pq_'.repeat(4000)}`
+    const started = performance.now()
+    assert.equal(isAnalystOfferName(`${crafted}!`), false)
+    assert.equal(isAnalystOfferName(crafted), true)
+    assert.ok(performance.now() - started < 50)
 })
 
 test('a later empty or non-analyst list does not clear a recorded offer', () => {
