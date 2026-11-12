@@ -1816,6 +1816,88 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
     })
 
+    it('keeps JOIN array commas out of the FROM relation list', async (t) => {
+        if (skipped(t)) return
+        for (const condition of [
+            'ARRAY[a.id,b.id] = ARRAY[b.id,a.id]',
+            'ARRAY[[a.id,b.id],[b.id,a.id]] = ARRAY[[b.id,a.id],[a.id,b.id]]'
+        ]) {
+            const sql = `SELECT a.id FROM items a JOIN items b ON ${condition} LIMIT 1`
+            assert.deepEqual((await owner.query(sql)).rows, [{ id: 1 }])
+            for (const readOnlySql of [false, true]) {
+                assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, [{ id: 1 }])
+                await refusal(
+                    queryAnalystUrl(url, sql.replace(' LIMIT', ', orders o LIMIT'), {
+                        readOnlySql,
+                        relations: ['public.items']
+                    }),
+                    /selection does not include/
+                )
+            }
+        }
+    })
+
+    for (const [label, queries, allowed] of [
+        [
+            'joined-table whole rows',
+            [
+                'SELECT row_to_json(j) FROM (object_names a CROSS JOIN object_names b) j LIMIT 1',
+                'SELECT row_to_json(j) FROM (items a CROSS JOIN object_names b) AS j LIMIT 1',
+                'SELECT row_to_json(j) FROM ((items a CROSS JOIN object_names b) k CROSS JOIN items c) j LIMIT 1'
+            ],
+            false
+        ],
+        [
+            'ORDER BY output aliases',
+            [
+                'SELECT id AS n FROM object_names n ORDER BY n LIMIT 1',
+                'SELECT id n FROM object_names n ORDER BY n DESC NULLS LAST LIMIT 1',
+                'SELECT id AS n, id AS m FROM object_names n ORDER BY m, n LIMIT 1',
+                'SELECT id AS "N" FROM object_names "N" ORDER BY "N" LIMIT 1'
+            ],
+            true
+        ],
+        [
+            'invalid schema-qualified whole-row syntax',
+            [
+                'SELECT row_to_json(public.object_names) FROM public.object_names LIMIT 1',
+                'SELECT public.object_names::text FROM public.object_names LIMIT 1',
+                'SELECT row_to_json("public"."object_names") FROM public.object_names LIMIT 1'
+            ],
+            'syntax'
+        ]
+    ]) {
+        it(`checks scoped reg* for ${label}`, async (t) => {
+            if (skipped(t)) return
+            await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+                INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+                GRANT SELECT ON public.object_names TO "${writer}"`)
+            try {
+                for (const sql of queries) {
+                    if (allowed === 'syntax') {
+                        await assert.rejects(owner.query(sql), /missing FROM-clause entry for table "public"/)
+                        for (const readOnlySql of [false, true]) {
+                            await assert.rejects(
+                                queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.object_names'] }),
+                                /missing FROM-clause entry for table "public"/
+                            )
+                        }
+                        continue
+                    }
+                    const expected = (await owner.query(sql)).rows
+                    assert.equal(expected.length, 1, sql)
+                    for (const readOnlySql of [false, true]) {
+                        const result = queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.object_names', 'public.items'] })
+                        if (allowed) assert.deepEqual((await result).rows, expected, sql)
+                        else await refusal(result, /type regclass is not allowed/)
+                    }
+                }
+            } finally {
+                await owner.query('DROP TABLE public.object_names')
+            }
+        })
+    }
+
     it('refuses reg* columns projected by wildcards and whole rows, including on PostgreSQL 14 and 15', async (t) => {
         if (skipped(t)) return
         await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
@@ -1829,6 +1911,13 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
                     'SELECT n.* FROM object_names n LIMIT 1',
                     'SELECT row_to_json(n) FROM object_names n LIMIT 1',
                     'SELECT n FROM object_names n LIMIT 1',
+                    'SELECT ALL n FROM object_names n LIMIT 1',
+                    'SELECT DISTINCT n FROM object_names n LIMIT 1',
+                    'SELECT DISTINCT ON (id) n FROM object_names n LIMIT 1',
+                    'SELECT id AS n, row_to_json(n) FROM object_names n ORDER BY n LIMIT 1',
+                    'SELECT id AS n FROM object_names n ORDER BY row_to_json(n)::text LIMIT 1',
+                    'SELECT id AS n FROM object_names n ORDER BY (SELECT row_to_json(n)::text) LIMIT 1',
+                    'SELECT row_to_json(public.object_names.*) FROM public.object_names LIMIT 1',
                     'SELECT row_to_json(object_names) FROM object_names LIMIT 1',
                     'SELECT row_to_json(n) FROM public.object_names AS n LIMIT 1'
                 ])

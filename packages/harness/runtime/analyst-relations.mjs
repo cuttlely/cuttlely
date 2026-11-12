@@ -1025,6 +1025,7 @@ export function statementObjects(statement) {
     const relationLiterals = new Set()
     const relations = new Map()
     const relationBindings = []
+    const joinedGroups = new Map()
     const relationDeclarations = new Set()
     const operators = new Map()
     const types = new Set()
@@ -1200,6 +1201,20 @@ export function statementObjects(statement) {
         )
     }
 
+    const relationAlias = (at) => {
+        const explicit = wordAt(at, 'as')
+        if (explicit) at += 1
+        const token = tokens[at]
+        if (
+            token?.type === 'word' &&
+            (token.quoted ||
+                explicit ||
+                (!FROM_END_WORDS.has(token.value) &&
+                    !['cross', 'join', 'inner', 'left', 'right', 'full', 'natural', 'on', 'using', 'tablesample'].includes(token.value)))
+        )
+            return { name: token.value, declaration: at }
+        return null
+    }
     const addRelation = (start) => {
         let at = start
         if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'lateral') at += 1
@@ -1208,8 +1223,14 @@ export function statementObjects(statement) {
         if (symbol(at, '(')) {
             // A grouped JOIN starts with a relation, unlike a derived SELECT. Keep descending
             // through grouping parentheses so its leftmost relation cannot hide behind a view.
-            while (symbol(at, '(')) at += 1
+            const groups = []
+            while (symbol(at, '(')) groups.push(at++)
             if (tokens[at]?.type === 'word' && !tokens[at].quoted && ['select', 'with', 'values'].includes(tokens[at].value)) return
+            for (const open of groups) {
+                const close = closingParen.get(open)
+                const alias = relationAlias(close + 1)
+                if (alias) joinedGroups.set(open, { close, ...alias })
+            }
         }
         const first = tokens[at]
         if (first?.type !== 'word') return
@@ -1226,16 +1247,8 @@ export function statementObjects(statement) {
         let aliasAt = next
         if (only && symbol(aliasAt, ')')) aliasAt += 1
         if (symbol(aliasAt, '*')) aliasAt += 1
-        const explicitAlias = wordAt(aliasAt, 'as')
-        if (explicitAlias) aliasAt += 1
-        const alias = tokens[aliasAt]
-        const hasAlias =
-            alias?.type === 'word' &&
-            (alias.quoted ||
-                explicitAlias ||
-                (!FROM_END_WORDS.has(alias.value) &&
-                    !['cross', 'join', 'inner', 'left', 'right', 'full', 'natural', 'on', 'using', 'tablesample'].includes(alias.value)))
-        relationBindings.push({ relation, name: hasAlias ? alias.value : relation.name, declaration: hasAlias ? aliasAt : next - 1 })
+        const alias = relationAlias(aliasAt)
+        relationBindings.push({ relation, ...(alias || { name: relation.name, declaration: next - 1 }) })
     }
     const FROM_END_WORDS = new Set([
         'except',
@@ -1261,14 +1274,109 @@ export function statementObjects(statement) {
         addRelation(i + 1)
         if (token.value !== 'from') continue
         let depth = 0
+        let bracketDepth = 0
         for (let at = i + 1; at < tokens.length; at += 1) {
-            if (symbol(at, '(')) depth += 1
+            if (symbol(at, '[')) bracketDepth += 1
+            else if (symbol(at, ']')) bracketDepth -= 1
+            else if (symbol(at, '(')) depth += 1
             else if (symbol(at, ')')) {
                 if (depth === 0) break
                 depth -= 1
             } else if (depth === 0 && tokens[at]?.type === 'word' && !tokens[at].quoted && FROM_END_WORDS.has(tokens[at].value)) {
                 break
-            } else if (depth === 0 && symbol(at, ',')) addRelation(at + 1)
+            } else if (depth === 0 && bracketDepth === 0 && symbol(at, ',')) addRelation(at + 1)
+        }
+    }
+    // A joined-table alias is an anonymous composite of its constituent relations.
+    // Feed each constituent through the existing type closure, including nested joins.
+    const baseBindings = [...relationBindings]
+    for (const [open, { close, name, declaration }] of joinedGroups) {
+        for (const binding of baseBindings) {
+            if (binding.declaration > open && binding.declaration < close)
+                relationBindings.push({ relation: binding.relation, name, declaration })
+        }
+    }
+
+    const outputDeclarations = new Set()
+    const outputReferences = new Set()
+    for (let select = 0; select < tokens.length; select += 1) {
+        if (!wordAt(select, 'select')) continue
+        const owner = containingParen[select]
+        const sameLevel = (at) => containingParen[at] === owner
+        let end = owner === null ? tokens.length : closingParen.get(owner)
+        for (let at = select + 1; at < end; at += 1) {
+            if (sameLevel(at) && ['union', 'intersect', 'except'].some((word) => wordAt(at, word))) {
+                end = at
+                break
+            }
+        }
+        const outputs = new Set()
+        const addOutput = (start, end) => {
+            const last = end - 1
+            if (tokens[last]?.type !== 'word') return
+            const column = (end) => {
+                for (let at = start; at < end; at += 1) {
+                    if ((at - start) % 2 === 0 ? tokens[at]?.type !== 'word' : !symbol(at, '.')) return false
+                }
+                return end > start && (end - start) % 2 === 1
+            }
+            // Recognize explicit aliases and the unambiguous "column alias" form.
+            // Other expressions remain conservative; do not mistake a final operand
+            // for an alias and remove a real whole-row dependency.
+            if (wordAt(last - 1, 'as') || (last > start && column(last))) {
+                outputs.add(tokens[last].value)
+                outputDeclarations.add(last)
+            } else if (column(end)) outputs.add(tokens[last].value)
+        }
+        let start = select + 1
+        if (wordAt(start, 'all')) start += 1
+        else if (wordAt(start, 'distinct')) {
+            start += 1
+            if (wordAt(start, 'on') && symbol(start + 1, '(')) start = (closingParen.get(start + 1) ?? start) + 1
+        }
+        let bracketDepth = 0
+        for (let at = start; at <= end; at += 1) {
+            if (symbol(at, '[')) bracketDepth += 1
+            else if (symbol(at, ']')) bracketDepth -= 1
+            if (
+                at === end ||
+                (sameLevel(at) &&
+                    bracketDepth === 0 &&
+                    (symbol(at, ',') || wordAt(at, 'from') || wordAt(at, 'order') || wordAt(at, 'limit')))
+            ) {
+                addOutput(start, at)
+                if (!symbol(at, ',')) break
+                start = at + 1
+            }
+        }
+        // PostgreSQL gives output names precedence only for a standalone ORDER BY item.
+        // An expression such as row_to_json(n) still refers to the range variable n.
+        for (let at = select + 1; at < end; at += 1) {
+            if (!sameLevel(at) || !wordAt(at, 'order') || !wordAt(at + 1, 'by')) continue
+            let item = at + 2
+            while (item < end) {
+                let next = item + 1
+                if (wordAt(next, 'asc') || wordAt(next, 'desc')) next += 1
+                if (wordAt(next, 'nulls') && (wordAt(next + 1, 'first') || wordAt(next + 1, 'last'))) next += 2
+                if (
+                    outputs.has(tokens[item]?.value) &&
+                    (next === end ||
+                        symbol(next, ',') ||
+                        (tokens[next]?.type === 'word' && !tokens[next].quoted && FROM_END_WORDS.has(tokens[next].value)))
+                )
+                    outputReferences.add(item)
+                while (
+                    next < end &&
+                    !(
+                        sameLevel(next) &&
+                        (symbol(next, ',') ||
+                            (tokens[next]?.type === 'word' && !tokens[next].quoted && FROM_END_WORDS.has(tokens[next].value)))
+                    )
+                )
+                    next += 1
+                if (!symbol(next, ',')) break
+                item = next + 1
+            }
         }
     }
     for (let i = 0; i < tokens.length - 2; i += 1) {
@@ -1469,6 +1577,8 @@ export function statementObjects(statement) {
                         token.value === name &&
                         at !== declaration &&
                         !relationDeclarations.has(at) &&
+                        !outputDeclarations.has(at) &&
+                        !outputReferences.has(at) &&
                         !symbol(at + 1, '.') &&
                         !symbol(at + 1, '(') &&
                         !symbol(at - 1, '.') &&
