@@ -10,7 +10,7 @@ Back up the application database, encryption key and settings before upgrading. 
 
 If a request gets no answer, the page stays in place and says the server could not be reached, instead of showing **Something went wrong**. Importing a saved chatflow keeps a connection that still points at the same input when only the handle type name changed.
 
-**PR-1, PR-2 and PR-3 (pending merge — finalize after they land):** Brief connection drops while you edit are retried quietly. A save that finished while you kept editing no longer marks later edits as saved. Saves are kept and retried when a request gets no answer. Self-hosted installs behind a reverse proxy keep idle connections open for 65 seconds by default; tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`.
+Brief connection drops while you edit are retried quietly for reads and option loads. A save that finished while you kept editing no longer marks later edits as saved. Draft and Live saves of an existing flow, without new file data, are kept and retried quietly when a request gets no answer; if that still fails, the canvas keeps the edits and offers Retry. A save with new file data is attempted once per Save and is not resent automatically. After an unanswered create, check your flows in another tab before trying again. Self-hosted installs behind a reverse proxy keep idle connections open for 65 seconds by default; tune this with `HTTP_KEEP_ALIVE_TIMEOUT_MS` and `HTTP_HEADERS_TIMEOUT_MS`. See the [reverse proxy guide](./how-to/reverse-proxy.md).
 
 The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions. Enforcement remains **Off** by default; preparing or installing this patch does not activate it.
 
