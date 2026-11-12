@@ -138,7 +138,13 @@ describe('a canvas that moves from saved flow A to flow B', () => {
         expect(source).toMatch(
             /flowLoadAction\(chatflowId, requestedFlowIdRef\.current, getSpecificChatflowApi\.data, getSpecificChatflowApi\.error\)/
         )
-        expect(source).not.toMatch(/getSpecificChatflowApi\.request\((?!id\))/)
+        expect(source).toContain('const openRequest = useCanvasOpenRequest()')
+        expect(source).toContain('getSpecificChatflowApi.request(id, { signal: openRequest.start(id) })')
+        expect(source).toContain('const signal = openRequest.signalFor(loaded.id)')
+        expect(source).toContain('.getStatus(loaded.id, { signal })')
+        expect(source).toContain('openRequestSignalFor: openRequest.signalFor')
+        expect(source).toContain('openRequest.abort(loaded.id)')
+        expect(source).toContain('useEffect(() => () => abortOpenRequest(chatflowId), [abortOpenRequest, chatflowId])')
         expect(source).not.toMatch(/if \(getSpecificChatflowApi\.(data|error)\)/)
         // A newly created flow is exposed only by the queue's acknowledgement, after its status callback made the
         // exact id usable. The queue tests cover retrying that status read without another creation request.

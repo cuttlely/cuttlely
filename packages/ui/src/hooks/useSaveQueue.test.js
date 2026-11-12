@@ -354,6 +354,24 @@ describe('save queue hook lifecycle', () => {
         expect(chatflowsApi.updateChatflow).not.toHaveBeenCalled()
     })
 
+    test('uses the route open signal for a created flow status read', async () => {
+        const signal = new AbortController().signal
+        const openRequestSignalFor = jest.fn(() => signal)
+        const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: '{}', name: 'Created' } })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { ...BASE, mode: 'draft' } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        dependencies = { ...dependencies, openRequestSignalFor }
+        await act(async () => root.render(createElement(Harness, { apiRef, dependencies })))
+
+        await act(async () => apiRef.current.saveCreate({ send }))
+        await settleTimers()
+
+        expect(openRequestSignalFor).toHaveBeenCalledWith('created-1')
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('created-1', { retry: false, signal })
+    })
+
     test('the create Retry action repeats the status read without another create request', async () => {
         const send = jest.fn().mockResolvedValue({ data: { id: 'created-1', flowData: FLOW, name: 'Created' } })
         const onAck = jest.fn()

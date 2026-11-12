@@ -9,7 +9,15 @@ import useDraftSave from './useDraftSave'
 const NOTICE_KEY = 'canvas-save-waiting'
 const CREATE_NOTICE_KEY = 'canvas-create-status-waiting'
 
-export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, enqueueSnackbar, closeSnackbar, routeKey = '' }) {
+export default function useSaveQueue({
+    chatflowsApi,
+    flowDraftsApi,
+    dispatch,
+    enqueueSnackbar,
+    closeSnackbar,
+    openRequestSignalFor,
+    routeKey = ''
+}) {
     const userId = useSelector((state) => state.auth?.user?.id)
     const draftSave = useDraftSave()
     const draftSaveRef = useRef(draftSave)
@@ -21,6 +29,14 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
 
     draftSaveRef.current = draftSave
     userIdRef.current = userId
+
+    const readDraftStatus = useCallback(
+        (id, options = {}) => {
+            const signal = options.signal ?? openRequestSignalFor?.(id)
+            return flowDraftsApi.getStatus(id, signal ? { ...options, signal } : options)
+        },
+        [flowDraftsApi, openRequestSignalFor]
+    )
 
     const makeQueue = useCallback(() => {
         const showRetryNotice = (key, message) => {
@@ -48,7 +64,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
         }
         return createSaveQueue({
             putDraft: flowDraftsApi.saveDraft,
-            getDraftStatus: flowDraftsApi.getStatus,
+            getDraftStatus: readDraftStatus,
             putLive: chatflowsApi.updateChatflow,
             getLive: chatflowsApi.getSpecificChatflow,
             beginReconnect,
@@ -65,7 +81,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
                 if (mountedRef.current) setBusy(next)
             }
         })
-    }, [chatflowsApi, closeSnackbar, dispatch, enqueueSnackbar, flowDraftsApi])
+    }, [chatflowsApi, closeSnackbar, dispatch, enqueueSnackbar, flowDraftsApi, readDraftStatus])
 
     useEffect(() => {
         mountedRef.current = true
@@ -180,7 +196,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
                     let response
                     try {
                         // The queue owns this four-attempt budget; do not nest the shared read retry budget inside it.
-                        response = await flowDraftsApi.getStatus(created.id, { retry: false })
+                        response = await readDraftStatus(created.id, { retry: false })
                     } catch (error) {
                         if (error && typeof error === 'object') error.createStatusReadFailed = true
                         throw error
@@ -199,7 +215,7 @@ export default function useSaveQueue({ chatflowsApi, flowDraftsApi, dispatch, en
                 }
             })
         },
-        [flowDraftsApi, normalizeCreatedEntry, wrapNonReplay]
+        [normalizeCreatedEntry, readDraftStatus, wrapNonReplay]
     )
 
     const runNonReplay = useCallback(
