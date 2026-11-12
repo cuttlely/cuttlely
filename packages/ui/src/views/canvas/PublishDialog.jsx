@@ -140,6 +140,7 @@ const PublishDialog = ({
     chatflow,
     draftStatus,
     isDirty,
+    saveQueueBusy = false,
     onClose,
     onDraftStatus,
     onChatflowUpdated,
@@ -304,7 +305,7 @@ const PublishDialog = ({
     }
 
     const onPublish = async (overwriteDraftChanges = false) => {
-        if (!chatflow?.id || busy) return
+        if (!chatflow?.id || busy || saveQueueBusy) return
         if (stale && !replaceLiveChanges) return
         setBusy(true)
         setError('')
@@ -403,6 +404,11 @@ const PublishDialog = ({
                         You have unsaved changes. Save them first, or Publish uses the last saved draft.
                     </Alert>
                 )}
+                {saveQueueBusy && (
+                    <Alert severity='info' sx={{ mb: 1.5 }}>
+                        Save your changes first.
+                    </Alert>
+                )}
                 {stale && (
                     <Alert severity='warning' data-testid='stale-draft-warning' sx={{ mb: 1.5 }}>
                         {STALE_DRAFT_WARNING}
@@ -455,7 +461,13 @@ const PublishDialog = ({
                             <Button variant='outlined' size='small' onClick={onReviewConflict} disabled={busy}>
                                 {PUBLISH_CONFLICT_REVIEW}
                             </Button>
-                            <Button size='small' color='warning' onClick={() => onPublish(true)} disabled={busy}>
+                            <Button
+                                size='small'
+                                color='warning'
+                                title={saveQueueBusy ? 'Save your changes first' : undefined}
+                                onClick={() => onPublish(true)}
+                                disabled={busy || saveQueueBusy}
+                            >
                                 {PUBLISH_CONFLICT_ANYWAY}
                             </Button>
                         </Stack>
@@ -473,7 +485,9 @@ const PublishDialog = ({
                 <Button
                     variant='contained'
                     onClick={() => onPublish(false)}
-                    disabled={publishAgainBlocked || busy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)}
+                    disabled={
+                        publishAgainBlocked || busy || saveQueueBusy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)
+                    }
                 >
                     {busy ? 'Publishing…' : 'Publish'}
                 </Button>
@@ -492,6 +506,7 @@ PublishDialog.propTypes = {
     chatflow: PropTypes.object,
     draftStatus: PropTypes.object,
     isDirty: PropTypes.bool,
+    saveQueueBusy: PropTypes.bool,
     onClose: PropTypes.func,
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
