@@ -871,7 +871,7 @@ export async function checkStatementScope(
     // Compute the catalog stamp only when the caller needs view/policy bodies (followViews=true).
     let stamp = ''
     if (followViews) stamp = await routineCatalogStamp(runner)
-    const ids = await parsedStatementIds(client, runner, statement, cacheKey)
+    const ids = await parsedStatementIds(client, runner, statement, cacheKey, relations)
     const statementTypes = new Set(ids.types)
     // Scoped reg* rule. Every statement, view, materialized view and policy tree must pass before
     // regconfig and regdictionary oids are removed from the type set. Any other reg* type stays.
@@ -1052,13 +1052,26 @@ export function statementObjects(statement) {
     // real table named orders, while later CTEs and the main query see the CTE.
     const containingParen = new Array(tokens.length).fill(null)
     const closingParen = new Map()
+    const openingParen = new Map()
     const parens = []
     for (let i = 0; i < tokens.length; i += 1) {
         containingParen[i] = parens.at(-1) ?? null
         if (symbol(i, '(')) parens.push(i)
         else if (symbol(i, ')')) {
             const open = parens.pop()
-            if (open !== undefined) closingParen.set(open, i)
+            if (open !== undefined) {
+                closingParen.set(open, i)
+                openingParen.set(i, open)
+            }
+        }
+    }
+    const openingBracket = new Map()
+    const brackets = []
+    for (let i = 0; i < tokens.length; i += 1) {
+        if (symbol(i, '[')) brackets.push(i)
+        else if (symbol(i, ']')) {
+            const open = brackets.pop()
+            if (open !== undefined) openingBracket.set(i, open)
         }
     }
     const cteVisibility = []
@@ -1103,6 +1116,21 @@ export function statementObjects(statement) {
         }
     }
     const isCteReference = (at, name) => cteVisibility.some((cte) => cte.name === name && at >= cte.start && at < cte.end)
+    const fromIsCallSyntax = (at) => {
+        const open = containingParen[at]
+        if (open === null) return false
+        const before = tokens[open - 1]
+        if (before?.type !== 'word') return false
+        return !tokens.some(
+            (token, index) =>
+                index > open &&
+                index < at &&
+                containingParen[index] === open &&
+                token.type === 'word' &&
+                !token.quoted &&
+                ['select', 'values', 'with'].includes(token.value)
+        )
+    }
 
     const addRelation = (start) => {
         let at = start
@@ -1141,6 +1169,7 @@ export function statementObjects(statement) {
         if (token.type !== 'word' || token.quoted || !['from', 'join', 'table'].includes(token.value)) continue
         if (token.value === 'from' && tokens[i - 1]?.type === 'word' && !tokens[i - 1].quoted && tokens[i - 1].value === 'distinct')
             continue
+        if (token.value === 'from' && fromIsCallSyntax(i)) continue
         addRelation(i + 1)
         if (token.value !== 'from') continue
         let depth = 0
@@ -1166,12 +1195,36 @@ export function statementObjects(statement) {
                     const target =
                         symbol(at + 2, '.') && tokens[at + 3]?.type === 'word' ? typeName(first, tokens[at + 3]) : typeName(first)
                     types.add(target)
-                    const source = literalType(tokens[i + 2])
-                    if (source) casts.push({ source, target })
+                    const source = at === i + 3 ? literalType(tokens[i + 2]) : null
+                    casts.push({ source, target, probeStart: tokens[i + 2]?.start, probeEnd: tokens[at]?.start })
                 }
                 break
             }
         }
+    }
+    const operandStart = (end) => {
+        if (end < 0) return null
+        const token = tokens[end]
+        let start = end
+        if (symbol(end, ')')) {
+            const open = openingParen.get(end)
+            if (open === undefined) return null
+            start = open
+            const name = tokens[start - 1]
+            if (name?.type === 'word' && (name.quoted || !STATEMENT_NON_CALL_WORDS.has(name.value))) {
+                start -= 1
+                if (symbol(start - 1, '.') && tokens[start - 2]?.type === 'word') start -= 2
+            }
+            return start
+        }
+        if (symbol(end, ']')) {
+            const open = openingBracket.get(end)
+            if (open === undefined) return null
+            return operandStart(open - 1)
+        }
+        if (!['word', 'number', 'string'].includes(token?.type)) return null
+        while (symbol(start - 1, '.') && tokens[start - 2]?.type === 'word') start -= 2
+        return start
     }
     const hint = (from, to) => {
         const part = tokens.slice(from, to)
@@ -1182,6 +1235,14 @@ export function statementObjects(statement) {
         }
         if (part.length === 1 && literalType(part[0])) return literalType(part[0])
         return null
+    }
+    const precedingCastTarget = (colon) => {
+        const last = tokens[colon - 1]
+        if (last?.type !== 'word') return null
+        const qualified = symbol(colon - 2, '.') && tokens[colon - 3]?.type === 'word'
+        const start = qualified ? colon - 3 : colon - 1
+        if (!symbol(start - 1, ':') || !symbol(start - 2, ':')) return null
+        return qualified ? typeName(tokens[colon - 3], last) : typeName(last)
     }
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i]
@@ -1211,8 +1272,14 @@ export function statementObjects(statement) {
                 frame.args === 0 &&
                 frame.argStart === i - 1
             if (!safeRegConst) types.add(name)
-            const source = literalType(tokens[i - 1])
-            if (source) casts.push({ source, target: name })
+            const sourceStart = operandStart(i - 1)
+            const source = precedingCastTarget(i) || (sourceStart === i - 1 ? literalType(tokens[i - 1]) : null)
+            casts.push({
+                source,
+                target: name,
+                probeStart: sourceStart === null ? undefined : tokens[sourceStart]?.start,
+                probeEnd: token.start
+            })
         }
         if (token.type === 'symbol' && token.value === '(') {
             const name = tokens[i - 1]
@@ -1234,6 +1301,10 @@ export function statementObjects(statement) {
             } else frames.push(null)
             continue
         }
+        if (token.type === 'symbol' && token.value === '[') {
+            frames.push(null)
+            continue
+        }
         if (token.type === 'symbol' && token.value === ',' && frames.at(-1)) {
             const call = frames.at(-1)
             call.hints.push(hint(call.argStart, i))
@@ -1247,6 +1318,10 @@ export function statementObjects(statement) {
                 call.hints.push(hint(call.argStart, i))
                 call.args += 1
             }
+            continue
+        }
+        if (token.type === 'symbol' && token.value === ']') {
+            frames.pop()
             continue
         }
         if (token.type !== 'symbol' || !BODY_OPERATOR_CHARS.has(token.value)) continue
@@ -1276,6 +1351,38 @@ export function statementObjects(statement) {
         relationLiterals: [...relationLiterals],
         types: [...types]
     }
+}
+
+// Refuse a direct relation name that cannot name anything in the saved selection before asking Postgres to parse
+// the statement. The later lock/catalog check remains authoritative for an unqualified name that could resolve to
+// more than one schema. This early check also covers a missing name: PREPARE must not get the chance to turn an
+// unticked name into a "relation does not exist" error first.
+async function refuseDirectRelations(runner, named, selected) {
+    const selectedNames = selected.map((relation) => nameParts(relation.name)).filter(Boolean)
+    const outside = named.relations.filter((relation) =>
+        selectedNames.every(([schema, name]) => relation.name !== name || (relation.schema !== null && relation.schema !== schema))
+    )
+    if (!outside.length) return
+    const resolvedRows = await runner.all(STATEMENT_RELATION_IDS_RUNNER_SQL, [JSON.stringify(outside)])
+    const resolved = new Map(resolvedRows.map((row) => [`${row.requested_schema || ''}\0${row.requested_name}`, row.resolved]))
+    const names = outside.map(
+        (relation) =>
+            resolved.get(`${relation.schema || ''}\0${relation.name}`) ||
+            (relation.schema === null ? relation.name : `${relation.schema}.${relation.name}`)
+    )
+    const missing = outside.filter((relation) => !resolved.has(`${relation.schema || ''}\0${relation.name}`))
+    const closest = missing.flatMap((relation) =>
+        closestRelationNames(
+            relation.name,
+            selected.map((item) => item.name)
+        )
+    )
+    const hint = closest.length ? ` Closest tables: ${[...new Set(closest)].join(', ')}.` : ''
+    throw new ScopeRefusal(
+        `Cuttlely refused this query: it reads ${refusedList(
+            names
+        )}, which this node's table selection does not include. Selected: ${refusedList(selected.map((relation) => relation.name))}.${hint}`
+    )
 }
 
 const STATEMENT_FUNCTION_IDS_SQL = `WITH calls AS (
@@ -1334,8 +1441,9 @@ SELECT 'type' AS kind, oid::int8 AS oid FROM types
 `
 
 const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH casts AS (
-    SELECT pg_catalog.to_regtype(source)::oid AS source, pg_catalog.to_regtype(target)::oid AS target
-    FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, target text)
+    SELECT coalesce(source_oid::oid, pg_catalog.to_regtype(source)::oid) AS source,
+           pg_catalog.to_regtype(target)::oid AS target
+    FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, source_oid int8, target text)
 )
 SELECT DISTINCT c.castfunc::int8 AS oid FROM casts x JOIN pg_catalog.pg_cast c
 ON c.castsource = x.source AND c.casttarget = x.target WHERE c.castfunc <> 0`
@@ -1343,10 +1451,13 @@ ON c.castsource = x.source AND c.casttarget = x.target WHERE c.castfunc <> 0`
 const STATEMENT_RELATION_IDS_SQL = `WITH names AS (
     SELECT * FROM pg_catalog.jsonb_to_recordset($1::jsonb) AS x(schema text, name text)
 )
-SELECT DISTINCT c.oid::int8 AS oid FROM names x JOIN pg_catalog.pg_class c ON c.relname = x.name
+SELECT DISTINCT c.oid::int8 AS oid, x.schema AS requested_schema, x.name AS requested_name,
+       pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(c.relname) AS resolved
+FROM names x JOIN pg_catalog.pg_class c ON c.relname = x.name
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE (x.schema IS NOT NULL AND n.nspname = x.schema)
    OR (x.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid))`
+const STATEMENT_RELATION_IDS_RUNNER_SQL = STATEMENT_RELATION_IDS_SQL.replace('$1', '?')
 
 const STATEMENT_LITERAL_RELATION_IDS_SQL = `SELECT DISTINCT pg_catalog.to_regclass(value)::oid::int8 AS oid
 FROM pg_catalog.jsonb_array_elements_text($1::jsonb) WHERE pg_catalog.to_regclass(value) IS NOT NULL`
@@ -1374,15 +1485,63 @@ FROM pg_catalog.pg_prepared_statements p,
 LATERAL pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(p) -> 'result_types', '[]'::jsonb))
 WHERE p.name = ?`
 
+// PREPARE does not expose its analyzed expression tree, but PostgreSQL can still resolve an expression's type
+// without running it. Put one otherwise-untyped parameter in a dead CASE arm beside the cast source, prepare that
+// statement, and read the inferred parameter type. Keeping the original cast around the CASE preserves its context.
+// Each probe is parse analysis only, like the statement PREPARE below.
+async function resolvedStatementCasts(client, statement, casts) {
+    const resolved = casts.filter((cast) => cast.source).map(({ source, target }) => ({ source, target }))
+    const tokens = sqlTokens(statement)
+    let parameter = 0
+    for (let i = 0; i < tokens.length - 1; i += 1) {
+        if (
+            tokens[i]?.type === 'symbol' &&
+            tokens[i].value === '$' &&
+            tokens[i + 1]?.type === 'number' &&
+            /^\d+$/.test(tokens[i + 1].value)
+        )
+            parameter = Math.max(parameter, Number(tokens[i + 1].value))
+    }
+    parameter += 1
+    if (parameter > 65535) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
+    for (const cast of casts) {
+        if (cast.source) continue
+        if (!Number.isInteger(cast.probeStart) || !Number.isInteger(cast.probeEnd) || cast.probeStart >= cast.probeEnd)
+            throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
+        scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
+        const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
+        const source = statement.slice(cast.probeStart, cast.probeEnd)
+        const probe = `${statement.slice(0, cast.probeStart)}(CASE WHEN false THEN $${parameter} ELSE (${source}) END)${statement.slice(
+            cast.probeEnd
+        )}`
+        let prepared = false
+        try {
+            await client.query({ queryMode: 'extended', text: `PREPARE ${statementName} AS ${probe}` })
+            prepared = true
+            const row = (
+                await client.query(
+                    `SELECT (p.parameter_types)[$1]::oid::int8 AS oid FROM pg_catalog.pg_prepared_statements p WHERE p.name = $2`,
+                    [parameter, statementName]
+                )
+            ).rows[0]
+            const oid = Number(row?.oid)
+            if (!Number.isInteger(oid) || oid <= 0) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
+            resolved.push({ source_oid: oid, target: cast.target })
+        } finally {
+            if (prepared) await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
+        }
+    }
+    return resolved
+}
+
 // PREPARE performs parse analysis without planning or running the statement. PostgreSQL keeps relation locks acquired
 // by that analysis until the transaction ends; their OIDs, plus catalog-resolved names from the SQL text and the
 // prepared result types, feed the existing refusal engine. This uses ordinary result rows only: no DDL, debug settings,
 // notices, or server logs. The outer command uses the extended protocol, which refuses a second injected command.
-async function preparedStatementIds(client, runner, statement) {
+async function preparedStatementIds(client, runner, statement, named) {
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
     const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
     const parseName = `${statementName}_parse`
-    const named = statementObjects(statement)
     let before = new Set()
     let prepared = false
     try {
@@ -1412,13 +1571,14 @@ async function preparedStatementIds(client, runner, statement) {
             for (const row of (await client.query(STATEMENT_LITERAL_RELATION_IDS_SQL, [JSON.stringify(named.relationLiterals)])).rows)
                 relations.add(Number(row.oid))
         }
+        const casts = named.casts.length ? await resolvedStatementCasts(client, statement, named.casts) : []
         const metadataReads = [
             ...(named.calls.length
                 ? [{ sql: STATEMENT_FUNCTION_IDS_SQL, params: [JSON.stringify(named.calls.map((call, i) => ({ i, ...call })))] }]
                 : []),
             ...(named.operators.length ? [{ sql: STATEMENT_OPERATOR_IDS_SQL, params: [JSON.stringify(named.operators)] }] : []),
             ...(named.types.length ? [{ sql: STATEMENT_TYPE_IDS_SQL, params: [JSON.stringify(named.types)] }] : []),
-            ...(named.casts.length ? [{ sql: STATEMENT_CAST_FUNCTION_IDS_SQL, params: [JSON.stringify(named.casts)] }] : []),
+            ...(casts.length ? [{ sql: STATEMENT_CAST_FUNCTION_IDS_SQL, params: [JSON.stringify(casts)] }] : []),
             { sql: PREPARED_RESULT_TYPES_SQL, params: [statementName] },
             ...(relations.size ? [{ sql: STATEMENT_COLUMN_TYPE_IDS_SQL, params: [[...relations], named.columnNames] }] : [])
         ]
@@ -1428,7 +1588,7 @@ async function preparedStatementIds(client, runner, statement) {
             : []
         const operatorRows = named.operators.length ? await runner.all(STATEMENT_OPERATOR_IDS_SQL, [JSON.stringify(named.operators)]) : []
         const explicitTypeRows = named.types.length ? await runner.all(STATEMENT_TYPE_IDS_SQL, [JSON.stringify(named.types)]) : []
-        const castFunctionRows = named.casts.length ? await runner.all(STATEMENT_CAST_FUNCTION_IDS_SQL, [JSON.stringify(named.casts)]) : []
+        const castFunctionRows = casts.length ? await runner.all(STATEMENT_CAST_FUNCTION_IDS_SQL, [JSON.stringify(casts)]) : []
         const resultTypeRows = await runner.all(PREPARED_RESULT_TYPES_SQL, [statementName])
         const columnTypeRows = relations.size ? await runner.all(STATEMENT_COLUMN_TYPE_IDS_SQL, [[...relations], named.columnNames]) : []
         return {
@@ -1461,10 +1621,12 @@ async function preparedStatementIds(client, runner, statement) {
 }
 
 // Returns the relations, functions, operators and types in the analyzed statement. Nothing in the statement runs.
-async function parsedStatementIds(client, runner, statement, cacheKey) {
+async function parsedStatementIds(client, runner, statement, cacheKey, selected = null) {
     const risky = await riskyDomains(runner, cacheKey)
     if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
-    const ids = await preparedStatementIds(client, runner, statement)
+    const named = statementObjects(statement)
+    if (selected) await refuseDirectRelations(runner, named, selected)
+    const ids = await preparedStatementIds(client, runner, statement, named)
     if (!runner.batchedGuard) return ids
     // Predictions use the same Set iteration and builders as the eventual JS consumers. If a body adds
     // ids, or the scoped reg* exception removes types, the later lookup misses the exact key and reads
@@ -2703,6 +2865,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
             throw new ScopeRefusal('Cuttlely refused this query: write names and text without U& escapes.')
         }
         if (ch === "'" || (/[eEbBxXnN]/.test(ch) && text[i + 1] === "'")) {
+            const start = i
             const escapes = /[eE]/.test(ch)
             i = ch === "'" ? i + 1 : i + 2
             let closed = false
@@ -2739,7 +2902,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
                 i += 1
             }
             if (!closed) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quote.')
-            tokens.push(exact ? { type: 'string', value } : { type: 'string' })
+            tokens.push(exact ? { type: 'string', value, start, end: i } : { type: 'string', start, end: i })
             continue
         }
         if (ch === '"') {
@@ -2761,7 +2924,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
                 j += 1
             }
             if (!closed) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quoted name.')
-            tokens.push({ type: 'word', value, quoted: true })
+            tokens.push({ type: 'word', value, quoted: true, start: i, end: j })
             i = j
             continue
         }
@@ -2770,7 +2933,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
             if (tag) {
                 const close = text.indexOf(tag[0], i + tag[0].length)
                 if (close === -1) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quote.')
-                tokens.push({ type: 'string' })
+                tokens.push({ type: 'string', start: i, end: close + tag[0].length })
                 i = close + tag[0].length
                 continue
             }
@@ -2781,17 +2944,17 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
         }
         const word = text.slice(i).match(/^[A-Za-z_\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*/)
         if (word) {
-            tokens.push({ type: 'word', value: word[0].toLowerCase(), quoted: false })
+            tokens.push({ type: 'word', value: word[0].toLowerCase(), quoted: false, start: i, end: i + word[0].length })
             i += word[0].length
             continue
         }
         const number = text.slice(i).match(/^[0-9][0-9A-Za-z_.]*/)
         if (number) {
-            tokens.push({ type: 'number', value: number[0] })
+            tokens.push({ type: 'number', value: number[0], start: i, end: i + number[0].length })
             i += number[0].length
             continue
         }
-        tokens.push({ type: 'symbol', value: ch, start: i })
+        tokens.push({ type: 'symbol', value: ch, start: i, end: i + 1 })
         i += 1
     }
     return tokens

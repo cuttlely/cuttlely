@@ -90,6 +90,7 @@ describe('analyst relations: pure helpers', () => {
         assert.deepEqual(names('SELECT * FROM v, b LIMIT 1'), ['v', 'b'])
         assert.deepEqual(names('SELECT * FROM b, v LIMIT 1'), ['b', 'v'])
         assert.deepEqual(names('SELECT * FROM (SELECT * FROM v, b, c) nested LIMIT 1'), ['v', 'b', 'c'])
+        assert.deepEqual(names("SELECT extract(year FROM current_date), trim('x' FROM label) FROM v"), ['v'])
     })
 
     it('types numeric literals the way PostgreSQL resolves integer and numeric overloads', () => {
@@ -101,6 +102,14 @@ describe('analyst relations: pure helpers', () => {
         assert.equal(hint('9223372036854775807'), 'pg_catalog.int8')
         assert.equal(hint('9223372036854775808'), 'pg_catalog.numeric')
         assert.equal(hint('1e2'), 'pg_catalog.numeric')
+    })
+
+    it('does not count commas inside array constructors as outer function arguments', () => {
+        const calls = statementObjects('SELECT public.array_pick(ARRAY[1, 2])').calls
+        assert.deepEqual(
+            calls.map(({ schema, name, args }) => ({ schema, name, args })),
+            [{ schema: 'public', name: 'array_pick', args: 1 }]
+        )
     })
 
     it('distinguishes scoped CTE references from same-named catalog relations', () => {
@@ -565,11 +574,25 @@ describe('analyst relations: bakery database', () => {
         for (const sql of [
             'SELECT * FROM account_balances, invoices LIMIT 1',
             'SELECT * FROM invoices, account_balances LIMIT 1',
-            'SELECT * FROM account_balances JOIN invoices ON true LIMIT 1',
-            'SELECT * FROM (SELECT * FROM account_balances, invoices, invoice_items LIMIT 1) q LIMIT 1'
+            'SELECT * FROM account_balances JOIN invoices ON true LIMIT 1'
         ]) {
             await refusal(queryAnalystUrl(url, sql, selected), /table selection does not include/)
         }
+        const nested = 'SELECT * FROM (SELECT * FROM account_balances, invoices, invoice_items LIMIT 1) q LIMIT 1'
+        const { Client: StoreClient } = createRequire(path.join(ROOT, 'packages', 'components', 'package.json'))('pg')
+        const original = StoreClient.prototype.query
+        let prepared = false
+        StoreClient.prototype.query = function (config, ...rest) {
+            const text = typeof config === 'string' ? config : config?.text
+            if (String(text || '').includes(` AS ${nested}`)) prepared = true
+            return original.call(this, config, ...rest)
+        }
+        try {
+            await refusal(queryAnalystUrl(url, nested, selected), /table selection does not include/)
+        } finally {
+            StoreClient.prototype.query = original
+        }
+        assert.equal(prepared, false, 'an unticked name inside a derived table is refused before PREPARE')
     })
 
     it('adds the column list of a mentioned selected relation to an undefined or ambiguous column error', async (t) => {
@@ -1419,13 +1442,21 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             CREATE TABLE orders (id int PRIMARY KEY);
             CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;
             CREATE FUNCTION public.pause(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
-            CREATE FUNCTION public.literal_pick(v int) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT v';
+            CREATE FUNCTION public.literal_pick(v int) RETURNS numeric LANGUAGE sql IMMUTABLE RETURN v;
             CREATE FUNCTION public.literal_pick(v bigint) RETURNS numeric LANGUAGE sql VOLATILE AS 'SELECT v FROM pg_sleep(0)';
             CREATE FUNCTION public.literal_pick(v numeric) RETURNS numeric LANGUAGE sql VOLATILE AS 'SELECT v FROM pg_sleep(0)';
+            ALTER FUNCTION public.literal_pick(int) OWNER TO "${writer}";
+            ALTER FUNCTION public.literal_pick(bigint) OWNER TO "${writer}";
+            ALTER FUNCTION public.literal_pick(numeric) OWNER TO "${writer}";
+            CREATE FUNCTION public.array_pick(v int[]) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT count(*)::int FROM orders';
+            CREATE FUNCTION public.array_pick(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT a + b';
+            ALTER FUNCTION public.array_pick(int[]) OWNER TO "${writer}";
+            ALTER FUNCTION public.array_pick(int, int) OWNER TO "${writer}";
             CREATE FUNCTION public.slow_eq(int, int) RETURNS boolean LANGUAGE sql AS 'SELECT $1 = $2 FROM pg_sleep(0)';
             CREATE OPERATOR public.=== (LEFTARG = int, RIGHTARG = int, FUNCTION = public.slow_eq);
             CREATE TYPE public.mood AS ENUM ('calm');
-            CREATE FUNCTION public.int_to_mood(int) RETURNS public.mood LANGUAGE sql AS $f$SELECT 'calm'::public.mood FROM pg_sleep(0)$f$;
+            CREATE FUNCTION public.int_to_mood(int) RETURNS public.mood LANGUAGE sql IMMUTABLE AS $f$SELECT 'calm'::public.mood$f$;
+            ALTER FUNCTION public.int_to_mood(int) OWNER TO "${writer}";
             CREATE CAST (int AS public.mood) WITH FUNCTION public.int_to_mood(int);
             CREATE VIEW public.pause_view AS SELECT public.pause(0) AS n;
             CREATE VIEW public.outer_view AS SELECT n FROM public.pause_view;
@@ -1530,6 +1561,44 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             'SELECT public.literal_pick(9223372036854775808) AS v LIMIT 1'
         ]) {
             await refusal(queryAnalystUrl(url, sql, options), /public\.literal_pick\([^)]*\).*VOLATILE/)
+        }
+    })
+
+    it('checks the one-argument array overload despite commas inside ARRAY brackets', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT public.array_pick(ARRAY[id, id + 1]) AS v FROM items LIMIT 1', {
+                readOnlySql: true,
+                relations: ['public.items']
+            }),
+            /public\.array_pick\(integer\[\]\).*SECURITY DEFINER/
+        )
+    })
+
+    it('checks the function-backed cast PostgreSQL applies to a column expression', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TYPE public.alert_mood AS ENUM ('calm');
+            CREATE FUNCTION public.int_to_alert_mood(int) RETURNS public.alert_mood
+                LANGUAGE sql STABLE SECURITY DEFINER AS $f$SELECT 'calm'::public.alert_mood$f$;
+            ALTER FUNCTION public.int_to_alert_mood(int) OWNER TO "${writer}";
+            CREATE CAST (int AS public.alert_mood) WITH FUNCTION public.int_to_alert_mood(int);`)
+        try {
+            for (const sql of [
+                'SELECT (items.id + 0)::public.alert_mood AS m FROM items LIMIT 1',
+                'SELECT CAST(items.id + 0 AS public.alert_mood) AS m FROM items LIMIT 1'
+            ]) {
+                await refusal(
+                    queryAnalystUrl(url, sql, {
+                        readOnlySql: true,
+                        relations: ['public.items']
+                    }),
+                    /public\.int_to_alert_mood\(integer\).*SECURITY DEFINER/
+                )
+            }
+        } finally {
+            await owner.query(`DROP CAST (int AS public.alert_mood);
+                DROP FUNCTION public.int_to_alert_mood(int);
+                DROP TYPE public.alert_mood;`)
         }
     })
 
