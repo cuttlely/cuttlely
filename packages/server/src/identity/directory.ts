@@ -414,12 +414,40 @@ async function assertSameWorkspace(query: QueryFn, sql: Sql, actor: DirectoryAct
 /**
  * Active non-owner who may cancel a pending invite.
  * Organization owners stay on the active-owner path, including a disabled owner.
- * A passed permission list is the grant. Otherwise the active team's role is:
- * the built-in Admin role (by name) or any role whose stored keys include users:manage.
+ * The grant is the active team's current role: built-in Admin by name, or stored
+ * keys that include users:manage. A passed permission list only narrows that role.
+ * It must also include users:manage, and it never grants when the role does not.
  */
-async function actorCanCancelInvites(query: QueryFn, sql: Sql, actor: DirectoryActor): Promise<boolean> {
+async function actorCanCancelInvites(
+    query: QueryFn,
+    sql: Sql,
+    actor: DirectoryActor,
+    options: { locked?: boolean } = {}
+): Promise<boolean> {
     if (await ownerUser(query, sql, actor.organizationId, actor.id)) return false
     if (!actor.workspaceId) return false
+    const row =
+        options.locked && sql.type !== 'sqlite'
+            ? await readLockedInviteActor(query, sql, actor, actor.workspaceId)
+            : await readInviteActor(query, sql, actor, actor.workspaceId)
+    if (!row) return false
+    if (text(cell(row, 'userStatus')).toLowerCase() !== 'active') return false
+    if (text(cell(row, 'orgStatus')).toLowerCase() !== 'active') return false
+    const teamStatus = text(cell(row, 'teamStatus')).toLowerCase()
+    if (teamStatus !== 'active' && teamStatus !== 'invited') return false
+    if (text(cell(row, 'name')).toLowerCase() === OWNER_ROLE) return false
+    if (!permissionsOn(row).includes('users:manage')) return false
+    if (Array.isArray(actor.permissions) && !actor.permissions.includes('users:manage')) return false
+    return true
+}
+
+/** Fast-fail read. A repeat of this SELECT is not a current read on repeatable-read databases. */
+async function readInviteActor(
+    query: QueryFn,
+    sql: Sql,
+    actor: DirectoryActor,
+    workspaceId: string
+): Promise<Record<string, unknown> | null> {
     const rows = await query(
         `SELECT u.${q(sql, 'status')} AS userStatus, ou.${q(sql, 'status')} AS orgStatus,
                 wu.${q(sql, 'status')} AS teamStatus, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
@@ -430,17 +458,68 @@ async function actorCanCancelInvites(query: QueryFn, sql: Sql, actor: DirectoryA
            ON wu.${q(sql, 'userId')} = u.${q(sql, 'id')} AND wu.${q(sql, 'workspaceId')} = ?
          LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = wu.${q(sql, 'roleId')}
          WHERE u.${q(sql, 'id')} = ?`,
-        [actor.organizationId, actor.workspaceId, actor.id]
+        [actor.organizationId, workspaceId, actor.id]
     )
-    const row = rows[0]
-    if (!row) return false
-    if (text(cell(row, 'userStatus')).toLowerCase() !== 'active') return false
-    if (text(cell(row, 'orgStatus')).toLowerCase() !== 'active') return false
-    const teamStatus = text(cell(row, 'teamStatus')).toLowerCase()
-    if (teamStatus !== 'active' && teamStatus !== 'invited') return false
-    if (text(cell(row, 'name')).toLowerCase() === OWNER_ROLE) return false
-    if (Array.isArray(actor.permissions)) return actor.permissions.includes('users:manage')
-    return permissionsOn(row).includes('users:manage')
+    return rows[0] || null
+}
+
+/**
+ * Current read for the under-lock recheck. Call only after lockOrgOwners, which already
+ * holds every organization_user row for the organization and the target user's workspace_user
+ * rows. Lock this actor's workspace_user next, then the role ids in sorted order, then the
+ * user row. The organization membership is already locked; its FOR UPDATE is the current read.
+ * These locking reads are the grant.
+ */
+async function readLockedInviteActor(
+    query: QueryFn,
+    sql: Sql,
+    actor: DirectoryActor,
+    workspaceId: string
+): Promise<Record<string, unknown> | null> {
+    const team = await query(
+        `SELECT ${q(sql, 'roleId')} AS roleId, ${q(sql, 'status')} AS teamStatus
+         FROM ${q(sql, 'workspace_user')}
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'workspaceId')} = ?
+         ORDER BY ${q(sql, 'roleId')} ASC
+         FOR UPDATE`,
+        [actor.id, workspaceId]
+    )
+    if (!team.length) return null
+    const roleId = text(cell(team[0], 'roleId'))
+    const roleIds = [...new Set(team.map((row) => text(cell(row, 'roleId'))).filter(Boolean))].sort()
+    let name = ''
+    let permissions: unknown = null
+    for (const id of roleIds) {
+        const roles = await query(
+            `SELECT ${q(sql, 'name')} AS name, ${q(sql, 'permissions')} AS permissions
+             FROM ${q(sql, 'role')}
+             WHERE ${q(sql, 'id')} = ?
+             FOR UPDATE`,
+            [id]
+        )
+        if (id === roleId && roles[0]) {
+            name = text(cell(roles[0], 'name'))
+            permissions = cell(roles[0], 'permissions')
+        }
+    }
+    const users = await query(`SELECT ${q(sql, 'status')} AS userStatus FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ? FOR UPDATE`, [
+        actor.id
+    ])
+    if (!users.length) return null
+    const orgs = await query(
+        `SELECT ${q(sql, 'status')} AS orgStatus
+         FROM ${q(sql, 'organization_user')}
+         WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
+         FOR UPDATE`,
+        [actor.organizationId, actor.id]
+    )
+    return {
+        userStatus: cell(users[0], 'userStatus'),
+        orgStatus: cell(orgs[0] || {}, 'orgStatus'),
+        teamStatus: cell(team[0], 'teamStatus'),
+        name,
+        permissions
+    }
 }
 
 async function userAccountStatus(query: QueryFn, sql: Sql, userId: string): Promise<string> {
@@ -911,8 +990,10 @@ export async function deleteOrganizationUser(
                 throw new DirectoryError(403, 'Only an owner can remove someone from every team')
             }
             await lockOrgOwners(query, sql, organizationId, userId)
-            // The non-owner grant is read again under the lock, so a role lost after the fast-fail cannot authorize the removal.
-            const canCancelInvites = await actorCanCancelInvites(query, sql, actor)
+            // The non-owner grant is read again under the lock from this actor's current user,
+            // organization membership, team membership, and role. A passed permission list cannot
+            // grant when that role no longer includes users:manage.
+            const canCancelInvites = await actorCanCancelInvites(query, sql, actor, { locked: true })
             // Check current, active ownership under the lock, including on repeatable-read databases.
             const owners = await enabledOwnerIds(query, sql, organizationId, true)
             if (!canCancelInvites && !owners.includes(actor.id)) {
