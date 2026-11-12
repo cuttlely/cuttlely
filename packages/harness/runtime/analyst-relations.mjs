@@ -1004,7 +1004,7 @@ const STATEMENT_NON_CALL_WORDS = new Set([
     'with'
 ])
 
-function statementObjects(statement) {
+export function statementObjects(statement) {
     const tokens = sqlTokens(statement)
     if (tokens.some((token) => token.type === 'symbol' && token.value === ';'))
         throw new ScopeRefusal('Cuttlely refused this query: multiple commands are not allowed.')
@@ -1031,27 +1031,128 @@ function statementObjects(statement) {
     const identifier = (token) => `"${String(token?.value || '').replaceAll('"', '""')}"`
     const typeName = (first, second = null) => (second ? `${identifier(first)}.${identifier(second)}` : identifier(first))
     const literalType = (token) => {
-        if (token?.type === 'number') return 'pg_catalog.int4'
+        if (token?.type === 'number') {
+            const value = token.value
+            if (/^[0-9]+$/.test(value)) {
+                const integer = value.replace(/^0+(?=[0-9])/, '')
+                if (integer.length < 10 || (integer.length === 10 && integer <= '2147483647')) return 'pg_catalog.int4'
+                if (integer.length < 19 || (integer.length === 19 && integer <= '9223372036854775807')) return 'pg_catalog.int8'
+                return 'pg_catalog.numeric'
+            }
+            if (/^[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?$/.test(value) && /[.eE]/.test(value)) return 'pg_catalog.numeric'
+            return null
+        }
         if (token?.type === 'string') return 'pg_catalog.text'
         if (token?.type === 'word' && !token.quoted && ['true', 'false'].includes(token.value)) return 'pg_catalog.bool'
         return null
     }
+
+    // A CTE shadows an unqualified catalog relation only in its query scope. Record the visibility intervals instead
+    // of removing every matching name globally: the body of a non-recursive `WITH orders AS (...)` may itself read a
+    // real table named orders, while later CTEs and the main query see the CTE.
+    const containingParen = new Array(tokens.length).fill(null)
+    const closingParen = new Map()
+    const parens = []
+    for (let i = 0; i < tokens.length; i += 1) {
+        containingParen[i] = parens.at(-1) ?? null
+        if (symbol(i, '(')) parens.push(i)
+        else if (symbol(i, ')')) {
+            const open = parens.pop()
+            if (open !== undefined) closingParen.set(open, i)
+        }
+    }
+    const cteVisibility = []
+    for (let i = 0; i < tokens.length; i += 1) {
+        if (tokens[i]?.type !== 'word' || tokens[i].quoted || tokens[i].value !== 'with') continue
+        let at = i + 1
+        const recursive = tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'recursive'
+        if (recursive) at += 1
+        const declarations = []
+        while (at < tokens.length) {
+            const name = tokens[at]
+            if (name?.type !== 'word') break
+            at += 1
+            if (symbol(at, '(')) {
+                const close = closingParen.get(at)
+                if (close === undefined) break
+                at = close + 1
+            }
+            if (tokens[at]?.type !== 'word' || tokens[at].quoted || tokens[at].value !== 'as') break
+            at += 1
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'not') at += 1
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'materialized') at += 1
+            if (!symbol(at, '(')) break
+            const bodyOpen = at
+            const bodyClose = closingParen.get(bodyOpen)
+            if (bodyClose === undefined) break
+            declarations.push({ name: name.value, bodyOpen, bodyClose })
+            at = bodyClose + 1
+            if (!symbol(at, ',')) break
+            at += 1
+        }
+        if (!declarations.length) continue
+        const owner = containingParen[i]
+        const queryEnd = owner === null ? tokens.length : closingParen.get(owner) ?? tokens.length
+        const recursiveStart = declarations[0].bodyOpen + 1
+        for (const declaration of declarations) {
+            cteVisibility.push({
+                name: declaration.name,
+                start: recursive ? recursiveStart : declaration.bodyClose + 1,
+                end: queryEnd
+            })
+        }
+    }
+    const isCteReference = (at, name) => cteVisibility.some((cte) => cte.name === name && at >= cte.start && at < cte.end)
+
+    const addRelation = (start) => {
+        let at = start
+        if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'lateral') at += 1
+        const only = tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'only'
+        if (only) at += 1
+        if (symbol(at, '(')) {
+            if (!only) return
+            at += 1
+        }
+        const first = tokens[at]
+        if (first?.type !== 'word') return
+        const qualified = symbol(at + 1, '.') && tokens[at + 2]?.type === 'word'
+        const next = qualified ? at + 3 : at + 1
+        if (symbol(next, '(') || (!qualified && isCteReference(at, first.value))) return
+        const relation = qualified ? { schema: first.value, name: tokens[at + 2].value } : { schema: null, name: first.value }
+        relations.set(`${relation.schema || ''}\0${relation.name}`, relation)
+    }
+    const FROM_END_WORDS = new Set([
+        'except',
+        'fetch',
+        'for',
+        'group',
+        'having',
+        'intersect',
+        'limit',
+        'offset',
+        'order',
+        'returning',
+        'union',
+        'where',
+        'window'
+    ])
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i]
         if (token.type !== 'word' || token.quoted || !['from', 'join', 'table'].includes(token.value)) continue
         if (token.value === 'from' && tokens[i - 1]?.type === 'word' && !tokens[i - 1].quoted && tokens[i - 1].value === 'distinct')
             continue
-        let at = i + 1
-        if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'lateral') at += 1
-        if (tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'only') at += 1
-        if (symbol(at, '(')) at += 1
-        const first = tokens[at]
-        if (first?.type !== 'word') continue
-        const qualified = symbol(at + 1, '.') && tokens[at + 2]?.type === 'word'
-        const next = qualified ? at + 3 : at + 1
-        if (symbol(next, '(')) continue
-        const relation = qualified ? { schema: first.value, name: tokens[at + 2].value } : { schema: null, name: first.value }
-        relations.set(`${relation.schema || ''}\0${relation.name}`, relation)
+        addRelation(i + 1)
+        if (token.value !== 'from') continue
+        let depth = 0
+        for (let at = i + 1; at < tokens.length; at += 1) {
+            if (symbol(at, '(')) depth += 1
+            else if (symbol(at, ')')) {
+                if (depth === 0) break
+                depth -= 1
+            } else if (depth === 0 && tokens[at]?.type === 'word' && !tokens[at].quoted && FROM_END_WORDS.has(tokens[at].value)) {
+                break
+            } else if (depth === 0 && symbol(at, ',')) addRelation(at + 1)
+        }
     }
     for (let i = 0; i < tokens.length - 2; i += 1) {
         if (tokens[i]?.type !== 'word' || tokens[i].quoted || tokens[i].value !== 'cast' || !symbol(i + 1, '(')) continue
@@ -2686,7 +2787,7 @@ export function sqlTokens(sql, { backslashLiteral = false } = {}) {
         }
         const number = text.slice(i).match(/^[0-9][0-9A-Za-z_.]*/)
         if (number) {
-            tokens.push({ type: 'number' })
+            tokens.push({ type: 'number', value: number[0] })
             i += number[0].length
             continue
         }

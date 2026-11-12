@@ -23,6 +23,7 @@ import {
     routineCatalogStamp,
     scanFunctionBody,
     SAMPLE_TIMEOUT_MS,
+    statementObjects,
     findRelation,
     parseRelationSelection,
     relationLine,
@@ -84,6 +85,31 @@ const wide = {
 const tokens = (text) => Math.ceil(String(text).length / 4)
 
 describe('analyst relations: pure helpers', () => {
+    it('finds every comma-list relation, including nested lists', () => {
+        const names = (sql) => statementObjects(sql).relations.map(({ schema, name }) => (schema ? `${schema}.${name}` : name))
+        assert.deepEqual(names('SELECT * FROM v, b LIMIT 1'), ['v', 'b'])
+        assert.deepEqual(names('SELECT * FROM b, v LIMIT 1'), ['b', 'v'])
+        assert.deepEqual(names('SELECT * FROM (SELECT * FROM v, b, c) nested LIMIT 1'), ['v', 'b', 'c'])
+    })
+
+    it('types numeric literals the way PostgreSQL resolves integer and numeric overloads', () => {
+        const hint = (literal) => statementObjects(`SELECT public.literal_pick(${literal})`).calls[0].hints[0]
+        assert.equal(hint('1'), 'pg_catalog.int4')
+        assert.equal(hint('1.5'), 'pg_catalog.numeric')
+        assert.equal(hint('2147483647'), 'pg_catalog.int4')
+        assert.equal(hint('2147483648'), 'pg_catalog.int8')
+        assert.equal(hint('9223372036854775807'), 'pg_catalog.int8')
+        assert.equal(hint('9223372036854775808'), 'pg_catalog.numeric')
+        assert.equal(hint('1e2'), 'pg_catalog.numeric')
+    })
+
+    it('distinguishes scoped CTE references from same-named catalog relations', () => {
+        const names = (sql) => statementObjects(sql).relations.map(({ name }) => name)
+        assert.deepEqual(names('WITH orders AS (SELECT 7 AS id) SELECT * FROM orders'), [])
+        assert.deepEqual(names('WITH chosen AS (SELECT * FROM orders) SELECT * FROM chosen, invoices'), ['orders', 'invoices'])
+        assert.deepEqual(names('WITH orders AS (SELECT * FROM orders) SELECT * FROM orders'), ['orders'])
+    })
+
     it('keeps every risky-object scan branch joined after the event-trigger refusal is removed', () => {
         const riskyObjects = guardCheckReads({ readOnlySql: true })[0].sql
         assert.match(riskyObjects, /d\.classid = 'pg_constraint'::regclass\)\)\nUNION\n-- A function or operator with a built-in's name/)
@@ -529,6 +555,21 @@ describe('analyst relations: bakery database', () => {
         assert.equal(balance.rows.length, 1)
         const dup = await queryAnalystUrl(url, 'SELECT * FROM stores s, stores t', { relations: SELECTION })
         assert.equal(dup.rows.length, 4, 'a result with repeated column names still runs')
+    })
+
+    it('refuses unticked base tables named beside a selected view in every comma-list position', async (t) => {
+        if (skipped(t)) return
+        const selected = { relations: ['public.account_balances'] }
+        const view = await queryAnalystUrl(url, 'SELECT account_id FROM account_balances ORDER BY account_id LIMIT 1', selected)
+        assert.equal(view.rows.length, 1, 'the selected view still runs without naming its unticked base')
+        for (const sql of [
+            'SELECT * FROM account_balances, invoices LIMIT 1',
+            'SELECT * FROM invoices, account_balances LIMIT 1',
+            'SELECT * FROM account_balances JOIN invoices ON true LIMIT 1',
+            'SELECT * FROM (SELECT * FROM account_balances, invoices, invoice_items LIMIT 1) q LIMIT 1'
+        ]) {
+            await refusal(queryAnalystUrl(url, sql, selected), /table selection does not include/)
+        }
     })
 
     it('adds the column list of a mentioned selected relation to an undefined or ambiguous column error', async (t) => {
@@ -1375,8 +1416,12 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await owner.connect()
         await owner.query(`CREATE TABLE items (id int PRIMARY KEY, name text NOT NULL);
             INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');
+            CREATE TABLE orders (id int PRIMARY KEY);
             CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;
             CREATE FUNCTION public.pause(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
+            CREATE FUNCTION public.literal_pick(v int) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT v';
+            CREATE FUNCTION public.literal_pick(v bigint) RETURNS numeric LANGUAGE sql VOLATILE AS 'SELECT v FROM pg_sleep(0)';
+            CREATE FUNCTION public.literal_pick(v numeric) RETURNS numeric LANGUAGE sql VOLATILE AS 'SELECT v FROM pg_sleep(0)';
             CREATE FUNCTION public.slow_eq(int, int) RETURNS boolean LANGUAGE sql AS 'SELECT $1 = $2 FROM pg_sleep(0)';
             CREATE OPERATOR public.=== (LEFTARG = int, RIGHTARG = int, FUNCTION = public.slow_eq);
             CREATE TYPE public.mood AS ENUM ('calm');
@@ -1399,7 +1444,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await owner.query(
             `GRANT SELECT ON pause_view, outer_view, pause_matview, swap_view, guarded, sleepy_view, inner_names, outer_names TO "${writer}"`
         )
-        await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
+        await owner.query(`GRANT SELECT ON item_names, orders TO "${writer}"`)
         // This login could write, so only the read-only checks stand between a query and the table.
         await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
         await owner.query(`GRANT USAGE ON SCHEMA tools TO "${writer}"; GRANT USAGE ON SEQUENCE public.counter TO "${writer}"`)
@@ -1463,6 +1508,29 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await refusal(queryAnalystUrl(url, 'SELECT 1 LIMIT 1 --c\r; COMMIT; DELETE FROM items; COMMIT', { readOnlySql: true }), /semicolon/)
         await assert.rejects(queryAnalystUrl(url, 'SELECT 1 --c\r; COMMIT; DELETE FROM items; COMMIT'), /one statement/)
         assert.equal(await count(), 3)
+    })
+
+    it('does not resolve a CTE name as an unticked table of the same name', async (t) => {
+        if (skipped(t)) return
+        const result = await queryAnalystUrl(url, 'WITH orders AS (SELECT 7 AS id) SELECT id FROM orders LIMIT 1', {
+            readOnlySql: true,
+            relations: ['public.items']
+        })
+        assert.deepEqual(result.rows, [{ id: 7 }])
+    })
+
+    it('checks the overload PostgreSQL resolves for decimal and large numeric literals', async (t) => {
+        if (skipped(t)) return
+        const options = { readOnlySql: true }
+        const integer = await queryAnalystUrl(url, 'SELECT public.literal_pick(1) AS v LIMIT 1', options)
+        assert.equal(String(integer.rows[0].v), '1')
+        for (const sql of [
+            'SELECT public.literal_pick(1.5) AS v LIMIT 1',
+            'SELECT public.literal_pick(2147483648) AS v LIMIT 1',
+            'SELECT public.literal_pick(9223372036854775808) AS v LIMIT 1'
+        ]) {
+            await refusal(queryAnalystUrl(url, sql, options), /public\.literal_pick\([^)]*\).*VOLATILE/)
+        }
     })
 
     it('reads plain strings as standard SQL even when the login turns standard_conforming_strings off', async (t) => {

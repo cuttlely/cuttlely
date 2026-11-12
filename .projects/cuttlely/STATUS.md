@@ -12,6 +12,8 @@ Node option, credential, hint, and nested configuration loads use the shared cli
 
 The PostgreSQL MCP node's safety check now prepares a query without planning or running it and reads relation locks and system catalogs. The check uses a read-only transaction, performs no DDL, and does not enable Postgres debug logging, so enabled event triggers are allowed and their functions do not run during the check. The login no longer needs `TEMP`, and the check can run on a read-only standby. Every other database-wide risky-object refusal is unchanged.
 
+Statement analysis walks every top-level item in each `FROM` comma list, including lists in nested queries, so naming an unticked base table beside a selected view is refused in either order while a query that names only the selected view remains allowed. Unqualified CTE references are excluded only in the CTE's lexical query scope; a same-named unticked table no longer causes a false refusal, and a real same-named table read inside a non-recursive CTE body is still checked. Numeric literal hints follow PostgreSQL's `int4`, `int8`, then `numeric` resolution ranges, so decimal and out-of-range literals cannot make the guard inspect only the wrong overload.
+
 `scripts/analyst-relations.test.mjs` enables the existing `watch_ddl` fixture with a sequence counter, runs a read-only query, and confirms that the counter was not called. `scripts/analyst-readonly-role.test.mjs` covers a login without `TEMP` and checks that the safety and query transactions remain read only. The `analyst-postgres` CI matrix runs these checks on Postgres 14, 15, 16, 17 and 18.
 
 ## Code Repository GitHub page links
