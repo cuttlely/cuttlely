@@ -2008,6 +2008,61 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
     })
 
+    it('resolves joined rename lists by visible column position', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, removed text, object regclass);
+            ALTER TABLE public.object_names DROP COLUMN removed;
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names', 'public.items'] }
+                for (const sql of [
+                    'SELECT j.obj::text FROM (public.object_names a CROSS JOIN public.items b) AS j(id, obj, item_id, name) LIMIT 1',
+                    'SELECT j.obj1::text FROM (public.object_names a CROSS JOIN public.object_names b) AS j(id1, obj1, id2, obj2) LIMIT 1',
+                    'SELECT j.obj2::text FROM (public.object_names a CROSS JOIN public.object_names b) AS j(id1, obj1, id2, obj2) LIMIT 1',
+                    'SELECT j.obj::text FROM (public.items a JOIN public.object_names b ON a.id = b.id) AS j(item_id, name, id, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM ((items a CROSS JOIN items b) k JOIN object_names c ON true) AS j(a_id, a_name, b_id, b_name, id, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM (items a JOIN object_names b USING (id)) AS j(key, name, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM ((SELECT 1 AS x) a CROSS JOIN object_names b) AS j(x, key, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM (items a CROSS JOIN (items b CROSS JOIN object_names c) k) AS j(a_id, a_name, b_id, b_name, key, obj) LIMIT 1',
+                    'SELECT j.key, row_to_json(j) FROM (object_names a JOIN items b ON true) AS j(key, obj, item_id, name) LIMIT 1'
+                ]) {
+                    assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                    await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
+                }
+                for (const sql of [
+                    'SELECT j.key FROM (object_names a CROSS JOIN items b) AS j(key, object, item_id, name) LIMIT 1',
+                    'SELECT j.key FROM (items a JOIN object_names b ON a.id = b.id) AS j(item_id, name, key, object) LIMIT 1'
+                ]) {
+                    assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, (await owner.query(sql)).rows, sql)
+                }
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
+    })
+
+    it('ignores unused rename declarations in ordinary column lookup', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names'] }
+                const sql = 'SELECT n.key FROM public.object_names AS n(key, object) LIMIT 1'
+                assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, (await owner.query(sql)).rows)
+                await refusal(
+                    queryAnalystUrl(url, 'SELECT n.key, row_to_json(n) FROM public.object_names AS n(key, object) LIMIT 1', options),
+                    /type regclass is not allowed/
+                )
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
+    })
+
     it('refuses reg* columns projected by wildcards and whole rows, including on PostgreSQL 14 and 15', async (t) => {
         if (skipped(t)) return
         await owner.query(`CREATE TABLE public.object_names (id int, object regclass);

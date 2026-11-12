@@ -1021,7 +1021,7 @@ export function statementObjects(statement) {
     }
     const calls = []
     const casts = []
-    const columnNames = new Set(tokens.filter((token) => token.type === 'word').map((token) => token.value))
+    const columnNames = new Set()
     const relationLiterals = new Set()
     const relations = new Map()
     const relationBindings = []
@@ -1307,10 +1307,28 @@ export function statementObjects(statement) {
     // A joined-table alias is an anonymous composite of its constituent relations.
     // Feed each constituent through the existing type closure, including nested joins.
     const baseBindings = [...relationBindings]
-    for (const [open, { close, name, declaration }] of joinedGroups) {
-        for (const binding of baseBindings) {
-            if (binding.declaration > open && binding.declaration < close)
-                relationBindings.push({ relation: binding.relation, name, declaration })
+    for (const [open, { close, name, declaration, columns }] of joinedGroups) {
+        const members = baseBindings.filter((binding) => binding.declaration > open && binding.declaration < close)
+        // Ordinary JOIN/CROSS JOIN concatenate visible columns in FROM order. Derived
+        // outputs and USING/NATURAL joins can change that layout: retain all constituent
+        // types for a referenced rename when a catalog-only positional map is insufficient.
+        const allColumns = tokens.some(
+            (token, at) =>
+                at > open &&
+                at < close &&
+                token.type === 'word' &&
+                !token.quoted &&
+                ['select', 'with', 'values', 'using', 'natural'].includes(token.value)
+        )
+        for (let index = 0; index < members.length; index += 1) {
+            relationBindings.push({
+                relation: members[index].relation,
+                name,
+                declaration,
+                columns,
+                allColumns,
+                preceding: members.slice(0, index).map(({ relation }) => relation)
+            })
         }
     }
 
@@ -1582,15 +1600,20 @@ export function statementObjects(statement) {
         if (wildcard && !(symbol(i - 1, '(') && symbol(i + 1, ')'))) columnNames.add('*')
         if (!wildcard && name !== '::' && name !== '--' && name !== '/*') operators.set(`\0${name}`, { schema: null, name })
     }
+    for (let at = 0; at < tokens.length; at += 1) {
+        if (tokens[at].type === 'word' && !relationDeclarations.has(at) && !relationBindings.some((binding) => binding.declaration === at))
+            columnNames.add(tokens[at].value)
+    }
     return {
         calls: calls.map(({ schema, name, args, hints }) => ({ schema, name, args, hints })),
         casts,
         // Rename lists use visible attribute positions, not attnum (dropped columns leave gaps).
         // Declarations alone are not reads: selecting the renamed id must not inspect obj.
-        columnAliases: baseBindings
+        columnAliases: relationBindings
             .filter(({ columns }) => columns?.length)
-            .map(({ relation, columns }) => ({
+            .map(({ relation, columns, preceding, allColumns }) => ({
                 ...relation,
+                ...(preceding ? { preceding, allColumns } : {}),
                 positions: columns.flatMap((name, index) =>
                     tokens.some(
                         (token, at) =>
@@ -1813,14 +1836,24 @@ WHERE c.reltype <> 0 AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
 
 const STATEMENT_ALIASED_COLUMN_TYPE_IDS_SQL = `${STATEMENT_COLUMN_TYPE_IDS_SQL}
 UNION SELECT a.atttypid::int8 AS oid
-FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text, positions int[])
+FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text, positions int[], preceding jsonb, "allColumns" boolean)
 JOIN pg_catalog.pg_class c ON c.relname = r.name
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 CROSS JOIN LATERAL (
     SELECT a.atttypid, row_number() OVER (ORDER BY a.attnum) AS position
     FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
 ) a
-WHERE a.position = ANY(r.positions) AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
+CROSS JOIN LATERAL (
+    SELECT count(*) AS columns
+    FROM pg_catalog.jsonb_to_recordset(coalesce(r.preceding, '[]'::jsonb)) AS p(schema text, name text)
+    JOIN pg_catalog.pg_class pc ON pc.relname = p.name
+    JOIN pg_catalog.pg_namespace pn ON pn.oid = pc.relnamespace
+    JOIN pg_catalog.pg_attribute pa ON pa.attrelid = pc.oid AND pa.attnum > 0 AND NOT pa.attisdropped
+    WHERE (p.schema IS NOT NULL AND p.schema = pn.nspname)
+        OR (p.schema IS NULL AND pg_catalog.pg_table_is_visible(pc.oid))
+) preceding
+WHERE (r."allColumns" OR a.position + preceding.columns = ANY(r.positions))
+    AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
     OR (r.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid)))`
 
 const HELD_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks
