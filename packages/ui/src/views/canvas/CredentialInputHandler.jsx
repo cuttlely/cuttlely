@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { FLOWISE_CREDENTIAL_ID } from '@/store/constant'
 import { postgresCredentialHint } from '@/utils/postgresCredentialHint'
 import { onlyFit } from '@/utils/yourKey'
+import { isCancel } from '@/api/resilience'
 
 // ===========================|| CredentialInputHandler ||=========================== //
 
@@ -105,8 +106,9 @@ const CredentialInputHandler = ({ inputParam, data, onSelect, onHint, disabled =
     useEffect(() => {
         if (!pickOnlyFit || disabled || hasPick || inputParam?.type !== 'credential' || inputParam?.optional || !fitNames) return undefined
         let cancelled = false
+        const controller = new AbortController()
         credentialsApi
-            .getCredentialsByName(fitNames)
+            .getCredentialsByName(fitNames, { signal: controller.signal })
             .then((resp) => {
                 const id = onlyFit(resp?.data || [])
                 if (cancelled || !id) return
@@ -114,9 +116,12 @@ const CredentialInputHandler = ({ inputParam, data, onSelect, onHint, disabled =
                 setReloadTimestamp(Date.now().toString())
                 onSelect(id, { picked: 'only-fit' })
             })
-            .catch(() => {})
+            .catch((error) => {
+                if (!isCancel(error)) return undefined
+            })
         return () => {
             cancelled = true
+            controller.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pickOnlyFit, disabled, hasPick, fitNames])
@@ -128,6 +133,7 @@ const CredentialInputHandler = ({ inputParam, data, onSelect, onHint, disabled =
             return undefined
         }
         let cancelled = false
+        const controller = new AbortController()
         let inputs = {}
         try {
             inputs = analystInputsKey ? JSON.parse(analystInputsKey) : {}
@@ -135,7 +141,7 @@ const CredentialInputHandler = ({ inputParam, data, onSelect, onHint, disabled =
             inputs = {}
         }
         nodesApi
-            .executeNodeLoadMethod('postgreSQLMCP', { loadMethod: 'listActions', inputs })
+            .executeNodeLoadMethod('postgreSQLMCP', { loadMethod: 'listActions', inputs }, { signal: controller.signal })
             .then((resp) => {
                 if (!cancelled) {
                     const hint = postgresCredentialHint(resp?.data)
@@ -143,14 +149,15 @@ const CredentialInputHandler = ({ inputParam, data, onSelect, onHint, disabled =
                     onHint?.(hint)
                 }
             })
-            .catch(() => {
-                if (!cancelled) {
+            .catch((error) => {
+                if (!cancelled && !isCancel(error)) {
                     setCredentialHint('')
                     onHint?.('')
                 }
             })
         return () => {
             cancelled = true
+            controller.abort()
         }
     }, [data?.name, analystInputsKey])
 

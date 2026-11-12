@@ -4,7 +4,7 @@ const getAllChatflows = (params) => client.get('/chatflows?type=CHATFLOW', { par
 
 const getAllAgentflows = (type, params) => client.get(`/chatflows?type=${type}`, { params })
 
-const getSpecificChatflow = (id) => client.get(`/chatflows/${id}`)
+const getSpecificChatflow = (id, config) => (config ? client.get(`/chatflows/${id}`, config) : client.get(`/chatflows/${id}`))
 
 const getSpecificChatflowFromPublicEndpoint = (id) => client.get(`/public-chatflows/${id}`)
 

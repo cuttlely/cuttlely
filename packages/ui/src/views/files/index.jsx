@@ -24,6 +24,7 @@ import useApi from '@/hooks/useApi'
 import { IconX } from '@tabler/icons-react'
 import { useDispatch } from 'react-redux'
 import { useError } from '@/store/context/ErrorContext'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| CHATFLOWS ||============================== //
 
@@ -84,7 +85,7 @@ const Files = () => {
             } catch (error) {
                 setError(error)
                 enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
+                    message: requestFailureMessage(error),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

@@ -44,6 +44,7 @@ import useNotifier from '@/utils/useNotifier'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import { maxScroll } from '@/store/constant'
 import defaultAssistantIcon from '@/assets/images/robot.png'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 const assistantAvailableModels = [
     {
@@ -201,11 +202,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
 
     useEffect(() => {
         if (getAssistantObjApi.error) {
-            let errMsg = 'Internal Server Error'
-            let error = getAssistantObjApi.error
-            if (error?.response?.data) {
-                errMsg = typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-            }
+            const errMsg = requestFailureMessage(getAssistantObjApi.error)
             enqueueSnackbar({
                 message: `Failed to get assistant: ${errMsg}`,
                 options: {
@@ -225,11 +222,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
 
     useEffect(() => {
         if (getSpecificAssistantApi.error) {
-            const error = getSpecificAssistantApi.error
-            let errMsg = ''
-            if (error?.response?.data) {
-                errMsg = typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-            }
+            const errMsg = requestFailureMessage(getSpecificAssistantApi.error)
             enqueueSnackbar({
                 message: `Failed to get assistant: ${errMsg}`,
                 options: {
@@ -398,9 +391,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
             setLoading(false)
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to add new Assistant: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new Assistant: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -453,9 +444,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
             setLoading(false)
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to save Assistant: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to save Assistant: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -493,9 +482,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
             setLoading(false)
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to sync Assistant: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to sync Assistant: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -544,9 +531,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
             setLoading(false)
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to upload file: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to upload file: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -596,9 +581,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
             setLoading(false)
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to upload file: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to upload file: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -655,9 +638,7 @@ const AssistantDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =
             }
         } catch (error) {
             enqueueSnackbar({
-                message: `Failed to delete Assistant: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to delete Assistant: ${requestFailureMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

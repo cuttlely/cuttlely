@@ -48,6 +48,7 @@ import { IconTrash, IconEdit, IconPlus, IconX } from '@tabler/icons-react'
 import { truncateString } from '@/utils/genericHelper'
 
 import { useError } from '@/store/context/ErrorContext'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| Datasets ||============================== //
 
@@ -149,9 +150,7 @@ const EvalDatasets = () => {
                 }
             } catch (error) {
                 enqueueSnackbar({
-                    message: `Failed to delete dataset: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete dataset: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

@@ -65,6 +65,7 @@ import doc_store_details_emptySVG from '@/assets/images/doc_store_details_empty.
 // store
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 import { useError } from '@/store/context/ErrorContext'
+import { requestFailureMessage } from '@/utils/errorSummary'
 
 // ==============================|| DOCUMENTS ||============================== //
 
@@ -223,9 +224,7 @@ const DocumentStoreDetails = () => {
                 setBackdropLoading(false)
                 setError(error)
                 enqueueSnackbar({
-                    message: `Failed to delete Document Store: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete Document Store: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -264,9 +263,7 @@ const DocumentStoreDetails = () => {
                 setError(error)
                 setBackdropLoading(false)
                 enqueueSnackbar({
-                    message: `Failed to delete Document Loader: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to delete Document Loader: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',
@@ -383,9 +380,7 @@ const DocumentStoreDetails = () => {
             } catch (error) {
                 setBackdropLoading(false)
                 enqueueSnackbar({
-                    message: `Failed to refresh document store: ${
-                        typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                    }`,
+                    message: `Failed to refresh document store: ${requestFailureMessage(error)}`,
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

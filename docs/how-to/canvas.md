@@ -46,6 +46,22 @@ When a chat model card has a model list, such as OpenAI, Anthropic or xAI Grok, 
 
 The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle. With it off, a **Reasoning Effort** saved earlier is not sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, except Codex and `-pro` models. Those, gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort, so they reason at the provider's default: off does not turn reasoning off on a model that does not accept `none`. **Reasoning Effort** also has a **None** option. GPT-6 models send their Reasoning Effort and Summary in the request's `reasoning` field, and gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses. Calls on the Responses API keep a forced tool choice (`required`, `auto`, `none` or a named function). gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. On Azure, Responses API calls go to the resource's `/openai/v1/responses` endpoint with the deployment name as the model.
 
+## If your connection drops
+
+Cuttlely quietly retries loading options, credentials, and other eligible read requests. You may see **Reconnecting…** while Cuttlely waits and tries again. The chip does not block clicks, and your edits stay on the canvas. If Cuttlely still cannot check a saved canvas before opening it, the whole canvas stays closed. Choose **Retry** when the connection is back, or **Back** to leave without changing anything.
+
+Saves are not retried automatically yet. If Save cannot reach the server, the message says **Save failed. The server could not be reached. Your edits are still on the canvas. Press Save again when the connection is back.** The edits still show as unsaved. If you keep editing while a save is in progress, those later edits also stay marked as unsaved when that save finishes. If you move to another flow while a save is still waiting, its late result does not change the flow now on screen or show a message there.
+
+Publish is never sent twice on its own. If Publish gets no answer, the publish may still have gone through, so Cuttlely reads the flow's publish status again:
+
+-   If Live now has your draft, you see the usual **Published** message.
+-   If Live has your draft but the canvas cannot refresh it, the dialog says **Published, but the canvas could not refresh Live**. Close it and reopen the flow when the connection is back.
+-   If the check does not prove that it finished, including when the status still looks unchanged or the check also gets no answer, the dialog says **Publish not confirmed** and disables Publish. When the connection is back, reopen the flow and check its Live version before you publish again.
+
+Draft-setting and canvas-configuration failures ask you to try that setting again instead of telling you to press Save or reload the page.
+
+When you open a saved flow, Cuttlely first checks whether the canvas should show its draft or Live version. The canvas is inactive during that check. A quick check shows no extra screen; after 400 ms, **Opening the saved canvas** appears. If the check still fails after the quiet retries, the saved canvas stays closed. The page says whether the server could not be reached or answered with an error, such as a flow that no longer exists. Select **Retry** after the connection is back, or **Back** to leave. This prevents a save or edit until Cuttlely knows the correct mode. If you move to another saved flow while one is still opening, only the flow you moved to opens.
+
 ## Switch between compact and classic cards
 
 Two places turn **Classic cards** on or off. They change the same setting.
