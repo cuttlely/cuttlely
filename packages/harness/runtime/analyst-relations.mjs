@@ -1211,8 +1211,17 @@ export function statementObjects(statement) {
                 explicit ||
                 (!FROM_END_WORDS.has(token.value) &&
                     !['cross', 'join', 'inner', 'left', 'right', 'full', 'natural', 'on', 'using', 'tablesample'].includes(token.value)))
-        )
-            return { name: token.value, declaration: at }
+        ) {
+            const columns = []
+            if (symbol(at + 1, '(')) {
+                const close = closingParen.get(at + 1)
+                for (let index = at + 1; index <= close; index += 1) {
+                    relationDeclarations.add(index)
+                    if (tokens[index]?.type === 'word') columns.push(tokens[index].value)
+                }
+            }
+            return { name: token.value, declaration: at, columns }
+        }
         return null
     }
     const addRelation = (start) => {
@@ -1515,6 +1524,7 @@ export function statementObjects(statement) {
             const qualified = symbol(i - 2, '.') && tokens[i - 3]?.type === 'word'
             const callable =
                 name?.type === 'word' &&
+                !relationDeclarations.has(i) &&
                 (name.quoted || !STATEMENT_NON_CALL_WORDS.has(name.value)) &&
                 !(tokens[i - 2]?.type === 'word' && !tokens[i - 2].quoted && tokens[i - 2].value === 'operator')
             if (callable) {
@@ -1575,6 +1585,30 @@ export function statementObjects(statement) {
     return {
         calls: calls.map(({ schema, name, args, hints }) => ({ schema, name, args, hints })),
         casts,
+        // Rename lists use visible attribute positions, not attnum (dropped columns leave gaps).
+        // Declarations alone are not reads: selecting the renamed id must not inspect obj.
+        columnAliases: baseBindings
+            .filter(({ columns }) => columns?.length)
+            .map(({ relation, columns }) => ({
+                ...relation,
+                positions: columns.flatMap((name, index) =>
+                    tokens.some(
+                        (token, at) =>
+                            token.type === 'word' &&
+                            token.value === name &&
+                            !relationDeclarations.has(at) &&
+                            !outputDeclarations.has(at) &&
+                            !outputReferences.has(at) &&
+                            !typeTokens.has(at) &&
+                            !symbol(at + 1, '.') &&
+                            !symbol(at + 1, '(') &&
+                            !relationBindings.some((binding) => binding.declaration === at)
+                    )
+                        ? [index + 1]
+                        : []
+                )
+            }))
+            .filter(({ positions }) => positions.length),
         // A bare range variable denotes its relation's composite type, including when a
         // function consumes it and PREPARE exposes only that function's result type.
         wholeRowRelations: relationBindings
@@ -1777,6 +1811,18 @@ JOIN pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text) ON r.n
 WHERE c.reltype <> 0 AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
     OR (r.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid)))`
 
+const STATEMENT_ALIASED_COLUMN_TYPE_IDS_SQL = `${STATEMENT_COLUMN_TYPE_IDS_SQL}
+UNION SELECT a.atttypid::int8 AS oid
+FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS r(schema text, name text, positions int[])
+JOIN pg_catalog.pg_class c ON c.relname = r.name
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL (
+    SELECT a.atttypid, row_number() OVER (ORDER BY a.attnum) AS position
+    FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+) a
+WHERE a.position = ANY(r.positions) AND ((r.schema IS NOT NULL AND r.schema = n.nspname)
+    OR (r.schema IS NULL AND pg_catalog.pg_table_is_visible(c.oid)))`
+
 const HELD_RELATIONS_SQL = `SELECT DISTINCT relation::int8 AS oid FROM pg_catalog.pg_locks
 WHERE pid = pg_catalog.pg_backend_pid() AND locktype = 'relation' AND relation IS NOT NULL`
 
@@ -1834,6 +1880,8 @@ async function preparedStatementIds(client, runner, statement, named) {
                 relations.add(Number(row.oid))
         }
         const columnParams = [[...relations], named.columnNames, named.columnNames, JSON.stringify(named.wholeRowRelations)]
+        const columnSql = named.columnAliases.length ? STATEMENT_ALIASED_COLUMN_TYPE_IDS_SQL : STATEMENT_COLUMN_TYPE_IDS_SQL
+        if (named.columnAliases.length) columnParams.push(JSON.stringify(named.columnAliases))
         const typeNames = [...new Set([...named.types, ...named.literalTypes])]
         const metadataReads = [
             ...(named.calls.length
@@ -1842,7 +1890,7 @@ async function preparedStatementIds(client, runner, statement, named) {
             ...(named.operators.length ? [{ sql: STATEMENT_OPERATOR_IDS_SQL, params: [JSON.stringify(named.operators)] }] : []),
             ...(typeNames.length ? [{ sql: STATEMENT_TYPE_IDS_SQL, params: [JSON.stringify(typeNames)] }] : []),
             { sql: PREPARED_RESULT_TYPES_SQL, params: [statementName] },
-            ...(relations.size ? [{ sql: STATEMENT_COLUMN_TYPE_IDS_SQL, params: columnParams }] : [])
+            ...(relations.size ? [{ sql: columnSql, params: columnParams }] : [])
         ]
         if (runner.batchedGuard) await runner.prefetch(metadataReads)
         const functionRows = named.calls.length
@@ -1851,7 +1899,7 @@ async function preparedStatementIds(client, runner, statement, named) {
         const operatorRows = named.operators.length ? await runner.all(STATEMENT_OPERATOR_IDS_SQL, [JSON.stringify(named.operators)]) : []
         const explicitTypeRows = typeNames.length ? await runner.all(STATEMENT_TYPE_IDS_SQL, [JSON.stringify(typeNames)]) : []
         const resultTypeRows = await runner.all(PREPARED_RESULT_TYPES_SQL, [statementName])
-        const columnTypeRows = relations.size ? await runner.all(STATEMENT_COLUMN_TYPE_IDS_SQL, columnParams) : []
+        const columnTypeRows = relations.size ? await runner.all(columnSql, columnParams) : []
         const castFunctionRows = await runner.all(STATEMENT_CAST_FUNCTION_IDS_SQL, [
             JSON.stringify(named.casts),
             functionRows.map((row) => Number(row.oid)),

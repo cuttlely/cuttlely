@@ -1968,6 +1968,46 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
     })
 
+    it('resolves renamed FROM columns before checking scoped reg* types', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, removed text, object regclass);
+            ALTER TABLE public.object_names DROP COLUMN removed;
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names'] }
+                for (const sql of [
+                    'SELECT n.obj::text FROM public.object_names AS n(id, obj) LIMIT 1',
+                    'SELECT n.obj::text FROM object_names n(id, obj) LIMIT 1',
+                    'SELECT obj::text FROM object_names AS n(id, obj) LIMIT 1',
+                    'SELECT "N"."Obj"::text FROM object_names AS "N"("Id", "Obj") LIMIT 1',
+                    'SELECT n.obj::text FROM ONLY (public.object_names) AS n(id, obj) LIMIT 1',
+                    'SELECT n.obj::text FROM public.object_names * AS n(id, obj) LIMIT 1',
+                    'SELECT n.obj::text, row_to_json(n) FROM object_names AS n(id, obj) LIMIT 1',
+                    'SELECT n.key, row_to_json(n) FROM object_names AS n(key, obj) LIMIT 1',
+                    'SELECT n.object::text FROM object_names AS n(key) LIMIT 1'
+                ]) {
+                    assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                    await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
+                }
+                for (const sql of [
+                    'SELECT n.key FROM object_names AS n(key, obj) LIMIT 1',
+                    'SELECT key FROM object_names n(key, obj) LIMIT 1',
+                    'SELECT n.key FROM object_names AS n(key) LIMIT 1',
+                    'SELECT n.key FROM object_names AS n(key, n) LIMIT 1',
+                    'SELECT n.key::text FROM object_names AS n(key, text) LIMIT 1',
+                    'SELECT n.key AS obj FROM object_names AS n(key, obj) ORDER BY obj LIMIT 1',
+                    'SELECT n.key AS n FROM object_names AS n(key, obj) ORDER BY n LIMIT 1'
+                ]) {
+                    assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, (await owner.query(sql)).rows, sql)
+                }
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
+    })
+
     it('refuses reg* columns projected by wildcards and whole rows, including on PostgreSQL 14 and 15', async (t) => {
         if (skipped(t)) return
         await owner.query(`CREATE TABLE public.object_names (id int, object regclass);

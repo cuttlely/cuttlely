@@ -34,6 +34,8 @@ Statement analysis walks every top-level item in each `FROM` comma list, includi
 
 Whole-row references to joined-table aliases now send every constituent relation through the composite-type closure, including nested joins. Array commas in JOIN conditions stay inside their expressions while real FROM separators still trigger relation checks. A standalone ORDER BY output alias takes precedence over a same-named range variable; whole-row arguments and ORDER BY expressions still receive the scoped type checks. PostgreSQL-backed regressions cover these cases in both policy modes. PostgreSQL rejects the two-part `public.object_names` expression as a missing FROM-clause entry for `public`; the valid `public.object_names.*` whole-row form remains subject to the composite-field refusal.
 
+FROM column rename lists resolve referenced aliases to the underlying visible attributes before source types are checked, including tables with dropped columns. Casting a renamed `regclass` column to text remains refused with a selection in either policy mode. Alias declarations are distinguished from references, and a renamed expression can appear alongside a whole-row reference without bypassing either check. The alias metadata uses the existing catalog read; statements without column rename lists keep the same catalog traffic.
+
 `scripts/analyst-relations.test.mjs` enables the existing `watch_ddl` fixture with a sequence counter, runs a read-only query, and confirms that the counter was not called. `scripts/analyst-readonly-role.test.mjs` covers a login without `TEMP` and checks that the safety and query transactions remain read only. The `analyst-postgres` CI matrix runs these checks on Postgres 14, 15, 16, 17 and 18.
 
 ## Code Repository GitHub page links
