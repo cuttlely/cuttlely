@@ -16,6 +16,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   **#469 (`3c981e82`):** PostgreSQL MCP queries now work on databases with enabled event triggers, including Supabase and other managed Postgres services. The safety check prepares the query without planning or running it, reads relation locks and system catalogs, and performs no DDL, so event-trigger functions do not run during the check. Fixes #467.
+
 -   **#462 (`52e29426`):** When the stored draft shows that a save already landed, a lost reply no longer makes that save appear to fail or write the same canvas twice, including when the next write attempt reports that the draft changed. Uploaded-file saves also compare the stored non-file graph and file names, so a nearby save from another tab is not accepted as this save. A file-bearing save is not sent again automatically: if the saved state cannot prove that it landed, the canvas stays unsaved and asks the person to check another tab before pressing Save again. A missing draft is not accepted as proof of a landed save just because Live matches the submitted canvas.
 
 -   **#462 (`52e29426`):** Selecting Save again while a new flow is still being created now creates one flow and saves the latest canvas to its returned id.
@@ -39,8 +41,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   **#456 (`932bd8df`), updated by #462 (`52e29426`):** A request that gets no answer from the server, for example after a dropped connection or a timeout, no longer replaces the page with **Something went wrong**. After quiet retries for a read request fail, the page says the server could not be reached and asks you to check your connection, then reload. An unanswered first save or follow-up settings update says that the edits remain on the canvas and asks you to press Save again when the connection is back. Existing draft and Live saves without new file data use the Retry notice described above. An error from a request on one page also stays with that page, so moving from the canvas back to a list shows that list instead of the canvas's old error. Fixes #455.
 
 -   **#454 (`95c64dab`):** Importing a chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example keeps the ChatOpenAI to Conversation Chain connection. A connection is still dropped when the input or output at either end is gone.
-
--   **#469 (PENDING, not yet merged; squash SHA and final wording to be filled in from that PR after it merges):** PostgreSQL event-trigger and scanner-gap checks. Fixes #467.
 
 ## [1.7.2] - 2026-11-10
 

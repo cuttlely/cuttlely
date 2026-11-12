@@ -1,5 +1,17 @@
 {
-    "small": "728f1c5a012da2f2c250e95d9ae71f34361df45f2459960037f02f9d6e55faa1",
-    "paged": "8e30c314a6e8a1b924947436828be4826aa14b884fe4fefdcd808cedd9cb988b",
-    "replay": "048e43bcbf9d7ebffe27a291e8efd89cc167bda12f5bb71ce05673cee8f37e10"
+    "postgres14": {
+        "small": "fb4c613a63904327e1a357c3bd9630e64c782855c02cfd87a341edd84a1cfdd4",
+        "paged": "5a125bbdc77f726204a6f02e8f62e466ddad0fdfaaa754359c6c13e7d143e81b",
+        "replay": "c18b55af0a4716baa60925283945c9eede67ce76896d7dca480e406466ed4f0e"
+    },
+    "postgres15": {
+        "small": "59018fa898e55fa36b5910d14bb646dbba3ab9c909b39a682591582f915ba3ea",
+        "paged": "49f6982c77f2e0e1188eeb36944838ee22a200dd24e5d494bd7ba485747945cc",
+        "replay": "13fd7499f78548853b16b37dff908ae8a62abb2fa8d9046ce89f7636a58d47d5"
+    },
+    "postgres16Plus": {
+        "small": "8470c98c6c9e89e78582ec098f0727b1dc235cc8a93972a9818af0a84d687d96",
+        "paged": "623855d91f234fb8a542fc602270df285c1c070829c90a848f16b862c3606172",
+        "replay": "47abd5d50df5ea9b91a1ca0c5e8853dba9bc2a1781572b4b34360b39be4a817f"
+    }
 }

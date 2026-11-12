@@ -18,10 +18,12 @@ import {
     columnList,
     deniedFunction,
     describeRefusal,
+    guardCheckReads,
     resetRiskyDomainCacheForTests,
     routineCatalogStamp,
     scanFunctionBody,
     SAMPLE_TIMEOUT_MS,
+    statementObjects,
     findRelation,
     parseRelationSelection,
     relationLine,
@@ -83,6 +85,165 @@ const wide = {
 const tokens = (text) => Math.ceil(String(text).length / 4)
 
 describe('analyst relations: pure helpers', () => {
+    it('finds every comma-list relation, including nested lists', () => {
+        const names = (sql) => statementObjects(sql).relations.map(({ schema, name }) => (schema ? `${schema}.${name}` : name))
+        assert.deepEqual(names('SELECT * FROM v, b LIMIT 1'), ['v', 'b'])
+        assert.deepEqual(names('SELECT * FROM b, v LIMIT 1'), ['b', 'v'])
+        assert.deepEqual(names('SELECT * FROM (b CROSS JOIN v) LIMIT 1'), ['b', 'v'])
+        assert.deepEqual(names('SELECT * FROM ((b JOIN v ON true) JOIN c ON true) LIMIT 1'), ['b', 'v', 'c'])
+        assert.deepEqual(names('SELECT * FROM v JOIN (b JOIN c ON true) ON true LIMIT 1'), ['v', 'b', 'c'])
+        assert.deepEqual(names('SELECT * FROM (SELECT * FROM v, b, c) nested LIMIT 1'), ['v', 'b', 'c'])
+        assert.deepEqual(names("SELECT extract(year FROM current_date), trim('x' FROM label) FROM v"), ['v'])
+    })
+
+    it('distinguishes clause starts from qualified and bracketed JOIN column words', () => {
+        for (const word of ['limit', 'offset', 'returning', 'fetch']) {
+            for (const condition of [`a.${word} = b.${word}`, `ARRAY[${word}] = ARRAY[1]`]) {
+                assert.deepEqual(statementObjects(`SELECT * FROM items a JOIN items b ON ${condition}, object_names o LIMIT 1`).relations, [
+                    { schema: null, name: 'items' },
+                    { schema: null, name: 'object_names' }
+                ])
+            }
+        }
+        for (const clause of ['WHERE true', 'LIMIT 1', 'OFFSET 0', 'ORDER BY a.id', 'FETCH FIRST 1 ROW ONLY']) {
+            assert.deepEqual(statementObjects(`SELECT * FROM items a ${clause}, output_name`).relations, [{ schema: null, name: 'items' }])
+        }
+    })
+
+    it('leaves unquoted FROM clause keywords to the parser but retains quoted relation names', () => {
+        for (const word of [
+            'where',
+            'group',
+            'having',
+            'order',
+            'limit',
+            'offset',
+            'union',
+            'intersect',
+            'except',
+            'window',
+            'fetch',
+            'for',
+            'returning'
+        ]) {
+            assert.deepEqual(statementObjects(`SELECT FROM ${word.toUpperCase()} LIMIT 1`).relations, [], word)
+            assert.deepEqual(statementObjects(`SELECT * FROM "${word}" LIMIT 1`).relations, [{ schema: null, name: word }])
+        }
+        assert.deepEqual(statementObjects('SELECT * FROM public."where" LIMIT 1').relations, [{ schema: 'public', name: 'where' }])
+        assert.deepEqual(statementObjects('SELECT * FROM (invoices CROSS JOIN account_balances) LIMIT 1').relations, [
+            { schema: null, name: 'invoices' },
+            { schema: null, name: 'account_balances' }
+        ])
+    })
+
+    it('resolves word-form pattern operators, including negation, without reading identifiers as operators', () => {
+        for (const [expression, name] of [
+            ['m LIKE m', '~~'],
+            ['m NOT LIKE m', '!~~'],
+            ['m ILIKE m', '~~*'],
+            ['m NOT ILIKE m', '!~~*'],
+            ['m SIMILAR TO m', '~'],
+            ['m NOT SIMILAR TO m', '!~']
+        ]) {
+            assert.deepEqual(statementObjects(`SELECT ${expression} FROM moods`).operators, [{ schema: null, name }])
+        }
+        for (const sql of [
+            'SELECT "like", "ilike", "similar" FROM moods',
+            'SELECT m.like, m.ilike, m.similar FROM moods m',
+            "SELECT 'LIKE ILIKE SIMILAR TO' FROM moods /* NOT LIKE */",
+            "SELECT substring(m SIMILAR m ESCAPE '#') FROM moods"
+        ]) {
+            assert.deepEqual(statementObjects(sql).operators, [], sql)
+        }
+    })
+
+    it('resolves SQL TRIM and SUBSTRING routines without counting nested argument separators', () => {
+        for (const [expression, name, args] of [
+            ['trim(m)', 'btrim', 1],
+            ['trim(LEADING FROM m)', 'ltrim', 1],
+            ['trim(TRAILING m FROM m)', 'rtrim', 2],
+            ['trim(BOTH FROM (ARRAY[m, m])[1])', 'btrim', 1],
+            ['substring((ARRAY[m, m])[1] FROM 1 FOR 2)', 'substring', 3],
+            ['substring(m FOR 2)', 'substring', 3],
+            ['substring(m FROM 1)', 'substring', 2],
+            ['substring(m SIMILAR m ESCAPE m)', 'substring', 3]
+        ]) {
+            assert.deepEqual(statementObjects(`SELECT ${expression} IS NULL FROM moods`).calls, [
+                { schema: 'pg_catalog', name, args, hints: Array(args).fill(null) }
+            ])
+        }
+        for (const expression of ['substring(m, 1, 2)', '"substring"(m, 1, 2)', 'public.substring(m, 1, 2)']) {
+            const [call] = statementObjects(`SELECT ${expression}`).calls
+            assert.equal(call.schema, expression.startsWith('public.') ? 'public' : null)
+            assert.equal(call.args, 3)
+            assert.deepEqual(call.hints, [null, 'pg_catalog.int4', 'pg_catalog.int4'])
+        }
+        assert.equal(statementObjects('SELECT public.trim(m)').calls[0].name, 'trim')
+        assert.equal(statementObjects('SELECT "trim"(m)').calls[0].name, 'trim')
+    })
+
+    it('types numeric literals the way PostgreSQL resolves integer and numeric overloads', () => {
+        const hint = (literal) => statementObjects(`SELECT public.literal_pick(${literal})`).calls[0].hints[0]
+        assert.equal(hint('1'), 'pg_catalog.int4')
+        assert.equal(hint('1.5'), 'pg_catalog.numeric')
+        assert.equal(hint('2147483647'), 'pg_catalog.int4')
+        assert.equal(hint('2147483648'), 'pg_catalog.int8')
+        assert.equal(hint('9223372036854775807'), 'pg_catalog.int8')
+        assert.equal(hint('9223372036854775808'), 'pg_catalog.numeric')
+        assert.equal(hint('1e2'), 'pg_catalog.numeric')
+        for (const value of ['-1', '+1', '-2147483648']) assert.equal(hint(value), 'pg_catalog.int4', value)
+        for (const value of ['-2147483649', '+2147483648', '-9223372036854775808']) assert.equal(hint(value), 'pg_catalog.int8', value)
+        for (const value of ['-1.5', '+1e2', '-9223372036854775809']) assert.equal(hint(value), 'pg_catalog.numeric', value)
+    })
+
+    it('uses a cast hint only when the cast covers the entire argument', () => {
+        const hint = (value) => statementObjects(`SELECT public.literal_pick(${value})`).calls[0].hints[0]
+        for (const value of ['1::int4 + 0.5', '0.5 + 1::int4', 'abs(1::int4)', '(1::int4) + 0.5']) assert.equal(hint(value), null, value)
+        for (const value of ['1::int4', '(1 + 2)::int4', '((1 + 2)::int4)', '1::numeric::int4']) assert.equal(hint(value), 'int4', value)
+    })
+
+    it('retains full explicit cast type names, typmods, arrays and quoted identities', () => {
+        for (const [target, expected] of [
+            ['character varying', 'character varying'],
+            ['character varying(12)', 'character varying(12)'],
+            ['timestamp(3) with time zone', 'timestamp(3) with time zone'],
+            ['timestamp without time zone', 'timestamp without time zone'],
+            ['double precision', 'double precision'],
+            ['bit varying(4)', 'bit varying(4)'],
+            ['mood[]', 'mood[]'],
+            ['public.mood[]', '"public"."mood"[]'],
+            ['numeric(12,2)[][]', 'numeric(12 , 2)[][]'],
+            ['"character"', '"character"'],
+            ['"Odd"."Type"[]', '"Odd"."Type"[]']
+        ]) {
+            for (const sql of [`SELECT CAST(col AS ${target})`, `SELECT col::${target}`]) {
+                assert.deepEqual(statementObjects(sql).casts, [{ source: null, target: expected }], sql)
+                assert.deepEqual(statementObjects(sql).calls, [], sql)
+            }
+        }
+    })
+
+    it('does not count commas inside array constructors as outer function arguments', () => {
+        const calls = statementObjects('SELECT public.array_pick(ARRAY[1, 2])').calls
+        assert.deepEqual(
+            calls.map(({ schema, name, args }) => ({ schema, name, args })),
+            [{ schema: 'public', name: 'array_pick', args: 1 }]
+        )
+    })
+
+    it('distinguishes scoped CTE references from same-named catalog relations', () => {
+        const names = (sql) => statementObjects(sql).relations.map(({ name }) => name)
+        assert.deepEqual(names('WITH orders AS (SELECT 7 AS id) SELECT * FROM orders'), [])
+        assert.deepEqual(names('WITH chosen AS (SELECT * FROM orders) SELECT * FROM chosen, invoices'), ['orders', 'invoices'])
+        assert.deepEqual(names('WITH orders AS (SELECT * FROM orders) SELECT * FROM orders'), ['orders'])
+    })
+
+    it('keeps every risky-object scan branch joined after the event-trigger refusal is removed', () => {
+        const riskyObjects = guardCheckReads({ readOnlySql: true })[0].sql
+        assert.match(riskyObjects, /d\.classid = 'pg_constraint'::regclass\)\)\nUNION\n-- A function or operator with a built-in's name/)
+        assert.doesNotMatch(riskyObjects, /SELECT 'event trigger '/)
+    })
+
     it('reads a string function body: computes values, or refuses writes, dynamic SQL and table reads', () => {
         const ok = (src, lang = 'plpgsql') => {
             const scan = scanFunctionBody(src, lang, { backslashLiteral: true })
@@ -522,6 +683,62 @@ describe('analyst relations: bakery database', () => {
         assert.equal(balance.rows.length, 1)
         const dup = await queryAnalystUrl(url, 'SELECT * FROM stores s, stores t', { relations: SELECTION })
         assert.equal(dup.rows.length, 4, 'a result with repeated column names still runs')
+    })
+
+    it('refuses unticked base tables named beside a selected view in every comma-list position', async (t) => {
+        if (skipped(t)) return
+        const selected = { relations: ['public.account_balances'] }
+        const view = await queryAnalystUrl(url, 'SELECT account_id FROM account_balances ORDER BY account_id LIMIT 1', selected)
+        assert.equal(view.rows.length, 1, 'the selected view still runs without naming its unticked base')
+        for (const sql of [
+            'SELECT * FROM account_balances, invoices LIMIT 1',
+            'SELECT * FROM invoices, account_balances LIMIT 1',
+            'SELECT * FROM account_balances JOIN invoices ON true LIMIT 1'
+        ]) {
+            await refusal(queryAnalystUrl(url, sql, selected), /table selection does not include/)
+        }
+        const nested = 'SELECT * FROM (SELECT * FROM account_balances, invoices, invoice_items LIMIT 1) q LIMIT 1'
+        const { Client: StoreClient } = createRequire(path.join(ROOT, 'packages', 'components', 'package.json'))('pg')
+        const original = StoreClient.prototype.query
+        let prepared = false
+        StoreClient.prototype.query = function (config, ...rest) {
+            const text = typeof config === 'string' ? config : config?.text
+            if (String(text || '').includes(` AS ${nested}`)) prepared = true
+            return original.call(this, config, ...rest)
+        }
+        try {
+            await refusal(queryAnalystUrl(url, nested, selected), /table selection does not include/)
+        } finally {
+            StoreClient.prototype.query = original
+        }
+        assert.equal(prepared, false, 'an unticked name inside a derived table is refused before PREPARE')
+    })
+
+    it('refuses every unticked grouped-join relation before PREPARE, including missing names', async (t) => {
+        if (skipped(t)) return
+        const { Client: StoreClient } = createRequire(path.join(ROOT, 'packages', 'components', 'package.json'))('pg')
+        const original = StoreClient.prototype.query
+        const prepared = []
+        StoreClient.prototype.query = function (config, ...rest) {
+            const text = typeof config === 'string' ? config : config?.text
+            if (/^PREPARE /.test(text || '')) prepared.push(text)
+            return original.call(this, config, ...rest)
+        }
+        try {
+            for (const sql of [
+                'SELECT invoices.id FROM (invoices CROSS JOIN account_balances) LIMIT 1',
+                'SELECT invoices.id FROM ((invoices CROSS JOIN account_balances)) LIMIT 1',
+                'SELECT invoices.id FROM (invoices JOIN account_balances ON true) LIMIT 1',
+                'SELECT invoices.id FROM account_balances CROSS JOIN (invoices CROSS JOIN invoice_items) LIMIT 1',
+                'SELECT missing_name.id FROM (missing_name CROSS JOIN account_balances) LIMIT 1',
+                'SELECT invoices.id FROM (invoices CROSS JOIN account_balances) CROSS JOIN missing_name LIMIT 1'
+            ]) {
+                await refusal(queryAnalystUrl(url, sql, { relations: ['public.account_balances'] }), /table selection does not include/)
+            }
+            assert.deepEqual(prepared, [], 'grouped unticked names never reach PREPARE')
+        } finally {
+            StoreClient.prototype.query = original
+        }
     })
 
     it('adds the column list of a mentioned selected relation to an undefined or ambiguous column error', async (t) => {
@@ -1154,7 +1371,7 @@ describe('analyst relations: describe and query leave no side effects', () => {
     })
 })
 
-describe('analyst relations: describe samples on a login without TEMP', () => {
+describe('analyst relations: queries and describe samples on a login without TEMP', () => {
     const db = riskyDatabase(
         'notemp',
         `
@@ -1162,11 +1379,12 @@ describe('analyst relations: describe samples on a login without TEMP', () => {
     `
     )
 
-    it('leaves values out, the same way query refuses, and still describes the columns', async (t) => {
+    it('runs the query and includes sample values without creating temporary objects', async (t) => {
         if (db.skipped(t)) return
-        await refusal(queryAnalystUrl(db.url, 'SELECT name FROM stores', { relations: ['public.stores'] }), /could not check this query/)
+        const result = await queryAnalystUrl(db.url, 'SELECT name FROM stores ORDER BY id', { relations: ['public.stores'] })
+        assert.deepEqual(result.rows, [{ name: 'Riverside' }, { name: 'Old Town' }])
         const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
-        assert.equal(stores.values, undefined)
+        assert.ok(stores.values)
         assert.deepEqual(stores.columns, ['id integer not null', 'name text not null'])
     })
 })
@@ -1367,12 +1585,24 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await owner.connect()
         await owner.query(`CREATE TABLE items (id int PRIMARY KEY, name text NOT NULL);
             INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');
+            CREATE TABLE orders (id int PRIMARY KEY);
             CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;
             CREATE FUNCTION public.pause(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
+            CREATE FUNCTION public.literal_pick(v int) RETURNS numeric LANGUAGE sql IMMUTABLE RETURN v;
+            CREATE FUNCTION public.literal_pick(v bigint) RETURNS numeric LANGUAGE sql VOLATILE AS 'SELECT v FROM pg_sleep(0)';
+            CREATE FUNCTION public.literal_pick(v numeric) RETURNS numeric LANGUAGE sql VOLATILE AS 'SELECT v FROM pg_sleep(0)';
+            ALTER FUNCTION public.literal_pick(int) OWNER TO "${writer}";
+            ALTER FUNCTION public.literal_pick(bigint) OWNER TO "${writer}";
+            ALTER FUNCTION public.literal_pick(numeric) OWNER TO "${writer}";
+            CREATE FUNCTION public.array_pick(v int[]) RETURNS int LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT count(*)::int FROM orders';
+            CREATE FUNCTION public.array_pick(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT a + b';
+            ALTER FUNCTION public.array_pick(int[]) OWNER TO "${writer}";
+            ALTER FUNCTION public.array_pick(int, int) OWNER TO "${writer}";
             CREATE FUNCTION public.slow_eq(int, int) RETURNS boolean LANGUAGE sql AS 'SELECT $1 = $2 FROM pg_sleep(0)';
             CREATE OPERATOR public.=== (LEFTARG = int, RIGHTARG = int, FUNCTION = public.slow_eq);
             CREATE TYPE public.mood AS ENUM ('calm');
-            CREATE FUNCTION public.int_to_mood(int) RETURNS public.mood LANGUAGE sql AS $f$SELECT 'calm'::public.mood FROM pg_sleep(0)$f$;
+            CREATE FUNCTION public.int_to_mood(int) RETURNS public.mood LANGUAGE sql IMMUTABLE AS $f$SELECT 'calm'::public.mood$f$;
+            ALTER FUNCTION public.int_to_mood(int) OWNER TO "${writer}";
             CREATE CAST (int AS public.mood) WITH FUNCTION public.int_to_mood(int);
             CREATE VIEW public.pause_view AS SELECT public.pause(0) AS n;
             CREATE VIEW public.outer_view AS SELECT n FROM public.pause_view;
@@ -1391,7 +1621,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await owner.query(
             `GRANT SELECT ON pause_view, outer_view, pause_matview, swap_view, guarded, sleepy_view, inner_names, outer_names TO "${writer}"`
         )
-        await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
+        await owner.query(`GRANT SELECT ON item_names, orders TO "${writer}"`)
         // This login could write, so only the read-only checks stand between a query and the table.
         await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
         await owner.query(`GRANT USAGE ON SCHEMA tools TO "${writer}"; GRANT USAGE ON SEQUENCE public.counter TO "${writer}"`)
@@ -1455,6 +1685,527 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await refusal(queryAnalystUrl(url, 'SELECT 1 LIMIT 1 --c\r; COMMIT; DELETE FROM items; COMMIT', { readOnlySql: true }), /semicolon/)
         await assert.rejects(queryAnalystUrl(url, 'SELECT 1 --c\r; COMMIT; DELETE FROM items; COMMIT'), /one statement/)
         assert.equal(await count(), 3)
+    })
+
+    it('does not resolve a CTE name as an unticked table of the same name', async (t) => {
+        if (skipped(t)) return
+        const result = await queryAnalystUrl(url, 'WITH orders AS (SELECT 7 AS id) SELECT id FROM orders LIMIT 1', {
+            readOnlySql: true,
+            relations: ['public.items']
+        })
+        assert.deepEqual(result.rows, [{ id: 7 }])
+    })
+
+    it('keeps the MCP selected-view boundary for grouped joins', async (t) => {
+        if (skipped(t)) return
+        for (const sql of [
+            'SELECT items.id FROM (items CROSS JOIN outer_names) LIMIT 1',
+            'SELECT missing_name.id FROM (missing_name CROSS JOIN outer_names) LIMIT 1'
+        ])
+            await refusal(
+                queryAnalystUrl(url, sql, { readOnlySql: true, relations: ['public.outer_names'] }),
+                /table selection does not include/
+            )
+        assert.equal(
+            (await queryAnalystUrl(url, 'SELECT name FROM outer_names LIMIT 1', { readOnlySql: true, relations: ['public.outer_names'] }))
+                .rows.length,
+            1
+        )
+    })
+
+    it('checks the overload PostgreSQL resolves for decimal and large numeric literals', async (t) => {
+        if (skipped(t)) return
+        const options = { readOnlySql: true }
+        for (const value of ['1', '-1', '+1', '-2147483648']) {
+            const integer = await queryAnalystUrl(url, `SELECT public.literal_pick(${value}) AS v LIMIT 1`, options)
+            assert.equal(String(integer.rows[0].v), String(Number(value)))
+        }
+        for (const sql of [
+            'SELECT public.literal_pick(1.5) AS v LIMIT 1',
+            'SELECT public.literal_pick(-1.5) AS v LIMIT 1',
+            'SELECT public.literal_pick(-2147483649) AS v LIMIT 1',
+            'SELECT public.literal_pick(2147483648) AS v LIMIT 1',
+            'SELECT public.literal_pick(9223372036854775808) AS v LIMIT 1'
+        ]) {
+            await refusal(queryAnalystUrl(url, sql, options), /public\.literal_pick\([^)]*\).*VOLATILE/)
+        }
+    })
+
+    it('does not use an inner cast to choose the overload of a complete expression', async (t) => {
+        if (skipped(t)) return
+        assert.equal((await owner.query('SELECT pg_typeof(1::pg_catalog.int4 + 0.5)::text AS t')).rows[0].t, 'numeric')
+        await refusal(
+            queryAnalystUrl(url, 'SELECT public.literal_pick(1::pg_catalog.int4 + 0.5) LIMIT 1', { readOnlySql: true }),
+            /literal_pick\(numeric\).*VOLATILE/
+        )
+        assert.equal(
+            String(
+                (await queryAnalystUrl(url, 'SELECT public.literal_pick((1 + 0.5)::pg_catalog.int4) AS v LIMIT 1', { readOnlySql: true }))
+                    .rows[0].v
+            ),
+            '2'
+        )
+    })
+
+    it('checks explicit multi-word and array cast functions', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.cast_inputs (m public.mood, id int);
+            INSERT INTO public.cast_inputs VALUES ('calm', 1);
+            GRANT SELECT ON public.cast_inputs TO "${writer}"`)
+        try {
+            for (const [source, target, expression, value, context] of [
+                ['public.mood', 'character varying', 'm', "'calm'", 'AS ASSIGNMENT'],
+                ['public.mood', 'timestamp with time zone', 'm', "'2026-01-01'", ''],
+                ['public.mood', 'double precision', 'm', '1', ''],
+                ['public.mood', 'bit varying', 'm', "B'1'", ''],
+                ['int', 'public.mood[]', 'id', "ARRAY['calm'::public.mood]", '']
+            ]) {
+                await owner.query(`CREATE FUNCTION public.explicit_cast_probe(${source}) RETURNS ${target}
+                    LANGUAGE sql STABLE SECURITY DEFINER AS $f$SELECT ${value}::${target}$f$;
+                    ALTER FUNCTION public.explicit_cast_probe(${source}) OWNER TO "${writer}";
+                    CREATE CAST (${source} AS ${target}) WITH FUNCTION public.explicit_cast_probe(${source}) ${context}`)
+                try {
+                    const modified = {
+                        'character varying': 'character varying(12)',
+                        'timestamp with time zone': 'timestamp(3) with time zone',
+                        'bit varying': 'bit varying(4)',
+                        'public.mood[]': 'mood[]'
+                    }[target]
+                    const targets = modified ? [target, modified] : [target]
+                    for (const cast of targets.flatMap((type) => [`CAST(${expression} AS ${type})`, `${expression}::${type}`])) {
+                        const sql = `SELECT ${cast} FROM cast_inputs LIMIT 1`
+                        assert.equal((await owner.query(sql)).rows.length, 1)
+                        await refusal(
+                            queryAnalystUrl(url, sql, { readOnlySql: true, relations: ['public.cast_inputs'] }),
+                            /explicit_cast_probe.*SECURITY DEFINER/
+                        )
+                    }
+                } finally {
+                    await owner.query(`DROP CAST (${source} AS ${target}); DROP FUNCTION public.explicit_cast_probe(${source})`)
+                }
+            }
+        } finally {
+            await owner.query('DROP TABLE public.cast_inputs')
+        }
+    })
+
+    it('checks the one-argument array overload despite commas inside ARRAY brackets', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT public.array_pick(ARRAY[id, id + 1]) AS v FROM items LIMIT 1', {
+                readOnlySql: true,
+                relations: ['public.items']
+            }),
+            /public\.array_pick\(integer\[\]\).*SECURITY DEFINER/
+        )
+    })
+
+    it('checks the function-backed cast PostgreSQL applies to a column expression', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TYPE public.alert_mood AS ENUM ('calm');
+            CREATE FUNCTION public.int_to_alert_mood(int) RETURNS public.alert_mood
+                LANGUAGE sql STABLE SECURITY DEFINER AS $f$SELECT 'calm'::public.alert_mood$f$;
+            ALTER FUNCTION public.int_to_alert_mood(int) OWNER TO "${writer}";
+            CREATE CAST (int AS public.alert_mood) WITH FUNCTION public.int_to_alert_mood(int);`)
+        try {
+            for (const sql of [
+                'SELECT (items.id + 0)::public.alert_mood AS m FROM items LIMIT 1',
+                'SELECT CAST(items.id + 0 AS public.alert_mood) AS m FROM items LIMIT 1',
+                'SELECT ARRAY[items.id]::public.alert_mood[] AS m FROM items LIMIT 1',
+                'SELECT CAST(ARRAY[items.id] AS public.alert_mood[]) AS m FROM items LIMIT 1',
+                'SELECT ARRAY[items.id]::integer[]::public.alert_mood[] FROM items LIMIT 1',
+                'SELECT CAST(CAST(ARRAY[items.id] AS integer[]) AS public.alert_mood[]) FROM items LIMIT 1'
+            ]) {
+                assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                await refusal(
+                    queryAnalystUrl(url, sql, {
+                        readOnlySql: true,
+                        relations: ['public.items']
+                    }),
+                    /public\.int_to_alert_mood\(integer\).*SECURITY DEFINER/
+                )
+            }
+        } finally {
+            await owner.query(`DROP CAST (int AS public.alert_mood);
+                DROP FUNCTION public.int_to_alert_mood(int);
+                DROP TYPE public.alert_mood;`)
+        }
+    })
+
+    it('checks implicit function-backed casts inserted for built-in function and operator calls', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.moods (m public.mood);
+            INSERT INTO public.moods VALUES ('calm');
+            GRANT SELECT ON public.moods TO "${writer}";
+            CREATE FUNCTION public.mood_text(public.mood) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT ''calm''::text';
+            ALTER FUNCTION public.mood_text(public.mood) OWNER TO "${writer}";
+            CREATE CAST (public.mood AS text) WITH FUNCTION public.mood_text(public.mood) AS IMPLICIT;
+            CREATE FUNCTION public.mood_same(text[], text[]) RETURNS boolean LANGUAGE sql IMMUTABLE RETURN true;
+            ALTER FUNCTION public.mood_same(text[], text[]) OWNER TO "${writer}";`)
+        try {
+            const queries = [
+                'SELECT m LIKE m FROM public.moods LIMIT 1',
+                'SELECT m NOT LIKE m FROM public.moods LIMIT 1',
+                'SELECT m ILIKE m FROM public.moods LIMIT 1',
+                'SELECT m NOT ILIKE m FROM public.moods LIMIT 1',
+                'SELECT m SIMILAR TO m FROM public.moods LIMIT 1',
+                'SELECT m NOT SIMILAR TO m FROM public.moods LIMIT 1',
+                'SELECT length(m) AS n FROM moods LIMIT 1',
+                "SELECT m = 'calm'::text AS same FROM moods LIMIT 1",
+                'SELECT public.mood_same(ARRAY[m], ARRAY[m]) AS same FROM moods LIMIT 1',
+                'SELECT trim(m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(BOTH FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(LEADING FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(TRAILING FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT trim(m FROM m) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FROM 1) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FOR 2) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FROM 1 FOR 2) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m FOR 2 FROM 1) IS NULL FROM public.moods LIMIT 1',
+                'SELECT substring(m, 1, 2) IS NULL FROM public.moods LIMIT 1'
+            ]
+            for (const sql of queries) {
+                // PostgreSQL accepts each form without explicit cast syntax on m.
+                assert.equal((await owner.query(sql)).rows.length, 1)
+                for (const readOnlySql of [false, true]) {
+                    for (const relations of readOnlySql ? [undefined, ['public.moods']] : [['public.moods']]) {
+                        await refusal(queryAnalystUrl(url, sql, { readOnlySql, relations }), /mood_text/)
+                    }
+                }
+            }
+            // An unrelated implicit cast must not poison a query that cannot use it.
+            assert.deepEqual((await queryAnalystUrl(url, 'SELECT id FROM items ORDER BY id LIMIT 1', { readOnlySql: true })).rows, [
+                { id: 1 }
+            ])
+        } finally {
+            await owner.query(`DROP FUNCTION public.mood_same(text[], text[]);
+                DROP CAST (public.mood AS text); DROP FUNCTION public.mood_text(public.mood); DROP TABLE public.moods`)
+        }
+    })
+
+    it('allows built-in SQL TRIM and SUBSTRING forms with ordinary text inputs', async (t) => {
+        if (skipped(t)) return
+        for (const expression of [
+            'trim(name)',
+            'trim(BOTH FROM name)',
+            "trim(LEADING 'R' FROM name)",
+            "trim(TRAILING 'e' FROM name)",
+            "trim('R' FROM name)",
+            "trim(name, 'R')",
+            'trim((ARRAY[name, name])[1])',
+            'trim(substring(name FROM 1 FOR 2))',
+            'substring(name FROM 1)',
+            'substring(name FOR 2)',
+            'substring(name FROM 1 FOR 2)',
+            'substring(name FOR 2 FROM 1)',
+            'substring((ARRAY[name, name])[1] FROM 1 FOR 2)',
+            "substring(name FROM '.*')",
+            "substring(name SIMILAR '%' ESCAPE '#')",
+            'substring(name, 1, 2)'
+        ]) {
+            const sql = `SELECT ${expression} AS value FROM public.items ORDER BY id LIMIT 1`
+            const expected = (await owner.query(sql)).rows
+            for (const readOnlySql of [false, true]) {
+                assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, expected, sql)
+            }
+        }
+    })
+
+    it('allows word-form pattern operators with ordinary text inputs', async (t) => {
+        if (skipped(t)) return
+        for (const operator of ['LIKE', 'NOT LIKE', 'ILIKE', 'NOT ILIKE', 'SIMILAR TO', 'NOT SIMILAR TO']) {
+            for (const expression of [`name ${operator} name`, `name ${operator} (name) ESCAPE '#'`]) {
+                const sql = `SELECT ${expression} AS matches FROM public.items ORDER BY id LIMIT 1`
+                const expected = (await owner.query(sql)).rows
+                for (const readOnlySql of [false, true]) {
+                    assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, expected, sql)
+                }
+            }
+        }
+    })
+
+    it('does not interpret SQL strings, quoted identifiers or comments as stored node tags', async (t) => {
+        if (skipped(t)) return
+        for (const readOnlySql of [false, true]) {
+            for (const sql of [
+                "SELECT '{Hello}' AS v FROM items LIMIT 1",
+                "SELECT '{ID}' AS v FROM items WHERE name NOT LIKE '%{ID}%' LIMIT 1",
+                'SELECT \'{Hello}\' AS "{ID}" FROM items /* {UNKNOWN_NODE} */ LIMIT 1',
+                'SELECT $$ {ID} $$ AS v FROM items -- {UNKNOWN_NODE}\n LIMIT 1'
+            ]) {
+                assert.equal((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows.length, 1)
+            }
+        }
+    })
+
+    it('keeps JOIN array commas out of the FROM relation list', async (t) => {
+        if (skipped(t)) return
+        for (const condition of [
+            'ARRAY[a.id,b.id] = ARRAY[b.id,a.id]',
+            'ARRAY[[a.id,b.id],[b.id,a.id]] = ARRAY[[b.id,a.id],[a.id,b.id]]'
+        ]) {
+            const sql = `SELECT a.id FROM items a JOIN items b ON ${condition} LIMIT 1`
+            assert.deepEqual((await owner.query(sql)).rows, [{ id: 1 }])
+            for (const readOnlySql of [false, true]) {
+                assert.deepEqual((await queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items'] })).rows, [{ id: 1 }])
+                await refusal(
+                    queryAnalystUrl(url, sql.replace(' LIMIT', ', orders o LIMIT'), {
+                        readOnlySql,
+                        relations: ['public.items']
+                    }),
+                    /selection does not include/
+                )
+            }
+        }
+    })
+
+    for (const [label, queries, allowed] of [
+        [
+            'joined-table whole rows',
+            [
+                'SELECT row_to_json(j) FROM (object_names a CROSS JOIN object_names b) j LIMIT 1',
+                'SELECT row_to_json(j) FROM (items a CROSS JOIN object_names b) AS j LIMIT 1',
+                'SELECT row_to_json(j) FROM ((items a CROSS JOIN object_names b) k CROSS JOIN items c) j LIMIT 1',
+                'SELECT row_to_json(j) FROM ((SELECT 1 AS x) a CROSS JOIN object_names b) j LIMIT 1',
+                'SELECT row_to_json(j) FROM (((SELECT 1 AS x) a CROSS JOIN object_names b) k CROSS JOIN items c) j LIMIT 1'
+            ],
+            false
+        ],
+        [
+            'ORDER BY output aliases',
+            [
+                'SELECT id AS n FROM object_names n ORDER BY n LIMIT 1',
+                'SELECT id n FROM object_names n ORDER BY n DESC NULLS LAST LIMIT 1',
+                'SELECT id AS n, id AS m FROM object_names n ORDER BY m, n LIMIT 1',
+                'SELECT id AS "N" FROM object_names "N" ORDER BY "N" LIMIT 1'
+            ],
+            true
+        ],
+        [
+            'invalid schema-qualified whole-row syntax',
+            [
+                'SELECT row_to_json(public.object_names) FROM public.object_names LIMIT 1',
+                'SELECT public.object_names::text FROM public.object_names LIMIT 1',
+                'SELECT row_to_json("public"."object_names") FROM public.object_names LIMIT 1'
+            ],
+            'syntax'
+        ]
+    ]) {
+        it(`checks scoped reg* for ${label}`, async (t) => {
+            if (skipped(t)) return
+            await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+                INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+                GRANT SELECT ON public.object_names TO "${writer}"`)
+            try {
+                for (const sql of queries) {
+                    if (allowed === 'syntax') {
+                        await assert.rejects(owner.query(sql), /missing FROM-clause entry for table "public"/)
+                        for (const readOnlySql of [false, true]) {
+                            await assert.rejects(
+                                queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.object_names'] }),
+                                /missing FROM-clause entry for table "public"/
+                            )
+                        }
+                        continue
+                    }
+                    const expected = (await owner.query(sql)).rows
+                    assert.equal(expected.length, 1, sql)
+                    for (const readOnlySql of [false, true]) {
+                        const result = queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.object_names', 'public.items'] })
+                        if (allowed) assert.deepEqual((await result).rows, expected, sql)
+                        else await refusal(result, /type regclass is not allowed/)
+                    }
+                }
+            } finally {
+                await owner.query('DROP TABLE public.object_names')
+            }
+        })
+    }
+
+    it('keeps comma whole rows after clause words used as JOIN columns', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            ALTER TABLE public.items ADD COLUMN "offset" int DEFAULT 1;
+            ALTER TABLE public.items ADD COLUMN "limit" int DEFAULT 1;
+            ALTER TABLE public.items ADD COLUMN "returning" int DEFAULT 1;
+            ALTER TABLE public.items ADD COLUMN "fetch" int DEFAULT 1;
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const word of ['offset', 'limit', 'returning', 'fetch']) {
+                for (const condition of [`a.${word} = b.${word}`, `ARRAY[a.${word},b.${word}] = ARRAY[b.${word},a.${word}]`]) {
+                    const sql = `SELECT row_to_json(o) FROM items a JOIN items b ON ${condition}, object_names o LIMIT 1`
+                    assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                    for (const readOnlySql of [false, true]) {
+                        await refusal(
+                            queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items', 'public.object_names'] }),
+                            /type regclass is not allowed/
+                        )
+                    }
+                }
+            }
+        } finally {
+            await owner.query(`DROP TABLE public.object_names;
+                ALTER TABLE public.items DROP COLUMN "offset", DROP COLUMN "limit", DROP COLUMN "returning", DROP COLUMN "fetch"`)
+        }
+    })
+
+    it('keeps unticked comma items after clause words despite selected view dependencies', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.invoices (id int);
+            INSERT INTO public.invoices VALUES (1);
+            CREATE VIEW public.account_balances AS SELECT id FROM public.invoices;
+            CREATE TABLE public.stores ("limit" int, "offset" int, "returning" int, "fetch" int);
+            INSERT INTO public.stores VALUES (1, 1, 1, 1);
+            GRANT SELECT ON public.invoices, public.account_balances, public.stores TO "${writer}"`)
+        try {
+            for (const word of ['limit', 'offset', 'returning', 'fetch']) {
+                const sql = `SELECT ab.id FROM account_balances ab JOIN stores s ON s.${word} = 1, invoices i LIMIT 1`
+                assert.deepEqual((await owner.query(sql)).rows, [{ id: 1 }])
+                for (const readOnlySql of [false, true]) {
+                    const options = { readOnlySql, relations: ['public.account_balances', 'public.stores'] }
+                    await refusal(queryAnalystUrl(url, sql, options), /reads (?:public\.)?invoices.*selection does not include/)
+                    assert.deepEqual((await queryAnalystUrl(url, sql.replace(', invoices i', ''), options)).rows, [{ id: 1 }])
+                }
+            }
+        } finally {
+            await owner.query('DROP VIEW public.account_balances; DROP TABLE public.invoices, public.stores')
+        }
+    })
+
+    it('resolves renamed FROM columns before checking scoped reg* types', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, removed text, object regclass);
+            ALTER TABLE public.object_names DROP COLUMN removed;
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names'] }
+                for (const sql of [
+                    'SELECT n.obj::text FROM public.object_names AS n(id, obj) LIMIT 1',
+                    'SELECT n.obj::text FROM object_names n(id, obj) LIMIT 1',
+                    'SELECT obj::text FROM object_names AS n(id, obj) LIMIT 1',
+                    'SELECT "N"."Obj"::text FROM object_names AS "N"("Id", "Obj") LIMIT 1',
+                    'SELECT n.obj::text FROM ONLY (public.object_names) AS n(id, obj) LIMIT 1',
+                    'SELECT n.obj::text FROM public.object_names * AS n(id, obj) LIMIT 1',
+                    'SELECT n.obj::text, row_to_json(n) FROM object_names AS n(id, obj) LIMIT 1',
+                    'SELECT n.key, row_to_json(n) FROM object_names AS n(key, obj) LIMIT 1',
+                    'SELECT n.object::text FROM object_names AS n(key) LIMIT 1'
+                ]) {
+                    assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                    await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
+                }
+                for (const sql of [
+                    'SELECT n.key FROM object_names AS n(key, obj) LIMIT 1',
+                    'SELECT key FROM object_names n(key, obj) LIMIT 1',
+                    'SELECT n.key FROM object_names AS n(key) LIMIT 1',
+                    'SELECT n.key FROM object_names AS n(key, n) LIMIT 1',
+                    'SELECT n.key::text FROM object_names AS n(key, text) LIMIT 1',
+                    'SELECT n.key AS obj FROM object_names AS n(key, obj) ORDER BY obj LIMIT 1',
+                    'SELECT n.key AS n FROM object_names AS n(key, obj) ORDER BY n LIMIT 1'
+                ]) {
+                    assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, (await owner.query(sql)).rows, sql)
+                }
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
+    })
+
+    it('resolves joined rename lists by visible column position', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, removed text, object regclass);
+            ALTER TABLE public.object_names DROP COLUMN removed;
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names', 'public.items'] }
+                for (const sql of [
+                    'SELECT j.obj::text FROM (public.object_names a CROSS JOIN public.items b) AS j(id, obj, item_id, name) LIMIT 1',
+                    'SELECT j.obj1::text FROM (public.object_names a CROSS JOIN public.object_names b) AS j(id1, obj1, id2, obj2) LIMIT 1',
+                    'SELECT j.obj2::text FROM (public.object_names a CROSS JOIN public.object_names b) AS j(id1, obj1, id2, obj2) LIMIT 1',
+                    'SELECT j.obj::text FROM (public.items a JOIN public.object_names b ON a.id = b.id) AS j(item_id, name, id, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM ((items a CROSS JOIN items b) k JOIN object_names c ON true) AS j(a_id, a_name, b_id, b_name, id, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM (items a JOIN object_names b USING (id)) AS j(key, name, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM ((SELECT 1 AS x) a CROSS JOIN object_names b) AS j(x, key, obj) LIMIT 1',
+                    'SELECT j.obj::text FROM (items a CROSS JOIN (items b CROSS JOIN object_names c) k) AS j(a_id, a_name, b_id, b_name, key, obj) LIMIT 1',
+                    'SELECT j.key, row_to_json(j) FROM (object_names a JOIN items b ON true) AS j(key, obj, item_id, name) LIMIT 1'
+                ]) {
+                    assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                    await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
+                }
+                for (const sql of [
+                    'SELECT j.key FROM (object_names a CROSS JOIN items b) AS j(key, object, item_id, name) LIMIT 1',
+                    'SELECT j.key FROM (items a JOIN object_names b ON a.id = b.id) AS j(item_id, name, key, object) LIMIT 1'
+                ]) {
+                    assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, (await owner.query(sql)).rows, sql)
+                }
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
+    })
+
+    it('ignores unused rename declarations in ordinary column lookup', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names'] }
+                const sql = 'SELECT n.key FROM public.object_names AS n(key, object) LIMIT 1'
+                assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, (await owner.query(sql)).rows)
+                await refusal(
+                    queryAnalystUrl(url, 'SELECT n.key, row_to_json(n) FROM public.object_names AS n(key, object) LIMIT 1', options),
+                    /type regclass is not allowed/
+                )
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
+    })
+
+    it('refuses reg* columns projected by wildcards and whole rows, including on PostgreSQL 14 and 15', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const readOnlySql of [false, true]) {
+                const options = { readOnlySql, relations: ['public.object_names'] }
+                for (const sql of [
+                    'SELECT * FROM object_names LIMIT 1',
+                    'SELECT n.* FROM object_names n LIMIT 1',
+                    'SELECT row_to_json(n) FROM object_names n LIMIT 1',
+                    'SELECT n FROM object_names n LIMIT 1',
+                    'SELECT ALL n FROM object_names n LIMIT 1',
+                    'SELECT DISTINCT n FROM object_names n LIMIT 1',
+                    'SELECT DISTINCT ON (id) n FROM object_names n LIMIT 1',
+                    'SELECT id AS n, row_to_json(n) FROM object_names n ORDER BY n LIMIT 1',
+                    'SELECT id AS n FROM object_names n ORDER BY row_to_json(n)::text LIMIT 1',
+                    'SELECT id AS n FROM object_names n ORDER BY (SELECT row_to_json(n)::text) LIMIT 1',
+                    'SELECT row_to_json(public.object_names.*) FROM public.object_names LIMIT 1',
+                    'SELECT row_to_json(object_names) FROM object_names LIMIT 1',
+                    'SELECT row_to_json(n) FROM public.object_names AS n LIMIT 1'
+                ])
+                    await refusal(queryAnalystUrl(url, sql, options), /type regclass is not allowed/)
+                assert.deepEqual((await queryAnalystUrl(url, 'SELECT id FROM object_names LIMIT 1', options)).rows, [{ id: 1 }])
+                assert.deepEqual((await queryAnalystUrl(url, 'SELECT n.id FROM object_names n LIMIT 1', options)).rows, [{ id: 1 }])
+                assert.deepEqual(
+                    (await queryAnalystUrl(url, 'SELECT object_names.id FROM object_names object_names LIMIT 1', options)).rows,
+                    [{ id: 1 }]
+                )
+                assert.deepEqual((await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM object_names LIMIT 1', options)).rows, [
+                    { n: 1 }
+                ])
+            }
+        } finally {
+            await owner.query('DROP TABLE public.object_names')
+        }
     })
 
     it('reads plain strings as standard SQL even when the login turns standard_conforming_strings off', async (t) => {
@@ -1636,11 +2387,6 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
                 `CREATE FUNCTION public.lower(varchar) RETURNS text LANGUAGE sql AS 'SELECT pg_catalog.lower($1::text)'`,
                 /public\.lower \(named like a built-in\)/,
                 'DROP FUNCTION public.lower(varchar)'
-            ],
-            [
-                `CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS 'BEGIN END'; CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`,
-                /event trigger (public\.)?watch_ddl/,
-                'DROP EVENT TRIGGER watch_ddl; DROP FUNCTION public.on_ddl()'
             ]
         ]
         for (const [create, expected, drop] of cases) {
@@ -1655,6 +2401,26 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
         const ok = await queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true })
         assert.equal(ok.rows[0].v, 1)
+    })
+
+    it('runs queries with an enabled event trigger without firing its function during the safety check', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE SEQUENCE public.ddl_watch_calls;
+            CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS
+            'BEGIN PERFORM nextval(''public.ddl_watch_calls''); END';
+            CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`)
+        resetRiskyDomainCacheForTests()
+        try {
+            const result = await queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true })
+            assert.deepEqual(result.rows, [{ v: 1 }])
+            const counter = await owner.query('SELECT last_value::int AS calls, is_called FROM public.ddl_watch_calls')
+            assert.deepEqual(counter.rows, [{ calls: 1, is_called: false }])
+        } finally {
+            await owner.query(`DROP EVENT TRIGGER IF EXISTS watch_ddl;
+                DROP FUNCTION IF EXISTS public.on_ddl();
+                DROP SEQUENCE IF EXISTS public.ddl_watch_calls`)
+            resetRiskyDomainCacheForTests()
+        }
     })
 
     it('checks TABLESAMPLE methods and refuses foreign tables', async (t) => {
@@ -1837,14 +2603,12 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         assert.equal(ok.rows[0].n, 3)
     })
 
-    it('refuses an unscoped query when the login cannot create a temporary view to check it', async (t) => {
+    it('runs an unscoped query without TEMP privilege', async (t) => {
         if (skipped(t)) return
         await owner.query(`REVOKE TEMPORARY ON DATABASE "${dbName}" FROM PUBLIC`)
         try {
-            await refusal(
-                queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true }),
-                /no TEMP privilege on the database, so it cannot create the temporary view/
-            )
+            const result = await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items LIMIT 1', { readOnlySql: true })
+            assert.deepEqual(result.rows, [{ n: 3 }])
         } finally {
             await owner.query(`GRANT TEMPORARY ON DATABASE "${dbName}" TO PUBLIC`)
         }
