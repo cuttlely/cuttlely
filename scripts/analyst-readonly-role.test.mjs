@@ -282,6 +282,28 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             assert.ok(seen.some((call) => call.mode === 'read-only' && call.values.includes('EU')))
         })
 
+        it(`leaves malformed FROM clause keywords to one PREPARE (${mode})`, async (t) => {
+            if (skipped(t)) return
+            setGuardLegacyRoundTripsForTests(legacy)
+            const rec = recordQueries()
+            try {
+                for (const readOnlySql of [false, true]) {
+                    const start = rec.calls.length
+                    await assert.rejects(
+                        queryAnalystUrl(url, 'SELECT FROM WHERE LIMIT 1', { readOnlySql, relations: SELECTED, env }),
+                        /syntax error/
+                    )
+                    const prepares = rec.calls.slice(start).filter((call) => /^PREPARE /.test(call.text))
+                    assert.equal(prepares.length, 1)
+                    assert.match(prepares[0].text, /^PREPARE cuttlely_scope_check_\d+ AS SELECT FROM WHERE LIMIT 1$/)
+                    assert.equal(prepares[0].named, true)
+                }
+            } finally {
+                rec.restore()
+                setGuardLegacyRoundTripsForTests(false)
+            }
+        })
+
         it(`resolves column and expression casts with exactly one PREPARE per check (${mode})`, async (t) => {
             if (skipped(t)) return
             setGuardLegacyRoundTripsForTests(legacy)

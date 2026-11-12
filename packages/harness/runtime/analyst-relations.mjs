@@ -1221,16 +1221,17 @@ export function statementObjects(statement) {
         const only = tokens[at]?.type === 'word' && !tokens[at].quoted && tokens[at].value === 'only'
         if (only) at += 1
         if (symbol(at, '(')) {
-            // A grouped JOIN starts with a relation, unlike a derived SELECT. Keep descending
-            // through grouping parentheses so its leftmost relation cannot hide behind a view.
+            // Register enclosing joined-table aliases before descending into their first item,
+            // which can itself be a derived SELECT. Its later siblings still belong to the join.
             const groups = []
             while (symbol(at, '(')) groups.push(at++)
-            if (tokens[at]?.type === 'word' && !tokens[at].quoted && ['select', 'with', 'values'].includes(tokens[at].value)) return
             for (const open of groups) {
+                if (['select', 'with', 'values'].some((word) => wordAt(open + 1, word))) continue
                 const close = closingParen.get(open)
                 const alias = relationAlias(close + 1)
                 if (alias) joinedGroups.set(open, { close, ...alias })
             }
+            if (tokens[at]?.type === 'word' && !tokens[at].quoted && ['select', 'with', 'values'].includes(tokens[at].value)) return
         }
         const first = tokens[at]
         if (first?.type !== 'word') return
@@ -1282,7 +1283,14 @@ export function statementObjects(statement) {
             else if (symbol(at, ')')) {
                 if (depth === 0) break
                 depth -= 1
-            } else if (depth === 0 && tokens[at]?.type === 'word' && !tokens[at].quoted && FROM_END_WORDS.has(tokens[at].value)) {
+            } else if (
+                depth === 0 &&
+                bracketDepth === 0 &&
+                !symbol(at - 1, '.') &&
+                tokens[at]?.type === 'word' &&
+                !tokens[at].quoted &&
+                FROM_END_WORDS.has(tokens[at].value)
+            ) {
                 break
             } else if (depth === 0 && bracketDepth === 0 && symbol(at, ',')) addRelation(at + 1)
         }
@@ -1691,6 +1699,11 @@ SELECT 'type' AS kind, oid::int8 AS oid FROM types
 const STATEMENT_CAST_FUNCTION_IDS_SQL = `WITH RECURSIVE casts AS (
     SELECT pg_catalog.to_regtype(source)::oid AS source, pg_catalog.to_regtype(target)::oid AS target
     FROM pg_catalog.jsonb_to_recordset(?::jsonb) AS c(source text, target text)
+), explicit_sources(root, oid) AS (
+    SELECT source, source FROM casts WHERE source IS NOT NULL
+    UNION
+    SELECT parent.root, child.oid FROM explicit_sources parent JOIN pg_catalog.pg_type t ON t.oid = parent.oid
+    CROSS JOIN LATERAL (SELECT t.typbasetype AS oid UNION SELECT t.typelem) child WHERE child.oid > 0
 ), explicit_targets(root, oid) AS (
     SELECT target, target FROM casts WHERE target IS NOT NULL
     UNION
@@ -1737,7 +1750,8 @@ WHERE c.castfunc <> 0 AND (
     -- Written casts admit explicit and assignment cast functions too, including array element coercions.
     EXISTS (SELECT 1 FROM casts x JOIN explicit_targets target ON target.root = x.target
         WHERE target.oid = c.casttarget
-        AND (x.source = c.castsource OR (x.source IS NULL AND c.castsource IN (SELECT oid FROM types))))
+        AND (EXISTS (SELECT 1 FROM explicit_sources source WHERE source.root = x.source AND source.oid = c.castsource)
+            OR (x.source IS NULL AND c.castsource IN (SELECT oid FROM types))))
     OR (c.castcontext = 'i' AND c.castsource IN (SELECT oid FROM types) AND c.casttarget IN (SELECT oid FROM targets))
 )`
 

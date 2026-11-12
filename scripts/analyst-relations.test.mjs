@@ -96,6 +96,20 @@ describe('analyst relations: pure helpers', () => {
         assert.deepEqual(names("SELECT extract(year FROM current_date), trim('x' FROM label) FROM v"), ['v'])
     })
 
+    it('distinguishes clause starts from qualified and bracketed JOIN column words', () => {
+        for (const word of ['limit', 'offset', 'returning', 'fetch']) {
+            for (const condition of [`a.${word} = b.${word}`, `ARRAY[${word}] = ARRAY[1]`]) {
+                assert.deepEqual(statementObjects(`SELECT * FROM items a JOIN items b ON ${condition}, object_names o LIMIT 1`).relations, [
+                    { schema: null, name: 'items' },
+                    { schema: null, name: 'object_names' }
+                ])
+            }
+        }
+        for (const clause of ['WHERE true', 'LIMIT 1', 'OFFSET 0', 'ORDER BY a.id', 'FETCH FIRST 1 ROW ONLY']) {
+            assert.deepEqual(statementObjects(`SELECT * FROM items a ${clause}, output_name`).relations, [{ schema: null, name: 'items' }])
+        }
+    })
+
     it('leaves unquoted FROM clause keywords to the parser but retains quoted relation names', () => {
         for (const word of [
             'where',
@@ -1752,8 +1766,11 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
                 'SELECT (items.id + 0)::public.alert_mood AS m FROM items LIMIT 1',
                 'SELECT CAST(items.id + 0 AS public.alert_mood) AS m FROM items LIMIT 1',
                 'SELECT ARRAY[items.id]::public.alert_mood[] AS m FROM items LIMIT 1',
-                'SELECT CAST(ARRAY[items.id] AS public.alert_mood[]) AS m FROM items LIMIT 1'
+                'SELECT CAST(ARRAY[items.id] AS public.alert_mood[]) AS m FROM items LIMIT 1',
+                'SELECT ARRAY[items.id]::integer[]::public.alert_mood[] FROM items LIMIT 1',
+                'SELECT CAST(CAST(ARRAY[items.id] AS integer[]) AS public.alert_mood[]) FROM items LIMIT 1'
             ]) {
+                assert.equal((await owner.query(sql)).rows.length, 1, sql)
                 await refusal(
                     queryAnalystUrl(url, sql, {
                         readOnlySql: true,
@@ -1843,7 +1860,9 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             [
                 'SELECT row_to_json(j) FROM (object_names a CROSS JOIN object_names b) j LIMIT 1',
                 'SELECT row_to_json(j) FROM (items a CROSS JOIN object_names b) AS j LIMIT 1',
-                'SELECT row_to_json(j) FROM ((items a CROSS JOIN object_names b) k CROSS JOIN items c) j LIMIT 1'
+                'SELECT row_to_json(j) FROM ((items a CROSS JOIN object_names b) k CROSS JOIN items c) j LIMIT 1',
+                'SELECT row_to_json(j) FROM ((SELECT 1 AS x) a CROSS JOIN object_names b) j LIMIT 1',
+                'SELECT row_to_json(j) FROM (((SELECT 1 AS x) a CROSS JOIN object_names b) k CROSS JOIN items c) j LIMIT 1'
             ],
             false
         ],
@@ -1897,6 +1916,57 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             }
         })
     }
+
+    it('keeps comma whole rows after clause words used as JOIN columns', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.object_names (id int, object regclass);
+            INSERT INTO public.object_names VALUES (1, 'items'::regclass);
+            ALTER TABLE public.items ADD COLUMN "offset" int DEFAULT 1;
+            ALTER TABLE public.items ADD COLUMN "limit" int DEFAULT 1;
+            ALTER TABLE public.items ADD COLUMN "returning" int DEFAULT 1;
+            ALTER TABLE public.items ADD COLUMN "fetch" int DEFAULT 1;
+            GRANT SELECT ON public.object_names TO "${writer}"`)
+        try {
+            for (const word of ['offset', 'limit', 'returning', 'fetch']) {
+                for (const condition of [`a.${word} = b.${word}`, `ARRAY[a.${word},b.${word}] = ARRAY[b.${word},a.${word}]`]) {
+                    const sql = `SELECT row_to_json(o) FROM items a JOIN items b ON ${condition}, object_names o LIMIT 1`
+                    assert.equal((await owner.query(sql)).rows.length, 1, sql)
+                    for (const readOnlySql of [false, true]) {
+                        await refusal(
+                            queryAnalystUrl(url, sql, { readOnlySql, relations: ['public.items', 'public.object_names'] }),
+                            /type regclass is not allowed/
+                        )
+                    }
+                }
+            }
+        } finally {
+            await owner.query(`DROP TABLE public.object_names;
+                ALTER TABLE public.items DROP COLUMN "offset", DROP COLUMN "limit", DROP COLUMN "returning", DROP COLUMN "fetch"`)
+        }
+    })
+
+    it('keeps unticked comma items after clause words despite selected view dependencies', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE TABLE public.invoices (id int);
+            INSERT INTO public.invoices VALUES (1);
+            CREATE VIEW public.account_balances AS SELECT id FROM public.invoices;
+            CREATE TABLE public.stores ("limit" int, "offset" int, "returning" int, "fetch" int);
+            INSERT INTO public.stores VALUES (1, 1, 1, 1);
+            GRANT SELECT ON public.invoices, public.account_balances, public.stores TO "${writer}"`)
+        try {
+            for (const word of ['limit', 'offset', 'returning', 'fetch']) {
+                const sql = `SELECT ab.id FROM account_balances ab JOIN stores s ON s.${word} = 1, invoices i LIMIT 1`
+                assert.deepEqual((await owner.query(sql)).rows, [{ id: 1 }])
+                for (const readOnlySql of [false, true]) {
+                    const options = { readOnlySql, relations: ['public.account_balances', 'public.stores'] }
+                    await refusal(queryAnalystUrl(url, sql, options), /reads (?:public\.)?invoices.*selection does not include/)
+                    assert.deepEqual((await queryAnalystUrl(url, sql.replace(', invoices i', ''), options)).rows, [{ id: 1 }])
+                }
+            }
+        } finally {
+            await owner.query('DROP VIEW public.account_balances; DROP TABLE public.invoices, public.stores')
+        }
+    })
 
     it('refuses reg* columns projected by wildcards and whole rows, including on PostgreSQL 14 and 15', async (t) => {
         if (skipped(t)) return

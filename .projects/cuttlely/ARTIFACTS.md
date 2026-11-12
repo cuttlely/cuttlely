@@ -1,3 +1,8 @@
+## PostgreSQL statement-guard regressions
+
+-   `scripts/analyst-relations.test.mjs`: PostgreSQL-backed regressions for joined-table whole rows whose first item is a derived query, including nested joins; explicit element conversions in chained array casts; and later comma items after clause words used as JOIN columns. The comma cases cover scoped `reg*` whole rows and unticked base tables that also underlie a selected view, in both policy modes.
+-   `scripts/fixtures/pinned/free-sql-da543c98.json`: separate traffic goldens for PostgreSQL 14, 15 and 16+, including source-element expansion in the cast-catalog read. The 16+ fixture is observed on PostgreSQL 18.
+
 ## Proxy-safe HTTP timeouts
 
 -   `packages/server/src/utils/httpServerTimeouts.ts`: parses bounded keep-alive and headers timeouts, reports invalid values through the supplied warning function, and applies only those two properties to the HTTP server.
