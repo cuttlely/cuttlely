@@ -3,7 +3,7 @@
 <p align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/readme/cuttlely-readme-header-dark.png">
-<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely。あなたのアプリケーションに、エージェントを。アプリケーションのためのオープンソースのエージェントプラットフォーム。" width="880">
+<img src="./assets/brand/readme/cuttlely-readme-header-light.png" alt="Cuttlely。コンテキスト認識型エージェントオーケストレーション。オープンソース、Apache-2.0。" width="880">
 </picture>
 </p>
 
