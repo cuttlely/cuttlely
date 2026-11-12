@@ -95,6 +95,8 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+Every specialist MCP bridge shares one `analyst-mcp.json` and is started with a gateway token, so skipping a write when the token is missing does not stop another specialist. Count only `query` and `pq_...` tools. A later empty, failed, or other-tool list must not replace a count above 0. The bridge calls `noteAnalystToolCount`; `writeAnalystMcpStatus` still stores the number it is given, which the unavailable-tool harness case uses to force 0.
+
 Handle comparison must treat a changed trailing type as the same input, and must not treat two dashed names as types. Matching already covered a missing class against a single class, but two different single classes on the same name (`BaseLanguageModel` versus `BaseChatModel`) did not match, so import healing dropped the Bakery helper model edge. Equating both stripped names blindly also collapses `when-true` and `when-false`. Only treat both trailing segments as types when they look like classes, then write the saved handle to the live anchor id. Import the shipped `examples/imports/bakery-helper.json` as-is; a fixture that already uses the current type will not catch this.
 
 -   Bind a Harness gateway caller to the exact Harness/chat pair before crossing a runtime HTTP callback. A shared team name cannot select a principal, abort signal or execution callback. Parse runtime scope first, match queued jobs on both fields, and refuse an active chat collision before replacing its binding. Every bridge needs runtime turn identity, including specialists without analyst tools; model-supplied scope cannot choose another chat. Missing scope fails closed without a card credential.

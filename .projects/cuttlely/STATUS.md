@@ -6,6 +6,10 @@ The release includes, all already on main and on this branch: #456 (`932bd8df`, 
 
 The full gate and Checker record must be rerun on this exact head. Publication, tagging and activation remain later authorized steps. The 1.7.0 backup, operator onboarding/recovery and default-Off enforcement requirements still apply.
 
+## Analyst tool status
+
+Every specialist MCP bridge shares `analyst-mcp.json` in the data directory. The stored count is how many `query` or pinned query (`pq_...`) tools that list offered. `GET /api/v1/ping` sends `X-Cuttlely-Analyst: ready` when the count is at least 1, `missing` when the file exists and the count is 0, and `unknown` before the file exists. A later tools/list that fails, returns no tools, or lists only other tools does not replace a count above 0. Postgres (MCP) **Tools it can use** shows **Analyst tool unavailable** only while the header is `missing`. Refreshing that menu reads the file again. `noteAnalystToolCount` in `packages/harness/runtime/analyst-mcp-status.mjs` is what the bridge calls; `writeAnalystMcpStatus` still stores the number it is given. Tests are `packages/harness/runtime/analyst-mcp-status.test.mjs` and the bridge cases in `packages/harness/check.mjs`. The guides are `docs/how-to/analyst.md` and `docs/how-to/harnesses.md`.
+
 The facts script at the versions-and-docs commit `27a44389` observed `origin/main` at `932bd8df`, this branch one commit ahead and none behind, and a clean worktree. Recent CodeQL success on `932bd8df` does not clear this release PR's pending gate. The shared machine full-check slot is reserved for the follow-up PRs; this draft does not claim a 27-step result or Checker record. Those observations predate the `05b71a12` fold and are historical; this fold does not claim a 27-step result or Checker record.
 
 The required ten-file handoff read retained 76 contiguous pages, 2,122 lines and 757,805 source bytes, with matching reconstruction hashes and observed output references outside the repository.

@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Postgres (MCP) **Tools it can use** stays listed after an analyst specialist has offered a query or pinned query tool. A later tool list that returns nothing, fails, or lists only other tools no longer sets `X-Cuttlely-Analyst` back to `missing` or replaces that menu with **Analyst tool unavailable**. Refreshing the menu reads the status again.
+
 ## [1.7.3] - 2026-11-12
 
 ### Changed
