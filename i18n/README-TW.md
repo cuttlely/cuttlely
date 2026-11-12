@@ -7,19 +7,23 @@
 
 # Cuttlely
 
-**你的應用值得擁有智慧體。**
+上下文感知型智慧體編排。開源，Apache-2.0。
 
-Cuttlely 是一款開源的視覺化圖形編輯器，用來建構和編排 AI 智慧體。把智慧體和工具拖到畫布上，連成一個團隊，幾分鐘就能和它對話，接著透過 API 在你的應用裡呼叫它。一切都執行在你掌控的基礎設施上。
+Cuttlely 讓你以視覺化方式建構 AI 智慧體團隊，每位智慧體只取得所需的上下文，因此你可以在發布前看清每次執行的使用量與成本。在任何變更生效前，先把真實問題在 Live 和草稿上並排再執行一次。
 
-智慧體團隊由一個領頭的智慧體和幾位專員組成。領頭的 Harness Prime 把每個問題拆成幾個部分，專員各自用自己的模型、工具和資料完成工作，分析員則查詢真實的資料表，交回實實在在的數字。你的應用透過 API 把問題送給團隊，拿回一個經過研究的回答、一張圖表或一個動作。在 Cuttlely 裡，智慧體團隊稱為 harness。知識管線、視覺化工作流程和 Build with AI 為團隊備齊所需的一切，而每一項變更都會先以草稿等著，直到你發布（Publish）。Cuttlely 是開源的，可以跑在你的筆電、你自己的伺服器或 Render 上。
+```bash
+npx cuttlely start
+```
+
+Node 20+ 和 Docker
+
+[10 分鐘上手](https://cuttlely.com/quickstart/) · [在 GitHub 上加星](https://github.com/cuttlely/cuttlely) · [已有流程？把它們帶過來](https://cuttlely.com/flowise/)
+
+最新穩定版是 **1.7.2**。請鎖定映像檔 `1.7.2`，或安裝 `cuttlely@1.7.2`。[1.7.2 發行說明](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.2) · [變更記錄](../CHANGELOG.md)。
+
+**1.7.0 是安全例外版本。若你是從更早的版本升級，必須採取行動。** 請先備份資料庫、加密金鑰和設定，並在部署前閱讀[操作員的指定與復原](../docs/how-to/instance-operator.md)，以免被鎖在瀏覽器管理之外。完整檢查清單（包括以主機日誌一次性代碼提出的申請、`CUTTLELY_INSTANCE_OPERATOR`，以及存取金鑰強制執行預設維持關閉）見[升級注意事項](../docs/upgrading.md)（「1.7.0 security-exception upgrade」節）和[變更記錄](../CHANGELOG.md)。初始設定代碼只會建立第一個帳號，而且只有在主機已開啟本機登入時才有效（Docker 和 `npx cuttlely start` 預設會開啟）。它不能用來設定服務，也不會指定執行個體操作員。[登入](../docs/how-to/sign-in.md) · [快速上手（Your first 10 minutes）](../README.md#your-first-10-minutes)。
 
 > 功能列表（包括[在你的應用裡使用團隊](../README.md#use-a-team-from-your-app)的 API 範例）、發布流程（Drafts, tests, and version history）和快速上手（Your first 10 minutes）目前只有[英文 README](../README.md)。
-
-第一次安裝用 **SQLite**。不要設定 `DATABASE_TYPE`。你不用在自己的電腦上裝 Postgres。Docker 一直用 SQLite。從原始碼執行時，Postgres 是選用的；放到公開網路上時，Render Blueprint 會幫你設好。每條路徑的步驟都在[使用指南](#guides)。
-
-chief-of-staff 裡的分析員先保持關閉，直到你把 `CUTTLELY_ANALYST` 設成 `auto`。這樣每個工作區都會有一塊單獨的儲存：SQLite 檔案旁邊的 `analyst-<tag>.db`，或是 Postgres 上該工作區自己的 schema 和登入帳號（`<tag>` 由工作區 ID 產生）。一個工作區建立的表，其他工作區的分析員看不到。它不會去讀應用自己的表。憑證裡的 Postgres URL，或是指向另一個資料庫的 `CUTTLELY_POSTGRES_URL`，仍然優先。步驟在[分析模式](#analyst-mode)。
-
-流程的每個版本都會保留，變更只有在你決定時才會送到使用它的人面前。對話流和 agentflow 的畫布預設儲存為**草稿**，而 API、嵌入和分享連結繼續執行 **Live** 版本。在你 **Publish** 對話流或 agentflow 之前，Cuttlely 可以把幾個最近的真實問題在 Live 和你的草稿上各問一次，並排顯示回答。**Version history** 顯示改了什麼、誰改的，一鍵就能還原舊版本或讓 Live 回到先前的版本。擁有者還可以在自己的 GitHub 儲存庫保留一份副本：在瀏覽器建立第一個帳號後會提示一次，之後隨時可在 **Admin**、**Version History** 設定；也可以用它把流程從 Dev 伺服器移到 Prod 伺服器，每台伺服器各自保管自己的憑證。歷史保存在你的伺服器上，是資料旁邊的一個 Git 儲存庫。憑證只以名稱記錄，提示詞裡看起來像密鑰的文字不會寫進歷史。步驟見[版本歷史](#version-history)。
 
 [English](../README.md) | [日本語](../README.ja.md) | [한국어](../README.ko.md) | 繁體中文 | [简体中文](./README-ZH.md)
 
