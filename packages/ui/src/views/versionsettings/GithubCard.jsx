@@ -611,7 +611,7 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                 <Typography variant='body2' color='text.secondary'>
                                     {joinsExisting
                                         ? `Signed in as ${account}. Pick the repository your ${readsFrom} server copies to.`
-                                        : `Signed in as ${account}. Pick an empty repository, or make a new private one.`}
+                                        : `Signed in as ${account}. Pick a repository, or make a new private one. Cuttlely never overwrites GitHub.`}
                                 </Typography>
                                 {repos.length > 6 && (
                                     <TextField

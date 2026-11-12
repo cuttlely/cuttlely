@@ -14,7 +14,9 @@
 //   another server maps them by name to its own Credentials.
 // - The token reaches git only through the child's environment, as an HTTP header scoped to the
 //   repository URL. It is never on a command line, in a remote URL, or in the repo config.
-// - No force push, ever. If GitHub's main has commits this server does not have, copying stops
+// - No force push, ever. A repository that already has history gets the version files in new
+//   commits on top of that history, and only when that update fast-forwards. An existing file is
+//   never replaced or removed. If GitHub later has commits this server does not have, copying stops
 //   and says so.
 // - Before each copy, the commits being copied are checked for secret-shaped text again.
 import { execFile, spawn } from 'child_process'
@@ -36,6 +38,7 @@ import {
 } from './environments'
 import { gitEnv, runGit, VersionStore } from './store'
 import { scanForSecrets } from './secrets'
+import { readTrailer, trailerLine } from './trailers'
 import {
     GITHUB_COM,
     GithubEndpoint,
@@ -96,7 +99,8 @@ export interface GithubStatus {
 export interface GithubRepoChoice {
     repo: string
     private: boolean
-    // GitHub reports no content yet. Only an empty repository, or one this server copied to, can be connected.
+    // GitHub reports no content yet. Empty repositories still connect. A repository that already
+    // has files can connect too: the copy adds version files beside them and never replaces a path.
     empty: boolean
     pushedAt: string | null
 }
@@ -194,6 +198,13 @@ const NOTE_PUSH_ATTEMPTS = 4
 const NOTE_REMOTE_CACHE = 'refs/notes/remote-list'
 // The previous environment's tip, fetched while connecting. It is not offered until the note on it matches.
 const CONNECT_SOURCE_REF = 'refs/versions/connect-source'
+// The remote commit the last graft pushed. Absent when this server pushes its own commits directly.
+const GRAFT_REF = 'refs/versions/github-remote'
+// A fetched remote tip, dropped before the connection is saved.
+const ADOPT_REF = 'refs/versions/adopt'
+// Every history repo starts with this file. An existing one on GitHub is kept as it is.
+const KEPT_PATH = 'README.md'
+const VERSION_COMMITTER = 'system@versions.local'
 
 interface ActivePlan extends SyncPlan {
     invalid: boolean
@@ -425,7 +436,7 @@ export function classifyFailure(stderr: string, repo: string, timedOut = false):
         return {
             kind: 'diverged',
             retry: false,
-            message: `${repo} on GitHub has changes that are not on this server, so copying stopped. Cuttlely never overwrites GitHub. Connect an empty repository, or undo those changes on GitHub, then select Try again.`
+            message: `${repo} on GitHub has changes that are not on this server, so copying stopped. Cuttlely never overwrites GitHub. Undo those changes on GitHub, then select Try again.`
         }
     }
     if (
@@ -1239,7 +1250,7 @@ export class GithubSync {
         if (res.status === 403 || res.status === 404) {
             throw new GithubError(
                 400,
-                'This token cannot create repositories. Create an empty private repository on GitHub, give the token access to it, then pick it here.'
+                'This token cannot create repositories. Create a private repository on GitHub, give the token access to it, then pick it here.'
             )
         }
         throw new GithubError(400, 'GitHub did not create the repository. Try again in a moment.')
@@ -1277,50 +1288,263 @@ export class GithubSync {
     }
 
     // The branch and notes checks for the list on disk. Nothing is written. A later environment must have this
-    // server's list recorded on the previous environment's tip from the listing.
+    // server's list recorded on the previous environment's tip from the listing. A copying server may connect
+    // a branch that already has files: the copy adds version files on top and never replaces an existing path.
     private async acceptConnection(
         plan: ActivePlan,
         refs: string[],
         repo: string,
         url: string,
         token: string
-    ): Promise<{ plan: ActivePlan; pushed: string | null }> {
+    ): Promise<{ plan: ActivePlan; pushed: string | null; graft: string | null }> {
         if (plan.invalid) throw new GithubError(409, LIST_UNREADABLE)
         if (!plan.reads && !plan.copies) throw new GithubError(409, PICK_ENVIRONMENT)
-        const remoteMain = this.listedSha(refs, 'refs/heads/main')
-        const otherContent = `${repo} already has other content. Connect an empty repository (create it without a README or license), or one this server copied to before.`
+        const reading = plan.reads && !plan.copies
         let pushed: string | null = null
+        let graft: string | null = null
         let verifiedSource: string | null = null
-        if (isLegacyChain(plan.environments)) {
-            const reading = plan.reads && !plan.copies
-            if (reading) {
-                // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
-                if (!remoteMain && refs.length) {
-                    throw new GithubError(
-                        409,
-                        `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
-                    )
-                }
-            } else if (remoteMain) {
-                const head = await this.refSha('refs/heads/main')
-                if (!head || !(await this.isAncestor(remoteMain, head))) throw new GithubError(409, otherContent)
-                pushed = remoteMain
-            } else if (refs.length) {
-                throw new GithubError(409, otherContent)
+        if (reading && isLegacyChain(plan.environments)) {
+            // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
+            // A repository that already has history is fine only when that history includes Dev's versions.
+            const source = plan.sourceBranch || 'main'
+            const remoteSource = this.listedSha(refs, `refs/heads/${source}`)
+            if (!remoteSource && refs.length) throw new GithubError(409, this.noDevVersions(repo))
+            if (remoteSource && !(await this.remoteHasCuttlelyCommits(url, token, source, repo))) {
+                throw new GithubError(409, this.noDevVersions(repo))
             }
-        } else {
-            if (plan.reads && plan.sourceBranch) verifiedSource = await this.requireSourceNote(plan, refs, repo, url, token)
-            if (plan.publishBranch) {
-                // Other environments may already publish here. Only this server's own publish name has to match its history.
-                const remotePublish = this.listedSha(refs, `refs/heads/${plan.publishBranch}`)
-                if (remotePublish) {
-                    const head = await this.refSha('refs/heads/main')
-                    if (!head || !(await this.isAncestor(remotePublish, head))) throw new GithubError(409, otherContent)
-                    pushed = remotePublish
-                }
+        } else if (plan.reads && plan.sourceBranch) {
+            verifiedSource = await this.requireSourceNote(plan, refs, repo, url, token)
+        }
+        const branch = plan.publishBranch
+        const remotePublish = branch ? this.listedSha(refs, `refs/heads/${branch}`) : ''
+        if (branch && remotePublish && !reading) {
+            const head = await this.refSha('refs/heads/main')
+            if (head && (await this.isAncestor(remotePublish, head))) {
+                pushed = remotePublish
+            } else {
+                const adopted = await this.adoptExisting(remotePublish, branch, repo, url, token)
+                pushed = adopted.pushed
+                graft = adopted.graft
             }
         }
-        return { plan: { ...plan, verifiedSource }, pushed }
+        return { plan: { ...plan, verifiedSource }, pushed, graft }
+    }
+
+    private noDevVersions(repo: string): string {
+        return `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
+    }
+
+    private overwriteMessage(repo: string, file: string, saved: boolean): string {
+        return `${repo} already has ${file}, which this copy would replace. Cuttlely never overwrites GitHub. Move that file on GitHub, or connect a repository that does not already use that path. ${
+            saved ? 'Nothing was changed on GitHub.' : 'Nothing was saved.'
+        }`
+    }
+
+    private notOurHistory(repo: string, saved = false): string {
+        return `${repo} on GitHub is not the history this server has. Cuttlely never overwrites GitHub. ${
+            saved ? 'Nothing was changed on GitHub.' : 'Nothing was saved.'
+        }`
+    }
+
+    // Fetch one branch into a temporary ref. The caller deletes the ref. A mismatch or a failed fetch saves nothing.
+    private async fetchBranch(url: string, token: string, branch: string, dest: string, repo: string): Promise<void> {
+        const dir = this.deps.store().dir
+        await runGit(dir, ['update-ref', '-d', dest]).catch(() => undefined)
+        const fetched = await this.git(
+            ['fetch', '--no-tags', '--no-recurse-submodules', '--quiet', url, `refs/heads/${branch}:${dest}`],
+            authEnv(url, token)
+        )
+        if (!fetched.ok) {
+            const failure = classifyReadFailure(`${fetched.stderr}\n${fetched.stdout}`, repo, fetched.timedOut)
+            const message =
+                failure.kind === 'empty'
+                    ? `GitHub did not answer the check for ${repo}. Nothing was saved.`
+                    : `${failure.message} Nothing was saved.`
+            throw new GithubError(400, message)
+        }
+    }
+
+    // True when a commit this server writes is reachable: the committer is Cuttlely, or the message carries a version trailer.
+    private async remoteHasCuttlelyCommits(url: string, token: string, branch: string, repo: string): Promise<boolean> {
+        const dir = this.deps.store().dir
+        await this.fetchBranch(url, token, branch, ADOPT_REF, repo)
+        try {
+            const tip = await this.refSha(ADOPT_REF)
+            if (!tip) return false
+            const emails = (await runGit(dir, ['log', '--max-count=5000', '--format=%ce', ADOPT_REF])).stdout
+            if (emails.split('\n').some((line) => line.trim() === VERSION_COMMITTER)) return true
+            const bodies = (await runGit(dir, ['log', '--max-count=200', '--format=%B%x1e', ADOPT_REF])).stdout
+            return bodies.includes('Version-Flow:') || bodies.includes('Version-Base:')
+        } finally {
+            await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
+        }
+    }
+
+    // The remote tip is not one of this server's commits. Keep it, and copy version files on top when no path would be replaced.
+    private async adoptExisting(
+        remotePublish: string,
+        branch: string,
+        repo: string,
+        url: string,
+        token: string
+    ): Promise<{ pushed: string | null; graft: string }> {
+        const dir = this.deps.store().dir
+        await this.fetchBranch(url, token, branch, ADOPT_REF, repo)
+        try {
+            const tip = await this.refSha(ADOPT_REF)
+            if (tip !== remotePublish) {
+                throw new GithubError(409, `GitHub changed ${repo} while Cuttlely was checking it. Nothing was saved. Try again.`)
+            }
+            const head = await this.refSha('refs/heads/main')
+            if (!head) throw new GithubError(409, 'Version history is off on this server.')
+            const marker = await this.ourGraftTip(tip)
+            if (marker) {
+                if (marker.sha !== tip) {
+                    throw new GithubError(
+                        409,
+                        `${repo} on GitHub has changes that are not on this server, so nothing was saved. Cuttlely never overwrites GitHub.`
+                    )
+                }
+                const known = await this.refSha(marker.base)
+                if (!known || !(await this.isAncestor(marker.base, head))) throw new GithubError(409, this.notOurHistory(repo))
+                await this.assertNoOverwrite(repo, marker.remote, marker.base, head, false)
+                return { pushed: marker.base, graft: tip }
+            }
+            await this.assertNoOverwrite(repo, tip, null, head, false)
+            return { pushed: null, graft: tip }
+        } finally {
+            await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
+        }
+    }
+
+    // The newest commit this server added, walking back from the tip. A later commit on GitHub hides it.
+    private async ourGraftTip(tip: string): Promise<{ base: string; remote: string; sha: string } | null> {
+        let sha: string | null = tip
+        for (let i = 0; i < 5000 && sha; i++) {
+            const marker = await this.graftMarker(sha)
+            if (marker) return { ...marker, sha }
+            sha = await this.refSha(`${sha}^`)
+        }
+        return null
+    }
+
+    private async graftMarker(sha: string): Promise<{ base: string; remote: string } | null> {
+        let message = ''
+        try {
+            message = (await runGit(this.deps.store().dir, ['log', '-1', '--format=%B', sha])).stdout
+        } catch {
+            return null
+        }
+        const base = readTrailer(message, 'Base')
+        const remote = readTrailer(message, 'Remote')
+        if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(remote)) return null
+        return { base, remote }
+    }
+
+    // The pre-existing commit a graft sits on. A tip this server wrote records it; a foreign tip is itself.
+    private async foreignBase(tip: string): Promise<string> {
+        const marker = await this.graftMarker(tip)
+        return marker ? marker.remote : tip
+    }
+
+    private async assertNoOverwrite(repo: string, foreign: string, base: string | null, head: string, saved: boolean): Promise<void> {
+        const range = base ? `${base}..${head}` : head
+        let listed = ''
+        try {
+            listed = (await runGit(this.deps.store().dir, ['rev-list', '--reverse', range])).stdout
+        } catch {
+            throw new GithubError(409, this.notOurHistory(repo))
+        }
+        for (const sha of listed
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)) {
+            const clash = await this.overwritePath(foreign, sha)
+            if (clash) throw new GithubError(409, this.overwriteMessage(repo, clash, saved))
+        }
+    }
+
+    private async treeFiles(sha: string): Promise<Map<string, { mode: string; sha: string }>> {
+        const out = await runGit(this.deps.store().dir, ['ls-tree', '-r', '-z', sha])
+        const files = new Map<string, { mode: string; sha: string }>()
+        for (const record of out.stdout.split('\0')) {
+            if (!record) continue
+            const tab = record.indexOf('\t')
+            if (tab < 0) continue
+            const meta = record.slice(0, tab).split(' ')
+            const file = record.slice(tab + 1)
+            if (!file || meta.length < 3) continue
+            files.set(file, { mode: meta[0], sha: meta[2] })
+        }
+        return files
+    }
+
+    // The first path this version would replace or remove. README.md is kept as it already is, so it is not a clash.
+    // Null when the version only adds paths, or writes a path that already has the same bytes.
+    private async overwritePath(foreignSha: string, localSha: string): Promise<string | null> {
+        const base = await this.treeFiles(foreignSha)
+        const local = await this.treeFiles(localSha)
+        const basePaths = [...base.keys()]
+        for (const file of [...local.keys()].sort()) {
+            const entry = local.get(file)!
+            const existing = base.get(file)
+            if (existing) {
+                if (existing.sha === entry.sha || file === KEPT_PATH) continue
+                return file
+            }
+            for (const other of basePaths) {
+                if (other.startsWith(`${file}/`) || file.startsWith(`${other}/`)) return file
+            }
+        }
+        return null
+    }
+
+    // Remote files stay. Version files that are not already there are added. The work tree is not touched.
+    private async overlayTree(foreignSha: string, localSha: string): Promise<string> {
+        const dir = this.deps.store().dir
+        const index = path.join(dir, '.git', `graft-index-${process.pid}`)
+        const env = { GIT_INDEX_FILE: index }
+        fs.rmSync(index, { force: true })
+        try {
+            await runGit(dir, ['read-tree', foreignSha], env)
+            const base = await this.treeFiles(foreignSha)
+            const local = await this.treeFiles(localSha)
+            for (const file of [...local.keys()].sort()) {
+                if (base.has(file)) continue
+                const entry = local.get(file)!
+                await runGit(dir, ['update-index', '--add', '--cacheinfo', `${entry.mode},${entry.sha},${file}`], env)
+            }
+            return (await runGit(dir, ['write-tree'], env)).stdout.trim()
+        } finally {
+            fs.rmSync(index, { force: true })
+            fs.rmSync(`${index}.lock`, { force: true })
+        }
+    }
+
+    // One local version, parented on the remote history, with the same message plus the local and remote ids.
+    private async commitGraft(tree: string, parent: string, localSha: string, foreign: string): Promise<string> {
+        const dir = this.deps.store().dir
+        const raw = (await runGit(dir, ['log', '-1', '--format=%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%B', localSha])).stdout
+        const [name, email, date, cname, cemail, cdate, body = ''] = raw.split('\x1f')
+        let message = body.endsWith('\n') ? body : `${body}\n`
+        if (!readTrailer(message, 'Base')) message += `${trailerLine('Base', localSha)}\n`
+        if (!readTrailer(message, 'Remote')) message += `${trailerLine('Remote', foreign)}\n`
+        const file = path.join(dir, '.git', `graft-message-${process.pid}`)
+        fs.writeFileSync(file, message)
+        try {
+            return (
+                await runGit(dir, ['commit-tree', tree, '-p', parent, '-F', file], {
+                    GIT_AUTHOR_NAME: name,
+                    GIT_AUTHOR_EMAIL: email,
+                    GIT_AUTHOR_DATE: date,
+                    GIT_COMMITTER_NAME: cname,
+                    GIT_COMMITTER_EMAIL: cemail,
+                    GIT_COMMITTER_DATE: cdate
+                })
+            ).stdout.trim()
+        } finally {
+            fs.rmSync(file, { force: true })
+        }
     }
 
     // Fetch the previous tip named in the listing and require this server's list on that tip. Absent, unverified
@@ -1415,6 +1639,7 @@ export class GithubSync {
         if (!this.sameConnectPlan(confirm, accepted.plan)) throw new GithubError(409, LIST_UNREADABLE)
         const plan = accepted.plan
         const pushed = accepted.pushed
+        const graft = accepted.graft
 
         this.generation += 1
         this.clearTimer()
@@ -1445,6 +1670,8 @@ export class GithubSync {
         }
         if (pushed) await runGit(store.dir, ['update-ref', PUSHED_REF, pushed])
         else await runGit(store.dir, ['update-ref', '-d', PUSHED_REF]).catch(() => undefined)
+        if (graft) await runGit(store.dir, ['update-ref', GRAFT_REF, graft])
+        else await runGit(store.dir, ['update-ref', '-d', GRAFT_REF]).catch(() => undefined)
         // A new connection starts from what this repository holds now.
         await runGit(store.dir, ['update-ref', '-d', INCOMING_REF]).catch(() => undefined)
         this.resetState()
@@ -1462,6 +1689,7 @@ export class GithubSync {
         if (fs.existsSync(path.join(store.dir, '.git'))) {
             fs.rmSync(this.configPath(), { force: true })
             await runGit(store.dir, ['update-ref', '-d', PUSHED_REF]).catch(() => undefined)
+            await runGit(store.dir, ['update-ref', '-d', GRAFT_REF]).catch(() => undefined)
             await runGit(store.dir, ['update-ref', '-d', INCOMING_REF]).catch(() => undefined)
         }
         this.resetState()
@@ -1636,8 +1864,12 @@ export class GithubSync {
         await store.ensure()
         const head = await this.refSha('refs/heads/main')
         const base = await this.refSha(PUSHED_REF)
+        const graft = await this.refSha(GRAFT_REF)
         if (!head || head === base) {
-            const noted = await this.publishEnvironmentNote(config, head, plan, generation)
+            // A graft records the list on the commit this server added. A pre-existing tip is left alone.
+            let notedOn = head
+            if (graft && head && head === base) notedOn = (await this.graftMarker(graft)) ? graft : null
+            const noted = notedOn ? await this.publishEnvironmentNote(config, notedOn, plan, generation) : true
             if (generation !== this.generation) return
             if (!noted) {
                 this.scheduleRetry(LIST_NOTE_FAILED)
@@ -1660,6 +1892,10 @@ export class GithubSync {
                 }. Nothing was copied.`
             )
             this.log(`[versions] ${this.message}`)
+            return
+        }
+        if (graft) {
+            await this.pushGraft(config, plan, generation, store, head, base, graft, branch)
             return
         }
 
@@ -1693,6 +1929,101 @@ export class GithubSync {
             return
         }
         this.scheduleRetry(failure.message)
+    }
+
+    // Adds this server's versions on top of the remote history and fast-forwards that branch. Never replaces a file.
+    private async pushGraft(
+        config: ActiveConfig,
+        plan: ActivePlan,
+        generation: number,
+        store: VersionStore,
+        head: string,
+        base: string | null,
+        graft: string,
+        branch: string
+    ): Promise<void> {
+        const dir = store.dir
+        const foreign = await this.foreignBase(graft)
+        let parent = graft
+        let parentTree = ''
+        try {
+            parentTree = (await runGit(dir, ['rev-parse', '--verify', `${parent}^{tree}`])).stdout.trim()
+        } catch {
+            this.holdCopy(this.notOurHistory(config.repo, true))
+            return
+        }
+        let listed = ''
+        try {
+            listed = (await runGit(dir, ['rev-list', '--reverse', base ? `${base}..${head}` : head])).stdout
+        } catch {
+            this.holdCopy(this.notOurHistory(config.repo, true))
+            return
+        }
+        let created = false
+        for (const sha of listed
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)) {
+            if (generation !== this.generation) return
+            let clash: string | null = null
+            try {
+                clash = await this.overwritePath(foreign, sha)
+            } catch {
+                this.holdCopy(this.notOurHistory(config.repo, true))
+                return
+            }
+            if (clash) {
+                this.holdCopy(this.overwriteMessage(config.repo, clash, true))
+                return
+            }
+            const tree = await this.overlayTree(foreign, sha)
+            if (tree === parentTree) continue
+            parent = await this.commitGraft(tree, parent, sha, foreign)
+            parentTree = tree
+            created = true
+        }
+        if (generation !== this.generation) return
+        if (created) {
+            this.state = 'copying'
+            const result = await this.git(
+                ['push', '--porcelain', '--no-verify', config.url, `${parent}:refs/heads/${branch}`],
+                authEnv(config.url, config.token)
+            )
+            if (generation !== this.generation) return
+            if (!result.ok) {
+                const failure = classifyFailure(`${result.stderr}\n${result.stdout}`, config.repo, result.timedOut)
+                this.log(`[versions] Copy to GitHub ${config.repo} failed (${failure.kind}): ${scrub(result.stderr, config.token)}`)
+                if (!failure.retry) {
+                    this.holdCopy(failure.message)
+                    return
+                }
+                this.scheduleRetry(failure.message)
+                return
+            }
+            await runGit(dir, ['update-ref', GRAFT_REF, parent])
+        }
+        await runGit(dir, ['update-ref', PUSHED_REF, head])
+        const notedOn = created ? parent : graft
+        const marker = created ? { base: head, remote: foreign } : await this.graftMarker(notedOn)
+        // A pre-existing tip is not a version. Record the list only on a commit this server added.
+        if (marker) {
+            const noted = await this.publishEnvironmentNote(config, notedOn, plan, generation)
+            if (generation !== this.generation) return
+            if (!noted) {
+                this.scheduleRetry(LIST_NOTE_FAILED)
+                return
+            }
+        }
+        if (generation !== this.generation) return
+        this.copyHold = null
+        this.state = 'up-to-date'
+        this.message = ''
+        this.failures = 0
+        this.nextTryAt = null
+        if (created) {
+            this.lastCopiedAt = new Date(this.now()).toISOString()
+            this.lastCopiedVersion = head.slice(0, 7)
+        }
     }
 
     // Remembers a copy that needs the operator. Later reads must not clear it or try the copy again.

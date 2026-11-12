@@ -16,6 +16,7 @@ import {
 import { authEnv, checkToken, classifyFailure, GithubSync, parseRepo, scrub } from './github'
 import { githubEndpoint } from './githubHost'
 import { environmentListFingerprint } from './environments'
+import { flowFolderName } from './serialize'
 import { gitEnv, runGit, VersionStore } from './store'
 import { useTestDeps, warnings } from './testDeps'
 
@@ -167,7 +168,7 @@ function makeBare(dir: string): string {
 }
 
 // A commit on the remote's main that this server does not have.
-function foreignCommit(bare: string, work: string, branch = 'main') {
+function foreignCommit(bare: string, work: string, branch = 'main', files: Record<string, string> = {}) {
     fs.mkdirSync(work, { recursive: true })
     const env = cleanEnv({
         GIT_AUTHOR_NAME: 'someone',
@@ -178,9 +179,34 @@ function foreignCommit(bare: string, work: string, branch = 'main') {
     if (bareMain(bare)) execFileSync('git', ['clone', '-q', '-b', 'main', `file://${bare}`, '.'], { cwd: work, env })
     else execFileSync('git', ['init', '-q'], { cwd: work, env })
     fs.writeFileSync(path.join(work, 'README.md'), '# made on GitHub\n')
-    execFileSync('git', ['add', 'README.md'], { cwd: work, env })
+    for (const [name, content] of Object.entries(files)) {
+        const full = path.join(work, ...name.split('/'))
+        fs.mkdirSync(path.dirname(full), { recursive: true })
+        fs.writeFileSync(full, content)
+    }
+    execFileSync('git', ['add', '-A'], { cwd: work, env })
     execFileSync('git', ['commit', '-q', '-m', 'Initial commit'], { cwd: work, env })
     execFileSync('git', ['push', '-q', `file://${bare}`, `HEAD:refs/heads/${branch}`], { cwd: work, env })
+}
+
+function bareFile(repo: string, rev: string, file: string): string {
+    return execFileSync('git', ['--git-dir', repo, 'show', `${rev}:${file}`], { encoding: 'utf8', env: cleanEnv() })
+}
+
+function bareGrep(repo: string, rev: string, text: string): string {
+    return execFileSync('git', ['--git-dir', repo, 'grep', '-l', text, rev], { encoding: 'utf8', env: cleanEnv() })
+}
+
+function pushesOf(branch = 'main') {
+    return gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes(`refs/heads/${branch}`)))
+}
+
+function expectFastForwardOnly() {
+    for (const call of gitCalls) {
+        expect(call.args).not.toContain('--force')
+        expect(call.args).not.toContain('--force-with-lease')
+        expect(call.args.some((arg) => arg.startsWith('+refs/heads/'))).toBe(false)
+    }
 }
 
 function allFiles(dir: string): string[] {
@@ -471,44 +497,152 @@ describe('copying history to a repository', () => {
         expect(bareMain(bare)).toBe(foreign)
     })
 
-    test('connect refuses a repository with content on another branch only (master), and pushes nothing', async () => {
+    test('connect copies onto a repository that already has a README and leaves that file in place', async () => {
         await save('One')
-        foreignCommit(bare, path.join(tmp, 'elsewhere'), 'master')
-        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
-            status: 409,
-            message: expect.stringContaining('already has other content')
-        })
-        expect(bareMain(bare)).toBeNull()
-        expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
-        expect(credentialRows.size).toBe(0)
+        foreignCommit(bare, path.join(tmp, 'elsewhere'), 'main', { LICENSE: 'keep this license\n', 'docs/guide.md': 'guide\n' })
+        const foreign = bareMain(bare)
+        const local = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const tip = bareMain(bare)
+        expect(status.state).toBe('up-to-date')
+        expect(tip).toBeTruthy()
+        expect(tip).not.toBe(local)
+        expect(tip).not.toBe(foreign)
+        expect(bareRef(bare, `${tip}^`)).toBe(foreign)
+        expect(bareFile(bare, tip!, 'README.md')).toBe('# made on GitHub\n')
+        expect(bareFile(bare, tip!, 'LICENSE')).toBe('keep this license\n')
+        expect(bareFile(bare, tip!, 'docs/guide.md')).toBe('guide\n')
+        expect(bareFile(bare, tip!, `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`)).toContain(ID)
+        expect(bareLog(bare)).toContain('Version-Flow:')
+        expectFastForwardOnly()
+
+        const second = await save('Two')
+        await settle()
+        const next = bareMain(bare)
+        expect(next).not.toBe(tip)
+        expect(bareRef(bare, `${next}^`)).toBe(tip)
+        expect(bareFile(bare, next!, 'README.md')).toBe('# made on GitHub\n')
+        expect(bareFile(bare, next!, 'LICENSE')).toBe('keep this license\n')
+        expect(bareGrep(bare, next!, 'Two')).toContain('flows/')
+        expect(local).not.toBe(second)
+
+        await sync.disconnect()
+        const kept = bareMain(bare)
+        const third = await save('Three')
+        await settle()
+        expect(bareMain(bare)).toBe(kept)
+        const again = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(again.state).toBe('up-to-date')
+        const resumed = bareMain(bare)
+        expect(bareRef(bare, `${resumed}^`)).toBe(kept)
+        expect(bareFile(bare, resumed!, 'README.md')).toBe('# made on GitHub\n')
+        expect(bareGrep(bare, resumed!, 'Three')).toContain('flows/')
+        expect(resumed).not.toBe(third)
+        expectFastForwardOnly()
     })
 
-    test('connect refuses a repository with only a tag, and pushes nothing', async () => {
+    test('a commit added on GitHub after a copy stops the next copy and is kept', async () => {
         await save('One')
+        foreignCommit(bare, path.join(tmp, 'base-readme'))
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const landed = bareMain(bare)!
+        const work = path.join(tmp, 'later')
+        fs.mkdirSync(work)
+        const env = cleanEnv({
+            GIT_AUTHOR_NAME: 'someone',
+            GIT_AUTHOR_EMAIL: 'someone@example.invalid',
+            GIT_COMMITTER_NAME: 'someone',
+            GIT_COMMITTER_EMAIL: 'someone@example.invalid'
+        })
+        execFileSync('git', ['clone', '-q', '-b', 'main', `file://${bare}`, '.'], { cwd: work, env })
+        fs.mkdirSync(path.join(work, 'notes'))
+        fs.writeFileSync(path.join(work, 'notes', 'later.md'), 'keep this note\n')
+        execFileSync('git', ['add', 'notes/later.md'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'A note on GitHub'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+        const diverged = bareMain(bare)
+        await save('Two')
+        await settle()
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(diverged)
+        expect(bareFile(bare, diverged!, 'notes/later.md')).toBe('keep this note\n')
+        expect(bareFile(bare, diverged!, 'README.md')).toBe('# made on GitHub\n')
+        expect(bareRef(bare, `${diverged}^`)).toBe(landed)
+        await sync.disconnect()
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('never overwrites GitHub')
+        })
+        expect(bareMain(bare)).toBe(diverged)
+        expect(bareFile(bare, diverged!, 'notes/later.md')).toBe('keep this note\n')
+    })
+
+    test('a later version that would replace an existing path stops and leaves GitHub unchanged', async () => {
+        const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
+        const blocked = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}/flow.json`
+        await save('One')
+        foreignCommit(bare, path.join(tmp, 'blocked'), 'main', { [blocked]: 'already here\n' })
+        const foreign = bareMain(bare)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(status.state).toBe('up-to-date')
+        expect(bareFile(bare, bareMain(bare)!, blocked)).toBe('already here\n')
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('quotes')) },
+            { lookupCredentials }
+        )
+        await settle()
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain(blocked)
+        expect(stopped.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).not.toBe(foreign)
+        expect(bareFile(bare, bareMain(bare)!, blocked)).toBe('already here\n')
+        expectFastForwardOnly()
+    })
+
+    test('connect leaves a master branch and a tag in place and copies versions to main', async () => {
+        await save('One')
+        const local = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        foreignCommit(bare, path.join(tmp, 'master-only'), 'master')
+        const master = bareRef(bare, 'refs/heads/master')
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(status.state).toBe('up-to-date')
+        expect(bareMain(bare)).toBe(local)
+        expect(bareRef(bare, 'refs/heads/master')).toBe(master)
+        expectFastForwardOnly()
+
+        await sync.disconnect()
+        const tagged = path.join(tmp, 'tagged.git')
+        makeBare(tagged)
         const work = path.join(tmp, 'tagged')
-        foreignCommit(bare, work, 'scratch')
-        execFileSync('git', ['--git-dir', bare, 'tag', 'v1', 'refs/heads/scratch'], { env: cleanEnv() })
-        execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/heads/scratch'], { env: cleanEnv() })
-        expect(
-            execFileSync('git', ['--git-dir', bare, 'for-each-ref', '--format=%(refname)'], { encoding: 'utf8', env: cleanEnv() }).trim()
-        ).toBe('refs/tags/v1')
-        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
-            status: 409,
-            message: expect.stringContaining('already has other content')
-        })
-        expect(bareMain(bare)).toBeNull()
-        expect(credentialRows.size).toBe(0)
+        foreignCommit(tagged, work, 'scratch')
+        execFileSync('git', ['--git-dir', tagged, 'tag', 'v1', 'refs/heads/scratch'], { env: cleanEnv() })
+        execFileSync('git', ['--git-dir', tagged, 'update-ref', '-d', 'refs/heads/scratch'], { env: cleanEnv() })
+        const taggedStatus = await sync.connect({ repo: `file://${tagged}`, token: TOKEN }, WS)
+        expect(taggedStatus.state).toBe('up-to-date')
+        expect(bareMain(tagged)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(bareRef(tagged, 'refs/tags/v1')).toBeTruthy()
+        expectFastForwardOnly()
     })
 
-    test('connect refuses a repository that already has other content on main, and saves nothing', async () => {
+    test('connect refuses a path it would replace, and saves nothing', async () => {
         await save('One')
-        foreignCommit(bare, path.join(tmp, 'elsewhere'))
+        const folder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        foreignCommit(bare, path.join(tmp, 'elsewhere'), 'main', { [folder]: 'not the version\n' })
+        const foreign = bareMain(bare)
+        const calls = gitCalls.length
         await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
             status: 409,
-            message: expect.stringContaining('already has other content')
+            message: expect.stringContaining('never overwrites GitHub')
         })
+        expect(bareMain(bare)).toBe(foreign)
+        expect(bareFile(bare, foreign!, folder)).toBe('not the version\n')
         expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
         expect((await sync.status()).connected).toBe(false)
+        expect(credentialRows.size).toBe(0)
+        expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
     })
 
     test('connect refuses a repository it cannot reach, and saves nothing', async () => {
@@ -1282,9 +1416,14 @@ describe('Dev or Prod label', () => {
         expect(plainGit(versionsDir(), 'rev-parse', 'refs/versions/incoming').trim()).toBe(head)
     })
 
-    test('a repository with no environment-list record still offers versions', async () => {
-        foreignCommit(bare, path.join(tmp, 'published'))
+    test('a repository with no environment-list record still offers versions from this server', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const head = bareMain(bare)
+        expect(head).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        await sync.disconnect()
+        execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
         sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
         setGithubForTests(sync)
         await sync.setEnvironment('prod')
@@ -1292,6 +1431,62 @@ describe('Dev or Prod label', () => {
         expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
         expect(status.state).toBe('up-to-date')
         expect(plainGit(versionsDir(), 'rev-parse', 'refs/versions/incoming').trim()).toBe(head)
+    })
+
+    test('Prod refuses a repository whose history has no versions from Dev', async () => {
+        foreignCommit(bare, path.join(tmp, 'readme-only'))
+        const foreign = bareMain(bare)
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('prod')
+        const calls = gitCalls.length
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('no versions from a Dev server')
+        })
+        expect(bareMain(bare)).toBe(foreign)
+        expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
+        expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
+    })
+
+    test('a named Dev server copies onto a README and the next server can read that copy', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        foreignCommit(bare, path.join(tmp, 'named-readme'), 'main', { LICENSE: 'keep\n' })
+        const foreign = bareMain(bare)
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        const devHead = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        const copied = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const tip = bareMain(bare)
+        expect(copied.state).toBe('up-to-date')
+        expect(tip).not.toBe(devHead)
+        expect(tip).not.toBe(foreign)
+        expect(bareRef(bare, `${tip}^`)).toBe(foreign)
+        expect(bareFile(bare, tip!, 'LICENSE')).toBe('keep\n')
+        expect(remoteNote(bare, tip!, path.join(tmp, 'note-graft'))).toBe(environmentListFingerprint(chain))
+        expectFastForwardOnly()
+
+        const stagingDir = path.join(tmp, 'staging-graft')
+        process.env.CUTTLELY_VERSIONS_DIR = stagingDir
+        resetForTests()
+        const staging = makeSync({
+            store: () => new VersionStore(stagingDir),
+            checkEveryMs: 60_000,
+            retryMs: [60_000]
+        })
+        await staging.setEnvironment('staging', chain)
+        const read = await staging.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(read.state).not.toBe('stopped')
+        expect(refOf(stagingDir, 'refs/versions/incoming')).toBe(tip)
+        expect(bareMain(bare)).toBe(tip)
+        expect(bareFile(bare, tip!, 'LICENSE')).toBe('keep\n')
+        staging.stop()
     })
 
     test('a stale Prod list does not take new versions once any environment list is recorded', async () => {

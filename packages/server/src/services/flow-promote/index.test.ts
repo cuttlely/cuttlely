@@ -351,6 +351,48 @@ describe('Prod reads the shared repository and never writes to it', () => {
         expect(prodSync.isConnected()).toBe(false)
     })
 
+    test('Prod reads a repository Dev copied onto existing history and does not write', async () => {
+        const repo = path.join(tmp, 'existing.git')
+        const work = path.join(tmp, 'existing-work')
+        execFileSync('git', ['init', '-q', '--bare', repo], { env: cleanEnv() })
+        fs.mkdirSync(work)
+        const env = {
+            ...cleanEnv(),
+            GIT_AUTHOR_NAME: 'a',
+            GIT_AUTHOR_EMAIL: 'a@example.invalid',
+            GIT_COMMITTER_NAME: 'a',
+            GIT_COMMITTER_EMAIL: 'a@example.invalid'
+        }
+        execFileSync('git', ['init', '-q'], { cwd: work, env })
+        fs.writeFileSync(path.join(work, 'README.md'), '# already here\n')
+        fs.writeFileSync(path.join(work, 'LICENSE'), 'keep\n')
+        execFileSync('git', ['add', '.'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'start'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${repo}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+        const foreign = bareMain(repo)
+        asDev()
+        await devSync.connect({ repo: `file://${repo}`, token: TOKEN }, 'ws-dev')
+        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        const tip = bareMain(repo)
+        expect(tip).not.toBe(foreign)
+        expect(execFileSync('git', ['--git-dir', repo, 'rev-parse', `${tip}^`], { encoding: 'utf8', env: cleanEnv() }).trim()).toBe(foreign)
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:README.md`], { encoding: 'utf8', env: cleanEnv() })).toBe(
+            '# already here\n'
+        )
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:LICENSE`], { encoding: 'utf8', env: cleanEnv() })).toBe('keep\n')
+        asProd()
+        const before = gitCalls.length
+        const status = await prodSync.connect({ repo: `file://${repo}`, token: TOKEN }, WS)
+        expect(status).toMatchObject({ role: 'read', state: 'up-to-date' })
+        expect(rev(prodDir, INCOMING_REF)).toBe(tip)
+        expect(bareMain(repo)).toBe(tip)
+        expect(gitCalls.slice(before).every((args) => args[0] !== 'push')).toBe(true)
+        expect((await listIncoming(WS, deps)).flows).toHaveLength(1)
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:README.md`], { encoding: 'utf8', env: cleanEnv() })).toBe(
+            '# already here\n'
+        )
+    })
+
     test('switching between Dev and Prod while connected is refused; clearing a Dev label is not', async () => {
         await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         await expect(prodSync.setEnvironment('dev')).rejects.toMatchObject({

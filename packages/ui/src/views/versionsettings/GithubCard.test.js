@@ -217,7 +217,8 @@ describe('GithubCard environment names', () => {
             message: ''
         }
         const dev = wrap(status({ ...base, role: 'copy', promotes: false, environment: 'dev' }), { initialStep: 'repo' })
-        expect(dev).toContain('Pick an empty repository, or make a new private one')
+        expect(dev).toContain('Pick a repository, or make a new private one')
+        expect(dev).toContain('Cuttlely never overwrites GitHub')
         expect(dev).toContain('Make a new private repository')
         expect(dev).toContain('Dev copies its published versions')
         expect(dev).toContain('Staging reads Dev and copies what it publishes')
@@ -225,7 +226,8 @@ describe('GithubCard environment names', () => {
         const staging = wrap(status({ ...base, role: 'copy', promotes: true, environment: 'staging' }), { initialStep: 'repo' })
         expect(staging).toContain('your Dev server copies to')
         expect(staging).not.toContain('Make a new private repository')
-        expect(staging).not.toContain('Pick an empty repository')
+        expect(staging).not.toContain('Pick a repository, or make a new private one')
+        expect(staging).not.toContain('Cuttlely never overwrites GitHub')
 
         const prod = wrap(status({ ...base, role: 'read', promotes: true, environment: 'prod' }), { initialStep: 'repo' })
         expect(prod).toContain('your Staging server copies to')
