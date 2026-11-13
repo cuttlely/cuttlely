@@ -301,10 +301,14 @@ describe('Import & verify canvas', () => {
         expect(document.body.textContent).not.toContain('Publish')
         act(() => root.unmount())
 
+        const published = { chatflow: { id: 'flow-1', flowData: stored }, status: { mode: 'live' } }
+        flowDraftsApi.publish.mockResolvedValue({ data: published })
         flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { hash: 'verified-hash', flowData: stored } } })
+        const onPublished = jest.fn()
         const ready = await renderDialog({
             chatflow: { id: 'flow-1', name: 'Team' },
             onClose: () => {},
+            onPublished,
             draftStatus: { mode: 'draft', draft: { hash: 'verified-hash' } }
         })
         await chooseFile()
@@ -316,7 +320,85 @@ describe('Import & verify canvas', () => {
             click('Publish')
             await new Promise((resolve) => setTimeout(resolve, 20))
         })
-        expect(flowDraftsApi.publish).toHaveBeenCalledWith('flow-1', { expectedDraftHash: 'verified-hash' })
+        expect(flowDraftsApi.publish).toHaveBeenCalledWith('flow-1', { expectedDraftHash: 'verified-hash', strictDraftHash: true })
+        expect(onPublished).toHaveBeenCalledWith(published)
         act(() => ready.unmount())
+    })
+
+    test('closing a running check does not paint the canvas when the check finishes', async () => {
+        let finish
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { flowData: stored, hash: 'saved' } } })
+        importVerifyApi.start.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+        )
+        const onImported = jest.fn()
+        const onClose = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose,
+            onImported,
+            draftStatus: { mode: 'draft', draft: { hash: 'saved' } }
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        const painted = onImported.mock.calls.length
+        await act(async () => {
+            click('Close')
+        })
+        await act(async () => {
+            finish({
+                data: {
+                    status: 'ready',
+                    publishOffered: true,
+                    draftHash: 'verified-hash',
+                    connections: [],
+                    queries: [],
+                    blockers: [],
+                    smoke: []
+                }
+            })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(onImported).toHaveBeenCalledTimes(painted)
+        expect(onClose).toHaveBeenCalled()
+        act(() => root.unmount())
+    })
+
+    test('a finished check does not paint over unsaved canvas edits', async () => {
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { flowData: stored, hash: 'saved' } } })
+        importVerifyApi.start.mockResolvedValue({
+            data: {
+                status: 'ready',
+                publishOffered: true,
+                draftHash: 'verified-hash',
+                connections: [],
+                queries: [],
+                blockers: [],
+                smoke: []
+            }
+        })
+        const onImported = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            onImported,
+            canvasDirty: true,
+            draftStatus: { mode: 'draft', draft: { hash: 'saved' } }
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 30))
+        })
+        expect(onImported).toHaveBeenCalledTimes(1)
+        act(() => root.unmount())
     })
 })

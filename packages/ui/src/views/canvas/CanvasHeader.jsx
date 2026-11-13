@@ -50,6 +50,7 @@ import {
     apiErrorMessage,
     badgeText,
     canvasAfterDiscard,
+    canvasAfterPublish,
     canvasAfterRollback,
     draftBadge,
     showDraftChrome
@@ -995,9 +996,13 @@ const CanvasHeader = ({
                 onDraftUnavailable={onDraftUnavailable}
                 draftStatus={draftStatus}
                 onFlowCreated={onFlowCreated}
-                onPublished={() => {
+                canvasDirty={Boolean(canvas.isDirty)}
+                onPublished={(data) => {
                     setImportVerifyOpen(false)
-                    if (chatflow?.id) onChatflowUpdated({ ...chatflow })
+                    if (data?.status) onDraftStatus(data.status)
+                    const next = canvasAfterPublish(chatflow, data, data?.status?.draft?.flowData || draftStatus?.draft?.flowData)
+                    if (data?.chatflow || next.chatflow?.flowData) onChatflowUpdated(next.chatflow)
+                    if (next.apply) onApplyCanvas(next.apply)
                 }}
             />
             <FlowiseMigrationWizard

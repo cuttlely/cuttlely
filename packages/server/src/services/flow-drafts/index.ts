@@ -443,6 +443,7 @@ export interface PublishDraftContext {
     userId?: string | null
     expectedDraftHash?: unknown
     overwriteDraftChanges?: unknown
+    strictDraftHash?: boolean
 }
 
 async function throwIfDraftChanged(

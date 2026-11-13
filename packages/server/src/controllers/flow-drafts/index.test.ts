@@ -375,7 +375,8 @@ describe('Publish', () => {
         expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), true, {
             userId: 'user-1',
             expectedDraftHash: undefined,
-            overwriteDraftChanges: undefined
+            overwriteDraftChanges: undefined,
+            strictDraftHash: false
         })
         const [current, update, orgId, workspaceId, subscriptionId, options] = updateChatflow.mock.calls[0]
         expect(current.id).toBe(FLOW.id)
@@ -395,6 +396,16 @@ describe('Publish', () => {
         expect(body).toMatchObject({ unchanged: false, recorded: true, historyError: null, version: { sha: SHA, published: true } })
         expect(Object.keys(body.chatflow).sort()).toEqual(['flowData', 'id', 'name', 'type', 'updatedDate'])
         expect(body.chatflow.flowData).toBe('{"nodes":[{"id":"draft"}],"edges":[]}')
+    })
+
+    it('passes a strict draft hash through when Import & verify publishes', async () => {
+        const res = response()
+        await controller.publishDraft(request({ expectedDraftHash: 'verified-hash', strictDraftHash: true }), res, jest.fn())
+        expect(drafts.draftToPublish).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            undefined,
+            expect.objectContaining({ expectedDraftHash: 'verified-hash', strictDraftHash: true })
+        )
     })
 
     it('reports why history could not record the publish', async () => {

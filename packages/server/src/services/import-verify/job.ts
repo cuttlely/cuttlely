@@ -214,6 +214,9 @@ export function importVerifyPublishBlock(raw: unknown, draftFlowData: string | n
         if (record.status === 'incomplete' || record.status === 'cancelled') {
             return 'This import has not finished for this draft. Open Import & verify and finish the check before publishing.'
         }
+        if (record.status === 'ready') {
+            return 'Import & verify finished for a different draft. Publish stays off until that verified draft is the one being published.'
+        }
         return null
     }
     if (record.status === 'ready') return null

@@ -134,7 +134,8 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
         const draft = await flowDraftsService.draftToPublish(flow, req.body?.overwriteLiveChanges, {
             userId: req.user?.id || null,
             expectedDraftHash: req.body?.expectedDraftHash,
-            overwriteDraftChanges: req.body?.overwriteDraftChanges
+            overwriteDraftChanges: req.body?.overwriteDraftChanges,
+            strictDraftHash: req.body?.strictDraftHash === true
         })
         if (accessContext(req)?.routeAdmission) await validateReferencedHarnesses({ ...flow, flowData: draft }, await harnessCallerFor(req))
         await completeAccessKeyAdmission(req, [permissionFor(flow.type, 'update')])

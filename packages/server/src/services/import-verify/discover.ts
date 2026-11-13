@@ -202,10 +202,15 @@ export function planDiscovery(sql: string, relations: string[]): DiscoveryPlan |
         i = Math.max(i, cursor - 1)
     }
 
+    const fromTables = [...new Set(aliases.values())]
     const columnRef = (index: number): { table: string; column: string; next: number } | null => {
         const first = ident(tokens[index])
         if (!first) return null
-        if (tokens[index + 1]?.kind !== 'dot') return null
+        if (tokens[index + 1]?.kind !== 'dot') {
+            // `WHERE month = :month` names one column on the only table in FROM.
+            if (fromTables.length !== 1 || keyword(first)) return null
+            return { table: fromTables[0], column: first, next: index + 1 }
+        }
         const second = ident(tokens[index + 2])
         if (!second) return null
         if (tokens[index + 3]?.kind === 'dot') {

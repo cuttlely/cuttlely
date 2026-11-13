@@ -31,7 +31,8 @@ const ImportVerifyDialog = ({
     onDraftStatus,
     onDraftUnavailable,
     expectedDraftHash,
-    draftStatus
+    draftStatus,
+    canvasDirty = false
 }) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
@@ -43,10 +44,18 @@ const ImportVerifyDialog = ({
     const [chatflowId, setChatflowId] = useState(chatflow?.id || '')
     const [choices, setChoices] = useState({})
     const adoptedId = useRef('')
+    const openRef = useRef(open)
+    const dirtyRef = useRef(canvasDirty === true)
+    const closedWhileRunning = useRef(false)
 
     useEffect(() => {
         if (chatflow?.id) setChatflowId(chatflow.id)
     }, [chatflow?.id])
+
+    useEffect(() => {
+        openRef.current = open
+        dirtyRef.current = canvasDirty === true
+    }, [open, canvasDirty])
 
     useEffect(() => {
         const id = chatflow?.id || chatflowId
@@ -80,9 +89,12 @@ const ImportVerifyDialog = ({
     const draftKnown = Boolean(draftStatus?.mode) && draftStatus.mode !== 'unknown' && !draftStatusFailed
 
     const close = () => {
+        if (busy) closedWhileRunning.current = true
         onClose()
         if (!busy) reset()
     }
+
+    const mayPaint = () => openRef.current && !closedWhileRunning.current && !dirtyRef.current
 
     const showImported = async (id, fallback) => {
         let saved = fallback
@@ -175,8 +187,9 @@ const ImportVerifyDialog = ({
                 choices: extra.choices,
                 resume: extra.resume
             })
+            closedWhileRunning.current = false
             const id = await ensureFlow(replaceDraft)
-            if (replaceDraft && flowText) await showImported(id, flowText)
+            if (replaceDraft && flowText && openRef.current && !closedWhileRunning.current) await showImported(id, flowText)
             const pending = importVerifyApi.start(id, extra)
             const timer = setInterval(() => {
                 importVerifyApi
@@ -188,6 +201,7 @@ const ImportVerifyDialog = ({
             }, 700)
             try {
                 const response = await pending
+                if (!mayPaint()) return
                 if (response?.data) setRecord(response.data)
                 await showImported(id, replaceDraft ? flowText : '')
             } finally {
@@ -281,8 +295,11 @@ const ImportVerifyDialog = ({
                         onClick={async () => {
                             setBusy(true)
                             try {
-                                await flowDraftsApi.publish(flowId, { expectedDraftHash: publishHash })
-                                if (onPublished) onPublished(flowId)
+                                const published = await flowDraftsApi.publish(flowId, {
+                                    expectedDraftHash: publishHash,
+                                    strictDraftHash: true
+                                })
+                                if (onPublished) onPublished(published?.data)
                             } catch (err) {
                                 setError(requestFailureMessage(err))
                             } finally {
@@ -314,7 +331,8 @@ ImportVerifyDialog.propTypes = {
     onDraftStatus: PropTypes.func,
     onDraftUnavailable: PropTypes.func,
     expectedDraftHash: PropTypes.func,
-    draftStatus: PropTypes.object
+    draftStatus: PropTypes.object,
+    canvasDirty: PropTypes.bool
 }
 
 export default ImportVerifyDialog

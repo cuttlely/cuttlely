@@ -1820,6 +1820,10 @@ describe('ZZ-TEST-a shared draft save asks before it replaces someone else', () 
         ).rejects.toBeInstanceOf(DraftChangedError)
         expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-mine 3'))
         expect(rows[0].draftUpdatedBy).toBe(me)
+        await expect(
+            draftToPublish(flow(), undefined, { userId: me, expectedDraftHash: loaded, strictDraftHash: true })
+        ).rejects.toBeInstanceOf(DraftChangedError)
+        expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-mine 3'))
         // A matching hash is the draft they opened, whoever saved it.
         const current = again.draft?.hash
         const shared = await saveDraft(flow(), canvas('ZZ-TEST-seen'), { ...context, userId: other, expectedDraftHash: current })

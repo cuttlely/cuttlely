@@ -313,7 +313,9 @@ describe('imported verification', () => {
         }
         expect(importVerifyPublishBlock(JSON.stringify(record), draft)).toMatch(/needs attention/)
         expect(importVerifyPublishBlock(JSON.stringify({ ...record, status: 'ready' }), draft)).toBeNull()
-        expect(importVerifyPublishBlock(JSON.stringify(record), JSON.stringify(flow([pin({ sql: 'SELECT 2 LIMIT 5' })])))).toBeNull()
+        const different = JSON.stringify(flow([pin({ sql: 'SELECT 2 LIMIT 5' })]))
+        expect(importVerifyPublishBlock(JSON.stringify(record), different)).toBeNull()
+        expect(importVerifyPublishBlock(JSON.stringify({ ...record, status: 'ready' }), different)).toMatch(/different draft/)
         const running = openingVerifyRecord(draft, '2026-11-13T00:00:00.000Z')
         const replaced = JSON.stringify(flow([pin({ sql: 'SELECT 2 LIMIT 5' })]))
         expect(importVerifyPublishBlock(JSON.stringify(running), replaced)).toMatch(/still running/)
@@ -818,6 +820,16 @@ describe('imported verification', () => {
         expect(record.draftHash).toBe(hashFlow(kept))
         expect(record.status).toBe('incomplete')
         expect(importVerifyPublishBlock(JSON.stringify(record), kept)).toMatch(/could not be fully verified|has not been verified/)
+    })
+
+    test('an unqualified column on one table can supply a sample', () => {
+        const unqualified = planDiscovery('SELECT region FROM demo_sales WHERE month = :month GROUP BY region LIMIT 100', ['demo_sales'])
+        expect(unqualified).toMatchObject({ bindings: [{ param: 'month', table: 'demo_sales', column: 'month', op: '=' }] })
+        const ambiguous = planDiscovery('SELECT region FROM demo_sales s JOIN other o ON s.id = o.id WHERE month = :month LIMIT 100', [
+            'demo_sales',
+            'other'
+        ])
+        expect(ambiguous).toMatchObject({ error: expect.stringContaining('no column comparisons') })
     })
 
     test('BETWEEN named parameters can supply a sample range', () => {
