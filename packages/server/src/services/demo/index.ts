@@ -89,9 +89,10 @@ function isTempSqlite(name: string, files: string[]): boolean {
     })
 }
 
-// A plain directory this demo may remove. Its entries are only that specialist's bundled file names.
-// A marker from this demo may sit with them, and so may the temporary sqlite file written before rename.
-// A link, a profile, or any other file stays. An unmarked folder is the leftover 1.7.3 wrote before the save.
+// A plain directory this demo may remove. An unmarked folder is removed only when every bundled file
+// is present and each non-sqlite file matches the shipped bytes. A leftover missing a bundled file,
+// such as only support.sqlite, stays. A marker from this demo may sit with the files, and so may the
+// temporary sqlite file written before rename. A link, a profile, or any other file stays.
 function workspaceIsThisDemo(folder: string, harness: string, profileName: string, files: string[], source: string): boolean {
     let stat: fs.Stats
     try {
