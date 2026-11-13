@@ -556,13 +556,17 @@ export const getFolderName = (base64ArrayStr) => {
 export const generateExportFlowData = (flowData, knownNodeNames, credentials) => {
     const nodes = flowData.nodes
     const edges = flowData.edges
-    // When the catalog is loaded, a node that is not in it keeps the saved data, including inputs.
+    // A node that is not in the loaded catalog keeps its saved fields. Secrets,
+    // password, file, and folder inputs, and credential ids are still removed.
     const known = Array.isArray(knownNodeNames) && knownNodeNames.length ? new Set(knownNodeNames) : null
     const namedCredentials = Array.isArray(credentials) ? credentialById(credentials) : null
 
     for (let i = 0; i < nodes.length; i += 1) {
         const node = nodes[i]
-        if (known && node?.data?.name && !known.has(node.data.name)) continue
+        if (known && node?.data?.name && !known.has(node.data.name)) {
+            nodes[i] = sanitizeUncataloguedNode(node, namedCredentials)
+            continue
+        }
         nodes[i].selected = false
 
         const newNodeData = {
@@ -589,15 +593,7 @@ export const generateExportFlowData = (flowData, knownNodeNames, credentials) =>
 
         // Remove password, file & folder
         if (node.data.inputs && Object.keys(node.data.inputs).length) {
-            const nodeDataInputs = {}
-            for (const input in node.data.inputs) {
-                const inputParam = node.data.inputParams.find((inp) => inp.name === input)
-                if (inputParam && inputParam.type === 'password') continue
-                if (inputParam && inputParam.type === 'file') continue
-                if (inputParam && inputParam.type === 'folder') continue
-                nodeDataInputs[input] = node.data.inputs[input]
-            }
-            newNodeData.inputs = nodeDataInputs
+            newNodeData.inputs = omitSecretInputs(node.data.inputs, node.data.inputParams)
         }
 
         if (namedCredentials && node.data.credential) newNodeData.credential = node.data.credential
@@ -608,6 +604,47 @@ export const generateExportFlowData = (flowData, knownNodeNames, credentials) =>
         edges
     }
     return exportJson
+}
+
+function omitSecretInputs(inputs, inputParams) {
+    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return inputs
+    const params = Array.isArray(inputParams) ? inputParams : []
+    const out = {}
+    let omitted = false
+    for (const input of Object.keys(inputs)) {
+        const inputParam = params.find((item) => item && item.name === input)
+        const type = inputParam && inputParam.type
+        if (type === 'password' || type === 'file' || type === 'folder') {
+            omitted = true
+            continue
+        }
+        out[input] = inputs[input]
+    }
+    return omitted ? out : inputs
+}
+
+function stripRawCredentialStrings(value) {
+    if (Array.isArray(value)) return value.map((item) => stripRawCredentialStrings(item))
+    if (!value || typeof value !== 'object') return value
+    const out = {}
+    for (const [key, item] of Object.entries(value)) {
+        if (key === 'credential' && typeof item === 'string') {
+            if (!item.trim()) out[key] = ''
+            continue
+        }
+        out[key] = stripRawCredentialStrings(item)
+    }
+    return out
+}
+
+// A node from a pack that is not loaded stays in the file. Password, file, and
+// folder inputs are removed, and so is every credential id.
+function sanitizeUncataloguedNode(node, namedCredentials) {
+    if (!node?.data || typeof node.data !== 'object') return node
+    const data = { ...node.data }
+    if (Object.prototype.hasOwnProperty.call(data, 'inputs')) data.inputs = omitSecretInputs(data.inputs, data.inputParams)
+    const next = namedCredentials ? replaceCredentialIds(data, namedCredentials) : stripRawCredentialStrings(stripCredentialIds(data))
+    return { ...node, data: next }
 }
 
 export const getAvailableNodesForVariable = (nodes, edges, target, targetHandle, includesStart = false) => {
