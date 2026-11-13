@@ -8,7 +8,7 @@ import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
 import flowDraftsService, { canvasHash, DraftChangedError } from '../../services/flow-drafts'
 import { harnessCallerFor } from '../../services/harnesses/apiAccess'
-import { executeVerify, openingVerifyRecord, recoverOrphanedRun, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
+import { beginVerification, executeVerify, recoverOrphanedRun, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
 import { readOnlyRows, testPinnedQuery, PinnedRequestError } from '../../services/pinned-queries'
 import { pinnedQueriesEnabled } from '../../services/pinned-queries/sql'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -87,11 +87,16 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
         const app = getRunningExpressApp()
         const loaded = app.nodesPool?.componentNodes ? Object.keys(app.nodesPool.componentNodes) : undefined
         const starting = (await flowDraftsService.getState(flow.id))?.draftFlowData || draft
-        if (starting) await writeRecord(flow.id, openingVerifyRecord(starting, new Date().toISOString()))
+        const previous = await beginVerification({
+            read: async () => readRecord((await flowDraftsService.getState(flow.id))?.importVerify),
+            write: (record) => writeRecord(flow.id, record),
+            draftText: starting || '',
+            now: new Date().toISOString()
+        })
         let expectedHash = starting ? canvasHash(starting) : undefined
         return await executeVerify({
             flowText: starting,
-            record: readRecord((await flowDraftsService.getState(flow.id))?.importVerify),
+            record: previous,
             choices,
             retryFailures,
             deps: {

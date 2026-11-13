@@ -211,11 +211,13 @@ describe('Import & verify canvas', () => {
         })
         const onImported = jest.fn()
         const onDraftStatus = jest.fn()
+        const onDraftUnavailable = jest.fn()
         const root = await renderDialog({
             chatflow: { id: 'flow-1', name: 'Team' },
             onClose: () => {},
             onImported,
-            onDraftStatus
+            onDraftStatus,
+            onDraftUnavailable
         })
         await chooseFile()
         await act(async () => {
@@ -224,6 +226,9 @@ describe('Import & verify canvas', () => {
         })
         expect(onImported).not.toHaveBeenCalled()
         expect(onDraftStatus).not.toHaveBeenCalled()
+        expect(onDraftUnavailable).toHaveBeenCalledWith(
+            expect.objectContaining({ status: { mode: 'unknown' }, load: expect.objectContaining({ known: false }) })
+        )
         expect(document.body.textContent).toContain('status could not be loaded')
         act(() => root.unmount())
     })

@@ -10,6 +10,7 @@ import {
     PLACEHOLDER_FLOW,
     connectionNeedsChoice,
     deliverImportedDraft,
+    draftStatusWhenImportUnknown,
     progressLine,
     shouldReplaceDraft,
     showResume,
@@ -18,7 +19,17 @@ import {
     verificationFlowId
 } from '@/utils/importVerify'
 
-const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished, onImported, onFlowCreated, onDraftStatus }) => {
+const ImportVerifyDialog = ({
+    open,
+    onClose,
+    chatflow,
+    flowType = 'CHATFLOW',
+    onPublished,
+    onImported,
+    onFlowCreated,
+    onDraftStatus,
+    onDraftUnavailable
+}) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
     const [name, setName] = useState('')
@@ -78,6 +89,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         }
         const delivered = deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
         if (!delivered && fallback) {
+            if (onDraftUnavailable) onDraftUnavailable(draftStatusWhenImportUnknown(id))
             setError(
                 'The draft was saved, but its status could not be loaded. The canvas was not changed. Reload this flow before you save.'
             )
@@ -284,7 +296,8 @@ ImportVerifyDialog.propTypes = {
     onPublished: PropTypes.func,
     onImported: PropTypes.func,
     onFlowCreated: PropTypes.func,
-    onDraftStatus: PropTypes.func
+    onDraftStatus: PropTypes.func,
+    onDraftUnavailable: PropTypes.func
 }
 
 export default ImportVerifyDialog

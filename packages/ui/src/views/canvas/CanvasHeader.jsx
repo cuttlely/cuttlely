@@ -160,6 +160,7 @@ const CanvasHeader = ({
     onApplyMigration,
     draftStatus = null,
     onDraftStatus = () => undefined,
+    onDraftUnavailable = () => undefined,
     onChatflowUpdated = () => undefined,
     onApplyCanvas = () => undefined,
     onFlowCreated = () => undefined,
@@ -983,6 +984,7 @@ const CanvasHeader = ({
                 onClose={() => setImportVerifyOpen(false)}
                 onImported={(flowText) => onApplyCanvas(flowText)}
                 onDraftStatus={onDraftStatus}
+                onDraftUnavailable={onDraftUnavailable}
                 onFlowCreated={onFlowCreated}
                 onPublished={() => {
                     setImportVerifyOpen(false)
@@ -1097,6 +1099,7 @@ CanvasHeader.propTypes = {
     isAgentflowV2: PropTypes.bool,
     draftStatus: PropTypes.object,
     onDraftStatus: PropTypes.func,
+    onDraftUnavailable: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
     onApplyCanvas: PropTypes.func,
     onFlowCreated: PropTypes.func,

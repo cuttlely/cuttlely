@@ -2,7 +2,16 @@ import { createHash } from 'crypto'
 import { applyCredential, connectionSlots, resolveSlot, type ConnectionResolution, type CredentialRow } from './connections'
 import { missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
 import { inspectFlow, nodeById, relationsOf, type Blocker, type SmokeNeed } from './inspect'
-import { flowHasUntrustedImport, parseFlow, queriesOnFlow, queryReady, replaceQuery, untrustImportedFlow, type SavedQuery } from './stamps'
+import {
+    clearImportHold,
+    flowHasUntrustedImport,
+    parseFlow,
+    queriesOnFlow,
+    queryReady,
+    replaceQuery,
+    untrustImportedFlow,
+    type SavedQuery
+} from './stamps'
 
 export function hashFlow(flowText: string): string {
     return createHash('sha256').update(flowText).digest('hex')
@@ -173,7 +182,15 @@ export function importVerifyPublishBlock(raw: unknown, draftFlowData: string | n
     } catch {
         return untrusted ? UNVERIFIED_IMPORT : null
     }
-    if (!record || record.version !== 1 || record.draftHash !== hashFlow(draftFlowData)) return untrusted ? UNVERIFIED_IMPORT : null
+    if (!record || record.version !== 1) return untrusted ? UNVERIFIED_IMPORT : null
+    if (record.draftHash !== hashFlow(draftFlowData)) {
+        if (untrusted) return UNVERIFIED_IMPORT
+        if (record.status === 'running') return 'Verification is still running. Publish stays available after it finishes.'
+        if (record.status === 'incomplete' || record.status === 'cancelled') {
+            return 'This import has not finished for this draft. Open Import & verify and finish the check before publishing.'
+        }
+        return null
+    }
     if (record.status === 'ready') return null
     if (record.status === 'running') return 'Verification is still running. Publish stays available after it finishes.'
     if (record.status === 'attention') return 'This import needs attention. Open Import & verify, use the actions it shows, then publish.'
@@ -292,6 +309,19 @@ function stoppedRecord(flowText: string, now: string, error: unknown): VerifyRec
         },
         now
     )
+}
+
+// Read the stored check before writing the opening hold. The hold has no query results, so reading it
+// back would drop queries that already passed and run them again.
+export async function beginVerification(args: {
+    read: () => Promise<VerifyRecord | null>
+    write: (record: VerifyRecord) => Promise<void>
+    draftText: string
+    now: string
+}): Promise<VerifyRecord | null> {
+    const previous = await args.read()
+    if (args.draftText) await args.write(openingVerifyRecord(args.draftText, args.now))
+    return previous
 }
 
 export async function executeVerify(options: {
@@ -626,7 +656,7 @@ async function verifyBody(options: {
             message: item.message,
             action: item.id === 'pdf' ? ('install-dependency' as const) : ('retry' as const)
         }))
-    record = finishRecord(
+    const finished = finishRecord(
         {
             ...record,
             blockers: [...inspected.blockers, ...queryBlockers, ...smokeBlockers],
@@ -635,8 +665,12 @@ async function verifyBody(options: {
         },
         deps.now()
     )
-    await deps.saveRecord(record)
-    return record
+    if (finished.status !== 'ready') {
+        await deps.saveRecord(finished)
+        return finished
+    }
+    const readyStored = await persist(deps, clearImportHold(flow), finished)
+    return readyStored.record
 }
 
 async function runSmoke(

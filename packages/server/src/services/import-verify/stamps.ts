@@ -67,10 +67,20 @@ function walkNodes(flow: { nodes?: unknown }): Array<{ node: Record<string, unkn
     return found
 }
 
+export const IMPORT_HOLD = 'unverified'
+
 export function flowHasUntrustedImport(value: unknown): boolean {
     const flow = parseFlow(value)
     if (!flow) return false
+    if ((flow as { importVerification?: unknown }).importVerification === IMPORT_HOLD) return true
     return queriesOnFlow(flow).some((item) => item.pin.importedVerification === 'untrusted')
+}
+
+export function clearImportHold<T>(flow: T): T {
+    if (!flow || typeof flow !== 'object') return flow
+    const copy = { ...(flow as object) } as T & { importVerification?: string }
+    delete copy.importVerification
+    return copy
 }
 
 export function parseFlow(value: unknown): { nodes: unknown[]; edges: unknown[]; [key: string]: unknown } | null {
@@ -93,7 +103,8 @@ export function parseFlow(value: unknown): { nodes: unknown[]; edges: unknown[];
 
 // Drop destination-untrusted stamps. `keep` names queries this server already retested in the current run.
 export function untrustImportedFlow(flow: { nodes?: unknown }, keep: Set<string> = new Set()): { flow: typeof flow; stripped: number } {
-    const copy = structuredClone(flow) as { nodes?: unknown }
+    const copy = structuredClone(flow) as { nodes?: unknown; importVerification?: string }
+    copy.importVerification = IMPORT_HOLD
     let stripped = 0
     for (const { node, inputs } of walkNodes(copy)) {
         if (!Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue

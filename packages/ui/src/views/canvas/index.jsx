@@ -111,7 +111,7 @@ import {
 } from '@/utils/buildWithAI'
 
 // const
-import { adoptImportedIdentity } from '@/utils/importVerify'
+import { adoptImportedIdentity, draftStatusWhenImportUnknown } from '@/utils/importVerify'
 import { uiBaseURL } from '@/store/constant'
 import { requestFailureMessage, saveFailureMessage } from '@/utils/errorSummary'
 
@@ -1644,6 +1644,11 @@ const Canvas = () => {
                                     })
                                     dispatch({ type: SET_CHATFLOW, chatflow: created })
                                     setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null, request: 'status' })
+                                }}
+                                onDraftUnavailable={() => {
+                                    const next = draftStatusWhenImportUnknown(routeFlowId || createdFlowIdRef.current)
+                                    setDraftStatus(next.status)
+                                    setDraftStatusLoad(next.load)
                                 }}
                                 onDirty={setDirty}
                                 draftExpected={draftSave.expected}

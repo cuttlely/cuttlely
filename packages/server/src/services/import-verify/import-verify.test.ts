@@ -1,7 +1,7 @@
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
 import { planDiscovery, valuesFromDiscovery } from './discover'
 import { inspectFlow } from './inspect'
-import { executeVerify, hashFlow, importVerifyPublishBlock, recoverOrphanedRun } from './job'
+import { beginVerification, executeVerify, hashFlow, importVerifyPublishBlock, openingVerifyRecord, recoverOrphanedRun } from './job'
 import type { VerifyDeps, VerifyRecord } from './job'
 import { parseFlow, queryReady, untrustImportedFlow } from './stamps'
 
@@ -306,6 +306,15 @@ describe('imported verification', () => {
         expect(importVerifyPublishBlock(JSON.stringify(record), draft)).toMatch(/needs attention/)
         expect(importVerifyPublishBlock(JSON.stringify({ ...record, status: 'ready' }), draft)).toBeNull()
         expect(importVerifyPublishBlock(JSON.stringify(record), JSON.stringify(flow([pin({ sql: 'SELECT 2 LIMIT 5' })])))).toBeNull()
+        const running = openingVerifyRecord(draft, '2026-11-13T00:00:00.000Z')
+        const replaced = JSON.stringify(flow([pin({ sql: 'SELECT 2 LIMIT 5' })]))
+        expect(importVerifyPublishBlock(JSON.stringify(running), replaced)).toMatch(/still running/)
+        const noQueries = JSON.stringify({
+            nodes: [{ id: 'model', data: { name: 'chatOpenAI', inputs: {} } }],
+            edges: [],
+            importVerification: 'unverified'
+        })
+        expect(importVerifyPublishBlock(null, noQueries)).toMatch(/has not been verified/)
         expect(importVerifyPublishBlock(null, draft)).toBeNull()
     })
 
@@ -405,6 +414,63 @@ describe('imported verification', () => {
         })
         expect(unnamed.blockers.some((item) => item.id === 'contract:spec:unnamed')).toBe(true)
         expect(unnamed.smoke.some((item) => item.id === 'report')).toBe(false)
+    })
+
+    test('resume reads the stored check before the opening record replaces it', async () => {
+        const verified = pin({ verifiedHere: true, testedStamp: 'ff'.repeat(32), needsRetest: false })
+        const text = JSON.stringify(flow([verified], 'cred-pg'))
+        const passed = {
+            version: 1 as const,
+            draftHash: hashFlow(text),
+            status: 'attention' as const,
+            phase: 'Needs attention',
+            checked: 1,
+            total: 1,
+            queries: [
+                {
+                    nodeId: 'pg',
+                    pinId: 'pin-1',
+                    name: 'pq_account_opportunity',
+                    title: 'Opportunity for an account',
+                    state: 'passed' as const,
+                    message: 'Tested on this server.',
+                    attempts: 1
+                }
+            ],
+            connections: [],
+            blockers: [],
+            smoke: [],
+            summary: '',
+            publishOffered: false,
+            updatedAt: '2026-11-13T00:00:00.000Z'
+        }
+        let stored: VerifyRecord | null = passed
+        const resume = await beginVerification({
+            read: async () => stored,
+            write: async (record) => {
+                stored = record
+            },
+            draftText: text,
+            now: '2026-11-13T00:00:01.000Z'
+        })
+        expect(resume?.queries[0].state).toBe('passed')
+        expect(stored?.status).toBe('running')
+        expect(stored?.queries).toEqual([])
+        let ran = 0
+        const { deps } = memoryDeps({
+            testPin: async () => {
+                ran += 1
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...pin(), testedStamp: 'ff'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const again = await executeVerify({ flowText: text, record: resume, deps })
+        expect(ran).toBe(0)
+        expect(again.queries[0].state).toBe('passed')
     })
 
     test('a running check with no live job can be resumed and still blocks publish', () => {

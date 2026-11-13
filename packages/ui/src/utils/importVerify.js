@@ -23,9 +23,12 @@ export function queryReady(pin) {
     return true
 }
 
+export const IMPORT_HOLD = 'unverified'
+
 export function untrustFlow(flow) {
     if (!flow || typeof flow !== 'object' || !Array.isArray(flow.nodes)) return flow
     const copy = JSON.parse(JSON.stringify(flow))
+    copy.importVerification = IMPORT_HOLD
     for (const node of copy.nodes) {
         const inputs = node?.data?.inputs
         if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue
@@ -89,6 +92,15 @@ export function deliverImportedDraft({ status, flowText, onDraftStatus, onImport
     const text = typeof stored === 'string' && stored ? stored : flowText
     if (status.mode === 'draft' && text && onImported) onImported(text)
     return status.mode === 'draft' && Boolean(text)
+}
+
+// The canvas must not keep a draft hash from before this import. A later Save of the old cards
+// would otherwise replace the imported draft, including when the same person saved both.
+export function draftStatusWhenImportUnknown(flowId) {
+    return {
+        status: { mode: 'unknown' },
+        load: { flowId: flowId || '', known: false, loading: false, error: true, request: 'status' }
+    }
 }
 
 export function canvasPathForImport(flowType, id, agentV2 = false) {

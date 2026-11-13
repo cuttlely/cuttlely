@@ -7,9 +7,12 @@ import {
     shouldReplaceDraft,
     showResume,
     statusTitle,
+    IMPORT_HOLD,
+    draftStatusWhenImportUnknown,
     untrustFlow,
     verificationFlowId
 } from './importVerify'
+import { planCanvasSave } from './flowDrafts'
 
 const pin = {
     id: 'pin-1',
@@ -101,6 +104,12 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
     ).toBe('flow-new')
     expect(remembered).toEqual(['flow-new'])
     expect(replaced[0][2]).toBe('/canvas/flow-new')
+    const held = untrustFlow({ nodes: [], edges: [] })
+    expect(held.importVerification).toBe(IMPORT_HOLD)
+    const unknown = draftStatusWhenImportUnknown('flow-1')
+    expect(unknown.status.mode).toBe('unknown')
+    expect(unknown.load.known).toBe(false)
+    expect(planCanvasSave({ mode: unknown.status.mode, name: 'A', savedName: 'A', flowData: '{}', hasId: true }).modeUnknown).toBe(true)
 })
 
 test('the three finished results use plain titles', () => {
