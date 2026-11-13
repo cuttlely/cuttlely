@@ -21,6 +21,7 @@ export interface JoinEdge {
 interface Token {
     kind: 'word' | 'param' | 'op' | 'dot'
     text: string
+    quoted?: boolean
 }
 
 function tokenize(sql: string): Token[] {
@@ -43,11 +44,30 @@ function tokenize(sql: string): Token[] {
             i = end < 0 ? sql.length : end + 2
             continue
         }
-        if (c === "'" || c === '"') {
+        if (c === '"') {
+            i += 1
+            let text = ''
+            while (i < sql.length) {
+                if (sql[i] === '"') {
+                    if (sql[i + 1] === '"') {
+                        text += '"'
+                        i += 2
+                        continue
+                    }
+                    i += 1
+                    break
+                }
+                text += sql[i]
+                i += 1
+            }
+            if (text) tokens.push({ kind: 'word', text, quoted: true })
+            continue
+        }
+        if (c === "'") {
             i += 1
             while (i < sql.length) {
-                if (sql[i] === c) {
-                    if (sql[i + 1] === c) {
+                if (sql[i] === "'") {
+                    if (sql[i + 1] === "'") {
                         i += 2
                         continue
                     }
@@ -99,7 +119,9 @@ function tokenize(sql: string): Token[] {
 }
 
 function ident(token: Token | undefined): string {
-    if (!token || token.kind !== 'word' || !IDENT.test(token.text)) return ''
+    if (!token || token.kind !== 'word') return ''
+    if (token.quoted) return token.text
+    if (!IDENT.test(token.text)) return ''
     return token.text
 }
 
@@ -107,13 +129,22 @@ function quoteIdent(name: string): string {
     return `"${name.replace(/"/g, '""')}"`
 }
 
+function quoteQualified(name: string): string {
+    return name
+        .split('.')
+        .filter(Boolean)
+        .map((part) => quoteIdent(part))
+        .join('.')
+}
+
 export function allowedTable(name: string, relations: string[]): boolean {
     const needle = name.toLowerCase()
+    const needleBare = needle.includes('.') ? needle.slice(needle.lastIndexOf('.') + 1) : needle
     return relations.some((relation) => {
         const text = relation.trim().toLowerCase()
         if (!text) return false
         const bare = text.includes('.') ? text.slice(text.lastIndexOf('.') + 1) : text
-        return bare === needle || text === needle
+        return text === needle || bare === needleBare || bare === needle || text === needleBare
     })
 }
 
@@ -131,32 +162,61 @@ export function planDiscovery(sql: string, relations: string[]): DiscoveryPlan |
     const bindings: Binding[] = []
     const joins: JoinEdge[] = []
 
+    const readQualified = (index: number): { name: string; next: number } | null => {
+        const first = ident(tokens[index])
+        if (!first) return null
+        if (tokens[index + 1]?.kind === 'dot') {
+            const second = ident(tokens[index + 2])
+            if (!second) return { name: first, next: index + 1 }
+            return { name: `${first}.${second}`, next: index + 3 }
+        }
+        return { name: first, next: index + 1 }
+    }
+    const keyword = (text: string) => /^(on|join|left|right|inner|outer|cross|where|group|order|limit|as)$/i.test(text)
+
     for (let i = 0; i < tokens.length; i += 1) {
         const word = tokens[i]
-        if (word.kind !== 'word' || !/^(from|join)$/i.test(word.text)) continue
-        const table = ident(tokens[i + 1])
-        if (!table) continue
-        let alias = table
-        const next = tokens[i + 2]
-        if (next?.kind === 'word' && !/^(on|join|left|right|inner|outer|cross|where|group|order|limit|as)$/i.test(next.text)) {
-            alias = ident(next) || table
-        } else if (next?.kind === 'word' && /^as$/i.test(next.text)) {
-            alias = ident(tokens[i + 3]) || table
+        if (word.kind !== 'word' || word.quoted || !/^(from|join)$/i.test(word.text)) continue
+        const qualified = readQualified(i + 1)
+        if (!qualified) continue
+        const bare = qualified.name.includes('.') ? qualified.name.slice(qualified.name.lastIndexOf('.') + 1) : qualified.name
+        let alias = bare
+        let cursor = qualified.next
+        const next = tokens[cursor]
+        if (next?.kind === 'word' && !next.quoted && /^as$/i.test(next.text)) {
+            const named = ident(tokens[cursor + 1])
+            if (named) {
+                alias = named
+                cursor += 2
+            }
+        } else if (next?.kind === 'word' && (next.quoted || !keyword(next.text))) {
+            const named = ident(next)
+            if (named) {
+                alias = named
+                cursor += 1
+            }
         }
-        aliases.set(alias.toLowerCase(), table)
-        aliases.set(table.toLowerCase(), table)
+        aliases.set(alias.toLowerCase(), qualified.name)
+        aliases.set(bare.toLowerCase(), qualified.name)
+        aliases.set(qualified.name.toLowerCase(), qualified.name)
+        i = Math.max(i, cursor - 1)
     }
 
     const columnRef = (index: number): { table: string; column: string; next: number } | null => {
         const first = ident(tokens[index])
         if (!first) return null
-        if (tokens[index + 1]?.kind === 'dot') {
-            const column = ident(tokens[index + 2])
-            if (!column) return null
-            const table = aliases.get(first.toLowerCase()) || first
-            return { table, column, next: index + 3 }
+        if (tokens[index + 1]?.kind !== 'dot') return null
+        const second = ident(tokens[index + 2])
+        if (!second) return null
+        if (tokens[index + 3]?.kind === 'dot') {
+            const third = ident(tokens[index + 4])
+            if (!third) return null
+            const qualified = `${first}.${second}`
+            const table = aliases.get(qualified.toLowerCase()) || aliases.get(second.toLowerCase()) || qualified
+            return { table, column: third, next: index + 5 }
         }
-        return null
+        const table = aliases.get(first.toLowerCase()) || first
+        return { table, column: second, next: index + 3 }
     }
 
     for (let i = 0; i < tokens.length; i += 1) {
@@ -188,8 +248,12 @@ export function planDiscovery(sql: string, relations: string[]): DiscoveryPlan |
 
     if (!bindings.length) return { error: 'The saved query has no column comparisons that can supply test values.' }
     const tables = [...new Set(bindings.map((item) => item.table))]
+    const quotable = (name: string) => {
+        const parts = name.split('.')
+        return parts.length > 0 && parts.every((part) => part.length > 0 && part.length <= 128 && !/[\u0000"]/.test(part))
+    }
     for (const table of tables) {
-        if (!IDENT.test(table) || !allowedTable(table, relations)) {
+        if (!quotable(table) || !allowedTable(table, relations)) {
             return { error: `Test values were not read from ${table}, because that table is not selected on this node.` }
         }
     }
@@ -209,9 +273,9 @@ export function planDiscovery(sql: string, relations: string[]): DiscoveryPlan |
     if (!used.length) return { error: 'The parameters that remain are sensitive, so test values were not read from those columns.' }
 
     const select = used
-        .map((binding) => `${quoteIdent(binding.table)}.${quoteIdent(binding.column)} AS ${quoteIdent(binding.param)}`)
+        .map((binding) => `${quoteQualified(binding.table)}.${quoteIdent(binding.column)} AS ${quoteIdent(binding.param)}`)
         .join(', ')
-    const from = quoteIdent(used[0].table)
+    const from = quoteQualified(used[0].table)
     const rest = tables.filter((table) => table !== used[0].table)
     const joinSql = rest
         .map((table) => {
@@ -223,16 +287,16 @@ export function planDiscovery(sql: string, relations: string[]): DiscoveryPlan |
                     (item.rightTable === table && tables.includes(item.leftTable))
             )
             if (!edge) return ''
-            const on = `${quoteIdent(edge.leftTable)}.${quoteIdent(edge.leftColumn)} = ${quoteIdent(edge.rightTable)}.${quoteIdent(
+            const on = `${quoteQualified(edge.leftTable)}.${quoteIdent(edge.leftColumn)} = ${quoteQualified(edge.rightTable)}.${quoteIdent(
                 edge.rightColumn
             )}`
-            return ` JOIN ${quoteIdent(table)} ON ${on}`
+            return ` JOIN ${quoteQualified(table)} ON ${on}`
         })
         .join('')
     if (rest.length && !joinSql) {
         return { error: 'The saved query relates several tables, but the relationship was not clear enough to pick matching test values.' }
     }
-    const where = used.map((binding) => `${quoteIdent(binding.table)}.${quoteIdent(binding.column)} IS NOT NULL`).join(' AND ')
+    const where = used.map((binding) => `${quoteQualified(binding.table)}.${quoteIdent(binding.column)} IS NOT NULL`).join(' AND ')
     const text = `SELECT DISTINCT ${select} FROM ${from}${joinSql} WHERE ${where} LIMIT 20`
     if (text.length > 4000) return { error: 'The lookup for test values was too large, so it was not run.' }
     return { text, bindings: used }
@@ -337,10 +401,9 @@ export function valuesFromDiscovery(
         const upper = list.find((item) => item.op === '<=' || item.op === '<')
         if (!lower || !upper || !rows.length) continue
         const column = lower.param
-        const numbers = rows
-            .map((row) => textOf(row[column] ?? row[lower.column]))
-            .filter(Boolean)
-            .sort()
+        const numbers = rows.map((row) => textOf(row[column] ?? row[lower.column])).filter(Boolean)
+        const numeric = numbers.every((item) => /^-?\d+(\.\d+)?$/.test(item))
+        numbers.sort((left, right) => (numeric ? decimalCompare(left, right) : left < right ? -1 : left > right ? 1 : 0))
         if (!numbers.length) continue
         const low = coerce(params.find((item) => item.name === lower.param) || { name: lower.param }, numbers[0])
         const high = coerce(params.find((item) => item.name === upper.param) || { name: upper.param }, numbers[numbers.length - 1])

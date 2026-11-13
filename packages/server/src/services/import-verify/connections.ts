@@ -1,5 +1,6 @@
 // Destination credentials match by name and type only when one authorized row matches.
-// An existing id that is already on this server is reused. Empty slots stay empty.
+// An existing id that is already on this server is reused. An optional empty slot stays empty.
+// A required credential that is still empty blocks Ready to publish.
 // This is the same uniqueness rule as import rebind: one name and one credential type.
 
 export interface CredentialRow {
@@ -104,8 +105,15 @@ export function connectionSlots(flow: { nodes?: unknown }): ConnectionSlot[] {
                 ? queries.includes('"sql"') || queries.includes('"name"')
                 : Array.isArray(queries) && queries.length > 0
         const category = String(record.category || '')
+        const requiredSpec = Boolean(spec && spec.optional !== true)
         const needed = Boolean(
-            mark || currentId || hasQueries || category === 'Chat Models' || category === 'Embeddings' || category === 'Chat Model'
+            requiredSpec ||
+                mark ||
+                currentId ||
+                hasQueries ||
+                category === 'Chat Models' ||
+                category === 'Embeddings' ||
+                category === 'Chat Model'
         )
         slots.push({
             id: `${nodeId}:credential`,

@@ -143,15 +143,7 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
         const queries = readQueries(inputs.pinnedQueries)
         if (queries.length) sawQueries = true
         const slot = byResolution.get(`${nodeId}:credential`)
-        const category = String(data.category || '')
-        const modelLike = category === 'Chat Models' || category === 'Embeddings' || category === 'Chat Model'
-        if (
-            slot &&
-            slot.status !== 'reused' &&
-            slot.status !== 'matched' &&
-            slot.status !== 'empty' &&
-            (queries.length || modelLike || slot.slot.needed)
-        ) {
+        if (slot && slot.status !== 'reused' && slot.status !== 'matched' && slot.status !== 'empty' && slot.slot.needed) {
             blockers.push({
                 id: `connection:${slot.slot.id}`,
                 severity: 'attention',
@@ -164,7 +156,7 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
                 nodeId
             })
         }
-        if (modelLike && slot && slot.status === 'empty' && slot.slot.required) {
+        if (slot && slot.status === 'empty' && slot.slot.required && slot.slot.needed) {
             blockers.push({
                 id: `connection:${slot.slot.id}:empty`,
                 severity: 'attention',

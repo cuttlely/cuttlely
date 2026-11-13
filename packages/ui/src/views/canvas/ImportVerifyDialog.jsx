@@ -16,7 +16,7 @@ import {
     verificationFlowId
 } from '@/utils/importVerify'
 
-const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished }) => {
+const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished, onImported }) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
     const [name, setName] = useState('')
@@ -58,9 +58,21 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
     }
 
     const close = () => {
-        if (busy) return
-        reset()
         onClose()
+        if (!busy) reset()
+    }
+
+    const showImported = async (id, fallback) => {
+        if (!onImported) return
+        let saved = fallback
+        try {
+            const status = await flowDraftsApi.getStatus(id)
+            const stored = status?.data?.draft?.flowData
+            if (typeof stored === 'string' && stored) saved = stored
+        } catch {
+            // The file already written to the draft is enough to replace the canvas.
+        }
+        if (saved) onImported(saved)
     }
 
     const onFile = (event) => {
@@ -113,14 +125,14 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         setBusy(true)
         setError('')
         try {
-            const id = await ensureFlow(
-                shouldReplaceDraft({
-                    flowText,
-                    retryFailures: extra.retryFailures,
-                    choices: extra.choices,
-                    resume: extra.resume
-                })
-            )
+            const replaceDraft = shouldReplaceDraft({
+                flowText,
+                retryFailures: extra.retryFailures,
+                choices: extra.choices,
+                resume: extra.resume
+            })
+            const id = await ensureFlow(replaceDraft)
+            if (replaceDraft && flowText) await showImported(id, flowText)
             const pending = importVerifyApi.start(id, extra)
             const timer = setInterval(() => {
                 importVerifyApi
@@ -133,6 +145,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
             try {
                 const response = await pending
                 if (response?.data) setRecord(response.data)
+                await showImported(id, replaceDraft ? flowText : '')
             } finally {
                 clearInterval(timer)
             }
@@ -199,9 +212,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
                 </Stack>
             </DialogContent>
             <DialogActions>
-                <Button onClick={close} disabled={busy}>
-                    Close
-                </Button>
+                <Button onClick={close}>Close</Button>
                 {unresolved.length > 0 && (
                     <Button variant='contained' disabled={busy} onClick={() => run({ choices })}>
                         Choose connection
@@ -251,7 +262,8 @@ ImportVerifyDialog.propTypes = {
     onClose: PropTypes.func,
     chatflow: PropTypes.object,
     flowType: PropTypes.string,
-    onPublished: PropTypes.func
+    onPublished: PropTypes.func,
+    onImported: PropTypes.func
 }
 
 export default ImportVerifyDialog

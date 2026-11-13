@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
--   **Import and verify.** A canvas file can be imported and checked on this server without sample values. Imported test stamps are not ready. Verification stays on the draft, and publish is offered after the required checks pass. [Import and verify](../../docs/how-to/import-verify.md).
+-   **Import and verify.** A canvas file can be imported and checked on this server without sample values. Imported test stamps are not ready. A required empty credential blocks Ready to publish. Schema-qualified queries can be sampled. The imported draft is shown on the canvas. Verification stays on the draft, and publish is offered after the required checks pass. [Import and verify](../../docs/how-to/import-verify.md).
 
 -   **1.7.3 release (done).** Released on main as `11fab773`. The notes below record the preparation. Backups and 1.7.0 operator onboarding/recovery still apply; enforcement stays default Off.
 

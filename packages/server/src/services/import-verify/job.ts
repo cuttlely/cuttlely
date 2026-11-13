@@ -330,9 +330,7 @@ export async function executeVerify(options: {
     const waitingConnection = resolutions.some((item) => {
         if (!item.slot.needed) return false
         return (
-            item.status === 'missing' ||
-            item.status === 'ambiguous' ||
-            (item.status === 'empty' && item.slot.required && queries.some((query) => query.nodeId === item.slot.nodeId))
+            item.status === 'missing' || item.status === 'ambiguous' || (item.status === 'empty' && item.slot.required && item.slot.needed)
         )
     })
     if (waitingConnection) {

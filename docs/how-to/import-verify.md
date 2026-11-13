@@ -9,14 +9,14 @@ You do not type sample parameter values. You do not paste secrets into a chat. C
 1. Open a canvas and choose **Import & verify** from the gear menu. On a new canvas the same item is in that menu before the first save.
 2. Choose the JSON file and select **Import & verify**.
 3. Cuttlely keeps the queries and the rest of the configuration. A test stamp from the file is not treated as proof. Every saved query is tested again on this server.
-4. A connection that already exists here, with the same name and type, is reused. If none matches, or more than one matches, you get a short list and choose one. An empty credential slot stays empty.
+4. A connection that already exists here, with the same name and type, is reused. If none matches, or more than one matches, you get a short list and choose one. An optional empty credential slot stays empty. A required credential that is still empty asks you to choose one before the flow is ready. The canvas shows the imported draft while the check runs.
 5. Progress reads like **Checking saved queries: 42 of 89.**
 6. When it finishes, the result is one of:
     - **Ready to publish.** The checks that apply to this flow passed. Nothing has been published yet.
     - **Needs attention.** Something failed or a choice is still open. Each item names an action, such as **Choose connection** or **Retry**.
     - **Could not fully verify.** A check could not be run, for example because saved queries are turned off. The flow is not marked ready.
 
-**Retry** runs the queries that failed. Queries that already passed on this server are not run again. You can close the dialog and come back; the progress is saved with the draft.
+**Retry** runs the queries that failed. Queries that already passed on this server are not run again. Close stays available while the check runs. You can close the dialog and come back; the progress is saved with the draft, and the canvas shows the imported draft.
 
 ## What is checked
 

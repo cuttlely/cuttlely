@@ -384,6 +384,106 @@ describe('imported verification', () => {
         expect(saves).toBe(2)
     })
 
+    test('a required credential on a tool card blocks publish when the slot is empty', async () => {
+        const canvas = flow([pin()], 'cred-pg')
+        canvas.nodes.push({
+            id: 'api',
+            data: {
+                id: 'api',
+                name: 'requestsGet',
+                label: 'GET',
+                category: 'Tools',
+                inputParams: [{ type: 'credential', credentialNames: ['openAIApi'] }],
+                credential: '',
+                inputs: {}
+            }
+        })
+        const { deps } = memoryDeps({ loadedNodeNames: ['postgreSQLMCP', 'chatOpenAI', 'requestsGet'] })
+        const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(record.status).toBe('attention')
+        expect(record.publishOffered).toBe(false)
+        expect(record.blockers.some((item) => item.nodeId === 'api' && item.action === 'choose-connection')).toBe(true)
+    })
+
+    test('an optional empty credential on a tool card does not block publish', async () => {
+        const canvas = flow([pin()], 'cred-pg')
+        canvas.nodes.push({
+            id: 'api',
+            data: {
+                id: 'api',
+                name: 'requestsGet',
+                label: 'GET',
+                category: 'Tools',
+                inputParams: [{ type: 'credential', credentialNames: ['openAIApi'], optional: true }],
+                credential: '',
+                inputs: {}
+            }
+        })
+        const { deps } = memoryDeps({ loadedNodeNames: ['postgreSQLMCP', 'chatOpenAI', 'requestsGet'] })
+        const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(record.status).toBe('ready')
+        expect(record.publishOffered).toBe(true)
+    })
+
+    test('schema-qualified and quoted tables produce a sample lookup', () => {
+        const statements = [
+            'SELECT o.name FROM public.orders o WHERE o.id = :id LIMIT 20',
+            'SELECT o.name FROM "public"."orders" AS o WHERE o.id = :id LIMIT 20'
+        ]
+        for (const sql of statements) {
+            const plan = planDiscovery(sql, ['public.orders'])
+            expect(plan).not.toHaveProperty('error')
+            if (!('text' in plan)) return
+            expect(plan.text).toContain('"public"."orders"')
+            expect(plan.bindings[0].table).toBe('public.orders')
+            expect(plan.bindings[0].column).toBe('id')
+        }
+    })
+
+    test('a schema-qualified query finishes without a permanent sample failure', async () => {
+        const sql = 'SELECT o.name FROM public.orders o WHERE o.id = :id LIMIT 20'
+        const orders = pin({
+            id: 'pin-orders',
+            name: 'pq_orders',
+            sql,
+            params: [{ name: 'id', type: 'text', required: true }]
+        })
+        const canvas = flow([orders], 'cred-pg')
+        canvas.nodes[0].data.inputs.analystRelations = 'public.orders'
+        const { deps } = memoryDeps({
+            discover: async ({ sql: lookup }) => {
+                expect(lookup).toContain('"public"."orders"')
+                return { rows: [{ id: 'ord-1' }] }
+            },
+            testPin: async ({ sampleValues }) => {
+                expect(sampleValues.id).toBe('ord-1')
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...orders, testedStamp: 'ff'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(record.queries[0].state).toBe('passed')
+        expect(record.queries[0].message || '').not.toContain('could not choose')
+    })
+
+    test('numeric range samples use numeric order', () => {
+        const params = [
+            { name: 'from', type: 'numeric', required: true, min: '0', max: '1000' },
+            { name: 'to', type: 'numeric', required: true, min: '0', max: '1000' }
+        ]
+        const bindings = [
+            { param: 'from', table: 'orders', column: 'n', op: '>=' as const },
+            { param: 'to', table: 'orders', column: 'n', op: '<=' as const }
+        ]
+        const values = valuesFromDiscovery(params, [{ from: '9' }, { from: '10' }, { from: '100' }], bindings)
+        expect(values.from).toBe('9')
+        expect(values.to).toBe('100')
+    })
+
     test('choosing a connection writes that id and leaves another empty slot empty', () => {
         const canvas = flow([pin()], '')
         ;(canvas.nodes[1].data as { credential: string }).credential = ''

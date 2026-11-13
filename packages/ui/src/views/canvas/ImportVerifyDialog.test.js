@@ -1,0 +1,132 @@
+/**
+ * @jest-environment <rootDir>/src/__mocks__/jsdomCanvasEnvironment.js
+ */
+jest.mock('@/api/flowDrafts', () => ({
+    __esModule: true,
+    default: {
+        saveDraft: jest.fn(),
+        publish: jest.fn(),
+        getStatus: jest.fn()
+    }
+}))
+jest.mock('@/api/chatflows', () => ({
+    __esModule: true,
+    default: { createNewChatflow: jest.fn() }
+}))
+jest.mock('@/api/importVerify', () => ({
+    __esModule: true,
+    default: {
+        start: jest.fn(),
+        status: jest.fn(() => Promise.resolve({ data: { status: 'idle' } })),
+        cancel: jest.fn()
+    }
+}))
+
+import { createElement } from 'react'
+import { act } from 'react-dom/test-utils'
+import { createRoot } from 'react-dom/client'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
+
+import flowDraftsApi from '@/api/flowDrafts'
+import importVerifyApi from '@/api/importVerify'
+import ImportVerifyDialog from './ImportVerifyDialog'
+
+const theme = createTheme()
+const uploaded = {
+    nodes: [{ id: 'api', data: { name: 'requestsGet', label: 'GET', inputs: {} } }],
+    edges: []
+}
+const stored = JSON.stringify({
+    nodes: [
+        {
+            id: 'api',
+            data: { name: 'requestsGet', label: 'GET', inputs: { pinnedQueries: '[{"verifiedHere":true}]' } }
+        }
+    ],
+    edges: []
+})
+
+const click = (label) => {
+    const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent === label)
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    return button
+}
+
+const renderDialog = async (props) => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+        root.render(createElement(ThemeProvider, { theme }, createElement(ImportVerifyDialog, { open: true, ...props })))
+    })
+    return root
+}
+
+const chooseFile = async () => {
+    const input = document.body.querySelector('input[type="file"]')
+    const file = new File([JSON.stringify(uploaded)], 'team.json', { type: 'application/json' })
+    await act(async () => {
+        Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+}
+
+describe('Import & verify canvas', () => {
+    afterEach(() => {
+        flowDraftsApi.saveDraft.mockReset()
+        flowDraftsApi.getStatus.mockReset()
+        importVerifyApi.start.mockReset()
+        importVerifyApi.cancel.mockReset()
+        importVerifyApi.status.mockReset()
+        importVerifyApi.status.mockImplementation(() => Promise.resolve({ data: { status: 'idle' } }))
+        document.body.innerHTML = ''
+    })
+
+    test('the imported draft is loaded into the canvas, including when it needs attention', async () => {
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { draft: { flowData: stored } } })
+        importVerifyApi.start.mockResolvedValue({
+            data: { status: 'attention', summary: 'Needs attention.', blockers: [], connections: [], queries: [] }
+        })
+        const onImported = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            onImported
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith('flow-1', expect.stringContaining('"api"'))
+        expect(onImported).toHaveBeenCalled()
+        const shown = onImported.mock.calls.at(-1)[0]
+        expect(JSON.parse(shown).nodes[0].id).toBe('api')
+        expect(shown).toContain('verifiedHere')
+        act(() => root.unmount())
+    })
+
+    test('Close stays available while verification is running', async () => {
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { draft: { flowData: stored } } })
+        importVerifyApi.start.mockImplementation(() => new Promise(() => {}))
+        const onClose = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose,
+            onImported: () => {}
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+        })
+        const close = [...document.body.querySelectorAll('button')].find((item) => item.textContent === 'Close')
+        expect(close.disabled).toBe(false)
+        await act(async () => close.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+        expect(onClose).toHaveBeenCalled()
+        expect(importVerifyApi.cancel).not.toHaveBeenCalled()
+        act(() => root.unmount())
+    })
+})

@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   **Import & verify.** Import a flow or harness file and retest its saved queries on this server without typing sample values. A test stamp in the file is not treated as ready. One matching saved connection is reused; a missing or ambiguous connection asks you to choose. The result is **Ready to publish**, **Needs attention**, or **Could not fully verify**. The work stays on the draft, and the Live version is left as it is until you publish. [Import and verify](./docs/how-to/import-verify.md).
+-   **Import & verify.** Import a flow or harness file and retest its saved queries on this server without typing sample values. A test stamp in the file is not treated as ready. One matching saved connection is reused; a missing, ambiguous, or required empty connection asks you to choose. Schema-qualified and quoted PostgreSQL names are included when test values are chosen. The canvas shows the imported draft. The result is **Ready to publish**, **Needs attention**, or **Could not fully verify**. The work stays on the draft, and the Live version is left as it is until you publish. [Import and verify](./docs/how-to/import-verify.md).
 
 ## [1.7.3] - 2026-11-12
 

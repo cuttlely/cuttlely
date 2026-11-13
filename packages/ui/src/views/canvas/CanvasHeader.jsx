@@ -980,6 +980,7 @@ const CanvasHeader = ({
                 chatflow={chatflow}
                 flowType={isEtlCanvas ? 'ETL' : isHarnessCanvas ? 'HARNESS' : isAgentCanvas ? 'AGENTFLOW' : 'CHATFLOW'}
                 onClose={() => setImportVerifyOpen(false)}
+                onImported={(flowText) => onApplyCanvas(flowText)}
                 onPublished={() => {
                     setImportVerifyOpen(false)
                     if (chatflow?.id) onChatflowUpdated({ ...chatflow })
