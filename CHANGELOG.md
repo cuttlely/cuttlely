@@ -8,6 +8,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries.
 
+-   A PostgreSQL card with no runnable saved query now returns a retest error instead of an empty success. Missing test stamps are named in server logs and the run trace.
+
 -   Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
 
 -   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.

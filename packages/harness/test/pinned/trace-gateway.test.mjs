@@ -24,8 +24,71 @@ const {
 
 const { chiefInstructions, specialistSoul, hermesToolsetsFor } = await import('../../profile.mjs')
 const { applyAnalystPageRoute, hermesToolEvent, logToolEvent } = await import('../../run.mjs')
+const { emptyTrace, reduceHarnessEvent } = await import('../../trace.mjs')
 // Captured from ae8394e7 gateway, profile and run modules with the same in-process node stub.
 const golden = JSON.parse(fs.readFileSync(new URL('./no-pins-golden.json', import.meta.url)))
+
+test('PostgreSQL node diagnostics become failed steps in the specialist run trace', async () => {
+    const gatewayApi = await import('../../gateway.mjs')
+    const profileName = 'zz-test-node-diagnostic--data'
+    const message =
+        'PostgreSQL MCP node ZZ-TEST-node (ZZ-TEST reporting database) dropped 2 saved queries without a tested stamp: pq_orders, pq_returns. Retest them before running this card.'
+    const record = {
+        name: 'zz-test-node-diagnostic',
+        specialists: [
+            {
+                name: 'data',
+                mcpServers: [{ nodeId: 'ZZ-TEST-node', nodeName: 'postgreSQLMCP', category: 'Tools (MCP)' }]
+            }
+        ]
+    }
+    await gatewayApi.offeredPinnedTools(
+        record,
+        'data',
+        {
+            flowOptions: { appDataSource: {} },
+            loadNode: async () =>
+                class {
+                    async init(nodeData, _input, options) {
+                        options.onNodeDiagnostic?.({
+                            code: 'postgres_saved_queries_need_retest',
+                            nodeId: nodeData.id,
+                            nodeLabel: 'ZZ-TEST reporting database',
+                            count: 2,
+                            names: ['pq_orders', 'pq_returns'],
+                            message
+                        })
+                        return [
+                            {
+                                name: 'query',
+                                description: 'ZZ-TEST-query',
+                                schema: { type: 'object', properties: { sql: { type: 'string' } } },
+                                async invoke() {
+                                    return JSON.stringify({ rows: [] })
+                                }
+                            }
+                        ]
+                    }
+                }
+        },
+        profileName
+    )
+    const events = gatewayApi.profileDiagnosticEvents?.(profileName, 'data') || []
+    assert.deepEqual(events, [
+        {
+            phase: 'done',
+            specialist: 'data',
+            name: 'PostgreSQL saved queries',
+            error: true,
+            detail: message
+        }
+    ])
+    const trace = events.reduce(
+        (current, event) => reduceHarnessEvent(current, { type: 'tool', harness: record.name, ...event }),
+        emptyTrace(record.name)
+    )
+    assert.deepEqual(trace.specialists[0].tools, [{ name: 'PostgreSQL saved queries', status: 'failed', detail: message }])
+})
 
 // In-process node stub: no database or agent runtime is started.
 test('gateway captures refused, failed and paged statements before execution on a data bridge', async () => {

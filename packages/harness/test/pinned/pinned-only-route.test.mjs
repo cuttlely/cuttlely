@@ -193,3 +193,78 @@ test("the gateway answers a pinned-only node's own name with the expected refusa
         deleteHarness(name)
     }
 })
+
+test('the gateway reports a PostgreSQL card with no usable tools as an error', async () => {
+    const { saveHarness, deleteHarness } = await import('../../store.mjs')
+    const { registerProfileToken, forgetProfileToken, setGatewayContext, startGateway } = await import('../../gateway.mjs')
+    const name = 'zz-test-empty-postgres-gateway'
+    const profileName = `${name}--data`
+    const token = crypto.randomBytes(32).toString('base64url')
+    const prior = setGatewayContext(async () => ({
+        flowOptions: { appDataSource: {} },
+        loadNode: async () =>
+            class {
+                async init() {
+                    return []
+                }
+            }
+    }))
+    let gateway
+    try {
+        saveHarness(
+            {
+                name,
+                chief: { instructions: 'ZZ-TEST-route', model: { nodeName: 'ZZ-TEST-model' } },
+                specialists: [
+                    {
+                        name: 'data',
+                        instructions: 'ZZ-TEST-query',
+                        mcpServers: [
+                            {
+                                nodeName: 'postgreSQLMCP',
+                                category: 'Tools (MCP)',
+                                inputs: {
+                                    mcpActions: [],
+                                    pinnedQueries: JSON.stringify([
+                                        { id: 'ZZ-TEST-pin', name: 'pq_needs_retest', version: 1, sql: 'SELECT 1 LIMIT 1' }
+                                    ])
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            { overwrite: true }
+        )
+        registerProfileToken({ token, harnessName: name, specialistName: 'data', profileName, modelKey: 'ZZ-TEST-key' })
+        gateway = await startGateway({ port: 0 })
+        const post = async (route, body) => {
+            const response = await fetch(`http://127.0.0.1:${gateway.port}${route}`, {
+                method: 'POST',
+                headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            return { status: response.status, body: await response.json() }
+        }
+        const listed = await post('/harness/tools/list', {})
+        assert.deepEqual(
+            listed.body.tools.map((item) => item.name),
+            ['postgreSQLMCP']
+        )
+        const called = await post('/harness/tools/call', {
+            name: 'postgreSQLMCP',
+            arguments: {},
+            scope: `${name}:ZZ-TEST-chat`
+        })
+        assert.equal(called.status, 200)
+        assert.deepEqual(JSON.parse(called.body.result), {
+            error: "This PostgreSQL card's saved queries need a retest before they can run.",
+            cuttlelyOutcome: 'expected'
+        })
+    } finally {
+        forgetProfileToken(token)
+        if (gateway) await gateway.close()
+        setGatewayContext(prior)
+        deleteHarness(name)
+    }
+})

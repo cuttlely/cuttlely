@@ -195,7 +195,10 @@ export function profileTokenKnown(token) {
 
 export function forgetProfileToken(token) {
     const profile = tokens.get(token)?.profileName
-    if (profile) forgetGuardedQueryAttempts(profile)
+    if (profile) {
+        forgetGuardedQueryAttempts(profile)
+        profileDiagnostics.delete(refusalKey(profile))
+    }
     if (token) tokens.delete(token)
 }
 
@@ -207,6 +210,7 @@ export function revokeHarnessTokens(harnessName, profileNames = [], { harnessWid
     for (const [token, meta] of [...tokens]) {
         if ((name && meta.harnessName === name && !meta.tryProfile) || directories.has(meta.profileName)) {
             forgetGuardedQueryAttempts(meta.profileName)
+            profileDiagnostics.delete(refusalKey(meta.profileName))
             tokens.delete(token)
         }
     }
@@ -916,6 +920,16 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
         offeredPins.set(refusalKey(profileName), new Map())
         pinSecrets.set(refusalKey(profileName), new Map())
     }
+    const diagnostics = []
+    const diagnosticKeys = new Set()
+    const onNodeDiagnostic = (value) => {
+        const diagnostic = safeProfileDiagnostic(value)
+        if (!diagnostic) return
+        const key = `${diagnostic.code}\0${diagnostic.nodeId}\0${diagnostic.names.join(',')}`
+        if (diagnosticKeys.has(key)) return
+        diagnosticKeys.add(key)
+        diagnostics.push(diagnostic)
+    }
     const refused = new Set()
     const routes = new Map()
     const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
@@ -930,7 +944,7 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
         const prepared = await prepareModule(binding, '', {
             componentNodes: ctx.componentNodes,
             loadNode: ctx.loadNode,
-            flowOptions: ctx.flowOptions,
+            flowOptions: { ...ctx.flowOptions, onNodeDiagnostic },
             nodeCache: ctx.nodeCache
         })
         served.set(binding, readyToolSpecs(prepared))
@@ -965,6 +979,7 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
     if (profileName) {
         refusedSqlTools.set(refusalKey(profileName), refused)
         toolRoutes.set(refusalKey(profileName), routes)
+        profileDiagnostics.set(refusalKey(profileName), diagnostics)
     }
     if (!tools.length && !refused.size) tools.push(toolSpec({}, 'Bound Flowise module'))
     return tools
@@ -974,6 +989,44 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
 const toolRoutes = new Map()
 const offeredPins = new Map()
 const pinSecrets = new Map()
+const profileDiagnostics = new Map()
+
+function boundedDiagnostic(value, fallback) {
+    const text = String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2000)
+    return text || fallback
+}
+
+function safeProfileDiagnostic(value) {
+    if (!value || typeof value !== 'object' || value.code !== 'postgres_saved_queries_need_retest') return null
+    const names = Array.isArray(value.names)
+        ? value.names
+              .filter((name) => /^pq_[a-z0-9_]{1,61}$/.test(String(name)))
+              .map(String)
+              .slice(0, 32)
+        : []
+    if (!names.length) return null
+    return {
+        code: value.code,
+        nodeId: boundedDiagnostic(value.nodeId, 'unknown').slice(0, 200),
+        nodeLabel: boundedDiagnostic(value.nodeLabel, 'PostgreSQL MCP').slice(0, 200),
+        count: Math.max(names.length, Math.min(1000, Number(value.count) || 0)),
+        names,
+        message: boundedDiagnostic(value.message, 'Saved PostgreSQL queries need a retest before they can run.')
+    }
+}
+
+export function profileDiagnosticEvents(profileName, specialistName) {
+    return (profileDiagnostics.get(refusalKey(profileName)) || []).map((diagnostic) => ({
+        phase: 'done',
+        specialist: specialistName,
+        name: 'PostgreSQL saved queries',
+        error: true,
+        detail: diagnostic.message
+    }))
+}
 
 function routeKey(route) {
     if (route?.nodeId) return `node:${route.nodeId}`
