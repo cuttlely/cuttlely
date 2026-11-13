@@ -59,6 +59,26 @@ export async function stageBakery(folder: string, source = demoDataDir('bakery')
     await stageDemoFiles(folder, source, DEMOS.bakery.files.analyst)
 }
 
+// The file stageDemoFiles writes for one bundled source file. A .sql file becomes a SQLite database.
+function stagedFileName(file: string): string {
+    return file.endsWith('.sql') ? `${path.basename(file, '.sql')}.sqlite` : path.basename(file)
+}
+
+function specialistFilesReady(folder: string, files: string[]): boolean {
+    return files.every((file) => fs.existsSync(path.join(folder, stagedFileName(file))))
+}
+
+// Writes any specialist folder that is missing a bundled file. A team that was saved and then failed
+// while copying those files is finished on the next Try the demo, without rebuilding a complete team.
+async function ensureDemoFiles(demo: DemoDefinition): Promise<void> {
+    const profile = await loadHarness('profile.mjs')
+    const source = demoDataDir(demo.dataDir)
+    for (const [specialist, files] of Object.entries(demo.files)) {
+        const folder = profile.specialistWorkspace(profile.specialistProfileName(demo.harness, specialist))
+        if (!specialistFilesReady(folder, files)) await stageDemoFiles(folder, source, files)
+    }
+}
+
 async function existingDemo(demo: DemoDefinition, workspaceId: string): Promise<ChatFlow | null> {
     return getRunningExpressApp()
         .AppDataSource.getRepository(ChatFlow)
@@ -119,7 +139,10 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         throw new AppError(StatusCodes.BAD_REQUEST, 'Pick the model key the demo should use.')
     await credentialsService.assertCredentialInWorkspace(credentialId, workspaceId)
     const existing = await existingDemo(demo, workspaceId)
-    if (existing) return { id: existing.id, name: existing.name, created: false, starterQuestions: demo.starters }
+    if (existing) {
+        await ensureDemoFiles(demo)
+        return { id: existing.id, name: existing.name, created: false, starterQuestions: demo.starters }
+    }
 
     const nodes = componentNodes()
     const rows: any[] = (await credentialsService.getAllCredentials(undefined, workspaceId)) || []
@@ -137,18 +160,14 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
     const pipelineName = demo.pipelineSample ? await demoPipeline(demo, workspaceId) : ''
     const profile = await loadHarness('profile.mjs')
     const cleanup = await loadHarness('cleanup.mjs')
-    const source = demoDataDir(demo.dataDir)
     const folders: Record<string, string> = {}
-    const staged: Array<{ folder: string; files: string[] }> = []
-    for (const [specialist, files] of Object.entries(demo.files)) {
+    for (const specialist of Object.keys(demo.files)) {
         const profileName = profile.specialistProfileName(demo.harness, specialist)
         // Staging these folders before the save makes the name check treat them as leftovers from an earlier
         // harness and answer 503, and a retry finds the same folders. Drop only a plain workspace that has no
         // profile. A profile, a link, or another harness's directory is left for that check.
         cleanup.removeUnprofiledWorkspace(profileName)
-        const folder = profile.specialistWorkspace(profileName)
-        folders[specialist] = folder.split(path.sep).join('/')
-        staged.push({ folder, files })
+        folders[specialist] = profile.specialistWorkspace(profileName).split(path.sep).join('/')
     }
 
     const chatModel = { name: model.name, credential: credentialId, inputs: model.modelName ? { modelName: model.modelName } : {} }
@@ -179,8 +198,8 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         { caller: harnessCaller }
     )
     // The save compiles the profiles. The specialist files go in after that, so the name check never sees
-    // this demo's own folders as leftovers.
-    for (const item of staged) await stageDemoFiles(item.folder, source, item.files)
+    // this demo's own folders as leftovers. A later Try the demo fills any folder this copy did not finish.
+    await ensureDemoFiles(demo)
     logger.info(`[server]: Try the demo made ${demo.harness} with ${model.name}${model.modelName ? ` (${model.modelName})` : ''}`)
     return { id: saved.id, name: saved.name, created: true, starterQuestions: demo.starters }
 }

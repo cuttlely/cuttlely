@@ -84,9 +84,12 @@ const componentNodes = {
     }
 }
 
+let savedCanvas = null
+let recordSaved = false
+let blockStage = false
 const appMod = serverRequire('./src/utils/getRunningExpressApp.ts')
 appMod.getRunningExpressApp = () => ({
-    AppDataSource: { getRepository: () => ({ findOneBy: async () => null }) },
+    AppDataSource: { getRepository: () => ({ findOneBy: async () => savedCanvas }) },
     nodesPool: { componentNodes },
     usageCacheManager: {}
 })
@@ -109,7 +112,15 @@ chatflows.default.saveChatflow = async (chatflow) => {
             specialists
         }
     })
-    return { id: 'flow-customer-care', name: chatflow.name }
+    const saved = { id: 'flow-customer-care', name: chatflow.name, workspaceId: chatflow.workspaceId, type: chatflow.type }
+    if (blockStage) {
+        const blocked = specialistDir('customer')
+        fs.rmSync(blocked, { recursive: true, force: true })
+        fs.mkdirSync(path.dirname(blocked), { recursive: true })
+        fs.writeFileSync(blocked, 'not a directory')
+    }
+    if (recordSaved) savedCanvas = saved
+    return saved
 }
 
 const credentials = serverRequire('./src/services/credentials/index.ts')
@@ -186,5 +197,31 @@ describe('Try the demo save', () => {
         assert.ok(kept.kept.includes('workspaces/wsonly--a'))
         assert.equal(fs.readFileSync(path.join(dataDir, 'workspaces', 'wsonly--a', 'notes.txt'), 'utf8'), 'old harness files')
         fs.rmSync(outside, { recursive: true, force: true })
+        fs.rmSync(path.join(profiles, 'customer-care-demo--customer'), { recursive: true, force: true })
+        fs.rmSync(specialistDir('policy'), { force: true })
+    })
+
+    it('finishes specialist files when the team was saved and the copy failed', async () => {
+        ran += 1
+        const customer = specialistDir('customer')
+        recordSaved = true
+        blockStage = true
+        savedCanvas = null
+        await assert.rejects(() => demo.create('cred-1', caller, 'customer-care'))
+        assert.equal(savedCanvas.name, 'customer-care-demo')
+        blockStage = false
+        fs.rmSync(customer)
+        const again = await demo.create('cred-1', caller, 'customer-care')
+        assert.equal(again.created, false)
+        assert.equal(again.id, 'flow-customer-care')
+        assert.deepEqual(fs.readdirSync(specialistDir('customer')).sort(), ['support.sqlite', 'support_desk.py'])
+        assert.ok(fs.existsSync(path.join(specialistDir('operations'), 'fulfillment.sqlite')))
+        assert.ok(fs.existsSync(path.join(specialistDir('policy'), 'service-policy.md')))
+        const repeat = await demo.create('cred-1', caller, 'customer-care')
+        assert.equal(repeat.created, false)
+        assert.equal(fs.readFileSync(path.join(specialistDir('customer'), 'support_desk.py'), 'utf8').length > 0, true)
+        recordSaved = false
+        blockStage = false
+        savedCanvas = null
     })
 })

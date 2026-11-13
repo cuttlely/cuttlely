@@ -1,7 +1,7 @@
 ## Try the demo save
 
 -   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. `packages/harness/cleanup.mjs` `removeUnprofiledWorkspace` drops a plain workspace that has no profile entry.
--   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry with the demo folders already present, and refusal of a profile leftover, a linked workspace, and another harness's workspace.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry with the demo folders already present, refusal of a profile leftover, a linked workspace, and another harness's workspace, and a saved team whose specialist copy failed.
 -   README step 4 and `website/src/guides/flowise-import/guide.md` match the product: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
 
 ## PostgreSQL statement-guard regressions
