@@ -193,7 +193,7 @@ const start = async (req: Request, res: Response, next: NextFunction) => {
             const flow = await flowFor(req)
             const state = await flowDraftsService.getState(flow.id)
             const record = readRecord(state?.importVerify)
-            if (record) return res.json({ ...record, running: true })
+            if (record) return res.json({ ...record, status: 'running', running: true, publishOffered: false })
             return res.json({
                 version: 1,
                 status: 'running',
@@ -230,7 +230,9 @@ const status = async (req: Request, res: Response, next: NextFunction) => {
         const jobActive = active.has(flow.id)
         const recovered = recoverOrphanedRun(record, jobActive)
         if (recovered && recovered !== record) await writeRecord(flow.id, recovered)
-        return res.json({ ...(recovered || record), running: jobActive })
+        const shown = recovered || record
+        if (jobActive) return res.json({ ...shown, status: 'running', running: true, publishOffered: false })
+        return res.json({ ...shown, running: false })
     } catch (error) {
         next(error)
     }

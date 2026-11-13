@@ -163,4 +163,52 @@ describe('import-verify start while a check is already running', () => {
             flowData: '{"nodes":[],"edges":[]}'
         }))
     })
+
+    test('a prior ready record stays running with Publish off while admission is in flight', async () => {
+        const readyRecord = {
+            version: 1,
+            status: 'ready',
+            phase: 'Finished',
+            publishOffered: true,
+            queries: [],
+            connections: [],
+            blockers: [],
+            smoke: [],
+            draftHash: 'abc'
+        }
+        ;(flowDraftsService.getState as jest.Mock).mockImplementation(async () => ({
+            draftFlowData: '{"nodes":[],"edges":[]}',
+            importVerify: JSON.stringify(readyRecord)
+        }))
+        let release: () => void = () => undefined
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let lookups = 0
+        ;(chatflowsService.getChatflowByIdForWorkspace as jest.Mock).mockImplementation(async () => {
+            lookups += 1
+            if (lookups === 1) await gate
+            return { id: 'flow-1', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}' }
+        })
+        ;(executeVerify as jest.Mock).mockImplementation(async () => ({ ...readyRecord, status: 'incomplete', publishOffered: false }))
+        const first = response()
+        const started = controller.start(request(), first as any, jest.fn())
+        const second = response()
+        await controller.start(request(), second as any, jest.fn())
+        const polled = response()
+        await controller.status(request(), polled as any, jest.fn())
+        expect(second.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'running', running: true, publishOffered: false }))
+        expect(polled.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'running', running: true, publishOffered: false }))
+        release()
+        await started
+        ;(flowDraftsService.getState as jest.Mock).mockImplementation(async () => ({
+            draftFlowData: '{"nodes":[],"edges":[]}',
+            importVerify: JSON.stringify(runningRecord)
+        }))
+        ;(chatflowsService.getChatflowByIdForWorkspace as jest.Mock).mockImplementation(async () => ({
+            id: 'flow-1',
+            type: 'CHATFLOW',
+            flowData: '{"nodes":[],"edges":[]}'
+        }))
+    })
 })
