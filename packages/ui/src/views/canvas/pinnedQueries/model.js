@@ -343,7 +343,7 @@ export function canvasFor(data) {
 }
 
 export function needsRetestMark(pin) {
-    return Boolean(pin && (pin.needsRetest || pin.columnsChanged))
+    return Boolean(pin && (pin.needsRetest || pin.columnsChanged || pin.importedVerification === 'untrusted'))
 }
 
 export function pinWarning(count) {

@@ -2615,6 +2615,13 @@
                     "nullable": true,
                     "default": null,
                     "pk": 0
+                },
+                {
+                    "name": "importVerify",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -7056,6 +7063,12 @@
                 },
                 {
                     "name": "publishGateResult",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "importVerify",
                     "type": "text",
                     "nullable": true,
                     "default": null
@@ -12095,6 +12108,14 @@
                 },
                 {
                     "name": "publishGateResult",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "importVerify",
                     "type": "longtext",
                     "nullable": true,
                     "default": null,
@@ -17860,6 +17881,14 @@
                 },
                 {
                     "name": "publishGateResult",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "importVerify",
                     "type": "longtext",
                     "nullable": true,
                     "default": null,

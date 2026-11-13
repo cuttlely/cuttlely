@@ -87,6 +87,7 @@ import { nodeMoved } from '@/utils/canvasDirty'
 import { panelNode, panToKeepInView } from '@/utils/canvasLook'
 import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
+import { untrustFlow } from '@/utils/importVerify'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
@@ -331,7 +332,7 @@ const Canvas = () => {
 
     const applyFlowiseCanvas = (canvasText) => {
         const specs = canvasSpecs()
-        const flowData = normalizeCanvasFlow(JSON.parse(canvasText), specs)
+        const flowData = normalizeCanvasFlow(untrustFlow(JSON.parse(canvasText)), specs)
         const healed = healImportedFlow(flowData.nodes || [], flowData.edges || [], specs, {
             canvasType: isAgentCanvas ? 'MULTIAGENT' : 'CHATFLOW',
             updateNodeData: updateOutdatedNodeData,

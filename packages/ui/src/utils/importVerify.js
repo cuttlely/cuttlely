@@ -1,0 +1,57 @@
+// Imported test stamps belong to the server that wrote them. The query stays; the stamp does not.
+
+const STAMP_FIELDS = ['testedStamp', 'testedAt', 'testedBy', 'testedColumns', 'columnsChanged']
+
+export function readQueries(value) {
+    let parsed = value
+    if (typeof value === 'string') {
+        const text = value.trim()
+        if (!text) return []
+        try {
+            parsed = JSON.parse(text)
+        } catch {
+            return []
+        }
+    }
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object') : []
+}
+
+export function queryReady(pin) {
+    if (!pin || typeof pin.testedStamp !== 'string' || !pin.testedStamp.trim()) return false
+    if (pin.needsRetest || pin.columnsChanged) return false
+    if (pin.importedVerification === 'untrusted') return false
+    return true
+}
+
+export function untrustFlow(flow) {
+    if (!flow || typeof flow !== 'object' || !Array.isArray(flow.nodes)) return flow
+    const copy = JSON.parse(JSON.stringify(flow))
+    for (const node of copy.nodes) {
+        const inputs = node?.data?.inputs
+        if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue
+        const next = readQueries(inputs.pinnedQueries).map((pin) => {
+            const cleared = { ...pin, needsRetest: true, importedVerification: 'untrusted' }
+            for (const field of STAMP_FIELDS) delete cleared[field]
+            return cleared
+        })
+        inputs.pinnedQueries = JSON.stringify(next)
+    }
+    return copy
+}
+
+export function statusTitle(status) {
+    if (status === 'ready') return 'Ready to publish'
+    if (status === 'attention') return 'Needs attention'
+    if (status === 'incomplete' || status === 'cancelled') return 'Could not fully verify'
+    if (status === 'running') return 'Checking this flow'
+    return 'Import & verify'
+}
+
+export function progressLine(record) {
+    if (!record) return ''
+    if (record.phase) return record.phase
+    if (record.total) return `Checking saved queries: ${record.checked || 0} of ${record.total}.`
+    return ''
+}
+
+export const PLACEHOLDER_FLOW = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } })

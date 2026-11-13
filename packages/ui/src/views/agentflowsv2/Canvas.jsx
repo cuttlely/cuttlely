@@ -26,6 +26,7 @@ import AgentFlowEdge from './AgentFlowEdge'
 import ConnectionLine from './ConnectionLine'
 import StickyNote from './StickyNote'
 import CanvasHeader from '@/views/canvas/CanvasHeader'
+import { untrustFlow } from '@/utils/importVerify'
 import CanvasLoadGuard, {
     canvasLoadBlocked,
     canvasLoadRetryRequest,
@@ -279,10 +280,11 @@ const AgentflowCanvas = () => {
         try {
             const flowData = JSON.parse(file)
             const graph = flowData && flowData.cuttlelyMigration && flowData.flow ? flowData.flow : flowData
-            const nodes = graph.nodes || []
+            const cleared = untrustFlow(graph)
+            const nodes = cleared.nodes || []
 
             setNodes(nodes)
-            setEdges(graph.edges || [])
+            setEdges(cleared.edges || [])
             setTimeout(() => setDirty(), 0)
         } catch (e) {
             console.error(e)

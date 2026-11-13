@@ -38,6 +38,7 @@ import {
     testSetChangedReason
 } from './gate'
 import { datasetStartRefusal } from '../flow-check/kinds'
+import { importVerifyPublishBlock } from '../import-verify'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 import { assertHarnessDraftLimits } from './harnessLimits'
 
@@ -573,10 +574,12 @@ export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unk
     }
     const block = (await withTestSet(flow, statusFrom(flow, state))).publishGate.block
     if (block) throw new AppError(StatusCodes.CONFLICT, block)
+    const verifyBlock = importVerifyPublishBlock(state?.importVerify, draft.flowData)
+    if (verifyBlock) throw new AppError(StatusCodes.CONFLICT, verifyBlock)
     return draft.flowData
 }
 
-const NO_DRAFT = { draftFlowData: null, draftBaseHash: null, draftUpdatedDate: null, draftUpdatedBy: null }
+const NO_DRAFT = { draftFlowData: null, draftBaseHash: null, draftUpdatedDate: null, draftUpdatedBy: null, importVerify: null }
 
 // Clears the draft only while it is still exactly `expected`, in one conditional update, so a newer draft
 // saved in the meantime is kept.

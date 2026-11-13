@@ -334,6 +334,22 @@ describe('an existing harness', () => {
         expect(await draftToPublish(existing)).toBe(canvas('Draft instructions'))
     })
 
+    test('an unfinished import verification blocks publish and leaves Live', async () => {
+        const { hashFlow } = await import('../import-verify')
+        const existing = harness()
+        const draft = canvas('Draft instructions')
+        await saveDraft(existing, draft, context)
+        const stored = rows[0].draftFlowData
+        rows[0].importVerify = JSON.stringify({ version: 1, draftHash: hashFlow(stored), status: 'attention' })
+        await expect(draftToPublish(existing)).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('needs attention')
+        })
+        expect(existing.flowData).toBe(live)
+        rows[0].importVerify = JSON.stringify({ version: 1, draftHash: hashFlow(stored), status: 'ready' })
+        expect(await draftToPublish(existing)).toBe(stored)
+    })
+
     test('Publish bookkeeping clears the draft after Live is set to it', async () => {
         const existing = harness()
         await saveDraft(existing, canvas('Draft instructions'), context)
@@ -640,7 +656,7 @@ describe('publishing', () => {
         expect(updates).toEqual([
             [
                 ['chatflowId', 'draftFlowData'],
-                ['draftBaseHash', 'draftFlowData', 'draftUpdatedBy', 'draftUpdatedDate']
+                ['draftBaseHash', 'draftFlowData', 'draftUpdatedBy', 'draftUpdatedDate', 'importVerify']
             ],
             [['chatflowId'], ['liveSha', 'publishedDate']]
         ])

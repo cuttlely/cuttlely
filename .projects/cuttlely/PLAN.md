@@ -28,7 +28,11 @@
 
 ## Next concrete tasks
 
--   **1.7.3 release (in progress).** Current work on `release/1.7.3`, now folded with `origin/main` at `3c981e82` ([#469](https://github.com/cuttlely/cuttlely/pull/469)), after the earlier fold at `05b71a12` ([#473](https://github.com/cuttlely/cuttlely/pull/473)). The four product manifests and current install pins are 1.7.3. `CHANGELOG.md` uses `## [1.7.3] - Unreleased`. Already on main and on this tree: #456 `932bd8df`, #454 `95c64dab`, #458 `4588a835` (proxy-safe keep-alive, formerly PR-2), #463 `05701570` (product name), #465 `c47bf628` (README tagline and 1.7.0 note), #464 `23aea50a` (GitHub folder and file links in Code Repository), #460 `21e832e7` (silent read retries, formerly PR-1), #462 `52e29426` (save queue, formerly PR-3), #473 `05b71a12` (README header alt and CONTRIBUTING guidance) and #469 `3c981e82` (PostgreSQL event-trigger checks, Fixes #467). The full gate, Checker record, publication, tagging and activation remain later authorized steps and must be rerun on this exact head. Backups and 1.7.0 operator onboarding/recovery still apply; enforcement stays default Off.
+-   **Import and verify.** A canvas file can be imported and checked on this server without sample values. Imported test stamps are not ready. Verification stays on the draft, and publish is offered after the required checks pass. [Import and verify](../../docs/how-to/import-verify.md).
+
+-   **1.7.3 release (done).** Released on main as `11fab773`. The notes below record the preparation. Backups and 1.7.0 operator onboarding/recovery still apply; enforcement stays default Off.
+
+-   **1.7.3 release preparation (historical).** Prepared on `release/1.7.3` and released on main. The included changes are #456 `932bd8df`, #454 `95c64dab`, #458 `4588a835`, #463 `05701570`, #465 `c47bf628`, #464 `23aea50a`, #460 `21e832e7`, #462 `52e29426`, #473 `05b71a12` and #469 `3c981e82`. Backups and 1.7.0 operator onboarding/recovery still apply; enforcement stays default Off.
 
 -   **Canvas error page after no response (done).** Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). A request that gets no answer shows a reachable-server message instead of the route error page, and a page error stays with the page that failed. The exact-head full gate result is in that pull request's Checker record.
 

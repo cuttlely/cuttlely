@@ -1,4 +1,5 @@
 import { AccessKeys1801300000000 } from './1801300000000-AccessKeys'
+import { AddImportVerify1801400000000 } from './1801400000000-AddImportVerify'
 import { Init1693840429259 } from './1693840429259-Init'
 import { ModifyChatFlow1693997791471 } from './1693997791471-ModifyChatFlow'
 import { ModifyChatMessage1693999022236 } from './1693999022236-ModifyChatMessage'
@@ -178,5 +179,6 @@ export const mariadbMigrations = [
     AddWorkosSessionId1801150000000,
     AddScimProvisioning1801200000000,
     AddScimGroups1801200000001,
-    AccessKeys1801300000000
+    AccessKeys1801300000000,
+    AddImportVerify1801400000000
 ]

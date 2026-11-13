@@ -26,6 +26,12 @@
 -   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
 -   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - Unreleased`.
 
+## Import and verify
+
+-   `packages/server/src/services/import-verify/`: untrust imported stamps, match one destination credential by name and type, build read-only test values, retest saved queries, and keep the result on the draft.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, coherent account and opportunity values, an empty result, retry of a failed query, a stopped run, and publish staying blocked.
+-   `packages/ui/src/views/canvas/ImportVerifyDialog.jsx` and `docs/how-to/import-verify.md`.
+
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.

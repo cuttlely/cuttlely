@@ -1,4 +1,5 @@
 import { AccessKeys1801300000000 } from './1801300000000-AccessKeys'
+import { AddImportVerify1801400000000 } from './1801400000000-AddImportVerify'
 import { Init1693891895163 } from './1693891895163-Init'
 import { ModifyChatFlow1693995626941 } from './1693995626941-ModifyChatFlow'
 import { ModifyChatMessage1693996694528 } from './1693996694528-ModifyChatMessage'
@@ -174,5 +175,6 @@ export const postgresMigrations = [
     AddWorkosSessionId1801150000000,
     AddScimProvisioning1801200000000,
     AddScimGroups1801200000001,
-    AccessKeys1801300000000
+    AccessKeys1801300000000,
+    AddImportVerify1801400000000
 ]

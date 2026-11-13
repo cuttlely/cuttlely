@@ -996,6 +996,7 @@ packages/server/src/controllers/fetch-links/index.ts
 packages/server/src/controllers/files/index.ts
 packages/server/src/controllers/flow-configs/index.ts
 packages/server/src/controllers/get-upload-file/index.ts
+packages/server/src/controllers/import-verify/index.ts
 packages/server/src/controllers/internal-predictions/index.ts
 packages/server/src/controllers/leads/index.ts
 packages/server/src/controllers/load-prompts/index.ts
@@ -1306,6 +1307,7 @@ packages/server/src/routes/fetch-links/index.ts
 packages/server/src/routes/files/index.ts
 packages/server/src/routes/flow-config/index.ts
 packages/server/src/routes/get-upload-file/index.ts
+packages/server/src/routes/import-verify/index.ts
 packages/server/src/routes/index.ts
 packages/server/src/routes/internal-chat-messages/index.ts
 packages/server/src/routes/internal-predictions/index.ts
@@ -1535,6 +1537,7 @@ packages/ui/src/api/executions.js
 packages/ui/src/api/exportimport.js
 packages/ui/src/api/feedback.js
 packages/ui/src/api/files.js
+packages/ui/src/api/importVerify.js
 packages/ui/src/api/lead.js
 packages/ui/src/api/log.js
 packages/ui/src/api/loginmethod.js
@@ -1832,6 +1835,8 @@ packages/ui/src/utils/flowCategoryPermission.js
 packages/ui/src/utils/flowCategoryPermission.test.js
 packages/ui/src/utils/genericHelper.js
 packages/ui/src/utils/genericHelper.test.js
+packages/ui/src/utils/importVerify.js
+packages/ui/src/utils/importVerify.test.js
 packages/ui/src/utils/itWorked.jsx
 packages/ui/src/utils/itWorked.test.js
 packages/ui/src/utils/migrationScan.test.js
@@ -1891,6 +1896,7 @@ packages/ui/src/views/canvas/CanvasHeader.jsx
 packages/ui/src/views/canvas/CanvasHeader.test.js
 packages/ui/src/views/canvas/CanvasNode.jsx
 packages/ui/src/views/canvas/CredentialInputHandler.jsx
+packages/ui/src/views/canvas/ImportVerifyDialog.jsx
 packages/ui/src/views/canvas/NodeActionBar.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx
 packages/ui/src/views/canvas/NodeOutputHandler.jsx

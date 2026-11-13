@@ -1,6 +1,12 @@
-## 1.7.3 release preparation
+## Import and verify
 
-This branch is `release/1.7.3`, started from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)), previously folded with `05b71a12` ([#473](https://github.com/cuttlely/cuttlely/pull/473)), and now folded with a normal merge of `origin/main` at `3c981e82` ([#469](https://github.com/cuttlely/cuttlely/pull/469)). It prepares the unpublished 1.7.3 patch. The four product manifests and current install pins are 1.7.3. `CHANGELOG.md` uses the planned heading `## [1.7.3] - Unreleased` so the release tool can date it at cut time.
+`main` is `11fab773`, the 1.7.3 release. Import & verify is new work on `main` for the next release. It is not part of pull request #483.
+
+A flow or harness file can be imported and checked on this server from the canvas gear menu. Saved queries are kept, and a test stamp in the file is not treated as ready. The same server test that stamps a query is used again here. One saved connection with the same name and type is reused. A missing or ambiguous connection asks for a choice, and an empty credential slot stays empty. The draft holds the new stamps and the progress. Live is not replaced, and publish is offered only after the required checks pass. The guide is [Import and verify](../../docs/how-to/import-verify.md).
+
+## Historical 1.7.3 release preparation
+
+1.7.3 was prepared on `release/1.7.3`, started from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)), previously folded with `05b71a12` ([#473](https://github.com/cuttlely/cuttlely/pull/473)), and folded with a normal merge of `origin/main` at `3c981e82` ([#469](https://github.com/cuttlely/cuttlely/pull/469)). It prepared the 1.7.3 patch, which is now released. The four product manifests and install pins were 1.7.3. `CHANGELOG.md` dated that release `## [1.7.3] - 2026-11-12`.
 
 The release includes, all already on main and on this branch: #456 (`932bd8df`, Fixes #455), #454 (`95c64dab`, Fixes #436), #458 (`4588a835`, longer keep-alive defaults behind a reverse proxy, formerly PR-2), #463 (`05701570`, product name in user-facing text), #465 (`c47bf628`, README tagline and tighter 1.7.0 note), #464 (`23aea50a`, GitHub folder and file links in Code Repository, Fixes #461), #460 (`21e832e7`, quiet retry of dropped read requests, formerly PR-1), #462 (`52e29426`, save queue, formerly PR-3), #473 (`05b71a12`, README header alt text and CONTRIBUTING guidance) and #469 (`3c981e82`, PostgreSQL event-trigger checks, Fixes #467). The PR-1/PR-2/PR-3 changelog placeholders are finalized with those squash SHAs, and the #469 changelog bullet uses squash `3c981e82`.
 

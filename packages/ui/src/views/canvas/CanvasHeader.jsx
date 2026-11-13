@@ -26,6 +26,7 @@ import {
 import Settings from '@/views/settings'
 import { duplicateCanvasPath } from '@/utils/canvasKind'
 import FlowiseMigrationWizard from '@/ui-component/flow/FlowiseMigrationWizard'
+import ImportVerifyDialog from '@/views/canvas/ImportVerifyDialog'
 import SaveChatflowDialog from '@/ui-component/dialog/SaveChatflowDialog'
 import APICodeDialog from '@/views/chatflows/APICodeDialog'
 import ViewMessagesDialog from '@/ui-component/dialog/ViewMessagesDialog'
@@ -201,6 +202,7 @@ const CanvasHeader = ({
     const [exportAsTemplateDialogOpen, setExportAsTemplateDialogOpen] = useState(false)
     const [exportAsTemplateDialogProps, setExportAsTemplateDialogProps] = useState({})
     const [migrationOpen, setMigrationOpen] = useState(false)
+    const [importVerifyOpen, setImportVerifyOpen] = useState(false)
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
@@ -237,6 +239,10 @@ const CanvasHeader = ({
 
     const onSettingsItemClick = (setting) => {
         setSettingsOpen(false)
+        if (setting === 'importAndVerify') {
+            setImportVerifyOpen(true)
+            return
+        }
 
         if (setting === 'deleteChatflow') {
             handleDeleteFlow()
@@ -967,6 +973,16 @@ const CanvasHeader = ({
                 onOpenFlowiseMigration={() => {
                     setSettingsOpen(false)
                     setMigrationOpen(true)
+                }}
+            />
+            <ImportVerifyDialog
+                open={importVerifyOpen}
+                chatflow={chatflow}
+                flowType={isEtlCanvas ? 'ETL' : isHarnessCanvas ? 'HARNESS' : isAgentCanvas ? 'AGENTFLOW' : 'CHATFLOW'}
+                onClose={() => setImportVerifyOpen(false)}
+                onPublished={() => {
+                    setImportVerifyOpen(false)
+                    if (chatflow?.id) onChatflowUpdated({ ...chatflow })
                 }}
             />
             <FlowiseMigrationWizard

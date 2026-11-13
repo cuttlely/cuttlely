@@ -28,6 +28,7 @@ jest.mock('@/api/flowDrafts', () => ({
 }))
 jest.mock('@/views/settings', () => () => null)
 jest.mock('@/ui-component/flow/FlowiseMigrationWizard', () => jest.fn(() => null))
+jest.mock('@/views/canvas/ImportVerifyDialog', () => () => null)
 jest.mock('@/ui-component/dialog/SaveChatflowDialog', () => () => null)
 jest.mock('@/views/chatflows/APICodeDialog', () => () => null)
 jest.mock('@/ui-component/dialog/ViewMessagesDialog', () => () => null)
