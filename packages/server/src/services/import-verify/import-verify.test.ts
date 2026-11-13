@@ -144,6 +144,41 @@ describe('imported verification', () => {
         expect(empty && resolveSlot(empty, rows).status).toBe('empty')
     })
 
+    test('an HTTP card marked as a bearer token accepts that type and rejects one it does not allow', () => {
+        const http = (mark: unknown) => ({
+            nodes: [
+                {
+                    id: 'http',
+                    data: {
+                        name: 'httpAgentflow',
+                        label: 'HTTP',
+                        inputParams: [{ type: 'credential', credentialNames: ['httpBasicAuth', 'httpBearerToken', 'httpApiKey'] }],
+                        credential: mark
+                    }
+                }
+            ],
+            edges: []
+        })
+        const rows = [
+            { id: 'bearer', name: 'Service token', credentialName: 'httpBearerToken' },
+            { id: 'basic', name: 'Basic login', credentialName: 'httpBasicAuth' },
+            { id: 'other', name: 'Service token', credentialName: 'openAIApi' }
+        ]
+        const slot = connectionSlots(http({ $credential: { name: 'Service token', credentialName: 'httpBearerToken' } }))[0]
+        expect(slot.expectedType).toBe('httpBearerToken')
+        expect(slot.allowedTypes).toEqual(['httpBasicAuth', 'httpBearerToken', 'httpApiKey'])
+        const resolved = resolveSlot(slot, rows)
+        expect(resolved.status).toBe('matched')
+        expect(resolved.credentialId).toBe('bearer')
+        expect(resolved.options.map((option) => option.id)).toEqual(['bearer', 'basic'])
+        expect(resolveSlot(slot, rows, 'bearer').credentialId).toBe('bearer')
+        expect(resolveSlot(slot, rows, 'other').status).toBe('missing')
+        expect(resolveSlot(slot, rows, 'other').credentialId).toBe('')
+        const rejected = connectionSlots(http({ $credential: { name: 'Nope', credentialName: 'openAIApi' } }))[0]
+        expect(resolveSlot(rejected, rows).status).toBe('missing')
+        expect(resolveSlot(rejected, rows).options.map((option) => option.id)).not.toContain('other')
+    })
+
     test('an existing destination id is reused and a foreign id is not', () => {
         const rows = [{ id: 'cred-pg', name: 'Warehouse', credentialName: 'PostgresUrl' }]
         const local = connectionSlots(flow([pin()], 'cred-pg') as { nodes?: unknown })[0]
