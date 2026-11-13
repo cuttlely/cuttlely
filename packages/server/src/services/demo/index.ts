@@ -210,8 +210,8 @@ async function ensureDemoFiles(demo: DemoDefinition): Promise<void> {
     }
 }
 
-// nameReuseBlockers refuses a save over a workspace that is already there. Remove one only when every
-// blocker is a directory this demo staged (its marker and only its own files). Any other blocker means
+// Remove one only when every blocker is a directory this demo staged: marked with only its own files,
+// or an unmarked 1.7.3 folder holding every bundled file with matching bytes. Any other blocker means
 // nothing is removed, so a later refusal cannot follow a partial delete.
 async function releaseIdentifiedDemoWorkspaces(demo: DemoDefinition): Promise<void> {
     const profile = await loadHarness('profile.mjs')
