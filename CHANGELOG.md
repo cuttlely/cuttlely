@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries.
 
--   A PostgreSQL card with no runnable saved query now returns a retest error instead of an empty success. Missing test stamps are named in server logs and the run trace.
+-   A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead. Missing test stamps are named in server logs and the run trace.
 
 -   Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
 

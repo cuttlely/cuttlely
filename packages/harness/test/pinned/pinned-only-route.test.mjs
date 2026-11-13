@@ -123,6 +123,42 @@ test("a call by the node's own name in mixed mode runs the free query tool, even
     assert.deepEqual(calls.at(-1), ['pq_sales_by_region', { region: 'north' }])
 })
 
+test('an empty PostgreSQL card reports that no actions or saved queries are available', async () => {
+    const raw = await callPrepared(
+        {
+            runs: false,
+            binding: { nodeName: 'postgreSQLMCP', inputs: { mcpActions: [], pinnedQueries: [] } },
+            ready: []
+        },
+        {}
+    )
+    const result = JSON.parse(raw)
+    assert.deepEqual(result, {
+        error: 'This PostgreSQL card has no actions or saved queries available to run.',
+        cuttlelyOutcome: 'expected'
+    })
+    assert.doesNotMatch(result.error, /retest/)
+})
+
+test('a pinned-only PostgreSQL card does not ask for a retest when saved queries are disabled', async () => {
+    delete process.env.CUTTLELY_PINNED_QUERIES
+    const raw = await callPrepared(
+        {
+            runs: false,
+            binding: {
+                nodeName: 'postgreSQLMCP',
+                inputs: { mcpActions: [], pinnedQueries: JSON.stringify([{ name: 'pq_disabled', testedStamp: stamp }]) }
+            },
+            ready: []
+        },
+        {}
+    )
+    const result = JSON.parse(raw)
+    assert.equal(result.cuttlelyOutcome, 'expected')
+    assert.match(result.error, /no actions or saved queries available/i)
+    assert.doesNotMatch(result.error, /retest/)
+})
+
 test('an inline specialist runs the pin it was shown when no tool name is passed', async () => {
     const calls = []
     const pin = pinTool(calls)
@@ -204,7 +240,15 @@ test('the gateway reports a PostgreSQL card with no usable tools as an error', a
         flowOptions: { appDataSource: {} },
         loadNode: async () =>
             class {
-                async init() {
+                async init(nodeData, _input, options) {
+                    options.onNodeDiagnostic?.({
+                        code: 'postgres_saved_queries_need_retest',
+                        nodeId: nodeData.id,
+                        nodeLabel: 'ZZ-TEST reporting database',
+                        count: 1,
+                        names: ['pq_needs_retest'],
+                        message: "This PostgreSQL card's saved queries need a retest before they can run."
+                    })
                     return []
                 }
             }
