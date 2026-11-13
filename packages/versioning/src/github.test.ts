@@ -538,6 +538,22 @@ describe('copying history to a repository', () => {
         expect(bareMain(bare)).toBe(replaced)
     })
 
+    test('a version saved after connecting still copies onto the existing repository', async () => {
+        foreignCommit(bare, path.join(tmp, 'connect-first'))
+        const foreign = bareMain(bare)!
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBe(foreign)
+        await save('One')
+        await settle()
+        const tip = bareMain(bare)!
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(tip).not.toBe(foreign)
+        expect(bareRef(bare, `${tip}^`)).toBe(foreign)
+        expect(bareFile(bare, tip, 'README.md')).toBe('# made on GitHub\n')
+        expect(bareGrep(bare, tip, 'One')).toContain('flows/')
+        expectFastForwardOnly()
+    })
+
     test('connect copies onto a repository that already has a README and leaves that file in place', async () => {
         await save('One')
         foreignCommit(bare, path.join(tmp, 'elsewhere'), 'main', { LICENSE: 'keep this license\n', 'docs/guide.md': 'guide\n' })

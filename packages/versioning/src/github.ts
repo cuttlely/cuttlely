@@ -2146,7 +2146,8 @@ export class GithubSync {
             origin = EMPTY_TREE
             published = base
             replayFrom = base
-        } else if (base) {
+        } else if (base && graft !== tip) {
+            // The recorded copy is not under this tip. A first copy still in progress keeps that tip.
             this.holdCopy(
                 `${config.repo} on GitHub has changes that are not on this server, so copying stopped. Cuttlely never overwrites GitHub.`
             )
