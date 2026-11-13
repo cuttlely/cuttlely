@@ -1,6 +1,6 @@
 ## Imported output contract verification
 
-On `bugfix/import-verify-contract-hash`, Import & verify removes its internal trust markers before testing a saved query and preserves the validated parameter representation used to create the contract hash. An unchanged exported harness now verifies without a new export; changed saved-query SQL still produces the existing contract mismatch blocker. Focused import-verification, saved-query, type, and lint checks cover the change.
+On `bugfix/import-verify-contract-hash`, Import & verify now tests every saved query in flows larger than one four-query batch and checks each output contract against its own fresh result. The verifier previously replaced its saved progress objects after the first batch but kept updating older copies, leaving later queries pending without a tested hash and reporting false contract mismatches. It also removes internal trust markers before testing a saved query and preserves the authored parameter representation used to create the contract hash. Changed saved-query SQL still produces the existing contract mismatch blocker. Focused import-verification, saved-query, type, and lint checks cover the change.
 
 ## Follow-up prompt temperatures
 

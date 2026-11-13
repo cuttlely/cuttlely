@@ -131,7 +131,9 @@ process.stdout.write(JSON.stringify(compilePinned(input.entry, input.args)))`
     ) as { runText: string; checkText: string; binds: unknown[] | null; order: string[]; statementHash: string }
 }
 
-async function verifyExportedContract(importedSql?: string): Promise<VerifyRecord> {
+async function verifyExportedContract(
+    options: { importedSql?: string; omitRequired?: boolean; pinCount?: number; verifiedHere?: boolean } = {}
+): Promise<VerifyRecord> {
     const { generateExportFlowData } = require('../../../../ui/src/utils/genericHelper.js') as {
         generateExportFlowData: (
             flow: unknown,
@@ -139,12 +141,26 @@ async function verifyExportedContract(importedSql?: string): Promise<VerifyRecor
             credentials: Array<{ id: string; name: string; credentialName: string }>
         ) => Record<string, unknown>
     }
-    const sourcePin = pin({
-        sql: 'SELECT :region AS region LIMIT 10',
-        params: [{ name: 'region', type: 'text', default: 'north' }]
-    })
-    const contractHash = compilePinned(sourcePin).statementHash
-    const base = flow([sourcePin])
+    const sourcePins = Array.from({ length: options.pinCount || 1 }, (_, index) =>
+        pin({
+            id: `pin-${index + 1}`,
+            name: `pq_region_${index + 1}`,
+            sql: `SELECT :region AS region, ${index + 1} AS query_index LIMIT 10`,
+            params: [
+                options.omitRequired
+                    ? { name: 'region', type: 'text', default: 'north' }
+                    : { name: 'region', type: 'text', required: true, default: 'north' }
+            ],
+            ...(options.verifiedHere ? { verifiedHere: true } : {})
+        })
+    )
+    const contracts = sourcePins.map((sourcePin) => ({
+        pin: sourcePin.name,
+        hash: compilePinned(sourcePin).statementHash,
+        mode: 'markdown',
+        fields: []
+    }))
+    const base = flow(sourcePins)
     const source = {
         ...base,
         nodes: [
@@ -156,7 +172,7 @@ async function verifyExportedContract(importedSql?: string): Promise<VerifyRecor
                     name: 'harnessSpecialist',
                     label: 'Reporting specialist',
                     inputs: {
-                        trustedOutputs: JSON.stringify([{ pin: sourcePin.name, hash: contractHash, mode: 'markdown', fields: [] }])
+                        trustedOutputs: JSON.stringify(contracts)
                     }
                 }
             }
@@ -168,10 +184,10 @@ async function verifyExportedContract(importedSql?: string): Promise<VerifyRecor
         ['postgreSQLMCP', 'chatOpenAI', 'harnessSpecialist'],
         [{ id: 'cred-openai', name: 'OpenAI main', credentialName: 'openAIApi' }]
     ) as { nodes: Array<{ id?: string; data?: { inputs?: Record<string, unknown> } }>; edges: unknown[] }
-    if (importedSql) {
+    if (options.importedSql) {
         const postgres = exported.nodes.find((node) => node.id === 'pg')
         const pins = JSON.parse(String(postgres?.data?.inputs?.pinnedQueries || '[]')) as Array<Record<string, unknown>>
-        pins[0].sql = importedSql
+        pins[0].sql = options.importedSql
         if (postgres?.data?.inputs) postgres.data.inputs.pinnedQueries = JSON.stringify(pins)
     }
     const { deps } = memoryDeps({
@@ -202,7 +218,10 @@ async function verifyExportedContract(importedSql?: string): Promise<VerifyRecor
         validateArgs: () => [],
         stampPayload: (fields) => JSON.stringify(fields),
         computeStamp: () => 'ff'.repeat(32),
-        pinnedToolDefinition: () => ({ name: sourcePin.name, description: sourcePin.purpose, inputSchema: {} }),
+        pinnedToolDefinition: (entry) => {
+            const query = entry as { name?: unknown; purpose?: unknown }
+            return { name: String(query.name || ''), description: String(query.purpose || ''), inputSchema: {} }
+        },
         queryAnalystUrl: async () => ({ rows: [{ region: 'north' }], total: 1 }),
         getPinnedQueryKey: async () => Buffer.alloc(32, 1),
         recordTest: async () => undefined
@@ -221,15 +240,36 @@ describe('imported verification', () => {
         expect(record.status).toBe('ready')
     })
 
+    test('every saved query and output contract verifies across multiple batches', async () => {
+        const record = await verifyExportedContract({ pinCount: 9 })
+        expect(record.queries).toHaveLength(9)
+        expect(record.queries.every((query) => query.state === 'passed' && /^[a-f0-9]{64}$/.test(query.statementHash || ''))).toBe(true)
+        expect(record.blockers.filter((blocker) => blocker.id.startsWith('contract:') && blocker.id.endsWith(':hash'))).toEqual([])
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('an exported harness can be verified again after its queries were verified here', async () => {
+        const record = await verifyExportedContract({ verifiedHere: true })
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('an exported output contract keeps the hash of parameters without required', async () => {
+        const record = await verifyExportedContract({ omitRequired: true })
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
     test('an exported output contract still blocks after its query SQL changes', async () => {
-        const record = await verifyExportedContract('SELECT upper(:region) AS region LIMIT 10')
+        const record = await verifyExportedContract({ importedSql: 'SELECT upper(:region) AS region LIMIT 10' })
         expect(record.status).toBe('attention')
         expect(record.blockers).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    id: 'contract:specialist:pq_account_opportunity:hash',
+                    id: 'contract:specialist:pq_region_1:hash',
                     message:
-                        'The output contract for pq_account_opportunity does not match the query that was just tested. Review the contract before publishing.'
+                        'The output contract for pq_region_1 does not match the query that was just tested. Review the contract before publishing.'
                 })
             ])
         )

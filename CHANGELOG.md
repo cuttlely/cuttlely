@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Import & verify now accepts unchanged output contracts from an exported flow while still blocking contracts for changed saved-query SQL.
+-   Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
 
 -   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
 
