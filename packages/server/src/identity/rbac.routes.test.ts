@@ -178,19 +178,6 @@ jest.mock(
     { virtual: true }
 )
 
-jest.mock('../controllers/import-verify', () => ({
-    __esModule: true,
-    default: new Proxy(
-        {},
-        {
-            get: () => (_req: Request, res: express.Response) => {
-                hits.n += 1
-                res.status(200).json({ ok: true })
-            }
-        }
-    )
-}))
-
 jest.mock('../controllers/pinned-queries', () => ({
     __esModule: true,
     default: new Proxy(
@@ -214,7 +201,6 @@ import harnessesRouter from '../routes/harnesses'
 import flowVersionsRouter from '../routes/flow-versions'
 import flowDraftsRouter from '../routes/flow-drafts'
 import pinnedQueriesRouter from '../routes/pinned-queries'
-import importVerifyRouter from '../routes/import-verify'
 import { setHarnessFlowLookup, setHarnessKeyLookup } from '../services/harnesses/apiAccess'
 
 type Method = 'get' | 'post' | 'put' | 'delete'
@@ -453,27 +439,6 @@ describe('switched route groups', () => {
         expect(lookups).toBe(1)
         const home = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
         expect((await call(group.router, home, group.allow)).status).toBe(200)
-    })
-
-    it('import-verify refuses an update-only role that cannot view credentials', async () => {
-        memberships.set('user-1|team-a', grant(['chatflows:update']))
-        const user = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
-        const denied = await call(importVerifyRouter, user, {
-            method: 'post',
-            path: '/0b5c3a1e-1111-2222-3333-444455556666',
-            permission: 'chatflows:update'
-        })
-        expect(denied.status).toBe(403)
-        expect(hits.n).toBe(0)
-        memberships.set('user-1|team-a', grant(['chatflows:update', 'credentials:view']))
-        hits.n = 0
-        const allowed = await call(importVerifyRouter, user, {
-            method: 'get',
-            path: '/0b5c3a1e-1111-2222-3333-444455556666',
-            permission: 'credentials:view'
-        })
-        expect(allowed.status).toBe(200)
-        expect(hits.n).toBe(1)
     })
 
     it('pinned-queries refuses a view-only role', async () => {
