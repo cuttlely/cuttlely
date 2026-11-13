@@ -1,0 +1,12 @@
+---
+// The import guide at /flowise/import-guide/, linked from /flowise/. The body is src/guides/flowise-import/guide.md.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { Content, getHeadings } from '../../guides/flowise-import/guide.md'
+
+const title = 'How to import a Flowise export into Cuttlely'
+---
+
+<StarlightPage frontmatter={{ title, pagefind: true }} headings={getHeadings()} hasSidebar={false}>
+    <h1 id="_top">{title}</h1>
+    <Content />
+</StarlightPage>
