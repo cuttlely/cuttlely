@@ -6,7 +6,7 @@ Cuttlely opens a chatflow or agentflow that you exported from Flowise as a JSON 
 
 Here's what you need:
 
--   Cuttlely 1.7.3 or later, installed and signed in. Haven't set it up yet? The [quickstart](https://github.com/cuttlely/cuttlely/blob/v1.7.3/README.md#your-first-10-minutes) gets you there.
+-   Cuttlely 1.7.4 or later, installed and signed in. Haven't set it up yet? The [quickstart](https://github.com/cuttlely/cuttlely/blob/v1.7.4/README.md#your-first-10-minutes) gets you there.
 -   The exported JSON file for each flow you want to move.
 -   Your model keys. Keys don't travel in the file, so you'll add them in Cuttlely under **Credentials**.
 
@@ -43,7 +43,7 @@ _The imported flow opens on the canvas with its connections in place. Connect yo
 
 8. Select **Save**. On a new, unsaved canvas, that first save creates the published flow, and the next canvas save is a draft. On a flow that is already saved, **Save** stores a draft, and Live changes only after **Publish**.
 
-Want the rule-by-rule detail on what Scan checks? It's in [Flowise migration wizard](https://github.com/cuttlely/cuttlely/blob/v1.7.3/docs/flowise-migration-wizard.md).
+Want the rule-by-rule detail on what Scan checks? It's in [Flowise migration wizard](https://github.com/cuttlely/cuttlely/blob/v1.7.4/docs/flowise-migration-wizard.md).
 
 ## Check the flow before you rely on it
 
@@ -72,10 +72,10 @@ Some things won't come across. The partial list:
 -   Matching or creating credentials inside the wizard. You pick them on the canvas after it opens.
 -   The saved zoom and position of the canvas.
 
-The full list, including moving a whole install with its database, is in [Bring your existing flows](https://github.com/cuttlely/cuttlely/blob/v1.7.3/docs/bring-your-flows.md).
+The full list, including moving a whole install with its database, is in [Bring your existing flows](https://github.com/cuttlely/cuttlely/blob/v1.7.4/docs/bring-your-flows.md).
 
 ## After the import
 
-Select **Publish** when the flow is ready. On a chatflow or agentflow, the Publish dialog can run a few questions against your draft first. Every save is kept in version history. Both are covered in [Drafts and Publish](https://github.com/cuttlely/cuttlely/blob/v1.7.3/docs/how-to/versioning.md#drafts-and-publish).
+Select **Publish** when the flow is ready. On a chatflow or agentflow, the Publish dialog can run a few questions against your draft first. Every save is kept in version history. Both are covered in [Drafts and Publish](https://github.com/cuttlely/cuttlely/blob/v1.7.4/docs/how-to/versioning.md#drafts-and-publish).
 
-New to Cuttlely? [Run the quickstart](https://github.com/cuttlely/cuttlely/blob/v1.7.3/README.md#your-first-10-minutes) and you'll have it running on Docker before you open the wizard. If this got your flows across, [star Cuttlely on GitHub](https://github.com/cuttlely/cuttlely) so other devs can find it.
+New to Cuttlely? [Run the quickstart](https://github.com/cuttlely/cuttlely/blob/v1.7.4/README.md#your-first-10-minutes) and you'll have it running on Docker before you open the wizard. If this got your flows across, [star Cuttlely on GitHub](https://github.com/cuttlely/cuttlely) so other devs can find it.
