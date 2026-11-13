@@ -4403,6 +4403,10 @@
             "reason": "The executions paging test lives next to the service it checks."
         },
         {
+            "path": "packages/server/src/services/export-import/credentialMark.test.ts",
+            "reason": "The import credential-mark test stays with the export-import service."
+        },
+        {
             "path": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
             "reason": "tests for inherited public config endpoints and template saving"
         },
