@@ -773,8 +773,18 @@ async function verifyBody(options: {
     }
 
     const hashes: Record<string, string> = {}
+    const queryTests: Record<string, { tested: boolean; message: string }> = {}
     for (const query of record.queries) {
-        if (query.statementHash) hashes[`${query.nodeId}\0${query.pinId}`] = query.statementHash
+        const key = `${query.nodeId}\0${query.pinId}`
+        const tested = (query.state === 'passed' || query.state === 'empty') && Boolean(query.statementHash)
+        queryTests[key] = {
+            tested,
+            message:
+                query.state === 'passed' || query.state === 'empty'
+                    ? 'The saved query ran, but this test did not return a statement hash.'
+                    : query.message
+        }
+        if (tested && query.statementHash) hashes[key] = query.statementHash
     }
     let pdfAvailable: boolean | undefined
     const mayNeedPdf = JSON.stringify(flow).includes('pdf')
@@ -791,7 +801,8 @@ async function verifyBody(options: {
         pinnedQueriesEnabled: deps.pinnedQueriesEnabled,
         pdfAvailable,
         resolutions,
-        statementHashes: hashes
+        statementHashes: hashes,
+        queryTests
     })
     const queryBlockers: Blocker[] = record.queries
         .filter((item) => item.state === 'failed')
