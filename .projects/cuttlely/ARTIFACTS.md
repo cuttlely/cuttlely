@@ -1,3 +1,9 @@
+## Try the demo save
+
+-   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. `packages/harness/cleanup.mjs` `removeUnprofiledWorkspace` drops a plain workspace that has no profile entry.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry with the demo folders already present, and refusal of a profile leftover, a linked workspace, and another harness's workspace.
+-   README step 4 and `website/src/guides/flowise-import/guide.md` match the product: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
+
 ## PostgreSQL statement-guard regressions
 
 -   `scripts/analyst-relations.test.mjs`: PostgreSQL-backed regressions for joined-table whole rows whose first item is a derived query, including nested joins; explicit element conversions in chained array casts; and later comma items after clause words used as JOIN columns. The comma cases cover scoped `reg*` whole rows and unticked base tables that also underlie a selected view, in both policy modes.

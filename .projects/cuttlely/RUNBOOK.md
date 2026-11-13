@@ -192,6 +192,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 
 ## Gotchas
 
+-   **Try the demo stages specialist files after the harness save.** A workspace with no profile is a leftover to `nameReuseBlockers`, and the save answers 503. `scripts/demo-save.test.mjs` in the verify-test step covers a fresh install and a retry. A profile, a link, or another harness's workspace still refuses the save.
 -   **A failed chat is not proof its runtime worker stopped.** Cleanup targets the admitted run id and waits at most two seconds for a terminal runtime status. `Runtime stop was not confirmed` means the worker may still be active; inspect runtime health and worker state rather than deleting history or raising the concurrency cap. The client does not forcibly kill a worker that ignores interruption.
 
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.

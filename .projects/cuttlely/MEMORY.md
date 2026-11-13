@@ -95,6 +95,8 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+Try the demo must not create specialist workspaces before the harness save. `nameReuseBlockers` treats a workspace with no profile as a leftover, `clearStaleNameData` answers 503, and a retry finds the same folders. Stage the files after the save. Before that save, remove only a plain workspace whose name is one of this demo's specialist profiles and that has no profile entry. A profile, a link anywhere in the tree, or another harness's workspace stays, and the save is still refused.
+
 Handle comparison must treat a changed trailing type as the same input, and must not treat two dashed names as types. Matching already covered a missing class against a single class, but two different single classes on the same name (`BaseLanguageModel` versus `BaseChatModel`) did not match, so import healing dropped the Bakery helper model edge. Equating both stripped names blindly also collapses `when-true` and `when-false`. Only treat both trailing segments as types when they look like classes, then write the saved handle to the live anchor id. Import the shipped `examples/imports/bakery-helper.json` as-is; a fixture that already uses the current type will not catch this.
 
 -   Bind a Harness gateway caller to the exact Harness/chat pair before crossing a runtime HTTP callback. A shared team name cannot select a principal, abort signal or execution callback. Parse runtime scope first, match queued jobs on both fields, and refuse an active chat collision before replacing its binding. Every bridge needs runtime turn identity, including specialists without analyst tools; model-supplied scope cannot choose another chat. Missing scope fails closed without a card credential.

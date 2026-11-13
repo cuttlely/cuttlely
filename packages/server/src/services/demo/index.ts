@@ -136,12 +136,19 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
 
     const pipelineName = demo.pipelineSample ? await demoPipeline(demo, workspaceId) : ''
     const profile = await loadHarness('profile.mjs')
+    const cleanup = await loadHarness('cleanup.mjs')
     const source = demoDataDir(demo.dataDir)
     const folders: Record<string, string> = {}
+    const staged: Array<{ folder: string; files: string[] }> = []
     for (const [specialist, files] of Object.entries(demo.files)) {
-        const folder = profile.specialistWorkspace(profile.specialistProfileName(demo.harness, specialist))
-        await stageDemoFiles(folder, source, files)
+        const profileName = profile.specialistProfileName(demo.harness, specialist)
+        // Staging these folders before the save makes the name check treat them as leftovers from an earlier
+        // harness and answer 503, and a retry finds the same folders. Drop only a plain workspace that has no
+        // profile. A profile, a link, or another harness's directory is left for that check.
+        cleanup.removeUnprofiledWorkspace(profileName)
+        const folder = profile.specialistWorkspace(profileName)
         folders[specialist] = folder.split(path.sep).join('/')
+        staged.push({ folder, files })
     }
 
     const chatModel = { name: model.name, credential: credentialId, inputs: model.modelName ? { modelName: model.modelName } : {} }
@@ -171,6 +178,9 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         actor,
         { caller: harnessCaller }
     )
+    // The save compiles the profiles. The specialist files go in after that, so the name check never sees
+    // this demo's own folders as leftovers.
+    for (const item of staged) await stageDemoFiles(item.folder, source, item.files)
     logger.info(`[server]: Try the demo made ${demo.harness} with ${model.name}${model.modelName ? ` (${model.modelName})` : ''}`)
     return { id: saved.id, name: saved.name, created: true, starterQuestions: demo.starters }
 }
