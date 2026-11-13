@@ -833,14 +833,18 @@ describe('what the canvas test chat runs', () => {
         expect(await flowDataForTestChat(flow())).toBe(canvas('Draft'))
     })
 
-    test('Live when drafts are off, the type has no drafts, or Publish instantly is on', async () => {
+    test('Live when drafts are off or the type has no drafts', async () => {
         await saveDraft(flow(), canvas('Draft'), context)
         process.env.CUTTLELY_DRAFTS = 'off'
         expect(await flowDataForTestChat(flow())).toBe(LIVE)
         process.env.CUTTLELY_DRAFTS = 'on'
         expect(await flowDataForTestChat(flow({ type: 'ASSISTANT' }))).toBe(LIVE)
+    })
+
+    test('the draft when Publish instantly is on and a draft still exists', async () => {
+        await saveDraft(flow(), canvas('Draft'), context)
         rows[0].publishInstantly = true
-        expect(await flowDataForTestChat(flow())).toBe(LIVE)
+        expect(await flowDataForTestChat(flow())).toBe(canvas('Draft'))
     })
 })
 

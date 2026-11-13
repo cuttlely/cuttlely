@@ -905,6 +905,18 @@ const CanvasHeader = ({
                             </Button>
                         </Available>
                     )}
+                    {showDraftChrome(draftStatus) && draftStatus?.mode !== 'draft' && draftStatus?.draft && (
+                        <Available permission={draftPermission}>
+                            <Button
+                                color='inherit'
+                                size='small'
+                                onClick={discardDraft}
+                                sx={{ mr: 2, textTransform: 'none', whiteSpace: 'nowrap' }}
+                            >
+                                Discard draft
+                            </Button>
+                        </Available>
+                    )}
                     <Available permission={saveButtonPermission}>
                         <ButtonBase title={`Save ${title}`} sx={{ borderRadius: '50%', mr: 2 }}>
                             <Avatar

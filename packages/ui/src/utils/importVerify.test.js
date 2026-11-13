@@ -114,6 +114,15 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
     ).toBe(true)
     expect(order[0]).toBe('status')
     expect(order[1]).toContain('"nodes":[]')
+    const imported = '{"nodes":[{"id":"imported"}],"edges":[]}'
+    expect(
+        deliverImportedDraft({
+            status: { mode: 'live', reason: 'publish-instantly', draft: { flowData: imported } },
+            flowText: '{"nodes":[{"id":"live"}],"edges":[]}',
+            onImported: (text) => order.push(text)
+        })
+    ).toBe(true)
+    expect(order.at(-1)).toBe(imported)
     expect(connectionNeedsChoice({ status: 'empty', required: true })).toBe(true)
     expect(connectionNeedsChoice({ status: 'empty', required: false })).toBe(false)
     expect(connectionNeedsChoice({ status: 'ambiguous' })).toBe(true)

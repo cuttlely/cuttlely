@@ -1042,13 +1042,14 @@ export async function clearPublishGateResult(
     await repo().update({ chatflowId: flow.id, publishGateResult: stored }, { publishGateResult: null })
 }
 
-// The canvas the flow's own test runs: the draft when the flow saves to drafts and has one,
-// otherwise Live. The canvas test chat calls this, and so does a pipeline preview that omits the canvas.
-// Every other caller reads Live.
+// The canvas the flow's own test runs. A draft is used whenever one is stored, including while
+// Publish instantly is on, so Import & verify tests the imported file instead of Live. With no
+// draft, the test runs Live. The canvas test chat calls this, and so does a pipeline preview
+// that omits the canvas. Every other caller reads Live.
 export async function flowDataForTestChat(flow: DraftFlow): Promise<string> {
     if (!isDraftsEnabled() || !typeHasDrafts(flow.type)) return flow.flowData
     const state = await getState(flow.id)
-    if (!state || state.publishInstantly || !state.draftFlowData) return flow.flowData
+    if (!state?.draftFlowData) return flow.flowData
     return state.draftFlowData
 }
 

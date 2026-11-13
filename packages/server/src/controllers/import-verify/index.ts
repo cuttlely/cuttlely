@@ -162,7 +162,10 @@ async function run(req: Request, retryFailures: boolean, controller: AbortContro
                         }
                         throw error
                     }
-                    const stored = (await flowDraftsService.getState(flow.id))?.draftFlowData || written
+                    const stored = (await flowDraftsService.getState(flow.id))?.draftFlowData
+                    if (!stored) {
+                        throw Object.assign(new Error('Matches Live; nothing to publish.'), { code: 'matches-live', flowText: written })
+                    }
                     if (canvasHash(stored) !== canvasHash(written)) {
                         throw Object.assign(new Error('The draft changed while verification was running.'), { code: 'draft-moved' })
                     }

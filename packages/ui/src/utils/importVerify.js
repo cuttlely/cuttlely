@@ -107,8 +107,11 @@ export function deliverImportedDraft({ status, flowText, onDraftStatus, onImport
     if (onDraftStatus) onDraftStatus(status)
     const stored = status.draft?.flowData
     const text = typeof stored === 'string' && stored ? stored : flowText
-    if (status.mode === 'draft' && text && onImported) onImported(text)
-    return status.mode === 'draft' && Boolean(text)
+    // Publish instantly reports mode live even when Import & verify has stored a draft.
+    // Those cards still have to appear, or the canvas keeps showing Live.
+    const paints = Boolean(text) && (status.mode === 'draft' || (typeof stored === 'string' && Boolean(stored)))
+    if (paints && onImported) onImported(text)
+    return paints
 }
 
 // The canvas must not keep a draft hash from before this import. A later Save of the old cards

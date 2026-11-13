@@ -275,15 +275,26 @@ function draftMoved(error: unknown): boolean {
     return Boolean(error && typeof error === 'object' && (error as { code?: string }).code === 'draft-moved')
 }
 
+function matchesLive(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object' && (error as { code?: string }).code === 'matches-live')
+}
+
 async function persist(
     deps: VerifyDeps,
     flow: unknown,
     record: VerifyRecord
-): Promise<{ flowText: string; record: VerifyRecord; moved?: boolean }> {
+): Promise<{ flowText: string; record: VerifyRecord; moved?: boolean; cleared?: boolean }> {
     let stored: string
     try {
         stored = await deps.saveFlow(JSON.stringify(flow))
     } catch (error) {
+        if (matchesLive(error)) {
+            const kept = (error as { flowText?: unknown }).flowText
+            const flowText = typeof kept === 'string' && kept ? kept : JSON.stringify(flow)
+            const next = { ...record, draftHash: hashFlow(flowText), updatedAt: deps.now() }
+            await deps.saveRecord(next)
+            return { flowText, record: next, cleared: true }
+        }
         if (!draftMoved(error)) throw error
         const stopped = finishRecord(
             {
@@ -828,6 +839,17 @@ async function verifyBody(options: {
         return outcome
     }
     const readyStored = await persist(deps, clearImportHold(flow), outcome)
+    if (readyStored.cleared) {
+        const noted = {
+            ...readyStored.record,
+            status: 'ready' as const,
+            publishOffered: false,
+            phase: 'Finished',
+            summary: 'Matches Live; nothing to publish.'
+        }
+        await deps.saveRecord(noted)
+        return noted
+    }
     return readyStored.record
 }
 

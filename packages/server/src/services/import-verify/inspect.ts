@@ -51,17 +51,23 @@ function nodeData(node: unknown): Record<string, unknown> | null {
 }
 
 function contractsOf(inputs: Record<string, unknown>): Contract[] {
+    if (!Object.prototype.hasOwnProperty.call(inputs, 'trustedOutputs')) return []
     const raw = inputs.trustedOutputs
-    let parsed = raw
+    if (raw == null) return []
+    let parsed: unknown = raw
     if (typeof raw === 'string') {
+        const text = raw.trim()
+        if (!text) return []
         try {
-            parsed = JSON.parse(raw)
+            parsed = JSON.parse(text) as unknown
         } catch {
             return [{ mode: 'invalid' }]
         }
     }
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && typeof item === 'object') as Contract[]
+    if (!Array.isArray(parsed)) return [{ mode: 'invalid' }]
+    const kept = parsed.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    if (kept.length !== parsed.length) return [{ mode: 'invalid' }]
+    return kept as Contract[]
 }
 
 // A contract sits on the specialist. The saved query sits on a Postgres card wired into that specialist.

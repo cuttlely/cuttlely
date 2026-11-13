@@ -364,6 +364,59 @@ describe('imported verification', () => {
         expect(drafts.every((item) => item.includes(bad))).toBe(true)
     })
 
+    test('re-importing a no-query flow identical to Live does not offer Publish', async () => {
+        const live = JSON.stringify({
+            nodes: [{ id: 'note', data: { name: 'stickyNote', label: 'Note', inputs: {} } }],
+            edges: []
+        })
+        const { deps } = memoryDeps({
+            loadedNodeNames: ['stickyNote'],
+            saveFlow: async (flowText) => {
+                const parsed = JSON.parse(flowText) as { importVerification?: string }
+                if (!parsed.importVerification) {
+                    throw Object.assign(new Error('Matches Live; nothing to publish.'), { code: 'matches-live', flowText })
+                }
+                return flowText
+            }
+        })
+        const record = await executeVerify({ flowText: live, record: null, deps })
+        expect(record.status).toBe('ready')
+        expect(record.publishOffered).toBe(false)
+        expect(record.summary).toBe('Matches Live; nothing to publish.')
+    })
+
+    test('an unreadable verified-output contract is left as stored and is not ready', async () => {
+        const note = (trustedOutputs: unknown) => ({
+            nodes: [{ id: 'note', data: { name: 'stickyNote', label: 'Note', inputs: { trustedOutputs } } }],
+            edges: []
+        })
+        const unreadable = ['null', '{not a list', JSON.stringify([{ pin: 'pq', mode: 'markdown' }, 7]), { pin: 'only' }]
+        for (const trustedOutputs of unreadable) {
+            const canvas = note(trustedOutputs)
+            const before = JSON.stringify(canvas.nodes[0].data.inputs.trustedOutputs)
+            const { deps, drafts } = memoryDeps({ loadedNodeNames: ['stickyNote'] })
+            const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+            expect(record.status).not.toBe('ready')
+            expect(record.publishOffered).toBe(false)
+            expect(record.blockers.some((item) => item.id === 'contract:note:json')).toBe(true)
+            expect(JSON.stringify(canvas.nodes[0].data.inputs.trustedOutputs)).toBe(before)
+            expect(drafts.some((item) => item.includes(before.slice(1, -1)))).toBe(true)
+        }
+        const none = [null, '', undefined]
+        for (const trustedOutputs of none) {
+            const inputs: { trustedOutputs?: unknown } = {}
+            if (trustedOutputs !== undefined) inputs.trustedOutputs = trustedOutputs
+            const canvas = {
+                nodes: [{ id: 'note', data: { name: 'stickyNote', label: 'Note', inputs } }],
+                edges: []
+            }
+            const { deps } = memoryDeps({ loadedNodeNames: ['stickyNote'] })
+            const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+            expect(record.blockers.some((item) => String(item.id).startsWith('contract:'))).toBe(false)
+            expect(record.status).toBe('ready')
+        }
+    })
+
     test('a null saved-query field means no queries and is not an attention blocker', async () => {
         const canvas = {
             nodes: [{ id: 'note', data: { name: 'stickyNote', label: 'Note', inputs: { pinnedQueries: null } } }],

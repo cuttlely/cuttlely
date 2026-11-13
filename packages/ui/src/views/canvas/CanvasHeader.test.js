@@ -133,6 +133,22 @@ describe('Canvas header discard', () => {
         })
     }
 
+    test('Publish instantly still shows Publish and Discard while a draft exists', async () => {
+        const view = await open(graph('Chat', 'live.csv'), 'CHATFLOW', {
+            draftStatus: {
+                enabled: true,
+                mode: 'live',
+                reason: 'publish-instantly',
+                publishInstantly: true,
+                draft: { flowData: graph('Chat', 'imported.csv'), stale: false, hash: 'imported' }
+            }
+        })
+        const labels = [...document.body.querySelectorAll('button')].map((item) => item.textContent)
+        expect(labels).toContain('Publish')
+        expect(labels).toContain('Discard draft')
+        act(() => view.root.unmount())
+    })
+
     test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('a %s discard applies the Live canvas', async (type) => {
         const live = graph(type, 'outdoor-catalog.csv')
         confirm.mockResolvedValue(true)
