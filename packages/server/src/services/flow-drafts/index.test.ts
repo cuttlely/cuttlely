@@ -334,6 +334,22 @@ describe('an existing harness', () => {
         expect(await draftToPublish(existing)).toBe(canvas('Draft instructions'))
     })
 
+    test('an unfinished import verification blocks publish and leaves Live', async () => {
+        const { hashFlow } = await import('../import-verify')
+        const existing = harness()
+        const draft = canvas('Draft instructions')
+        await saveDraft(existing, draft, context)
+        const stored = rows[0].draftFlowData
+        rows[0].importVerify = JSON.stringify({ version: 1, draftHash: hashFlow(stored), status: 'attention' })
+        await expect(draftToPublish(existing)).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('needs attention')
+        })
+        expect(existing.flowData).toBe(live)
+        rows[0].importVerify = JSON.stringify({ version: 1, draftHash: hashFlow(stored), status: 'ready' })
+        expect(await draftToPublish(existing)).toBe(stored)
+    })
+
     test('Publish bookkeeping clears the draft after Live is set to it', async () => {
         const existing = harness()
         await saveDraft(existing, canvas('Draft instructions'), context)
@@ -640,7 +656,7 @@ describe('publishing', () => {
         expect(updates).toEqual([
             [
                 ['chatflowId', 'draftFlowData'],
-                ['draftBaseHash', 'draftFlowData', 'draftUpdatedBy', 'draftUpdatedDate']
+                ['draftBaseHash', 'draftFlowData', 'draftUpdatedBy', 'draftUpdatedDate', 'importVerify']
             ],
             [['chatflowId'], ['liveSha', 'publishedDate']]
         ])
@@ -817,13 +833,16 @@ describe('what the canvas test chat runs', () => {
         expect(await flowDataForTestChat(flow())).toBe(canvas('Draft'))
     })
 
-    test('Live when drafts are off, the type has no drafts, or Publish instantly is on', async () => {
+    test('Live when drafts are off or the type has no drafts', async () => {
         await saveDraft(flow(), canvas('Draft'), context)
         process.env.CUTTLELY_DRAFTS = 'off'
         expect(await flowDataForTestChat(flow())).toBe(LIVE)
         process.env.CUTTLELY_DRAFTS = 'on'
         expect(await flowDataForTestChat(flow({ type: 'ASSISTANT' }))).toBe(LIVE)
-        rows[0].publishInstantly = true
+    })
+
+    test('Publish instantly with no draft reads Live', async () => {
+        rows.push({ chatflowId: 'flow-1', draftFlowData: null, publishInstantly: true })
         expect(await flowDataForTestChat(flow())).toBe(LIVE)
     })
 })
@@ -1799,7 +1818,15 @@ describe('ZZ-TEST-a shared draft save asks before it replaces someone else', () 
         expect(seen.draft?.flowData).toBe(canvas('ZZ-TEST-mine 2'))
         const again = await saveDraft(flow(), canvas('ZZ-TEST-mine 3'), { ...context, userId: me, expectedDraftHash: loaded })
         expect(again.draft?.flowData).toBe(canvas('ZZ-TEST-mine 3'))
+        await expect(
+            saveDraft(flow(), canvas('ZZ-TEST-mine 4'), { ...context, userId: me, expectedDraftHash: loaded, strictDraftHash: true })
+        ).rejects.toBeInstanceOf(DraftChangedError)
+        expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-mine 3'))
         expect(rows[0].draftUpdatedBy).toBe(me)
+        await expect(
+            draftToPublish(flow(), undefined, { userId: me, expectedDraftHash: loaded, strictDraftHash: true })
+        ).rejects.toBeInstanceOf(DraftChangedError)
+        expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-mine 3'))
         // A matching hash is the draft they opened, whoever saved it.
         const current = again.draft?.hash
         const shared = await saveDraft(flow(), canvas('ZZ-TEST-seen'), { ...context, userId: other, expectedDraftHash: current })

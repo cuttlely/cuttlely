@@ -53,6 +53,10 @@ export class FlowVersionState {
     @Column({ nullable: true, type: 'text' })
     publishGateResult?: string | null
 
+    // Import verification progress for the current draft. No row values and no secrets.
+    @Column({ nullable: true, type: 'text' })
+    importVerify?: string | null
+
     // The history commit that is Live, once publishing records it.
     @Column({ nullable: true, type: 'varchar', length: 40 })
     liveSha?: string | null

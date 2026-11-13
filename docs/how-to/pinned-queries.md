@@ -82,6 +82,8 @@ These make the stamp fail, and the pin has to be tested again:
 
 A copy of the flow in the same workspace, still using the same credential, keeps the stamp, because the flow id is not part of it. A copy in another workspace does not. An export includes the SQL. It does not include the database credential.
 
+A file imported onto this server is not treated as tested, even when the file still has a stamp. [Import and verify](./import-verify.md) retests each saved query here and keeps that work on the draft.
+
 A passing test records who ran it. That person tested the statement. They did not approve it, and Cuttlely does not record a compliance sign-off.
 
 ## Free SQL stays available

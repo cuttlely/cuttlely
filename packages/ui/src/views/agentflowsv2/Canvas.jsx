@@ -26,6 +26,7 @@ import AgentFlowEdge from './AgentFlowEdge'
 import ConnectionLine from './ConnectionLine'
 import StickyNote from './StickyNote'
 import CanvasHeader from '@/views/canvas/CanvasHeader'
+import { untrustFlow } from '@/utils/importVerify'
 import CanvasLoadGuard, {
     canvasLoadBlocked,
     canvasLoadRetryRequest,
@@ -83,6 +84,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
+import { adoptImportedIdentity, draftStatusWhenImportUnknown, preserveImportHold } from '@/utils/importVerify'
 import { canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
@@ -298,9 +300,10 @@ const AgentflowCanvas = () => {
                     })
                     return
                 }
-                const nodes = rebound.flow.nodes || []
+                const cleared = untrustFlow(rebound.flow)
+                const nodes = cleared.nodes || []
                 setNodes(nodes)
-                setEdges(rebound.flow.edges || [])
+                setEdges(cleared.edges || [])
                 setTimeout(() => setDirty(), 0)
             } catch (e) {
                 console.error(e)
@@ -542,7 +545,10 @@ const AgentflowCanvas = () => {
         const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
-            const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
+            const rfInstanceObject = preserveImportHold(
+                draftStatusRef.current?.draft?.flowData,
+                canvasSaveDocument(reactFlowInstance, { workflow: true })
+            )
             const flowData = JSON.stringify(rfInstanceObject)
             const starterQuestions = builderStartersRef.current
 
@@ -1365,6 +1371,25 @@ const AgentflowCanvas = () => {
                                 onDraftStatus={setDraftStatus}
                                 onChatflowUpdated={(next) => dispatch({ type: SET_CHATFLOW, chatflow: next })}
                                 onApplyCanvas={applyCanvasText}
+                                onFlowCreated={(created) => {
+                                    adoptImportedIdentity({
+                                        created,
+                                        flowType: 'AGENTFLOW',
+                                        agentV2: true,
+                                        remember: (id) => {
+                                            createdFlowIdRef.current = id
+                                        },
+                                        replaceState: (...args) => window.history.replaceState(...args),
+                                        historyState: state
+                                    })
+                                    dispatch({ type: SET_CHATFLOW, chatflow: created })
+                                    setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null, request: 'status' })
+                                }}
+                                onDraftUnavailable={() => {
+                                    const next = draftStatusWhenImportUnknown(routeFlowId || createdFlowIdRef.current)
+                                    setDraftStatus(next.status)
+                                    setDraftStatusLoad(next.load)
+                                }}
                                 onDirty={setDirty}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}

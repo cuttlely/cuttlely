@@ -26,6 +26,8 @@ import {
 import Settings from '@/views/settings'
 import { duplicateCanvasPath } from '@/utils/canvasKind'
 import FlowiseMigrationWizard from '@/ui-component/flow/FlowiseMigrationWizard'
+import ImportVerifyDialog from '@/views/canvas/ImportVerifyDialog'
+import { importFlowType } from '@/utils/importVerify'
 import SaveChatflowDialog from '@/ui-component/dialog/SaveChatflowDialog'
 import APICodeDialog from '@/views/chatflows/APICodeDialog'
 import ViewMessagesDialog from '@/ui-component/dialog/ViewMessagesDialog'
@@ -48,6 +50,7 @@ import {
     apiErrorMessage,
     badgeText,
     canvasAfterDiscard,
+    canvasAfterPublish,
     canvasAfterRollback,
     draftBadge,
     showDraftChrome
@@ -160,8 +163,10 @@ const CanvasHeader = ({
     onApplyMigration,
     draftStatus = null,
     onDraftStatus = () => undefined,
+    onDraftUnavailable = () => undefined,
     onChatflowUpdated = () => undefined,
     onApplyCanvas = () => undefined,
+    onFlowCreated = () => undefined,
     onDirty = () => undefined,
     draftExpected = () => ({}),
     onDraftConflict = () => undefined,
@@ -202,6 +207,7 @@ const CanvasHeader = ({
     const [exportAsTemplateDialogOpen, setExportAsTemplateDialogOpen] = useState(false)
     const [exportAsTemplateDialogProps, setExportAsTemplateDialogProps] = useState({})
     const [migrationOpen, setMigrationOpen] = useState(false)
+    const [importVerifyOpen, setImportVerifyOpen] = useState(false)
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
@@ -238,6 +244,10 @@ const CanvasHeader = ({
 
     const onSettingsItemClick = (setting) => {
         setSettingsOpen(false)
+        if (setting === 'importAndVerify') {
+            setImportVerifyOpen(true)
+            return
+        }
 
         if (setting === 'deleteChatflow') {
             handleDeleteFlow()
@@ -895,6 +905,18 @@ const CanvasHeader = ({
                             </Button>
                         </Available>
                     )}
+                    {showDraftChrome(draftStatus) && draftStatus?.mode !== 'draft' && draftStatus?.draft && (
+                        <Available permission={draftPermission}>
+                            <Button
+                                color='inherit'
+                                size='small'
+                                onClick={discardDraft}
+                                sx={{ mr: 2, textTransform: 'none', whiteSpace: 'nowrap' }}
+                            >
+                                Discard draft
+                            </Button>
+                        </Available>
+                    )}
                     <Available permission={saveButtonPermission}>
                         <ButtonBase title={`Save ${title}`} sx={{ borderRadius: '50%', mr: 2 }}>
                             <Avatar
@@ -985,6 +1007,32 @@ const CanvasHeader = ({
                 onOpenFlowiseMigration={() => {
                     setSettingsOpen(false)
                     setMigrationOpen(true)
+                }}
+            />
+            <ImportVerifyDialog
+                open={importVerifyOpen}
+                chatflow={chatflow}
+                flowType={importFlowType({ isEtlCanvas, isHarnessCanvas, isAgentflowV2, isAgentCanvas })}
+                expectedDraftHash={() => {
+                    const recorded = typeof draftExpected === 'function' ? draftExpected() : {}
+                    if (recorded && Object.prototype.hasOwnProperty.call(recorded, 'expectedDraftHash')) return recorded
+                    if (draftStatus?.draft?.hash) return { expectedDraftHash: draftStatus.draft.hash }
+                    if (draftStatus?.mode && !draftStatus.draft) return { expectedDraftHash: null }
+                    return {}
+                }}
+                onClose={() => setImportVerifyOpen(false)}
+                onImported={(flowText) => onApplyCanvas(flowText)}
+                onDraftStatus={onDraftStatus}
+                onDraftUnavailable={onDraftUnavailable}
+                draftStatus={draftStatus}
+                onFlowCreated={onFlowCreated}
+                canvasDirty={Boolean(canvas.isDirty)}
+                onPublished={(data) => {
+                    setImportVerifyOpen(false)
+                    if (data?.status) onDraftStatus(data.status)
+                    const next = canvasAfterPublish(chatflow, data, data?.status?.draft?.flowData || draftStatus?.draft?.flowData)
+                    if (data?.chatflow || next.chatflow?.flowData) onChatflowUpdated(next.chatflow)
+                    if (next.apply) onApplyCanvas(next.apply)
                 }}
             />
             <FlowiseMigrationWizard
@@ -1095,8 +1143,10 @@ CanvasHeader.propTypes = {
     isAgentflowV2: PropTypes.bool,
     draftStatus: PropTypes.object,
     onDraftStatus: PropTypes.func,
+    onDraftUnavailable: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
     onApplyCanvas: PropTypes.func,
+    onFlowCreated: PropTypes.func,
     onDirty: PropTypes.func,
     draftExpected: PropTypes.func,
     onDraftConflict: PropTypes.func,

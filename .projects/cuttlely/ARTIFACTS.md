@@ -1,3 +1,9 @@
+## Try the demo save
+
+-   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry of marked folders, retry of unmarked 1.7.3 folders, a non-demo file at a demo destination (nothing removed), a profile or link leftover, an unmarked folder with only `support.sqlite` (kept), and a saved team whose specialist files are missing.
+-   README step 4 and `website/src/guides/flowise-import/guide.md`: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
+
 ## PostgreSQL statement-guard regressions
 
 -   `scripts/analyst-relations.test.mjs`: PostgreSQL-backed regressions for joined-table whole rows whose first item is a derived query, including nested joins; explicit element conversions in chained array casts; and later comma items after clause words used as JOIN columns. The comma cases cover scoped `reg*` whole rows and unticked base tables that also underlie a selected view, in both policy modes.
@@ -25,6 +31,12 @@
 -   `packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx`, `utils/analystStatus.js`, `views/canvas/CredentialInputHandler.jsx`, and `views/agentflowsv2/ConfigInput.jsx`: shared-client node loads and field-lifetime cancellation.
 -   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
 -   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - Unreleased`.
+
+## Import and verify
+
+-   `packages/server/src/services/import-verify/`: untrust imported stamps, match one destination credential by name and type, build read-only test values, retest saved queries, and keep the result on the draft.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, a required empty tool credential, schema-qualified and quoted tables, `BETWEEN` parameters, numeric range order, a same-named query on another card, an empty report that can be retried, a missing required model edge, a check that stops before it reads connections, coherent account and opportunity values, and publish staying blocked.
+-   `packages/ui/src/views/canvas/ImportVerifyDialog.jsx`, `ImportVerifyDialog.test.js`, and `docs/how-to/import-verify.md`. The dialog gives the saved draft to the canvas, and Close stays available while the check runs. `packages/ui/src/utils/importVerify.js` keeps the import hold across a canvas save, sends the loaded draft hash on the first existing-flow save, and stores a new legacy-agent import as MULTIAGENT. `packages/server/src/settings/database.test.ts` ignores a restart handler scheduled by an earlier test.
 
 ## Import target-handle types
 
