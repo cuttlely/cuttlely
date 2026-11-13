@@ -248,6 +248,16 @@ const pinFirstTests = spawnSync(process.execPath, ['--test', path.join(root, 'pa
 })
 check('pin first runtime and configuration tests', pinFirstTests.status === 0, pinFirstTests.stdout + pinFirstTests.stderr)
 
+const analystStatusTests = spawnSync(
+    process.execPath,
+    ['--test', path.join(root, 'packages/harness/runtime/analyst-mcp-status.test.mjs')],
+    {
+        encoding: 'utf8',
+        timeout: 60000
+    }
+)
+check('analyst status keeps a recorded offer', analystStatusTests.status === 0, analystStatusTests.stdout + analystStatusTests.stderr)
+
 const trustedOutputTests = spawnSync(
     process.execPath,
     [
@@ -14856,6 +14866,17 @@ const bridgeGateway = http.createServer((req, res) => {
 })
 await new Promise((resolve) => bridgeGateway.listen(0, '127.0.0.1', resolve))
 const bridgePort = bridgeGateway.address().port
+let scriptedTools = []
+const scriptedGateway = http.createServer((req, res) => {
+    const chunks = []
+    req.on('data', (chunk) => chunks.push(chunk))
+    req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ tools: scriptedTools }))
+    })
+})
+await new Promise((resolve) => scriptedGateway.listen(0, '127.0.0.1', resolve))
+const scriptedPort = scriptedGateway.address().port
 const bridgeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-bridge-'))
 const hermesBridgeEnv = {
     PATH: process.env.PATH || '',
@@ -14918,6 +14939,75 @@ try {
         analystPingHeader(silentDir)
     )
     fs.rmSync(silentDir, { recursive: true, force: true })
+    const racedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-race-'))
+    const otherEnv = {
+        ...hermesBridgeEnv,
+        CUTTLELY_DATA_DIR: racedDir,
+        CUTTLELY_HARNESS_GATEWAY_URL: `http://127.0.0.1:${scriptedPort}/`,
+        CUTTLELY_HARNESS_GATEWAY_TOKEN: 'other-specialist-token'
+    }
+    await askAnalystBridge({ ...hermesBridgeEnv, CUTTLELY_DATA_DIR: racedDir }, { jsonrpc: '2.0', id: 7, method: 'tools/list' })
+    scriptedTools = []
+    await askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 8, method: 'tools/list' })
+    await askAnalystBridge(
+        { ...otherEnv, CUTTLELY_HARNESS_GATEWAY_URL: 'http://127.0.0.1:9/' },
+        { jsonrpc: '2.0', id: 9, method: 'tools/list' }
+    )
+    scriptedTools = [{ name: 'search_docs' }, { name: 'draft' }]
+    await askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 10, method: 'tools/list' })
+    const racedStatus = JSON.parse(fs.readFileSync(path.join(racedDir, 'analyst-mcp.json'), 'utf8'))
+    check(
+        'a later empty, failed, or non-analyst tools/list does not clear a recorded offer',
+        racedStatus.tools === 1 && analystPingHeader(racedDir) === 'ready',
+        JSON.stringify(racedStatus)
+    )
+    const otherOnlyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-other-'))
+    scriptedTools = [{ name: 'search_docs' }]
+    await askAnalystBridge({ ...otherEnv, CUTTLELY_DATA_DIR: otherOnlyDir }, { jsonrpc: '2.0', id: 11, method: 'tools/list' })
+    const otherOnly = JSON.parse(fs.readFileSync(path.join(otherOnlyDir, 'analyst-mcp.json'), 'utf8'))
+    check(
+        'a specialist that lists no query or pinned tool records missing',
+        otherOnly.tools === 0 && analystPingHeader(otherOnlyDir) === 'missing',
+        JSON.stringify(otherOnly)
+    )
+    await askAnalystBridge({ ...hermesBridgeEnv, CUTTLELY_DATA_DIR: otherOnlyDir }, { jsonrpc: '2.0', id: 12, method: 'tools/list' })
+    check(
+        'a query list after a missing status becomes ready',
+        analystPingHeader(otherOnlyDir) === 'ready' &&
+            JSON.parse(fs.readFileSync(path.join(otherOnlyDir, 'analyst-mcp.json'), 'utf8')).tools === 1,
+        analystPingHeader(otherOnlyDir)
+    )
+    const pinnedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-analyst-pinned-'))
+    scriptedTools = [{ name: 'pq_sales' }, { name: 'describe' }]
+    await askAnalystBridge({ ...otherEnv, CUTTLELY_DATA_DIR: pinnedDir }, { jsonrpc: '2.0', id: 13, method: 'tools/list' })
+    const pinnedStatus = JSON.parse(fs.readFileSync(path.join(pinnedDir, 'analyst-mcp.json'), 'utf8'))
+    check(
+        'a pinned query with no free query tool records ready',
+        pinnedStatus.tools === 1 && analystPingHeader(pinnedDir) === 'ready',
+        JSON.stringify(pinnedStatus)
+    )
+    let raceDetail = ''
+    for (let round = 0; round < 8; round += 1) {
+        fs.rmSync(path.join(racedDir, 'analyst-mcp.json'), { force: true })
+        scriptedTools = []
+        await Promise.all([
+            askAnalystBridge({ ...hermesBridgeEnv, CUTTLELY_DATA_DIR: racedDir }, { jsonrpc: '2.0', id: 20 + round, method: 'tools/list' }),
+            askAnalystBridge(otherEnv, { jsonrpc: '2.0', id: 40 + round, method: 'tools/list' })
+        ])
+        const body = JSON.parse(fs.readFileSync(path.join(racedDir, 'analyst-mcp.json'), 'utf8'))
+        if (body.tools !== 1 || analystPingHeader(racedDir) !== 'ready') {
+            raceDetail = `round ${round} ${JSON.stringify(body)}`
+            break
+        }
+    }
+    check(
+        'an analyst offer stays ready when another specialist lists no tools at the same time',
+        raceDetail === '',
+        raceDetail || analystPingHeader(racedDir)
+    )
+    fs.rmSync(racedDir, { recursive: true, force: true })
+    fs.rmSync(otherOnlyDir, { recursive: true, force: true })
+    fs.rmSync(pinnedDir, { recursive: true, force: true })
     const fallbackFile = path.join(root, '.cuttlely', 'analyst-mcp.json')
     const fallbackExisted = fs.existsSync(fallbackFile)
     const fallbackBefore = fallbackExisted ? fs.readFileSync(fallbackFile) : null
@@ -14940,6 +15030,7 @@ try {
     else fs.rmSync(fallbackFile, { force: true })
 } finally {
     await new Promise((resolve) => bridgeGateway.close(resolve))
+    await new Promise((resolve) => scriptedGateway.close(resolve))
     fs.rmSync(bridgeDir, { recursive: true, force: true })
 }
 writeAnalystMcpStatus(0, dataDir)

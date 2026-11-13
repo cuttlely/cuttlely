@@ -101,6 +101,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'hermes-supervisor.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-start-wait.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-run-timeout.test.mjs'),
+            path.join(ROOT, 'scripts', 'demo-save.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-git-config.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-asset-fetch.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-tool-error-preview.test.mjs'),

@@ -1,3 +1,9 @@
+## Try the demo save
+
+-   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry of marked folders, retry of unmarked 1.7.3 folders, a non-demo file at a demo destination (nothing removed), a profile or link leftover, an unmarked folder with only `support.sqlite` (kept), and a saved team whose specialist files are missing.
+-   README step 4 and `website/src/guides/flowise-import/guide.md`: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
+
 ## PostgreSQL statement-guard regressions
 
 -   `scripts/analyst-relations.test.mjs`: PostgreSQL-backed regressions for joined-table whole rows whose first item is a derived query, including nested joins; explicit element conversions in chained array casts; and later comma items after clause words used as JOIN columns. The comma cases cover scoped `reg*` whole rows and unticked base tables that also underlie a selected view, in both policy modes.
@@ -67,7 +73,7 @@
 
 # Artifacts
 
-1.7.4 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.4. `CHANGELOG.md` uses `## [1.7.4] - Unreleased`. The entries name #483 and #484 and leave their squash commits pending. The Try the demo fresh-install save entry is waiting on its pull request number. `website/src/guides/flowise-import/guide.md` still pins 1.7.3 and `blob/v1.7.3`; that page landed after the 1.7.3 bump (#485) and was not one of the files that bump touched. Update those pins after the three pull requests merge, including any wording that pull request changes. Generated website pages are not hand-edited. Publication is a later step.
+1.7.4 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.4. `CHANGELOG.md` uses `## [1.7.4] - Unreleased`. #483 is `9b4d8c90` and #486 is `f9cb1123`. The #484 line still says the squash commit is pending. The import guide pins `v1.7.4`. Generated website pages are not hand-edited. Publication is a later step.
 
 1.7.3 release: the same surfaces carried 1.7.3 and landed as `d52b83e5` ([#481](https://github.com/cuttlely/cuttlely/pull/481)) after preparation `33a158c7` ([#459](https://github.com/cuttlely/cuttlely/pull/459)). `CHANGELOG.md` dates it `## [1.7.3] - 2026-11-12`. The PR-1, PR-2 and PR-3 placeholders were finalized as #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`, with #469 `3c981e82`.
 
@@ -143,6 +149,10 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Nodes manifest             | `packages/components/dist/nodes-manifest.json`                         |
 
 Pinned query runtime helpers live in `packages/harness/runtime/pinned-query.mjs`. The compiler emits typed run and NULL check texts together and validates their parameter spans. Bound URL queries require `readOnlySql: true`; paging retains the original binds, check text and pin identity. Unit coverage is in `packages/harness/runtime/pinned-query.test.mjs`; `scripts/analyst-pinned.test.mjs` exercises the PostgreSQL path and the test-only BEGIN ATOMIC equivalence oracle in the analyst-postgres matrix (14–18).
+
+Analyst tool status: `packages/harness/runtime/analyst-mcp-status.mjs` records query and pinned query offers in `analyst-mcp.json`. `packages/harness/runtime/analyst-mcp-status.test.mjs` and the bridge cases in `packages/harness/check.mjs` cover a later empty or failed list and overlapping lists. `docs/how-to/analyst.md` and `docs/how-to/harnesses.md` describe `X-Cuttlely-Analyst`.
+
+Analyst storage default and credential rebind: `packages/server/src/settings/apply.ts` (`ensureAnalystDefault`), `scripts/start-cuttlely.sh`, and `scripts/start-local-admin.test.mjs`. Export and import: `packages/ui/src/utils/credentialMarks.js`, `packages/ui/src/utils/credentialRebind.js`, and `packages/ui/src/utils/credentialRebind.test.js`. The guides are `docs/how-to/analyst.md`, `docs/how-to/server-settings.md`, and `docs/how-to/harnesses.md`.
 
 Analyst SQL trace capture: `packages/harness/analyst-capture.mjs` exports `sqlTraceFields` (full SHA-256 over the statement fingerprint normalisation) and retains original statement metadata for cursor pages. `packages/harness/trace.mjs` shapes the browser-safe public fields. SQL previews follow `CUTTLELY_ANALYST_TRACE_PREVIEW`, existing redaction and a 4096-byte UTF-8 cap; hashes remain with previews off. The agent runtime's tool-start events join with gateway metadata before streaming. Targeted regression coverage is in `packages/harness/test/pinned/trace-sql.test.mjs` and `trace-gateway.test.mjs`; `trace-golden.json` records the base trace shape with previews off and on. Run the directory with `node --test packages/harness/test/pinned/` on Node 24. No database is needed for these tests.
 
