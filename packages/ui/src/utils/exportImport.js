@@ -1,5 +1,11 @@
 import { getErrorMessage } from './errorHandler'
+import { UnnamedCredentialError } from './credentialMarks'
 import { generateExportFlowData } from './genericHelper'
+
+function rethrowExport(error, prefix) {
+    if (error instanceof UnnamedCredentialError) throw error
+    throw new Error(`${prefix} ${getErrorMessage(error)}`)
+}
 
 const sanitizeTool = (Tool) => {
     try {
@@ -31,7 +37,7 @@ const sanitizeChatflow = (ChatFlow, knownNodeNames, credentials) => {
             }
         })
     } catch (error) {
-        throw new Error(`exportImport.sanitizeChatflow ${getErrorMessage(error)}`)
+        rethrowExport(error, 'exportImport.sanitizeChatflow')
     }
 }
 
@@ -125,6 +131,6 @@ export const exportData = (exportAllData, knownNodeNames, credentials) => {
             Variable: sanitizeVariable(exportAllData.Variable)
         }
     } catch (error) {
-        throw new Error(`exportImport.exportData ${getErrorMessage(error)}`)
+        rethrowExport(error, 'exportImport.exportData')
     }
 }

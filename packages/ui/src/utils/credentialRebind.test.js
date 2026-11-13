@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { generateExportFlowData } from './genericHelper'
 import { flowNeedsCredentialList, UnnamedCredentialError } from './credentialMarks'
-import { credentialRebindError, rebindCredentialBundle, rebindFlowCredentials } from './credentialRebind'
+import { exportData } from './exportImport'
+import { credentialRebindError, exportErrorMessage, rebindCredentialBundle, rebindFlowCredentials } from './credentialRebind'
 
 const SOURCE_ID = 'cred-source-should-not-travel'
 const DEST_ID = 'cred-dest-already-here'
@@ -137,6 +138,35 @@ describe('credential export and import', () => {
         const source = fs.readFileSync(path.resolve(__dirname, './credentialRebind.js'), 'utf8')
         const copy = source.slice(source.indexOf('credentials named'))
         expectNoCredentialNameChange(copy.slice(0, copy.indexOf('`')))
+    })
+
+    it('Export All reports a missing credential and does not save the file', () => {
+        const bundle = {
+            AgentFlow: [],
+            AgentFlowV2: [],
+            AssistantFlow: [],
+            AssistantCustom: [],
+            AssistantOpenAI: [],
+            AssistantAzure: [],
+            ChatFlow: [{ id: 'flow-1', name: 'bakery', type: 'CHATFLOW', flowData: JSON.stringify(flow()) }],
+            ChatMessage: [],
+            ChatMessageFeedback: [],
+            CustomTemplate: [],
+            DocumentStore: [],
+            DocumentStoreFileChunk: [],
+            Execution: [],
+            Tool: [],
+            Variable: []
+        }
+        let caught
+        try {
+            exportData(bundle, ['chatOpenAI', 'postgreSQLMCP'], [])
+        } catch (error) {
+            caught = error
+        }
+        expect(caught).toBeInstanceOf(UnnamedCredentialError)
+        expect(exportErrorMessage(caught)).toBe('A credential on this flow is no longer on this server, so this export was not saved.')
+        expect(exportErrorMessage(caught)).not.toContain('did not load')
     })
 
     it('does not save an export when a credential id is no longer on this server', () => {
