@@ -1,6 +1,5 @@
 import { FollowUpPromptConfig, FollowUpPromptProvider, ICommonObject } from './Interface'
 import { getCredentialData, isReasoningModelOpenAI } from './utils'
-import { parseOptionalNumber } from './numberInput'
 import { ChatOpenAI, AzureChatOpenAI } from '@langchain/openai'
 import { z } from 'zod/v3'
 import { PromptTemplate } from '@langchain/core/prompts'
@@ -35,7 +34,8 @@ export const generateFollowUpPrompts = async (
         const credentialId = providerConfig.credentialId as string
         const credentialData = await getCredentialData(credentialId ?? '', options)
         const followUpPromptsPrompt = providerConfig.prompt.replace('{history}', apiMessageContent)
-        const temperature = parseOptionalNumber(providerConfig.temperature)
+        const parsedTemperature = parseFloat(`${providerConfig.temperature}`)
+        const temperature = Number.isFinite(parsedTemperature) ? parsedTemperature : undefined
         const openAITemperature = isReasoningModelOpenAI(providerConfig.modelName) ? undefined : temperature
 
         switch (followUpPromptsConfig.selectedProvider) {
