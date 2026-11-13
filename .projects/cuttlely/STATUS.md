@@ -1,3 +1,7 @@
+## Imported output contract verification
+
+On `bugfix/import-verify-contract-hash`, Import & verify now tests every saved query in flows larger than one four-query batch and checks each output contract against its own fresh result. The verifier previously replaced its saved progress objects after the first batch but kept updating older copies, leaving later queries pending without a tested hash and reporting false contract mismatches. It also removes internal trust markers before testing a saved query and preserves the authored parameter representation used to create the contract hash. Changed saved-query SQL still produces the existing contract mismatch blocker. Focused import-verification, saved-query, type, and lint checks cover the change.
+
 ## Follow-up prompt temperatures
 
 On `bugfix/followup-prompts-temperature`, follow-up model calls omit temperature when the saved value is blank or does not parse to a finite number. OpenAI and Azure OpenAI calls also omit it for the reasoning-model names matched by the chat nodes' shared `isReasoningModelOpenAI` rule. Normal models and other providers keep finite values. Focused constructor tests cover every follow-up provider without network calls.
