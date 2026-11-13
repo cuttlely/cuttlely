@@ -447,7 +447,7 @@ export interface PublishDraftContext {
 
 async function throwIfDraftChanged(
     state: FlowVersionState | null,
-    context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges'>,
+    context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges' | 'strictDraftHash'>,
     action: DraftChangedAction = 'save'
 ): Promise<void> {
     const changed = draftChangedBy(
