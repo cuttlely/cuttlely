@@ -207,10 +207,6 @@ function versionFiles(dir: string): Record<string, string> {
     return files
 }
 
-function pushesOf(branch = 'main') {
-    return gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes(`refs/heads/${branch}`)))
-}
-
 function expectFastForwardOnly() {
     for (const call of gitCalls) {
         expect(call.args).not.toContain('--force')
