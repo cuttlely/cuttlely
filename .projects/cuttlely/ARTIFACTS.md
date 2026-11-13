@@ -32,6 +32,12 @@
 -   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
 -   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - Unreleased`.
 
+## Import and verify
+
+-   `packages/server/src/services/import-verify/`: untrust imported stamps, match one destination credential by name and type, build read-only test values, retest saved queries, and keep the result on the draft.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, a required empty tool credential, schema-qualified and quoted tables, `BETWEEN` parameters, numeric range order, a same-named query on another card, an empty report that can be retried, a missing required model edge, a check that stops before it reads connections, coherent account and opportunity values, and publish staying blocked.
+-   `packages/ui/src/views/canvas/ImportVerifyDialog.jsx`, `ImportVerifyDialog.test.js`, and `docs/how-to/import-verify.md`. The dialog gives the saved draft to the canvas, and Close stays available while the check runs. `packages/ui/src/utils/importVerify.js` keeps the import hold across a canvas save, sends the loaded draft hash on the first existing-flow save, and stores a new legacy-agent import as MULTIAGENT. `packages/server/src/settings/database.test.ts` ignores a restart handler scheduled by an earlier test.
+
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.

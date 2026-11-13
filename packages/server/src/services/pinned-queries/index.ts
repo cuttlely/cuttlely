@@ -566,4 +566,32 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     }
 }
 
+// A bounded read-only lookup for Import & verify. The statement is built by that feature from
+// selected tables only. It uses the same connection and guard as a saved-query test.
+export async function readOnlyRows(input: { workspaceId: string; node: any; sql: string }): Promise<{ rows: Record<string, unknown>[] }> {
+    const used = deps()
+    await ensureRuntime(used)
+    if (!input.workspaceId) throw new PinnedRequestError(404, 'Workspace not found.')
+    if (!input.node) throw new PinnedRequestError(400, 'Choose the PostgreSQL MCP node to test.')
+    const { postgresUrl } = await connectionFor(input.node, input.workspaceId, used)
+    const guard = guardOptions(input.node, null, used)
+    let raw: unknown
+    try {
+        raw = await used.queryAnalystUrl(
+            postgresUrl,
+            input.sql,
+            analystOptions({
+                readOnlySql: true,
+                relations: guard.relations,
+                allowedFunctions: guard.allowedFunctions,
+                rowCap: Math.min(20, guard.limits.rowCap),
+                statementTimeoutMs: guard.limits.timeoutMs
+            })
+        )
+    } catch (error) {
+        refuseRunner(error)
+    }
+    return { rows: rowsOf(raw).rows }
+}
+
 export { PinnedRequestError }

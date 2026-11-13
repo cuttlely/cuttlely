@@ -97,7 +97,8 @@ test('saves the canvas as a draft with the user, org and subscription', async ()
         subscriptionId: 'sub-1',
         caller: { via: 'session' },
         expectedDraftHash: undefined,
-        overwriteDraftChanges: undefined
+        overwriteDraftChanges: undefined,
+        strictDraftHash: false
     })
 })
 
@@ -118,8 +119,24 @@ test('ZZ-TEST-passes expectedDraftHash and overwriteDraftChanges through to the 
         subscriptionId: 'sub-1',
         caller: { via: 'session' },
         expectedDraftHash: 'abc123',
-        overwriteDraftChanges: true
+        overwriteDraftChanges: true,
+        strictDraftHash: false
     })
+    drafts.saveDraft.mockClear()
+    await controller.saveDraft(
+        request({
+            flowData: '{"nodes":[],"edges":[]}',
+            expectedDraftHash: 'abc123',
+            strictDraftHash: true
+        }),
+        response(),
+        jest.fn()
+    )
+    expect(drafts.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ id: FLOW.id }),
+        '{"nodes":[],"edges":[]}',
+        expect.objectContaining({ expectedDraftHash: 'abc123', strictDraftHash: true })
+    )
     drafts.saveDraft.mockClear()
     await controller.saveDraft(
         request({ flowData: '{"nodes":[],"edges":[]}', expectedDraftHash: null, overwriteDraftChanges: 'true' }),
@@ -270,7 +287,8 @@ test('ZZ-TEST-publishing a draft someone else saved is the same 409, and Live is
     expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
         userId: 'user-1',
         expectedDraftHash: 'stale-hash',
-        overwriteDraftChanges: 'true'
+        overwriteDraftChanges: 'true',
+        strictDraftHash: false
     })
     expect(next).not.toHaveBeenCalled()
     expect(updateChatflow).not.toHaveBeenCalled()
@@ -358,7 +376,8 @@ describe('Publish', () => {
         expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), true, {
             userId: 'user-1',
             expectedDraftHash: undefined,
-            overwriteDraftChanges: undefined
+            overwriteDraftChanges: undefined,
+            strictDraftHash: false
         })
         const [current, update, orgId, workspaceId, subscriptionId, options] = updateChatflow.mock.calls[0]
         expect(current.id).toBe(FLOW.id)
@@ -378,6 +397,16 @@ describe('Publish', () => {
         expect(body).toMatchObject({ unchanged: false, recorded: true, historyError: null, version: { sha: SHA, published: true } })
         expect(Object.keys(body.chatflow).sort()).toEqual(['flowData', 'id', 'name', 'type', 'updatedDate'])
         expect(body.chatflow.flowData).toBe('{"nodes":[{"id":"draft"}],"edges":[]}')
+    })
+
+    it('passes a strict draft hash through when Import & verify publishes', async () => {
+        const res = response()
+        await controller.publishDraft(request({ expectedDraftHash: 'verified-hash', strictDraftHash: true }), res, jest.fn())
+        expect(drafts.draftToPublish).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            undefined,
+            expect.objectContaining({ expectedDraftHash: 'verified-hash', strictDraftHash: true })
+        )
     })
 
     it('reports why history could not record the publish', async () => {

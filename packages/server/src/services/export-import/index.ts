@@ -13,6 +13,7 @@ import { Tool } from '../../database/entities/Tool'
 import { Variable } from '../../database/entities/Variable'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
+import { untrustImportedFlow } from '../import-verify'
 import assistantsService from '../assistants'
 import chatflowService from '../chatflows'
 import chatMessagesService from '../chat-messages'
@@ -586,7 +587,9 @@ async function replaceDuplicateIdsForExecution(queryRunner: QueryRunner, origina
 
 function reduceSpaceForChatflowFlowData(chatflows: ChatFlow[]) {
     return chatflows.map((chatflow) => {
-        return { ...chatflow, flowData: JSON.stringify(JSON.parse(chatflow.flowData)) }
+        const parsed = JSON.parse(chatflow.flowData)
+        const cleared = parsed && typeof parsed === 'object' && Array.isArray(parsed.nodes) ? untrustImportedFlow(parsed).flow : parsed
+        return { ...chatflow, flowData: JSON.stringify(cleared) }
     })
 }
 

@@ -38,6 +38,7 @@ import {
     testSetChangedReason
 } from './gate'
 import { datasetStartRefusal } from '../flow-check/kinds'
+import { importVerifyPublishBlock } from '../import-verify'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 import { assertHarnessDraftLimits } from './harnessLimits'
 
@@ -386,6 +387,9 @@ export interface SaveDraftContext {
     expectedDraftHash?: unknown
     // Only literal true replaces a draft someone else saved after this canvas opened.
     overwriteDraftChanges?: unknown
+    // Verification checkpoints conflict when the stored draft is not the hash they last wrote,
+    // including when the same person saved a newer copy while the check was still running.
+    strictDraftHash?: boolean
 }
 
 const API_KEY_DRAFT_SAVER = 'Someone using an API key'
@@ -412,13 +416,14 @@ function savedAtIso(value: Date | string | null): string | null {
 // Whether this save would replace a draft the caller has not seen.
 // No conflict when the caller sends overwriteDraftChanges true, sends no expected hash, there is no
 // stored draft, the stored draft is the one they loaded, or they saved it themselves. Null and undefined
-// user ids count as the same saver. Any other overwriteDraftChanges value is ignored. A hash that is
-// not a string or null is a 400.
+// user ids count as the same saver. strictDraftHash skips that same-saver exception. Any other
+// overwriteDraftChanges value is ignored. A hash that is not a string or null is a 400.
 export function draftChangedBy(
     state: { draftFlowData?: string | null; draftUpdatedBy?: string | null; draftUpdatedDate?: Date | string | null } | null | undefined,
     expectedDraftHash: unknown,
     userId: string | null | undefined,
-    overwriteDraftChanges?: unknown
+    overwriteDraftChanges?: unknown,
+    strictDraftHash?: boolean
 ): { savedById: string | null; savedAt: Date | string | null } | null {
     if (expectedDraftHash !== undefined && expectedDraftHash !== null && typeof expectedDraftHash !== 'string') {
         throw new AppError(StatusCodes.BAD_REQUEST, 'expectedDraftHash must be a string or null.')
@@ -429,7 +434,7 @@ export function draftChangedBy(
     if (canvasHash(state.draftFlowData) === expectedDraftHash) return null
     const storedBy = state.draftUpdatedBy ?? null
     const caller = userId ?? null
-    if (storedBy === caller) return null
+    if (!strictDraftHash && storedBy === caller) return null
     return { savedById: storedBy, savedAt: state.draftUpdatedDate ?? null }
 }
 
@@ -438,14 +443,21 @@ export interface PublishDraftContext {
     userId?: string | null
     expectedDraftHash?: unknown
     overwriteDraftChanges?: unknown
+    strictDraftHash?: boolean
 }
 
 async function throwIfDraftChanged(
     state: FlowVersionState | null,
-    context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges'>,
+    context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges' | 'strictDraftHash'>,
     action: DraftChangedAction = 'save'
 ): Promise<void> {
-    const changed = draftChangedBy(state, context.expectedDraftHash, context.userId, context.overwriteDraftChanges)
+    const changed = draftChangedBy(
+        state,
+        context.expectedDraftHash,
+        context.userId,
+        context.overwriteDraftChanges,
+        context.strictDraftHash === true
+    )
     if (!changed) return
     const name = await draftSaverName(changed.savedById)
     throw new DraftChangedError({ id: changed.savedById, name }, savedAtIso(changed.savedAt), action)
@@ -573,10 +585,12 @@ export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unk
     }
     const block = (await withTestSet(flow, statusFrom(flow, state))).publishGate.block
     if (block) throw new AppError(StatusCodes.CONFLICT, block)
+    const verifyBlock = importVerifyPublishBlock(state?.importVerify, draft.flowData)
+    if (verifyBlock) throw new AppError(StatusCodes.CONFLICT, verifyBlock)
     return draft.flowData
 }
 
-const NO_DRAFT = { draftFlowData: null, draftBaseHash: null, draftUpdatedDate: null, draftUpdatedBy: null }
+const NO_DRAFT = { draftFlowData: null, draftBaseHash: null, draftUpdatedDate: null, draftUpdatedBy: null, importVerify: null }
 
 // Clears the draft only while it is still exactly `expected`, in one conditional update, so a newer draft
 // saved in the meantime is kept.
@@ -1028,13 +1042,13 @@ export async function clearPublishGateResult(
     await repo().update({ chatflowId: flow.id, publishGateResult: stored }, { publishGateResult: null })
 }
 
-// The canvas the flow's own test runs: the draft when the flow saves to drafts and has one,
-// otherwise Live. The canvas test chat calls this, and so does a pipeline preview that omits the canvas.
+// The canvas the flow's own test runs: the stored draft when there is one, otherwise Live.
+// The canvas test chat calls this, and so does a pipeline preview that omits the canvas.
 // Every other caller reads Live.
 export async function flowDataForTestChat(flow: DraftFlow): Promise<string> {
     if (!isDraftsEnabled() || !typeHasDrafts(flow.type)) return flow.flowData
     const state = await getState(flow.id)
-    if (!state || state.publishInstantly || !state.draftFlowData) return flow.flowData
+    if (!state?.draftFlowData) return flow.flowData
     return state.draftFlowData
 }
 
