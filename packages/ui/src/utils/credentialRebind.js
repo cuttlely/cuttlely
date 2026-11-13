@@ -1,5 +1,28 @@
+import { UnnamedCredentialError, flowNeedsCredentialList } from './credentialMarks'
+
 // Canvas export names a credential. It never writes the id or the secret.
 // Import puts the destination id back when one credential on that server has the same name and type.
+
+export { UnnamedCredentialError, flowNeedsCredentialList }
+
+const BUNDLE_FLOW_KEYS = ['AgentFlow', 'AgentFlowV2', 'AssistantFlow', 'ChatFlow']
+
+export function bundleNeedsCredentialList(bundle) {
+    for (const row of bundleFlowRows(bundle)) {
+        if (!row || typeof row.flowData !== 'string') continue
+        try {
+            if (flowNeedsCredentialList(JSON.parse(row.flowData))) return true
+        } catch {
+            // A flow the server cannot parse is reported by the import.
+        }
+    }
+    return false
+}
+
+export function exportErrorMessage(error) {
+    if (error instanceof UnnamedCredentialError) return error.message
+    return exportFailureMessage()
+}
 
 export async function credentialsForExport() {
     try {
@@ -62,9 +85,11 @@ export function rebindFlowCredentials(flow, credentials) {
                     value[key] = ''
                     continue
                 }
-                const matches = rows.filter(
-                    (row) => row && row.name === name && row.credentialName === credentialName && typeof row.id === 'string' && row.id
-                )
+                const matches = rows.filter((row) => {
+                    const rowName = row && typeof row.name === 'string' ? row.name.trim() : ''
+                    const rowType = row && typeof row.credentialName === 'string' ? row.credentialName.trim() : ''
+                    return rowName === name && rowType === credentialName && typeof row.id === 'string' && row.id
+                })
                 if (matches.length === 0) {
                     note(missing, `${credentialName}\0${name}`, { name, credentialName })
                     value[key] = ''
@@ -112,8 +137,6 @@ export function credentialRebindError(result) {
     }
     return lines.join(' ')
 }
-
-const BUNDLE_FLOW_KEYS = ['AgentFlow', 'AgentFlowV2', 'AssistantFlow', 'ChatFlow']
 
 function bundleFlowRows(bundle) {
     if (!bundle || typeof bundle !== 'object') return []

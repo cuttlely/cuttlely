@@ -61,7 +61,7 @@ import useConfirm from '@/hooks/useConfirm'
 
 // utils
 import { generateExportFlowData, showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from '@/utils/genericHelper'
-import { credentialsForExport, exportFailureMessage } from '@/utils/credentialRebind'
+import { credentialsForExport, exportErrorMessage, flowNeedsCredentialList } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
@@ -302,7 +302,7 @@ const CanvasHeader = ({
             ;(async () => {
                 try {
                     const flowData = JSON.parse(chatflow.flowData)
-                    const credentials = await credentialsForExport()
+                    const credentials = flowNeedsCredentialList(flowData) ? await credentialsForExport() : undefined
                     const dataStr = JSON.stringify(
                         generateExportFlowData(flowData, exportKnownNodeNames(canvas.componentNodes), credentials),
                         null,
@@ -318,7 +318,7 @@ const CanvasHeader = ({
                 } catch (e) {
                     console.error(e)
                     enqueueSnackbar({
-                        message: exportFailureMessage(),
+                        message: exportErrorMessage(e),
                         options: {
                             key: new Date().getTime() + Math.random(),
                             variant: 'error',

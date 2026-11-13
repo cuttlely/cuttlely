@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Upgrade notes / breaking changes
+
+-   Analyst storage is **Auto** when `CUTTLELY_ANALYST` was never set. A host or saved value of `off`, `false`, `0`, or `no` stays off. Auto creates a private store. On Postgres that store is a schema and a login in the application database, created the first time the analyst runs. If that database user cannot create roles, the analyst tool fails and says so. Cuttlely still starts, and `GET /api/v1/ping` still returns `pong`. Set `off`, or set `CUTTLELY_POSTGRES_URL` to a separate database, before upgrading when you do not want that private store.
+
 ### Changed
 
 -   Analyst storage is **Auto** when `CUTTLELY_ANALYST` is unset, including a fresh deploy and an upgrade that never set it. A host or saved value of `off`, `false`, `0`, or `no` stays off. Saving **Off** in Server settings stores `off`. A Postgres URL credential or `CUTTLELY_POSTGRES_URL` still uses the read-only path.

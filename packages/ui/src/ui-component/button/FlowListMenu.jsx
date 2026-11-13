@@ -33,7 +33,7 @@ import TagDialog from '@/ui-component/dialog/TagDialog'
 import StarterPromptsDialog from '@/ui-component/dialog/StarterPromptsDialog'
 
 import { generateExportFlowData } from '@/utils/genericHelper'
-import { credentialsForExport, exportFailureMessage } from '@/utils/credentialRebind'
+import { credentialsForExport, exportErrorMessage, flowNeedsCredentialList } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 import ChatFeedbackDialog from '../dialog/ChatFeedbackDialog'
@@ -329,7 +329,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
         ;(async () => {
             try {
                 const flowData = JSON.parse(chatflow.flowData)
-                const credentials = await credentialsForExport()
+                const credentials = flowNeedsCredentialList(flowData) ? await credentialsForExport() : undefined
                 const dataStr = JSON.stringify(generateExportFlowData(flowData, exportKnownNodeNames(componentNodes), credentials), null, 2)
                 const blob = new Blob([dataStr], { type: 'application/json' })
                 const dataUri = URL.createObjectURL(blob)
@@ -341,7 +341,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
             } catch (e) {
                 console.error(e)
                 enqueueSnackbar({
-                    message: exportFailureMessage(),
+                    message: exportErrorMessage(e),
                     options: {
                         key: new Date().getTime() + Math.random(),
                         variant: 'error',

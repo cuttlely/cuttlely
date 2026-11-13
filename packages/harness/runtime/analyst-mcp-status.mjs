@@ -9,10 +9,6 @@ import { dataRoot } from '../paths.mjs'
 
 export const ANALYST_MCP_STATUS_NAME = 'analyst-mcp.json'
 
-// query, or a pinned query (pq_ plus at least one letter, digit, or underscore),
-// either as the whole name or after __. describe and other tools do not count.
-// A scan, not a regex: /(?:^|__)(?:query|pq_[a-z0-9_]+)$/ backtracks on a name
-// that starts with pq_ and repeats __pq_.
 const STATUS_LOCK_WAIT_MS = 2000
 const STATUS_LOCK_STALE_MS = 5000
 
@@ -34,7 +30,10 @@ export function writeAnalystMcpStatus(tools, dataDir) {
     const count = Number(tools)
     const body = { tools: Number.isFinite(count) && count > 0 ? count : 0 }
     fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(analystMcpStatusPath(dir), `${JSON.stringify(body)}\n`)
+    const target = analystMcpStatusPath(dir)
+    const temporary = `${target}.${process.pid}.tmp`
+    fs.writeFileSync(temporary, `${JSON.stringify(body)}\n`)
+    fs.renameSync(temporary, target)
     return body
 }
 
@@ -58,6 +57,10 @@ function isPinnedOffer(name, at, cleanFrom) {
     return name.startsWith('pq_', at)
 }
 
+// query, or a pinned query (pq_ plus at least one letter, digit, or underscore),
+// either as the whole name or after __. describe and other tools do not count.
+// A scan, not a regex: /(?:^|__)(?:query|pq_[a-z0-9_]+)$/ backtracks on a name
+// that starts with pq_ and repeats __pq_.
 export function isAnalystOfferName(name) {
     if (name === 'query' || name.endsWith('__query')) return true
     let cleanFrom = name.length

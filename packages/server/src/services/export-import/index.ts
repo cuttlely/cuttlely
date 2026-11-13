@@ -618,7 +618,44 @@ async function saveBatch(manager: EntityManager, entity: any, items: any[], batc
 // every imported chatflow and agentflow must pass the same harness checks as a save first: assertHarnessReferencesWellFormed,
 // then validateReferencedHarnesses with the caller (services/chatflows), or a key could import a canvas naming a
 // harness off its list, or a harnessName that is not text (D91).
+const CREDENTIAL_FLOW_KEYS = ['AgentFlow', 'AgentFlowV2', 'AssistantFlow', 'ChatFlow'] as const
+
+function valueHasCredentialMark(value: unknown): boolean {
+    if (Array.isArray(value)) return value.some((item) => valueHasCredentialMark(item))
+    if (!value || typeof value !== 'object') return false
+    const record = value as Record<string, unknown>
+    if (Object.keys(record).length === 1 && Object.prototype.hasOwnProperty.call(record, '$credential')) return true
+    return Object.values(record).some((item) => valueHasCredentialMark(item))
+}
+
+/** A file that still names a credential has not been matched to an id on this server. */
+export function payloadHasUnresolvedCredentialMark(payload: unknown): boolean {
+    if (!payload || typeof payload !== 'object') return false
+    const body = payload as Record<string, unknown>
+    for (const key of CREDENTIAL_FLOW_KEYS) {
+        const rows = body[key]
+        if (!Array.isArray(rows)) continue
+        for (const row of rows) {
+            if (!row || typeof row !== 'object') continue
+            const flowData = (row as { flowData?: unknown }).flowData
+            if (typeof flowData !== 'string') continue
+            try {
+                if (valueHasCredentialMark(JSON.parse(flowData))) return true
+            } catch {
+                // A flow that is not JSON is reported by the import itself.
+            }
+        }
+    }
+    return false
+}
+
 const importData = async (importData: ExportData, orgId: string, activeWorkspaceId: string, subscriptionId: string) => {
+    if (payloadHasUnresolvedCredentialMark(importData)) {
+        throw new AppError(
+            StatusCodes.BAD_REQUEST,
+            'This file names a credential that has not been matched to one on this server. Match it in the canvas before importing the file.'
+        )
+    }
     // Initialize missing properties with empty arrays to avoid "undefined" errors
     importData.AgentFlow = importData.AgentFlow || []
     importData.AgentFlowV2 = importData.AgentFlowV2 || []

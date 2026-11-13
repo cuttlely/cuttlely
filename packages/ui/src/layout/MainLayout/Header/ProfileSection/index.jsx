@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, REMOVE_DIRTY } from '@/store/actions'
 import { exportData, stringify } from '@/utils/exportImport'
-import { credentialsForExport, exportFailureMessage, rebindImportedBundle } from '@/utils/credentialRebind'
+import { bundleNeedsCredentialList, credentialsForExport, exportErrorMessage, rebindImportedBundle } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 
@@ -368,7 +368,7 @@ const ProfileSection = ({ handleLogout }) => {
         setExportDialogOpen(false)
         ;(async () => {
             try {
-                const credentials = await credentialsForExport()
+                const credentials = bundleNeedsCredentialList(exportAllApi.data) ? await credentialsForExport() : undefined
                 if (cancelled) return
                 const dataStr = stringify(exportData(exportAllApi.data, exportKnownNodeNames(componentNodes), credentials))
                 const blob = new Blob([dataStr], { type: 'application/json' })
@@ -378,10 +378,7 @@ const ProfileSection = ({ handleLogout }) => {
                 linkElement.setAttribute('download', exportAllApi.data.FileDefaultName)
                 linkElement.click()
             } catch (error) {
-                if (!cancelled) {
-                    const listFailed = error instanceof Error && error.message === 'The credential list did not load.'
-                    errorFailed(`Failed to export all: ${listFailed ? exportFailureMessage() : getErrorMessage(error)}`)
-                }
+                if (!cancelled) errorFailed(`Failed to export all: ${exportErrorMessage(error)}`)
             }
         })()
         return () => {

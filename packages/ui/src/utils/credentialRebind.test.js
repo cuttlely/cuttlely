@@ -1,4 +1,5 @@
 import { generateExportFlowData } from './genericHelper'
+import { flowNeedsCredentialList, UnnamedCredentialError } from './credentialMarks'
 import { credentialRebindError, rebindCredentialBundle, rebindFlowCredentials } from './credentialRebind'
 
 const SOURCE_ID = 'cred-source-should-not-travel'
@@ -121,12 +122,32 @@ describe('credential export and import', () => {
         expect(credentialRebindError(rebound)).not.toMatch(/rename/i)
     })
 
-    it('names a credential the export server no longer has, and tells the importer to export again', () => {
-        const exported = generateExportFlowData(JSON.parse(JSON.stringify(flow())), ['chatOpenAI', 'postgreSQLMCP'], [])
-        expect(exported.nodes[0].data.credential).toEqual({ $credential: null })
-        expect(JSON.stringify(exported)).not.toContain(SOURCE_ID)
-        const rebound = rebindFlowCredentials(exported, credentials)
+    it('does not save an export when a credential id is no longer on this server', () => {
+        expect(() => generateExportFlowData(JSON.parse(JSON.stringify(flow())), ['chatOpenAI', 'postgreSQLMCP'], [])).toThrow(
+            UnnamedCredentialError
+        )
+        const unnamed = {
+            nodes: [{ data: { credential: { $credential: null }, inputs: { modelName: 'gpt-5.6-luna' } } }],
+            edges: []
+        }
+        const rebound = rebindFlowCredentials(unnamed, credentials)
         expect(credentialRebindError(rebound)).toContain('Export it again')
+    })
+
+    it('matches a credential whose stored name has surrounding spaces', () => {
+        const exported = generateExportFlowData(JSON.parse(JSON.stringify(flow())), ['chatOpenAI', 'postgreSQLMCP'], credentials)
+        const rebound = rebindFlowCredentials(exported, [
+            { id: DEST_ID, name: ' Bakery model ', credentialName: ' openAIApi ' },
+            { id: POSTGRES_DEST, name: 'Bakery warehouse', credentialName: 'PostgresUrl' }
+        ])
+        expect(credentialRebindError(rebound)).toBe('')
+        expect(rebound.flow.nodes[0].data.credential).toBe(DEST_ID)
+    })
+
+    it('does not need the credential list when the flow has no credential id', () => {
+        const plain = { nodes: [{ data: { name: 'stickyNote', inputs: { note: 'hello' } } }], edges: [] }
+        expect(flowNeedsCredentialList(plain)).toBe(false)
+        expect(flowNeedsCredentialList(flow())).toBe(true)
     })
 
     it('round-trips a nested config credential id back onto FLOWISE_CREDENTIAL_ID', () => {

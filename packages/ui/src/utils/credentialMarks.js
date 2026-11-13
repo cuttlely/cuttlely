@@ -1,5 +1,22 @@
 // Name and type only. No id, no secret. Kept separate so the export helper does not load the credentials API.
 
+export class UnnamedCredentialError extends Error {
+    constructor() {
+        super('A credential on this flow is no longer on this server, so this export was not saved.')
+        this.name = 'UnnamedCredentialError'
+    }
+}
+
+export function flowNeedsCredentialList(value) {
+    if (Array.isArray(value)) return value.some((item) => flowNeedsCredentialList(item))
+    if (!value || typeof value !== 'object') return false
+    for (const [key, item] of Object.entries(value)) {
+        if ((key === 'FLOWISE_CREDENTIAL_ID' || key === 'credential') && typeof item === 'string' && item.trim()) return true
+        if (flowNeedsCredentialList(item)) return true
+    }
+    return false
+}
+
 export function credentialById(credentials) {
     const map = new Map()
     for (const row of credentials || []) {
@@ -17,7 +34,7 @@ function credentialRef(value, byId) {
     const found = byId.get(value.trim())
     const name = typeof found?.name === 'string' ? found.name.trim() : ''
     const credentialName = typeof found?.credentialName === 'string' ? found.credentialName.trim() : ''
-    if (!name || !credentialName) return { $credential: null }
+    if (!name || !credentialName) throw new UnnamedCredentialError()
     return { $credential: { name, credentialName } }
 }
 
