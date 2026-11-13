@@ -71,7 +71,7 @@ jest.mock('../../services/import-verify', () => ({
 
 import { executeVerify } from '../../services/import-verify'
 import chatflowsService from '../../services/chatflows'
-import flowDraftsService from '../../services/flow-drafts'
+import flowDraftsService, { DraftChangedError } from '../../services/flow-drafts'
 
 const response = () => {
     const res = { json: jest.fn(), status: jest.fn() }
@@ -210,5 +210,46 @@ describe('import-verify start while a check is already running', () => {
             type: 'CHATFLOW',
             flowData: '{"nodes":[],"edges":[]}'
         }))
+    })
+
+    test('a draft that appears before the first save is kept unchanged', async () => {
+        const live = '{"nodes":[],"edges":[]}'
+        const newer = '{"nodes":[{"id":"theirs"}],"edges":[]}'
+        let stored: string | null = null
+        let reads = 0
+        ;(flowDraftsService.getState as jest.Mock).mockImplementation(async () => {
+            reads += 1
+            if (reads === 1) {
+                stored = newer
+                return { draftFlowData: null, importVerify: null }
+            }
+            return { draftFlowData: stored, importVerify: null }
+        })
+        ;(flowDraftsService.saveDraft as jest.Mock).mockImplementation(async (_flow, flowText: string, context) => {
+            const strict = context?.strictDraftHash === true
+            const expected = context?.expectedDraftHash
+            if (stored && strict && expected === null && flowText !== stored) throw new DraftChangedError()
+            stored = flowText
+            return { draft: { flowData: stored } }
+        })
+        ;(executeVerify as jest.Mock).mockClear()
+        const res = response()
+        await controller.start(request(), res as any, jest.fn())
+        expect(stored).toBe(newer)
+        expect(executeVerify).not.toHaveBeenCalled()
+        const body = res.json.mock.calls[0][0]
+        expect(body.status).toBe('incomplete')
+        expect(body.publishOffered).toBe(false)
+        expect(body.blockers.some((item: { id: string }) => item.id === 'draft-moved')).toBe(true)
+        expect(flowDraftsService.saveDraft).toHaveBeenCalledWith(
+            expect.anything(),
+            live,
+            expect.objectContaining({ expectedDraftHash: null, strictDraftHash: true })
+        )
+        ;(flowDraftsService.getState as jest.Mock).mockImplementation(async () => ({
+            draftFlowData: live,
+            importVerify: JSON.stringify(runningRecord)
+        }))
+        ;(flowDraftsService.saveDraft as jest.Mock).mockReset()
     })
 })

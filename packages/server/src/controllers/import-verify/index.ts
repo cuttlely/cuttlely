@@ -73,14 +73,25 @@ async function run(req: Request, retryFailures: boolean, controller: AbortContro
     if (!orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
     const workspaceId = String(req.user?.activeWorkspaceId || '')
     const state = await flowDraftsService.getState(flow.id)
-    const draft = state?.draftFlowData || flow.flowData
+    let draft = state?.draftFlowData || flow.flowData
+    let keptNewerDraft = false
     if (!state?.draftFlowData && flow.flowData) {
-        await flowDraftsService.saveDraft(flow, flow.flowData, {
-            userId: req.user?.id || null,
-            orgId,
-            subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
-            caller: await harnessCallerFor(req)
-        })
+        try {
+            await flowDraftsService.saveDraft(flow, flow.flowData, {
+                userId: req.user?.id || null,
+                orgId,
+                subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
+                caller: await harnessCallerFor(req),
+                expectedDraftHash: null,
+                strictDraftHash: true
+            })
+        } catch (error) {
+            if (!(error instanceof DraftChangedError)) throw error
+            const latest = await flowDraftsService.getState(flow.id)
+            if (!latest?.draftFlowData) throw error
+            draft = latest.draftFlowData
+            keptNewerDraft = true
+        }
     }
     const choices = req.body?.choices && typeof req.body.choices === 'object' && !Array.isArray(req.body.choices) ? req.body.choices : {}
     const reservedId = String(req.params.chatflowId || flow.id)
@@ -89,6 +100,33 @@ async function run(req: Request, retryFailures: boolean, controller: AbortContro
         active.set(flow.id, controller)
     }
     try {
+        if (keptNewerDraft) {
+            const moved: VerifyRecord = {
+                version: 1,
+                draftHash: canvasHash(draft),
+                status: 'incomplete',
+                phase: 'The draft changed',
+                checked: 0,
+                total: 0,
+                queries: [],
+                connections: [],
+                blockers: [
+                    {
+                        id: 'draft-moved',
+                        severity: 'incomplete',
+                        message:
+                            'The draft changed while verification was running. The newer copy was left as it is. Resume to check that copy.',
+                        action: 'none'
+                    }
+                ],
+                smoke: [],
+                summary: 'Could not fully verify. The checks that did not run are listed below. Nothing was marked ready.',
+                publishOffered: false,
+                updatedAt: new Date().toISOString()
+            }
+            await writeRecord(flow.id, moved)
+            return moved
+        }
         const app = getRunningExpressApp()
         const loaded = app.nodesPool?.componentNodes ? Object.keys(app.nodesPool.componentNodes) : undefined
         const starting = (await flowDraftsService.getState(flow.id))?.draftFlowData || draft
