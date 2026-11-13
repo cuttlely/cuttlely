@@ -96,6 +96,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 ## Lessons
 
 -   An imported test stamp is not a destination test. Keep the saved query, drop the stamp until this server runs the existing test route, and do not publish that draft just because the file imported. Match a credential by name and type only when one row matches. Leave an empty slot empty.
+-   The access-key migration stays the last entry in each dialect's migration list. A test drops that final entry and applies the migration itself. A newer migration goes immediately before it. TypeORM still runs them by the timestamp in the class name.
 
 Handle comparison must treat a changed trailing type as the same input, and must not treat two dashed names as types. Matching already covered a missing class against a single class, but two different single classes on the same name (`BaseLanguageModel` versus `BaseChatModel`) did not match, so import healing dropped the Bakery helper model edge. Equating both stripped names blindly also collapses `when-true` and `when-false`. Only treat both trailing segments as types when they look like classes, then write the saved handle to the live anchor id. Import the shipped `examples/imports/bakery-helper.json` as-is; a fixture that already uses the current type will not catch this.
 

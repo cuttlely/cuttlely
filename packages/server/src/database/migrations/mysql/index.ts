@@ -181,6 +181,7 @@ export const mysqlMigrations = [
     AddWorkosSessionId1801150000000,
     AddScimProvisioning1801200000000,
     AddScimGroups1801200000001,
-    AccessKeys1801300000000,
-    AddImportVerify1801400000000
+    // AccessKeys stays last. A test drops the final entry and applies that migration itself.
+    AddImportVerify1801400000000,
+    AccessKeys1801300000000
 ]
