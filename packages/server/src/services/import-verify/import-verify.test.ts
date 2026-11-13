@@ -364,6 +364,19 @@ describe('imported verification', () => {
         expect(drafts.every((item) => item.includes(bad))).toBe(true)
     })
 
+    test('a null saved-query field means no queries and is not an attention blocker', async () => {
+        const canvas = {
+            nodes: [{ id: 'note', data: { name: 'stickyNote', label: 'Note', inputs: { pinnedQueries: null } } }],
+            edges: []
+        }
+        const { deps } = memoryDeps({ loadedNodeNames: ['stickyNote'] })
+        const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(record.queries).toEqual([])
+        expect(record.blockers.some((item) => String(item.id).startsWith('queries:unreadable'))).toBe(false)
+        expect(record.status).toBe('ready')
+        expect(record.summary).toContain('no saved queries')
+    })
+
     test('null and arrays with dropped members stay stored and are not ready', async () => {
         const cases = ['null', '[null,7]', JSON.stringify([pin(), 7])]
         for (const stored of cases) {
