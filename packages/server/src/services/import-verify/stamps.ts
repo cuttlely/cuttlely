@@ -36,21 +36,23 @@ export function readQueries(value: unknown): SavedQuery[] {
     return parsed.filter((item) => item && typeof item === 'object') as SavedQuery[]
 }
 
-// Absent or empty saved queries are a real empty list. A non-empty value that is not a query list
-// has to stay as stored. Treating it as [] would delete it and let a check with no queries become Ready.
+// Absent or empty saved queries are a real empty list. JSON null, any other non-array, and an array
+// that readQueries would shorten all have to stay as stored. Rewriting them would drop entries and
+// let a check with no remaining queries become Ready.
 export function pinnedQueriesUnreadable(value: unknown): boolean {
     if (value == null) return false
+    let parsed: unknown = value
     if (typeof value === 'string') {
         const text = value.trim()
         if (!text) return false
         try {
-            const parsed = JSON.parse(text) as unknown
-            return parsed != null && !Array.isArray(parsed)
+            parsed = JSON.parse(text) as unknown
         } catch {
             return true
         }
     }
-    return !Array.isArray(value)
+    if (!Array.isArray(parsed)) return true
+    return readQueries(parsed).length !== parsed.length
 }
 
 export function unreadableQueryNodes(flow: { nodes?: unknown } | null | undefined): string[] {

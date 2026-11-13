@@ -18,17 +18,18 @@ export function readQueries(value) {
 
 function pinnedQueriesUnreadable(value) {
     if (value == null) return false
+    let parsed = value
     if (typeof value === 'string') {
         const text = value.trim()
         if (!text) return false
         try {
-            const parsed = JSON.parse(text)
-            return parsed != null && !Array.isArray(parsed)
+            parsed = JSON.parse(text)
         } catch {
             return true
         }
     }
-    return !Array.isArray(value)
+    if (!Array.isArray(parsed)) return true
+    return readQueries(parsed).length !== parsed.length
 }
 
 export function queryReady(pin) {

@@ -362,6 +362,35 @@ describe('imported verification', () => {
         expect(record.publishOffered).toBe(false)
         expect(record.blockers.some((item) => item.id === 'queries:unreadable:pg' && /could not be read/i.test(item.message))).toBe(true)
         expect(drafts.every((item) => item.includes(bad))).toBe(true)
+    })
+
+    test('null and arrays with dropped members stay stored and are not ready', async () => {
+        const cases = ['null', '[null,7]', JSON.stringify([pin(), 7])]
+        for (const stored of cases) {
+            const canvas = {
+                nodes: [
+                    {
+                        id: 'pg',
+                        data: {
+                            name: 'postgreSQLMCP',
+                            label: 'PostgreSQL MCP',
+                            inputs: { pinnedQueries: stored }
+                        }
+                    }
+                ],
+                edges: []
+            }
+            const kept = untrustImportedFlow(canvas).flow.nodes as Array<{ data: { inputs: { pinnedQueries: string } } }>
+            expect(kept[0].data.inputs.pinnedQueries).toBe(stored)
+            const { deps, drafts } = memoryDeps()
+            const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+            expect(record.status).not.toBe('ready')
+            expect(record.publishOffered).toBe(false)
+            expect(record.blockers.some((item) => item.id === 'queries:unreadable:pg' && /could not be read/i.test(item.message))).toBe(
+                true
+            )
+            expect(drafts.every((item) => item.includes(stored))).toBe(true)
+        }
         const notArray = {
             nodes: [{ id: 'pg', data: { inputs: { pinnedQueries: { sql: 'SELECT 1' } } } }],
             edges: []

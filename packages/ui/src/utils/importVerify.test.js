@@ -41,6 +41,13 @@ test('unreadable saved queries are left unchanged', () => {
         edges: []
     })
     expect(objectFlow.nodes[0].data.inputs.pinnedQueries).toEqual(objectValue)
+    for (const stored of ['null', '[null,7]', JSON.stringify([pin, 7])]) {
+        const kept = untrustFlow({
+            nodes: [{ id: 'pg', data: { inputs: { pinnedQueries: stored } } }],
+            edges: []
+        })
+        expect(kept.nodes[0].data.inputs.pinnedQueries).toBe(stored)
+    }
 })
 
 test('an imported stamp is not treated as ready', () => {
