@@ -395,6 +395,16 @@ describe('imported verification', () => {
         })
         expect(ambiguous.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:ambiguous')).toBe(true)
         expect(ambiguous.smoke.some((item) => item.id === 'report')).toBe(false)
+        const nameless = JSON.parse(JSON.stringify(canvas)) as typeof canvas
+        nameless.nodes[1].data.inputs.trustedOutputs = JSON.stringify([{ mode: 'markdown' }])
+        const unnamed = inspectFlow({
+            flow: nameless,
+            pinnedQueriesEnabled: true,
+            resolutions: [],
+            statementHashes: { [`pg\0pin-1`]: 'cd'.repeat(32) }
+        })
+        expect(unnamed.blockers.some((item) => item.id === 'contract:spec:unnamed')).toBe(true)
+        expect(unnamed.smoke.some((item) => item.id === 'report')).toBe(false)
     })
 
     test('a running check with no live job can be resumed and still blocks publish', () => {
@@ -673,6 +683,28 @@ describe('imported verification', () => {
         expect(record.status).toBe('incomplete')
         expect(importVerifyPublishBlock(JSON.stringify(record), text)).toMatch(/could not be fully verified/)
         expect(importVerifyPublishBlock(null, text)).toBeNull()
+        const untrusted = JSON.stringify(untrustImportedFlow(flow([pin()], 'cred-pg')).flow)
+        expect(importVerifyPublishBlock(null, untrusted)).toMatch(/has not been verified/)
+    })
+
+    test('a failure after the draft is stored blocks publish of that stored draft', async () => {
+        let kept = ''
+        let calls = 0
+        const { deps } = memoryDeps({
+            saveFlow: async (flowText) => {
+                calls += 1
+                if (calls > 1) throw new Error('database down')
+                kept = flowText
+                return flowText
+            }
+        })
+        const original = JSON.stringify(flow([pin()], 'cred-pg'))
+        const record = await executeVerify({ flowText: original, record: null, deps })
+        expect(kept).not.toBe('')
+        expect(kept).not.toBe(original)
+        expect(record.draftHash).toBe(hashFlow(kept))
+        expect(record.status).toBe('incomplete')
+        expect(importVerifyPublishBlock(JSON.stringify(record), kept)).toMatch(/could not be fully verified|has not been verified/)
     })
 
     test('BETWEEN named parameters can supply a sample range', () => {

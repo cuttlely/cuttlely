@@ -184,4 +184,47 @@ describe('Import & verify canvas', () => {
         expect(onFlowCreated.mock.invocationCallOrder[0]).toBeLessThan(importVerifyApi.start.mock.invocationCallOrder[0])
         act(() => root.unmount())
     })
+
+    test('a new harness saves the imported file as a draft before verification', async () => {
+        chatflowsApi.createNewChatflow.mockResolvedValue({ data: { id: 'harness-1', name: 'team', type: 'HARNESS' } })
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { flowData: stored } } })
+        importVerifyApi.start.mockResolvedValue({
+            data: { status: 'attention', summary: 'Needs attention.', blockers: [], connections: [], queries: [] }
+        })
+        const root = await renderDialog({ chatflow: { name: 'Team' }, flowType: 'HARNESS', onClose: () => {} })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith('harness-1', expect.stringContaining('"api"'))
+        expect(importVerifyApi.start).toHaveBeenCalledWith('harness-1', expect.any(Object))
+        act(() => root.unmount())
+    })
+
+    test('a missing draft status does not paint the imported cards', async () => {
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockRejectedValue(new Error('status down'))
+        importVerifyApi.start.mockResolvedValue({
+            data: { status: 'attention', summary: 'Needs attention.', blockers: [], connections: [], queries: [] }
+        })
+        const onImported = jest.fn()
+        const onDraftStatus = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            onImported,
+            onDraftStatus
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(onImported).not.toHaveBeenCalled()
+        expect(onDraftStatus).not.toHaveBeenCalled()
+        expect(document.body.textContent).toContain('status could not be loaded')
+        act(() => root.unmount())
+    })
 })

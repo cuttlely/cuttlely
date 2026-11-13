@@ -66,13 +66,25 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
         true
     )
     const order = []
-    deliverImportedDraft({
-        status: { mode: 'draft' },
-        flowText: '{"nodes":[],"edges":[]}',
-        onDraftStatus: () => order.push('status'),
-        onImported: () => order.push('canvas')
-    })
-    expect(order).toEqual(['status', 'canvas'])
+    expect(
+        deliverImportedDraft({
+            status: null,
+            flowText: '{"nodes":[],"edges":[]}',
+            onDraftStatus: () => order.push('status'),
+            onImported: () => order.push('canvas')
+        })
+    ).toBe(false)
+    expect(order).toEqual([])
+    expect(
+        deliverImportedDraft({
+            status: { mode: 'draft', draft: { flowData: '{"nodes":[],"edges":[]}' } },
+            flowText: '{"nodes":[{"id":"old"}],"edges":[]}',
+            onDraftStatus: () => order.push('status'),
+            onImported: (text) => order.push(text)
+        })
+    ).toBe(true)
+    expect(order[0]).toBe('status')
+    expect(order[1]).toContain('"nodes":[]')
     expect(connectionNeedsChoice({ status: 'empty', required: true })).toBe(true)
     expect(connectionNeedsChoice({ status: 'empty', required: false })).toBe(false)
     expect(connectionNeedsChoice({ status: 'ambiguous' })).toBe(true)

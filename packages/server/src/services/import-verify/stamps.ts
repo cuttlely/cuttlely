@@ -67,6 +67,12 @@ function walkNodes(flow: { nodes?: unknown }): Array<{ node: Record<string, unkn
     return found
 }
 
+export function flowHasUntrustedImport(value: unknown): boolean {
+    const flow = parseFlow(value)
+    if (!flow) return false
+    return queriesOnFlow(flow).some((item) => item.pin.importedVerification === 'untrusted')
+}
+
 export function parseFlow(value: unknown): { nodes: unknown[]; edges: unknown[]; [key: string]: unknown } | null {
     let parsed = value
     if (typeof value === 'string') {

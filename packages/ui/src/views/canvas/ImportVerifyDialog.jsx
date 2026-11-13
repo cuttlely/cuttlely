@@ -76,7 +76,12 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         } catch {
             // The file already written to the draft is enough to replace the canvas.
         }
-        deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
+        const delivered = deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
+        if (!delivered && fallback) {
+            setError(
+                'The draft was saved, but its status could not be loaded. The canvas was not changed. Reload this flow before you save.'
+            )
+        }
     }
 
     const onFile = (event) => {
@@ -120,7 +125,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         const created = await chatflowsApi.createNewChatflow(body)
         const createdId = created?.data?.id
         if (!createdId) throw new Error('The flow was not created.')
-        if (flowType !== 'HARNESS') await flowDraftsApi.saveDraft(createdId, flowText)
+        await flowDraftsApi.saveDraft(createdId, flowText)
         const adopted = {
             ...(created.data || {}),
             id: createdId,

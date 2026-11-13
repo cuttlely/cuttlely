@@ -184,7 +184,19 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
             })
         }
         for (const contract of contracts) {
-            if (!contract.pin) continue
+            if (contract.mode === 'invalid') continue
+            const pinName = typeof contract.pin === 'string' ? contract.pin.trim() : ''
+            if (!pinName) {
+                blockers.push({
+                    id: `contract:${nodeId}:unnamed`,
+                    severity: 'attention',
+                    message: `${label} has a verified-output contract that does not name a saved query. Review the contract before publishing.`,
+                    action: 'review-contract',
+                    nodeId
+                })
+                continue
+            }
+            contract.pin = pinName
             const matches = pinsForContracts(input.flow, nodeId).filter((item) => item.pin.name === contract.pin)
             if (matches.length !== 1) {
                 blockers.push({

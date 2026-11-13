@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { applyCredential, connectionSlots, resolveSlot, type ConnectionResolution, type CredentialRow } from './connections'
 import { missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
 import { inspectFlow, nodeById, relationsOf, type Blocker, type SmokeNeed } from './inspect'
-import { parseFlow, queriesOnFlow, queryReady, replaceQuery, untrustImportedFlow, type SavedQuery } from './stamps'
+import { flowHasUntrustedImport, parseFlow, queriesOnFlow, queryReady, replaceQuery, untrustImportedFlow, type SavedQuery } from './stamps'
 
 export function hashFlow(flowText: string): string {
     return createHash('sha256').update(flowText).digest('hex')
@@ -161,15 +161,19 @@ export function recoverOrphanedRun(record: VerifyRecord | null, jobActive: boole
     )
 }
 
+const UNVERIFIED_IMPORT = 'This import has not been verified. Open Import & verify and finish the check before publishing.'
+
 export function importVerifyPublishBlock(raw: unknown, draftFlowData: string | null | undefined): string | null {
-    if (!draftFlowData || raw == null || raw === '') return null
+    if (!draftFlowData) return null
+    const untrusted = flowHasUntrustedImport(draftFlowData)
+    if (raw == null || raw === '') return untrusted ? UNVERIFIED_IMPORT : null
     let record: VerifyRecord | null = null
     try {
         record = typeof raw === 'string' ? (JSON.parse(raw) as VerifyRecord) : (raw as VerifyRecord)
     } catch {
-        return null
+        return untrusted ? UNVERIFIED_IMPORT : null
     }
-    if (!record || record.version !== 1 || record.draftHash !== hashFlow(draftFlowData)) return null
+    if (!record || record.version !== 1 || record.draftHash !== hashFlow(draftFlowData)) return untrusted ? UNVERIFIED_IMPORT : null
     if (record.status === 'ready') return null
     if (record.status === 'running') return 'Verification is still running. Publish stays available after it finishes.'
     if (record.status === 'attention') return 'This import needs attention. Open Import & verify, use the actions it shows, then publish.'
@@ -252,7 +256,7 @@ async function persist(
     return { flowText: stored, record: next }
 }
 
-function runningRecord(flowText: string, now: string): VerifyRecord {
+export function openingVerifyRecord(flowText: string, now: string): VerifyRecord {
     return {
         version: 1,
         draftHash: hashFlow(flowText),
@@ -274,7 +278,7 @@ function stoppedRecord(flowText: string, now: string, error: unknown): VerifyRec
     const message = error instanceof Error && error.message ? error.message : 'The check stopped before it finished.'
     return finishRecord(
         {
-            ...runningRecord(flowText, now),
+            ...openingVerifyRecord(flowText, now),
             status: 'incomplete',
             phase: 'Verification stopped',
             blockers: [
@@ -298,14 +302,22 @@ export async function executeVerify(options: {
     deps: VerifyDeps
 }): Promise<VerifyRecord> {
     const deps = options.deps
-    const draftText = options.flowText || ''
-    await deps.saveRecord(runningRecord(draftText, deps.now()))
+    let storedText = options.flowText || ''
+    const tracking: VerifyDeps = {
+        ...deps,
+        saveFlow: async (flowText) => {
+            const stored = await deps.saveFlow(flowText)
+            storedText = stored
+            return stored
+        }
+    }
+    await tracking.saveRecord(openingVerifyRecord(storedText, deps.now()))
     try {
-        return await verifyBody(options)
+        return await verifyBody({ ...options, deps: tracking })
     } catch (error) {
-        const stopped = stoppedRecord(draftText, deps.now(), error)
+        const stopped = stoppedRecord(storedText, deps.now(), error)
         try {
-            await deps.saveRecord(stopped)
+            await tracking.saveRecord(stopped)
         } catch {
             // The running record already keeps Publish off.
         }

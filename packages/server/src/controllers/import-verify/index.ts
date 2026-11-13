@@ -8,7 +8,7 @@ import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
 import flowDraftsService, { canvasHash, DraftChangedError } from '../../services/flow-drafts'
 import { harnessCallerFor } from '../../services/harnesses/apiAccess'
-import { executeVerify, recoverOrphanedRun, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
+import { executeVerify, openingVerifyRecord, recoverOrphanedRun, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
 import { readOnlyRows, testPinnedQuery, PinnedRequestError } from '../../services/pinned-queries'
 import { pinnedQueriesEnabled } from '../../services/pinned-queries/sql'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -87,6 +87,7 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
         const app = getRunningExpressApp()
         const loaded = app.nodesPool?.componentNodes ? Object.keys(app.nodesPool.componentNodes) : undefined
         const starting = (await flowDraftsService.getState(flow.id))?.draftFlowData || draft
+        if (starting) await writeRecord(flow.id, openingVerifyRecord(starting, new Date().toISOString()))
         let expectedHash = starting ? canvasHash(starting) : undefined
         return await executeVerify({
             flowText: starting,
@@ -102,7 +103,8 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
                             orgId,
                             subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
                             caller: await harnessCallerFor(req),
-                            expectedDraftHash: expectedHash
+                            expectedDraftHash: expectedHash,
+                            strictDraftHash: true
                         })
                     } catch (error) {
                         if (error instanceof DraftChangedError) {

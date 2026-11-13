@@ -81,9 +81,14 @@ export function showResume(record) {
 }
 
 // Draft status has to land before the canvas text. Save reads the status that was current when the text was recorded.
+// Without a loaded draft status the cards stay as they were, so a later Save cannot use an unknown or Live mode.
 export function deliverImportedDraft({ status, flowText, onDraftStatus, onImported } = {}) {
-    if (status && onDraftStatus) onDraftStatus(status)
-    if (flowText && onImported) onImported(flowText)
+    if (!status || typeof status !== 'object') return false
+    if (onDraftStatus) onDraftStatus(status)
+    const stored = status.draft?.flowData
+    const text = typeof stored === 'string' && stored ? stored : flowText
+    if (status.mode === 'draft' && text && onImported) onImported(text)
+    return status.mode === 'draft' && Boolean(text)
 }
 
 export function canvasPathForImport(flowType, id, agentV2 = false) {

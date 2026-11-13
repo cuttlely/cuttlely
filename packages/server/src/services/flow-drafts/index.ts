@@ -387,6 +387,9 @@ export interface SaveDraftContext {
     expectedDraftHash?: unknown
     // Only literal true replaces a draft someone else saved after this canvas opened.
     overwriteDraftChanges?: unknown
+    // Verification checkpoints conflict when the stored draft is not the hash they last wrote,
+    // including when the same person saved a newer copy while the check was still running.
+    strictDraftHash?: boolean
 }
 
 const API_KEY_DRAFT_SAVER = 'Someone using an API key'
@@ -413,13 +416,14 @@ function savedAtIso(value: Date | string | null): string | null {
 // Whether this save would replace a draft the caller has not seen.
 // No conflict when the caller sends overwriteDraftChanges true, sends no expected hash, there is no
 // stored draft, the stored draft is the one they loaded, or they saved it themselves. Null and undefined
-// user ids count as the same saver. Any other overwriteDraftChanges value is ignored. A hash that is
-// not a string or null is a 400.
+// user ids count as the same saver. strictDraftHash skips that same-saver exception. Any other
+// overwriteDraftChanges value is ignored. A hash that is not a string or null is a 400.
 export function draftChangedBy(
     state: { draftFlowData?: string | null; draftUpdatedBy?: string | null; draftUpdatedDate?: Date | string | null } | null | undefined,
     expectedDraftHash: unknown,
     userId: string | null | undefined,
-    overwriteDraftChanges?: unknown
+    overwriteDraftChanges?: unknown,
+    strictDraftHash?: boolean
 ): { savedById: string | null; savedAt: Date | string | null } | null {
     if (expectedDraftHash !== undefined && expectedDraftHash !== null && typeof expectedDraftHash !== 'string') {
         throw new AppError(StatusCodes.BAD_REQUEST, 'expectedDraftHash must be a string or null.')
@@ -430,7 +434,7 @@ export function draftChangedBy(
     if (canvasHash(state.draftFlowData) === expectedDraftHash) return null
     const storedBy = state.draftUpdatedBy ?? null
     const caller = userId ?? null
-    if (storedBy === caller) return null
+    if (!strictDraftHash && storedBy === caller) return null
     return { savedById: storedBy, savedAt: state.draftUpdatedDate ?? null }
 }
 
@@ -446,7 +450,13 @@ async function throwIfDraftChanged(
     context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges'>,
     action: DraftChangedAction = 'save'
 ): Promise<void> {
-    const changed = draftChangedBy(state, context.expectedDraftHash, context.userId, context.overwriteDraftChanges)
+    const changed = draftChangedBy(
+        state,
+        context.expectedDraftHash,
+        context.userId,
+        context.overwriteDraftChanges,
+        context.strictDraftHash === true
+    )
     if (!changed) return
     const name = await draftSaverName(changed.savedById)
     throw new DraftChangedError({ id: changed.savedById, name }, savedAtIso(changed.savedAt), action)
