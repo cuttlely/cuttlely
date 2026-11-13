@@ -1,4 +1,14 @@
-import { queryReady, shouldReplaceDraft, showResume, statusTitle, untrustFlow, verificationFlowId } from './importVerify'
+import {
+    adoptImportedIdentity,
+    canvasPathForImport,
+    connectionNeedsChoice,
+    queryReady,
+    shouldReplaceDraft,
+    showResume,
+    statusTitle,
+    untrustFlow,
+    verificationFlowId
+} from './importVerify'
 
 const pin = {
     id: 'pin-1',
@@ -30,7 +40,40 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
     expect(shouldReplaceDraft({ flowText: '', resume: true })).toBe(false)
     expect(showResume({ status: 'incomplete', publishOffered: false, queries: [{ state: 'pending' }], connections: [] })).toBe(true)
     expect(showResume({ status: 'attention', publishOffered: false, queries: [{ state: 'failed' }], connections: [] })).toBe(false)
+    expect(
+        showResume({
+            status: 'attention',
+            publishOffered: false,
+            queries: [],
+            connections: [{ status: 'empty', required: true }]
+        })
+    ).toBe(false)
+    expect(
+        showResume({
+            status: 'attention',
+            publishOffered: false,
+            queries: [{ state: 'empty' }],
+            connections: [],
+            smoke: [{ id: 'csv', state: 'failed' }]
+        })
+    ).toBe(false)
     expect(showResume(null)).toBe(false)
+    expect(connectionNeedsChoice({ status: 'empty', required: true })).toBe(true)
+    expect(connectionNeedsChoice({ status: 'empty', required: false })).toBe(false)
+    expect(connectionNeedsChoice({ status: 'ambiguous' })).toBe(true)
+    expect(canvasPathForImport('HARNESS', 'flow-new')).toBe('/harnesscanvas/flow-new')
+    const remembered = []
+    const replaced = []
+    expect(
+        adoptImportedIdentity({
+            created: { id: 'flow-new', name: 'Imported' },
+            flowType: 'CHATFLOW',
+            remember: (id) => remembered.push(id),
+            replaceState: (...args) => replaced.push(args)
+        }).id
+    ).toBe('flow-new')
+    expect(remembered).toEqual(['flow-new'])
+    expect(replaced[0][2]).toBe('/canvas/flow-new')
 })
 
 test('the three finished results use plain titles', () => {

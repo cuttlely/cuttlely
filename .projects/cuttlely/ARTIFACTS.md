@@ -29,7 +29,7 @@
 ## Import and verify
 
 -   `packages/server/src/services/import-verify/`: untrust imported stamps, match one destination credential by name and type, build read-only test values, retest saved queries, and keep the result on the draft.
--   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, a required empty tool credential, schema-qualified and quoted tables, numeric range order, coherent account and opportunity values, an empty result, retry of a failed query, a stopped run, and publish staying blocked.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, a required empty tool credential, schema-qualified and quoted tables, `BETWEEN` parameters, numeric range order, a same-named query on another card, an empty report that can be retried, a missing required model edge, a check that stops before it reads connections, coherent account and opportunity values, and publish staying blocked.
 -   `packages/ui/src/views/canvas/ImportVerifyDialog.jsx`, `ImportVerifyDialog.test.js`, and `docs/how-to/import-verify.md`. The dialog gives the saved draft to the canvas, and Close stays available while the check runs.
 
 ## Import target-handle types

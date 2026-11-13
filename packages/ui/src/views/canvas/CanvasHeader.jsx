@@ -162,6 +162,7 @@ const CanvasHeader = ({
     onDraftStatus = () => undefined,
     onChatflowUpdated = () => undefined,
     onApplyCanvas = () => undefined,
+    onFlowCreated = () => undefined,
     onDirty = () => undefined,
     draftExpected = () => ({}),
     onDraftConflict = () => undefined,
@@ -981,6 +982,7 @@ const CanvasHeader = ({
                 flowType={isEtlCanvas ? 'ETL' : isHarnessCanvas ? 'HARNESS' : isAgentCanvas ? 'AGENTFLOW' : 'CHATFLOW'}
                 onClose={() => setImportVerifyOpen(false)}
                 onImported={(flowText) => onApplyCanvas(flowText)}
+                onFlowCreated={onFlowCreated}
                 onPublished={() => {
                     setImportVerifyOpen(false)
                     if (chatflow?.id) onChatflowUpdated({ ...chatflow })
@@ -1096,6 +1098,7 @@ CanvasHeader.propTypes = {
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
     onApplyCanvas: PropTypes.func,
+    onFlowCreated: PropTypes.func,
     onDirty: PropTypes.func,
     draftExpected: PropTypes.func,
     onDraftConflict: PropTypes.func,

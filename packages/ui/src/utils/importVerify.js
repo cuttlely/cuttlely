@@ -64,9 +64,33 @@ export function shouldReplaceDraft({ flowText, retryFailures = false, choices = 
     return Boolean(flowText) && !retryFailures && !choices && !resume
 }
 
+export function connectionNeedsChoice(item) {
+    if (!item) return false
+    if (item.status === 'missing' || item.status === 'ambiguous') return true
+    return item.status === 'empty' && item.required === true
+}
+
 export function showResume(record) {
     if (!record || record.publishOffered || record.status === 'running' || record.status === 'idle') return false
-    const unresolved = (record.connections || []).some((item) => item.status === 'missing' || item.status === 'ambiguous')
-    if (unresolved) return false
-    return !(record.queries || []).some((item) => item.state === 'failed')
+    if ((record.connections || []).some(connectionNeedsChoice)) return false
+    if ((record.queries || []).some((item) => item.state === 'failed')) return false
+    return !(record.smoke || []).some((item) => (item.id === 'report' || item.id === 'csv') && item.state === 'failed')
+}
+
+export function canvasPathForImport(flowType, id, agentV2 = false) {
+    if (!id) return ''
+    if (flowType === 'HARNESS') return `/harnesscanvas/${id}`
+    if (flowType === 'ETL') return `/etlcanvas/${id}`
+    if (flowType === 'AGENTFLOW') return agentV2 ? `/v2/agentcanvas/${id}` : `/agentcanvas/${id}`
+    return `/canvas/${id}`
+}
+
+// A flow created by Import & verify has to become the canvas on screen. The address changes to that id,
+// and the canvas remembers it so the route update does not load a second copy over the cards.
+export function adoptImportedIdentity({ created, flowType, agentV2 = false, remember, replaceState, historyState = null } = {}) {
+    const id = created?.id
+    if (!id) return null
+    if (typeof remember === 'function') remember(id)
+    if (typeof replaceState === 'function') replaceState(historyState, '', canvasPathForImport(flowType, id, agentV2))
+    return created
 }

@@ -111,6 +111,7 @@ import {
 } from '@/utils/buildWithAI'
 
 // const
+import { adoptImportedIdentity } from '@/utils/importVerify'
 import { uiBaseURL } from '@/store/constant'
 import { requestFailureMessage, saveFailureMessage } from '@/utils/errorSummary'
 
@@ -1625,6 +1626,25 @@ const Canvas = () => {
                                     if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
                                 }}
                                 onApplyCanvas={applyCanvasText}
+                                onFlowCreated={(created) => {
+                                    adoptImportedIdentity({
+                                        created,
+                                        flowType: isEtlCanvas
+                                            ? 'ETL'
+                                            : isHarnessCanvas
+                                            ? 'HARNESS'
+                                            : isAgentCanvas
+                                            ? 'AGENTFLOW'
+                                            : 'CHATFLOW',
+                                        remember: (id) => {
+                                            createdFlowIdRef.current = id
+                                        },
+                                        replaceState: (...args) => window.history.replaceState(...args),
+                                        historyState: state
+                                    })
+                                    dispatch({ type: SET_CHATFLOW, chatflow: created })
+                                    setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null, request: 'status' })
+                                }}
                                 onDirty={setDirty}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}

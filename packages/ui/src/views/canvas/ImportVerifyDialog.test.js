@@ -27,6 +27,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
+import chatflowsApi from '@/api/chatflows'
 import flowDraftsApi from '@/api/flowDrafts'
 import importVerifyApi from '@/api/importVerify'
 import ImportVerifyDialog from './ImportVerifyDialog'
@@ -74,6 +75,7 @@ const chooseFile = async () => {
 
 describe('Import & verify canvas', () => {
     afterEach(() => {
+        chatflowsApi.createNewChatflow.mockReset()
         flowDraftsApi.saveDraft.mockReset()
         flowDraftsApi.getStatus.mockReset()
         importVerifyApi.start.mockReset()
@@ -127,6 +129,55 @@ describe('Import & verify canvas', () => {
         await act(async () => close.dispatchEvent(new MouseEvent('click', { bubbles: true })))
         expect(onClose).toHaveBeenCalled()
         expect(importVerifyApi.cancel).not.toHaveBeenCalled()
+        act(() => root.unmount())
+    })
+
+    test('an empty required credential can be chosen, and Resume stays hidden', async () => {
+        importVerifyApi.status.mockResolvedValue({
+            data: {
+                status: 'attention',
+                summary: 'Needs attention.',
+                connections: [
+                    {
+                        slotId: 'api:credential',
+                        nodeLabel: 'GET',
+                        status: 'empty',
+                        required: true,
+                        options: [{ id: 'cred-1', name: 'OpenAI main' }]
+                    }
+                ],
+                queries: [],
+                blockers: [{ id: 'connection:api:credential:empty', message: 'GET has no connection.' }],
+                smoke: []
+            }
+        })
+        const root = await renderDialog({ chatflow: { id: 'flow-1', name: 'Team' }, onClose: () => {} })
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(document.body.textContent).toContain('Choose connection')
+        expect(document.body.textContent).toContain('GET')
+        expect(document.body.textContent).not.toContain('Resume')
+        act(() => root.unmount())
+    })
+
+    test('a new canvas adopts the created flow before verification starts', async () => {
+        chatflowsApi.createNewChatflow.mockResolvedValue({ data: { id: 'flow-new', name: 'Team', type: 'CHATFLOW' } })
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { draft: { flowData: stored } } })
+        importVerifyApi.start.mockResolvedValue({
+            data: { status: 'attention', summary: 'Needs attention.', blockers: [], connections: [], queries: [] }
+        })
+        const onFlowCreated = jest.fn()
+        const root = await renderDialog({ chatflow: { name: 'New' }, onClose: () => {}, onFlowCreated })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(onFlowCreated).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-new' }))
+        expect(importVerifyApi.start).toHaveBeenCalledWith('flow-new', expect.any(Object))
+        expect(onFlowCreated.mock.invocationCallOrder[0]).toBeLessThan(importVerifyApi.start.mock.invocationCallOrder[0])
         act(() => root.unmount())
     })
 })

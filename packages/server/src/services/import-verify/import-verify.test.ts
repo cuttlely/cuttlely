@@ -194,7 +194,8 @@ describe('imported verification', () => {
             { pin: 'pq_account_opportunity', hash: 'cd'.repeat(32), mode: 'table-payload-csv' }
         ])
         const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
-        expect(record.queries[0].state).toBe('empty')
+        expect(record.queries[0].state).toBe('failed')
+        expect(record.queries[0].message).toContain('no rows')
         expect(record.status).toBe('attention')
         expect(record.smoke.find((item) => item.id === 'csv')?.state).toBe('failed')
         expect(record.publishOffered).toBe(false)
@@ -482,6 +483,147 @@ describe('imported verification', () => {
         const values = valuesFromDiscovery(params, [{ from: '9' }, { from: '10' }, { from: '100' }], bindings)
         expect(values.from).toBe('9')
         expect(values.to).toBe('100')
+    })
+
+    test('a same-named query on another card does not prove the connected report', async () => {
+        const shared = pin({ id: 'pin-report', name: 'pq_report' })
+        const canvas = flow([shared], 'cred-pg')
+        canvas.nodes[0].id = 'pg-connected'
+        ;(canvas.nodes[0].data as { id: string }).id = 'pg-connected'
+        ;(canvas.nodes as unknown[]).push({
+            id: 'pg-other',
+            data: {
+                id: 'pg-other',
+                name: 'postgreSQLMCP',
+                label: 'Other',
+                category: 'Tools (MCP)',
+                inputParams: [{ type: 'credential', credentialNames: ['PostgresUrl'], optional: true }],
+                credential: 'cred-pg',
+                inputs: {
+                    analystRelations: 'account, opportunity',
+                    pinnedQueries: JSON.stringify([shared])
+                }
+            }
+        })
+        ;(canvas.nodes as unknown[]).push({
+            id: 'spec',
+            data: {
+                id: 'spec',
+                name: 'harnessSpecialist',
+                label: 'Analyst',
+                inputs: {
+                    trustedOutputs: JSON.stringify([{ pin: 'pq_report', hash: 'cd'.repeat(32), mode: 'table-payload-csv' }])
+                }
+            }
+        })
+        canvas.edges = [{ source: 'pg-connected', target: 'spec' }]
+        const { deps } = memoryDeps({
+            loadedNodeNames: ['postgreSQLMCP', 'chatOpenAI', 'harnessSpecialist'],
+            testPin: async ({ nodeId }) => ({
+                ok: true,
+                rowCount: nodeId === 'pg-connected' ? 0 : 4,
+                statementHash: 'cd'.repeat(32),
+                entry: { ...shared, testedStamp: 'ff'.repeat(32), needsRetest: false }
+            })
+        })
+        const record = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(record.queries.find((item) => item.nodeId === 'pg-connected')?.state).toBe('failed')
+        expect(record.queries.find((item) => item.nodeId === 'pg-other')?.state).toBe('passed')
+        expect(record.smoke.find((item) => item.id === 'csv')?.state).toBe('failed')
+        expect(record.publishOffered).toBe(false)
+    })
+
+    test('an empty report can be retried after the table has rows', async () => {
+        let rows = 0
+        const { deps } = memoryDeps({
+            testPin: async () => ({
+                ok: true,
+                rowCount: rows,
+                statementHash: 'cd'.repeat(32),
+                entry: { ...pin(), testedStamp: 'ff'.repeat(32), needsRetest: false }
+            })
+        })
+        const canvas = flow([pin()], 'cred-pg') as { nodes: Array<{ data: { inputs: Record<string, unknown> } }> }
+        canvas.nodes[0].data.inputs.trustedOutputs = JSON.stringify([
+            { pin: 'pq_account_opportunity', hash: 'cd'.repeat(32), mode: 'table-payload-csv' }
+        ])
+        const first = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(first.queries[0].state).toBe('failed')
+        expect(first.publishOffered).toBe(false)
+        rows = 3
+        const second = await executeVerify({ flowText: JSON.stringify(canvas), record: first, retryFailures: true, deps })
+        expect(second.queries[0].state).toBe('passed')
+        expect(second.publishOffered).toBe(true)
+    })
+
+    test('a required model connection blocks Ready when the edge is missing', async () => {
+        const canvas = {
+            nodes: [
+                {
+                    id: 'chief',
+                    data: {
+                        name: 'harnessChief',
+                        label: 'Harness Prime',
+                        inputAnchors: [{ name: 'chatModel', label: 'Chat Model', type: 'BaseChatModel' }],
+                        inputs: {}
+                    }
+                },
+                {
+                    id: 'model',
+                    data: {
+                        name: 'chatOpenAI',
+                        label: 'ChatOpenAI',
+                        category: 'Chat Models',
+                        inputParams: [{ type: 'credential', credentialNames: ['openAIApi'] }],
+                        credential: 'cred-openai',
+                        inputs: {}
+                    }
+                }
+            ],
+            edges: [] as Array<{ source: string; target: string; targetHandle: string }>
+        }
+        const { deps } = memoryDeps({ loadedNodeNames: ['harnessChief', 'chatOpenAI'] })
+        const blocked = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(blocked.status).toBe('attention')
+        expect(blocked.publishOffered).toBe(false)
+        expect(blocked.blockers.some((item) => item.id === 'edge:chief:chatModel')).toBe(true)
+        expect(blocked.summary).not.toContain('Saved queries were tested')
+        canvas.edges.push({
+            source: 'model',
+            target: 'chief',
+            targetHandle: 'chief-input-chatModel-BaseChatModel'
+        })
+        const ready = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(ready.blockers.some((item) => item.id === 'edge:chief:chatModel')).toBe(false)
+        expect(ready.status).toBe('ready')
+        expect(ready.summary).toContain('no saved queries')
+    })
+
+    test('a check that stops before it reads connections still blocks publish', async () => {
+        const records: VerifyRecord[] = []
+        const { deps } = memoryDeps({
+            credentials: async () => {
+                throw new Error('credentials down')
+            },
+            saveRecord: async (record) => {
+                records.push(JSON.parse(JSON.stringify(record)) as VerifyRecord)
+            }
+        })
+        const text = JSON.stringify(flow([pin()], 'cred-pg'))
+        const record = await executeVerify({ flowText: text, record: null, deps })
+        expect(records[0].status).toBe('running')
+        expect(records[0].draftHash).toBe(hashFlow(text))
+        expect(record.status).toBe('incomplete')
+        expect(importVerifyPublishBlock(JSON.stringify(record), text)).toMatch(/could not be fully verified/)
+        expect(importVerifyPublishBlock(null, text)).toBeNull()
+    })
+
+    test('BETWEEN named parameters can supply a sample range', () => {
+        const plan = planDiscovery('SELECT o.id FROM public.orders o WHERE o.created BETWEEN :start AND :end LIMIT 20', ['public.orders'])
+        expect(plan).not.toHaveProperty('error')
+        if (!('text' in plan)) return
+        expect(plan.bindings.map((item) => item.param).sort()).toEqual(['end', 'start'])
+        expect(plan.text).toContain('"created"')
     })
 
     test('choosing a connection writes that id and leaves another empty slot empty', () => {

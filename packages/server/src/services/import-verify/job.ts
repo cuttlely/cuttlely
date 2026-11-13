@@ -43,6 +43,8 @@ export interface VerifyRecord {
         nodeLabel: string
         expectedType: string
         status: ConnectionResolution['status']
+        required: boolean
+        needed: boolean
         credentialId: string
         options: Array<{ id: string; name: string }>
     }>
@@ -101,6 +103,8 @@ function publicConnections(list: ConnectionResolution[]): VerifyRecord['connecti
         nodeLabel: item.slot.nodeLabel,
         expectedType: item.slot.expectedType,
         status: item.status,
+        required: item.slot.required,
+        needed: item.slot.needed,
         credentialId: item.credentialId,
         options: item.options
     }))
@@ -119,7 +123,9 @@ export function finishRecord(record: VerifyRecord, now: string): VerifyRecord {
     else if (pending) status = 'incomplete'
     const summary =
         status === 'ready'
-            ? 'Ready to publish. Saved queries were tested on this server, and the checks for this flow passed. Nothing was published.'
+            ? record.queries.length
+                ? 'Ready to publish. Saved queries were tested on this server, and the checks for this flow passed. Nothing was published.'
+                : 'Ready to publish. This flow has no saved queries, and the checks that apply to it passed. Nothing was published.'
             : status === 'attention'
             ? 'Needs attention. Fix the items below, then retry the ones that failed.'
             : 'Could not fully verify. The checks that did not run are listed below. Nothing was marked ready.'
@@ -224,7 +230,68 @@ async function persist(
     return { flowText: stored, record: next }
 }
 
+function runningRecord(flowText: string, now: string): VerifyRecord {
+    return {
+        version: 1,
+        draftHash: hashFlow(flowText),
+        status: 'running',
+        phase: 'Checking this flow.',
+        checked: 0,
+        total: 0,
+        queries: [],
+        connections: [],
+        blockers: [],
+        smoke: [],
+        summary: '',
+        publishOffered: false,
+        updatedAt: now
+    }
+}
+
+function stoppedRecord(flowText: string, now: string, error: unknown): VerifyRecord {
+    const message = error instanceof Error && error.message ? error.message : 'The check stopped before it finished.'
+    return finishRecord(
+        {
+            ...runningRecord(flowText, now),
+            status: 'incomplete',
+            phase: 'Verification stopped',
+            blockers: [
+                {
+                    id: 'verify-stopped',
+                    severity: 'incomplete',
+                    message: `Verification stopped before it finished. ${message} Resume it from Import & verify. Nothing was marked ready.`,
+                    action: 'none'
+                }
+            ]
+        },
+        now
+    )
+}
+
 export async function executeVerify(options: {
+    flowText: string
+    record: VerifyRecord | null
+    choices?: Record<string, string>
+    retryFailures?: boolean
+    deps: VerifyDeps
+}): Promise<VerifyRecord> {
+    const deps = options.deps
+    const draftText = options.flowText || ''
+    await deps.saveRecord(runningRecord(draftText, deps.now()))
+    try {
+        return await verifyBody(options)
+    } catch (error) {
+        const stopped = stoppedRecord(draftText, deps.now(), error)
+        try {
+            await deps.saveRecord(stopped)
+        } catch {
+            // The running record already keeps Publish off.
+        }
+        return stopped
+    }
+}
+
+async function verifyBody(options: {
     flowText: string
     record: VerifyRecord | null
     choices?: Record<string, string>
@@ -506,6 +573,17 @@ export async function executeVerify(options: {
             pinId: item.pinId
         }))
     const smoke = await runSmoke(inspected.smoke, record.queries, pdfAvailable, deps)
+    const needsRows = new Set<string>()
+    for (const need of inspected.smoke) {
+        if (!need.needsRows) continue
+        for (const pin of need.pins) needsRows.add(`${pin.nodeId}\0${pin.pinId}`)
+    }
+    for (const query of record.queries) {
+        if (query.state !== 'empty' || !needsRows.has(`${query.nodeId}\0${query.pinId}`)) continue
+        query.state = 'failed'
+        query.message =
+            'The query ran and returned no rows, so the report or CSV was not proven. Retry after the table has rows. No sample values were requested.'
+    }
     const smokeBlockers: Blocker[] = smoke
         .filter((item) => item.state === 'failed')
         .map((item) => ({
@@ -533,7 +611,6 @@ async function runSmoke(
     pdfAvailable: boolean | undefined,
     deps: VerifyDeps
 ): Promise<SmokeProgress[]> {
-    const byName = new Map(queries.map((item) => [item.name, item]))
     const out: SmokeProgress[] = []
     for (const need of needs) {
         if (need.id === 'analysis') {
@@ -578,7 +655,9 @@ async function runSmoke(
             }
             continue
         }
-        const related = need.pinNames.map((name) => byName.get(name)).filter(Boolean) as QueryProgress[]
+        const related = need.pins
+            .map((pin) => queries.find((item) => item.nodeId === pin.nodeId && item.pinId === pin.pinId))
+            .filter(Boolean) as QueryProgress[]
         const empty = related.some((item) => item.state === 'empty')
         const failed = related.some((item) => item.state !== 'passed')
         if (empty || failed) {

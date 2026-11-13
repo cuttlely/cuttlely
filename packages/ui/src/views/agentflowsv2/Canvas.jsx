@@ -83,6 +83,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
+import { adoptImportedIdentity } from '@/utils/importVerify'
 import { canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
@@ -1348,6 +1349,20 @@ const AgentflowCanvas = () => {
                                 onDraftStatus={setDraftStatus}
                                 onChatflowUpdated={(next) => dispatch({ type: SET_CHATFLOW, chatflow: next })}
                                 onApplyCanvas={applyCanvasText}
+                                onFlowCreated={(created) => {
+                                    adoptImportedIdentity({
+                                        created,
+                                        flowType: 'AGENTFLOW',
+                                        agentV2: true,
+                                        remember: (id) => {
+                                            createdFlowIdRef.current = id
+                                        },
+                                        replaceState: (...args) => window.history.replaceState(...args),
+                                        historyState: state
+                                    })
+                                    dispatch({ type: SET_CHATFLOW, chatflow: created })
+                                    setDraftStatusLoad({ flowId: created.id, known: true, loading: false, error: null, request: 'status' })
+                                }}
                                 onDirty={setDirty}
                                 draftExpected={draftSave.expected}
                                 onDraftConflict={reviewPublishConflict}

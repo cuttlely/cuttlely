@@ -222,6 +222,23 @@ export function planDiscovery(sql: string, relations: string[]): DiscoveryPlan |
     for (let i = 0; i < tokens.length; i += 1) {
         const left = columnRef(i)
         if (!left) continue
+        const between = tokens[left.next]
+        if (between?.kind === 'word' && /^between$/i.test(between.text) && !between.quoted) {
+            const low = tokens[left.next + 1]
+            const and = tokens[left.next + 2]
+            const high = tokens[left.next + 3]
+            if (
+                low?.kind === 'param' &&
+                and?.kind === 'word' &&
+                /^and$/i.test(and.text) &&
+                high?.kind === 'param' &&
+                !SENSITIVE.test(left.column)
+            ) {
+                bindings.push({ param: low.text, table: left.table, column: left.column, op: '>=' })
+                bindings.push({ param: high.text, table: left.table, column: left.column, op: '<=' })
+            }
+            continue
+        }
         const op = tokens[left.next]
         if (!op || op.kind !== 'op') continue
         const rightParam = tokens[left.next + 1]

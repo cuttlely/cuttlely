@@ -22,10 +22,16 @@ export interface Blocker {
     pinId?: string
 }
 
+export interface SmokePin {
+    nodeId: string
+    pinId: string
+    name: string
+}
+
 export interface SmokeNeed {
     id: 'report' | 'analysis' | 'csv' | 'pdf'
     label: string
-    pinNames: string[]
+    pins: SmokePin[]
     needsRows: boolean
 }
 
@@ -113,8 +119,8 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
     }
 
     let sawQueries = false
-    const reportPins: string[] = []
-    const csvPins: string[] = []
+    const reportPins: SmokePin[] = []
+    const csvPins: SmokePin[] = []
     let pdf = false
     for (const node of nodes) {
         const data = nodeData(node)
@@ -202,8 +208,13 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
                     pinId: String(provided.pin.id || '')
                 })
             }
-            if (contract.mode === 'table-payload-csv') csvPins.push(String(contract.pin))
-            else if (contract.mode && contract.mode !== 'invalid') reportPins.push(String(contract.pin))
+            const smokePin = {
+                nodeId: provided.nodeId,
+                pinId: String(provided.pin.id || ''),
+                name: String(provided.pin.name || contract.pin)
+            }
+            if (contract.mode === 'table-payload-csv') csvPins.push(smokePin)
+            else if (contract.mode && contract.mode !== 'invalid') reportPins.push(smokePin)
         }
     }
 
@@ -224,11 +235,110 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
         })
     }
 
-    if (sawQueries) smoke.push({ id: 'analysis', label: 'Analysis', pinNames: [], needsRows: false })
-    if (reportPins.length) smoke.push({ id: 'report', label: 'Report', pinNames: reportPins, needsRows: true })
-    if (csvPins.length) smoke.push({ id: 'csv', label: 'CSV', pinNames: csvPins, needsRows: true })
-    if (pdf) smoke.push({ id: 'pdf', label: 'PDF', pinNames: [], needsRows: false })
+    for (const missing of missingRequiredEdges(input.flow)) blockers.push(missing)
+
+    if (sawQueries) smoke.push({ id: 'analysis', label: 'Analysis', pins: [], needsRows: false })
+    if (reportPins.length) smoke.push({ id: 'report', label: 'Report', pins: reportPins, needsRows: true })
+    if (csvPins.length) smoke.push({ id: 'csv', label: 'CSV', pins: csvPins, needsRows: true })
+    if (pdf) smoke.push({ id: 'pdf', label: 'PDF', pins: [], needsRows: false })
     return { blockers, smoke }
+}
+
+const SCALAR_INPUT = new Set([
+    'string',
+    'number',
+    'boolean',
+    'password',
+    'options',
+    'json',
+    'array',
+    'code',
+    'file',
+    'date',
+    'asyncOptions',
+    'credential',
+    'tabs',
+    'condition',
+    'datagrid',
+    'asyncMultiOptions',
+    'multiOptions'
+])
+
+function anchorList(data: Record<string, unknown>): Array<{ name: string; label: string; optional: boolean }> {
+    const anchors = Array.isArray(data.inputAnchors) ? data.inputAnchors : null
+    const source =
+        anchors ||
+        (Array.isArray(data.inputParams)
+            ? data.inputParams.filter((item) => {
+                  if (!item || typeof item !== 'object') return false
+                  const type = String((item as { type?: string }).type || '')
+                  const kind = type.split('|')[0].trim()
+                  return kind && !SCALAR_INPUT.has(kind) && /[A-Z]/.test(kind)
+              })
+            : [])
+    return source
+        .filter((item) => item && typeof item === 'object' && (item as { name?: string }).name)
+        .map((item) => {
+            const anchor = item as { name?: string; label?: string; optional?: boolean }
+            return { name: String(anchor.name), label: String(anchor.label || anchor.name), optional: anchor.optional === true }
+        })
+}
+
+function edgeField(edge: { targetHandle?: unknown; target?: unknown }): string {
+    const targetId = String(edge.target || '')
+    const handle = String(edge.targetHandle || '')
+    if (!handle || handle === targetId) return ''
+    if (handle.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(handle) as { name?: string }
+            if (parsed?.name) return String(parsed.name)
+        } catch {
+            // A plain handle id is the other saved form.
+        }
+    }
+    const marker = '-input-'
+    const at = handle.indexOf(marker)
+    if (at === -1) return ''
+    return handle.slice(at + marker.length).split('-')[0]
+}
+
+function anchorConnected(
+    inputs: Record<string, unknown>,
+    name: string,
+    nodeId: string,
+    edges: Array<{ target?: unknown; targetHandle?: unknown }>
+): boolean {
+    if (edges.some((edge) => String(edge.target || '') === nodeId && edgeField(edge) === name)) return true
+    const value = inputs[name]
+    if (typeof value === 'string' && value.includes('{{') && value.includes('}}')) return true
+    return Array.isArray(value) && value.length > 0
+}
+
+function missingRequiredEdges(flow: { nodes?: unknown; edges?: unknown }): Blocker[] {
+    const nodes = Array.isArray(flow.nodes) ? flow.nodes : []
+    const edges = (Array.isArray(flow.edges) ? flow.edges : []).filter((edge) => edge && typeof edge === 'object') as Array<{
+        target?: unknown
+        targetHandle?: unknown
+    }>
+    const blockers: Blocker[] = []
+    for (const node of nodes) {
+        const data = nodeData(node)
+        if (!data) continue
+        const nodeId = String((node as { id?: string }).id || data.id || '')
+        const label = String(data.label || data.name || 'A card')
+        const inputs = data.inputs && typeof data.inputs === 'object' ? (data.inputs as Record<string, unknown>) : {}
+        for (const anchor of anchorList(data)) {
+            if (anchor.optional || anchorConnected(inputs, anchor.name, nodeId, edges)) continue
+            blockers.push({
+                id: `edge:${nodeId}:${anchor.name}`,
+                severity: 'attention',
+                message: `${label} needs a connection to ${anchor.label}. Connect it, then check this flow again.`,
+                action: 'none',
+                nodeId
+            })
+        }
+    }
+    return blockers
 }
 
 export function nodeById(flow: { nodes?: unknown }, nodeId: string): Record<string, unknown> | null {

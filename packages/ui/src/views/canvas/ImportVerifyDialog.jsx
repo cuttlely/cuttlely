@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import chatflowsApi from '@/api/chatflows'
@@ -8,6 +8,7 @@ import { harnessNameFrom } from '@/utils/buildWithAI'
 import { requestFailureMessage } from '@/utils/errorSummary'
 import {
     PLACEHOLDER_FLOW,
+    connectionNeedsChoice,
     progressLine,
     shouldReplaceDraft,
     showResume,
@@ -16,7 +17,7 @@ import {
     verificationFlowId
 } from '@/utils/importVerify'
 
-const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished, onImported }) => {
+const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished, onImported, onFlowCreated }) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
     const [name, setName] = useState('')
@@ -25,6 +26,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
     const [record, setRecord] = useState(null)
     const [chatflowId, setChatflowId] = useState(chatflow?.id || '')
     const [choices, setChoices] = useState({})
+    const adoptedId = useRef('')
 
     useEffect(() => {
         if (chatflow?.id) setChatflowId(chatflow.id)
@@ -54,7 +56,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         setBusy(false)
         setRecord(null)
         setChoices({})
-        setChatflowId(chatflow?.id || '')
+        setChatflowId(chatflow?.id || adoptedId.current || '')
     }
 
     const close = () => {
@@ -117,7 +119,15 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         const createdId = created?.data?.id
         if (!createdId) throw new Error('The flow was not created.')
         if (flowType !== 'HARNESS') await flowDraftsApi.saveDraft(createdId, flowText)
+        const adopted = {
+            ...(created.data || {}),
+            id: createdId,
+            name: created.data?.name || savedName,
+            type: created.data?.type || flowType
+        }
+        adoptedId.current = createdId
         setChatflowId(createdId)
+        if (onFlowCreated) await onFlowCreated(adopted)
         return createdId
     }
 
@@ -156,7 +166,9 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
         }
     }
 
-    const unresolved = (record?.connections || []).filter((item) => item.status === 'missing' || item.status === 'ambiguous')
+    const unresolved = (record?.connections || []).filter(connectionNeedsChoice)
+    const retryable = (record?.queries || []).some((item) => item.state === 'failed')
+    const flowId = verificationFlowId(chatflow?.id, chatflowId)
     const title = statusTitle(record?.status)
 
     return (
@@ -218,7 +230,7 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
                         Choose connection
                     </Button>
                 )}
-                {record?.queries?.some((item) => item.state === 'failed') && (
+                {retryable && (
                     <Button variant='outlined' disabled={busy} onClick={() => run({ retryFailures: true, choices, resume: true })}>
                         Retry
                     </Button>
@@ -235,8 +247,8 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
                         onClick={async () => {
                             setBusy(true)
                             try {
-                                await flowDraftsApi.publish(chatflowId, {})
-                                if (onPublished) onPublished(chatflowId)
+                                await flowDraftsApi.publish(flowId, {})
+                                if (onPublished) onPublished(flowId)
                             } catch (err) {
                                 setError(requestFailureMessage(err))
                             } finally {
@@ -263,7 +275,8 @@ ImportVerifyDialog.propTypes = {
     chatflow: PropTypes.object,
     flowType: PropTypes.string,
     onPublished: PropTypes.func,
-    onImported: PropTypes.func
+    onImported: PropTypes.func,
+    onFlowCreated: PropTypes.func
 }
 
 export default ImportVerifyDialog
