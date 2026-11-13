@@ -97,7 +97,8 @@ test('saves the canvas as a draft with the user, org and subscription', async ()
         subscriptionId: 'sub-1',
         caller: { via: 'session' },
         expectedDraftHash: undefined,
-        overwriteDraftChanges: undefined
+        overwriteDraftChanges: undefined,
+        strictDraftHash: false
     })
 })
 
@@ -118,8 +119,24 @@ test('ZZ-TEST-passes expectedDraftHash and overwriteDraftChanges through to the 
         subscriptionId: 'sub-1',
         caller: { via: 'session' },
         expectedDraftHash: 'abc123',
-        overwriteDraftChanges: true
+        overwriteDraftChanges: true,
+        strictDraftHash: false
     })
+    drafts.saveDraft.mockClear()
+    await controller.saveDraft(
+        request({
+            flowData: '{"nodes":[],"edges":[]}',
+            expectedDraftHash: 'abc123',
+            strictDraftHash: true
+        }),
+        response(),
+        jest.fn()
+    )
+    expect(drafts.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ id: FLOW.id }),
+        '{"nodes":[],"edges":[]}',
+        expect.objectContaining({ expectedDraftHash: 'abc123', strictDraftHash: true })
+    )
     drafts.saveDraft.mockClear()
     await controller.saveDraft(
         request({ flowData: '{"nodes":[],"edges":[]}', expectedDraftHash: null, overwriteDraftChanges: 'true' }),

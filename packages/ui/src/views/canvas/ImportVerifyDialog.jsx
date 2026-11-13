@@ -11,6 +11,7 @@ import {
     connectionNeedsChoice,
     deliverImportedDraft,
     draftStatusWhenImportUnknown,
+    importDraftSaveOptions,
     progressLine,
     shouldReplaceDraft,
     showResume,
@@ -28,7 +29,8 @@ const ImportVerifyDialog = ({
     onImported,
     onFlowCreated,
     onDraftStatus,
-    onDraftUnavailable
+    onDraftUnavailable,
+    expectedDraftHash
 }) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
@@ -88,12 +90,15 @@ const ImportVerifyDialog = ({
             // The file already written to the draft is enough to replace the canvas.
         }
         const delivered = deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
-        if (!delivered && fallback) {
+        if (!status || typeof status !== 'object') {
             if (onDraftUnavailable) onDraftUnavailable(draftStatusWhenImportUnknown(id))
             setError(
-                'The draft was saved, but its status could not be loaded. The canvas was not changed. Reload this flow before you save.'
+                fallback
+                    ? 'The draft was saved, but its status could not be loaded. The canvas was not changed. Reload this flow before you save.'
+                    : 'The draft status could not be loaded. The canvas was not changed. Reload this flow before you save.'
             )
         }
+        return delivered
     }
 
     const onFile = (event) => {
@@ -126,7 +131,10 @@ const ImportVerifyDialog = ({
     const ensureFlow = async (saveFile) => {
         const id = verificationFlowId(chatflow?.id, chatflowId)
         if (id) {
-            if (saveFile && flowText) await flowDraftsApi.saveDraft(id, flowText)
+            if (saveFile && flowText) {
+                const loaded = typeof expectedDraftHash === 'function' ? expectedDraftHash() : {}
+                await flowDraftsApi.saveDraft(id, flowText, importDraftSaveOptions(loaded))
+            }
             if (id !== chatflowId) setChatflowId(id)
             return id
         }
@@ -297,7 +305,8 @@ ImportVerifyDialog.propTypes = {
     onImported: PropTypes.func,
     onFlowCreated: PropTypes.func,
     onDraftStatus: PropTypes.func,
-    onDraftUnavailable: PropTypes.func
+    onDraftUnavailable: PropTypes.func,
+    expectedDraftHash: PropTypes.func
 }
 
 export default ImportVerifyDialog

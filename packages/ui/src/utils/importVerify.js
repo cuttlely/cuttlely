@@ -103,10 +103,42 @@ export function draftStatusWhenImportUnknown(flowId) {
     }
 }
 
+// A canvas save keeps nodes and edges only. Put the import hold back so a no-op Save cannot
+// drop it and let Publish skip an attention result.
+export function preserveImportHold(previousText, canvas) {
+    if (!canvas || typeof canvas !== 'object') return canvas
+    let previous = null
+    try {
+        previous = JSON.parse(previousText || '')
+    } catch {
+        previous = null
+    }
+    if (!previous || previous.importVerification !== IMPORT_HOLD) return canvas
+    return { ...canvas, importVerification: IMPORT_HOLD }
+}
+
+// The first save of an existing flow must name the draft this canvas loaded. strictDraftHash
+// also conflicts when the same person saved a newer copy this canvas has not loaded.
+export function importDraftSaveOptions(expected = {}) {
+    const hash = expected?.expectedDraftHash
+    const options = { strictDraftHash: true }
+    if (typeof hash === 'string' || hash === null) options.expectedDraftHash = hash
+    return options
+}
+
+export function importFlowType({ isEtlCanvas = false, isHarnessCanvas = false, isAgentflowV2 = false, isAgentCanvas = false } = {}) {
+    if (isEtlCanvas) return 'ETL'
+    if (isHarnessCanvas) return 'HARNESS'
+    if (isAgentflowV2) return 'AGENTFLOW'
+    if (isAgentCanvas) return 'MULTIAGENT'
+    return 'CHATFLOW'
+}
+
 export function canvasPathForImport(flowType, id, agentV2 = false) {
     if (!id) return ''
     if (flowType === 'HARNESS') return `/harnesscanvas/${id}`
     if (flowType === 'ETL') return `/etlcanvas/${id}`
+    if (flowType === 'MULTIAGENT') return `/agentcanvas/${id}`
     if (flowType === 'AGENTFLOW') return agentV2 ? `/v2/agentcanvas/${id}` : `/agentcanvas/${id}`
     return `/canvas/${id}`
 }

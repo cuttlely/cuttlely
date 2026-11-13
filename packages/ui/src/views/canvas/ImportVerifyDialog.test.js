@@ -97,14 +97,19 @@ describe('Import & verify canvas', () => {
             chatflow: { id: 'flow-1', name: 'Team' },
             onClose: () => {},
             onImported,
-            onDraftStatus
+            onDraftStatus,
+            expectedDraftHash: () => ({ expectedDraftHash: 'loaded-hash' })
         })
         await chooseFile()
         await act(async () => {
             click('Import & verify')
             await new Promise((resolve) => setTimeout(resolve, 20))
         })
-        expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith('flow-1', expect.stringContaining('"api"'))
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith(
+            'flow-1',
+            expect.stringContaining('"api"'),
+            expect.objectContaining({ strictDraftHash: true, expectedDraftHash: 'loaded-hash' })
+        )
         expect(onImported).toHaveBeenCalled()
         const shown = onImported.mock.calls.at(-1)[0]
         expect(JSON.parse(shown).nodes[0].id).toBe('api')
@@ -230,6 +235,40 @@ describe('Import & verify canvas', () => {
             expect.objectContaining({ status: { mode: 'unknown' }, load: expect.objectContaining({ known: false }) })
         )
         expect(document.body.textContent).toContain('status could not be loaded')
+        act(() => root.unmount())
+    })
+
+    test('Resume invalidates the old draft status when the final status read fails', async () => {
+        importVerifyApi.status.mockResolvedValue({
+            data: {
+                status: 'incomplete',
+                summary: 'Could not fully verify.',
+                connections: [],
+                queries: [{ state: 'pending' }],
+                blockers: [],
+                smoke: [],
+                running: false
+            }
+        })
+        flowDraftsApi.getStatus.mockRejectedValue(new Error('status down'))
+        importVerifyApi.start.mockResolvedValue({
+            data: { status: 'incomplete', summary: 'Could not fully verify.', connections: [], queries: [], blockers: [], smoke: [] }
+        })
+        const onDraftUnavailable = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            onDraftUnavailable
+        })
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        await act(async () => {
+            click('Resume')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(onDraftUnavailable).toHaveBeenCalledWith(expect.objectContaining({ status: { mode: 'unknown' } }))
+        expect(importVerifyApi.start).toHaveBeenCalledWith('flow-1', expect.objectContaining({ resume: true }))
         act(() => root.unmount())
     })
 })

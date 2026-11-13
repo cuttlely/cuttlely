@@ -27,6 +27,7 @@ import Settings from '@/views/settings'
 import { duplicateCanvasPath } from '@/utils/canvasKind'
 import FlowiseMigrationWizard from '@/ui-component/flow/FlowiseMigrationWizard'
 import ImportVerifyDialog from '@/views/canvas/ImportVerifyDialog'
+import { importFlowType } from '@/utils/importVerify'
 import SaveChatflowDialog from '@/ui-component/dialog/SaveChatflowDialog'
 import APICodeDialog from '@/views/chatflows/APICodeDialog'
 import ViewMessagesDialog from '@/ui-component/dialog/ViewMessagesDialog'
@@ -980,7 +981,14 @@ const CanvasHeader = ({
             <ImportVerifyDialog
                 open={importVerifyOpen}
                 chatflow={chatflow}
-                flowType={isEtlCanvas ? 'ETL' : isHarnessCanvas ? 'HARNESS' : isAgentCanvas ? 'AGENTFLOW' : 'CHATFLOW'}
+                flowType={importFlowType({ isEtlCanvas, isHarnessCanvas, isAgentflowV2, isAgentCanvas })}
+                expectedDraftHash={() => {
+                    const recorded = typeof draftExpected === 'function' ? draftExpected() : {}
+                    if (recorded && Object.prototype.hasOwnProperty.call(recorded, 'expectedDraftHash')) return recorded
+                    if (draftStatus?.draft?.hash) return { expectedDraftHash: draftStatus.draft.hash }
+                    if (draftStatus?.mode && !draftStatus.draft) return { expectedDraftHash: null }
+                    return {}
+                }}
                 onClose={() => setImportVerifyOpen(false)}
                 onImported={(flowText) => onApplyCanvas(flowText)}
                 onDraftStatus={onDraftStatus}

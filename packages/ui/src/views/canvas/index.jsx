@@ -111,7 +111,7 @@ import {
 } from '@/utils/buildWithAI'
 
 // const
-import { adoptImportedIdentity, draftStatusWhenImportUnknown } from '@/utils/importVerify'
+import { adoptImportedIdentity, draftStatusWhenImportUnknown, preserveImportHold } from '@/utils/importVerify'
 import { uiBaseURL } from '@/store/constant'
 import { requestFailureMessage, saveFailureMessage } from '@/utils/errorSummary'
 
@@ -676,7 +676,7 @@ const Canvas = () => {
         const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
-            const rfInstanceObject = canvasSaveDocument(reactFlowInstance)
+            const rfInstanceObject = preserveImportHold(draftStatusRef.current?.draft?.flowData, canvasSaveDocument(reactFlowInstance))
             const flowData = JSON.stringify(rfInstanceObject)
             const starterQuestions = builderStartersRef.current
 
@@ -1629,13 +1629,7 @@ const Canvas = () => {
                                 onFlowCreated={(created) => {
                                     adoptImportedIdentity({
                                         created,
-                                        flowType: isEtlCanvas
-                                            ? 'ETL'
-                                            : isHarnessCanvas
-                                            ? 'HARNESS'
-                                            : isAgentCanvas
-                                            ? 'AGENTFLOW'
-                                            : 'CHATFLOW',
+                                        flowType: newCanvasType({ isEtlCanvas, isHarnessCanvas, isAgentCanvas }),
                                         remember: (id) => {
                                             createdFlowIdRef.current = id
                                         },

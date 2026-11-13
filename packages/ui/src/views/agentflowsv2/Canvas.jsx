@@ -83,7 +83,7 @@ import { anyNeedsSync, needsSync } from '@/utils/edgeRefs'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { canvasFlowText, canvasTextToApply, draftStatusOpenDecision, planCanvasSave } from '@/utils/flowDrafts'
-import { adoptImportedIdentity, draftStatusWhenImportUnknown } from '@/utils/importVerify'
+import { adoptImportedIdentity, draftStatusWhenImportUnknown, preserveImportHold } from '@/utils/importVerify'
 import { canvasSaveDocument, liveSavePreflightForRoute } from '@/utils/canvasSave'
 import {
     canvasIsEmpty,
@@ -526,7 +526,10 @@ const AgentflowCanvas = () => {
         const saveRev = canvas.editRev
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
-            const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
+            const rfInstanceObject = preserveImportHold(
+                draftStatusRef.current?.draft?.flowData,
+                canvasSaveDocument(reactFlowInstance, { workflow: true })
+            )
             const flowData = JSON.stringify(rfInstanceObject)
             const starterQuestions = builderStartersRef.current
 

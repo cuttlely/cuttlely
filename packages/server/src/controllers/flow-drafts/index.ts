@@ -76,7 +76,8 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
             subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
             caller: await harnessCallerFor(req),
             expectedDraftHash: req.body?.expectedDraftHash,
-            overwriteDraftChanges: req.body?.overwriteDraftChanges
+            overwriteDraftChanges: req.body?.overwriteDraftChanges,
+            strictDraftHash: req.body?.strictDraftHash === true
         })
         return res.json(await shownStatus(req, status))
     } catch (error) {

@@ -9,6 +9,9 @@ import {
     statusTitle,
     IMPORT_HOLD,
     draftStatusWhenImportUnknown,
+    importDraftSaveOptions,
+    importFlowType,
+    preserveImportHold,
     untrustFlow,
     verificationFlowId
 } from './importVerify'
@@ -110,6 +113,13 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
     expect(unknown.status.mode).toBe('unknown')
     expect(unknown.load.known).toBe(false)
     expect(planCanvasSave({ mode: unknown.status.mode, name: 'A', savedName: 'A', flowData: '{}', hasId: true }).modeUnknown).toBe(true)
+    const heldText = JSON.stringify({ nodes: [{ id: 'a' }], edges: [], importVerification: IMPORT_HOLD })
+    expect(preserveImportHold(heldText, { nodes: [{ id: 'a' }], edges: [] }).importVerification).toBe(IMPORT_HOLD)
+    expect(preserveImportHold(JSON.stringify({ nodes: [], edges: [] }), { nodes: [], edges: [] }).importVerification).toBeUndefined()
+    expect(importDraftSaveOptions({ expectedDraftHash: 'loaded' })).toEqual({ strictDraftHash: true, expectedDraftHash: 'loaded' })
+    expect(importFlowType({ isAgentCanvas: true })).toBe('MULTIAGENT')
+    expect(importFlowType({ isAgentflowV2: true, isAgentCanvas: true })).toBe('AGENTFLOW')
+    expect(canvasPathForImport('MULTIAGENT', 'flow-1')).toBe('/agentcanvas/flow-1')
 })
 
 test('the three finished results use plain titles', () => {
