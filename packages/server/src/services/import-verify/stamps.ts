@@ -125,7 +125,7 @@ export function untrustImportedFlow(flow: { nodes?: unknown }, keep: Set<string>
 export function queriesOnFlow(flow: {
     nodes?: unknown
 }): Array<{ nodeId: string; nodeLabel: string; pin: SavedQuery; indexOnNode: number }> {
-    const found = []
+    const found: Array<{ nodeId: string; nodeLabel: string; pin: SavedQuery; indexOnNode: number }> = []
     for (const { node, inputs } of walkNodes(flow)) {
         const data = node.data as { id?: string; label?: string; name?: string }
         const nodeId = String(node.id || data?.id || '')

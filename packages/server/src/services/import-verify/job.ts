@@ -47,7 +47,7 @@ export type QueryState = 'pending' | 'running' | 'passed' | 'empty' | 'failed'
 export interface QueryProgress {
     nodeId: string
     pinId: string
-    indexOnNode: number
+    indexOnNode?: number
     name: string
     title: string
     state: QueryState
@@ -580,7 +580,11 @@ async function verifyBody(options: {
                 if (deps.signal?.aborted) return
                 query.state = 'running'
                 const node = nodeById(flow, query.nodeId)
-                const pin = queriesOnFlow(flow).find((item) => item.nodeId === query.nodeId && item.indexOnNode === query.indexOnNode)?.pin
+                const pin = queriesOnFlow(flow).find((item) =>
+                    typeof query.indexOnNode === 'number'
+                        ? item.nodeId === query.nodeId && item.indexOnNode === query.indexOnNode
+                        : item.nodeId === query.nodeId && String(item.pin.id || '') === query.pinId
+                )?.pin
                 if (!pin || !node) {
                     query.state = 'failed'
                     query.message = 'The saved query is no longer on this draft.'
