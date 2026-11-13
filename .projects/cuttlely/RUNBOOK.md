@@ -192,7 +192,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 
 ## Gotchas
 
--   **Try the demo stages specialist files after the harness save.** A workspace already at that name still blocks the save unless every blocker is a folder that holds only that specialist's bundled file names, with or without this demo's stage marker. `scripts/demo-save.test.mjs` in the verify-test step covers a fresh install, a retry of marked folders, a retry of unmarked 1.7.3 folders, a non-demo file at a demo name, and a saved team whose files are missing.
+-   **Try the demo stages specialist files after the harness save.** A workspace already at that name still blocks the save unless every blocker is a folder that holds only that specialist's bundled file names, with each unmarked non-sqlite file matching the bundled bytes, with or without this demo's stage marker. `scripts/demo-save.test.mjs` in the verify-test step covers a fresh install, a retry of marked folders, a retry of unmarked 1.7.3 folders, a non-demo file at a demo name, and a saved team whose files are missing.
 -   **A failed chat is not proof its runtime worker stopped.** Cleanup targets the admitted run id and waits at most two seconds for a terminal runtime status. `Runtime stop was not confirmed` means the worker may still be active; inspect runtime health and worker state rather than deleting history or raising the concurrency cap. The client does not forcibly kill a worker that ignores interruption.
 
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.

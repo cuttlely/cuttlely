@@ -278,4 +278,21 @@ describe('Try the demo save', () => {
         assert.ok(fs.existsSync(path.join(specialistDir('operations'), 'fulfillment.sqlite')))
         assert.ok(fs.existsSync(path.join(specialistDir('policy'), 'service-policy.md')))
     })
+
+    it('keeps an unmarked folder whose support_desk.py was edited', async () => {
+        ran += 1
+        for (const name of ['customer', 'operations', 'policy']) fs.rmSync(specialistDir(name), { recursive: true, force: true })
+        const py = path.join(specialistDir('customer'), 'support_desk.py')
+        fs.mkdirSync(specialistDir('customer'), { recursive: true })
+        fs.writeFileSync(py, 'edited specialist file')
+        const savesBefore = saveCount
+        await assert.rejects(demo.create('cred-1', caller, 'customer-care'), (error) => {
+            assert.equal(error.statusCode, 503)
+            assert.match(error.message, /could not be removed/)
+            return true
+        })
+        assert.equal(saveCount, savesBefore)
+        assert.deepEqual(fs.readdirSync(specialistDir('customer')), ['support_desk.py'])
+        assert.equal(fs.readFileSync(py, 'utf8'), 'edited specialist file')
+    })
 })

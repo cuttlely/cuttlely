@@ -92,7 +92,7 @@ function isTempSqlite(name: string, files: string[]): boolean {
 // A plain directory this demo may remove. Its entries are only that specialist's bundled file names.
 // A marker from this demo may sit with them, and so may the temporary sqlite file written before rename.
 // A link, a profile, or any other file stays. An unmarked folder is the leftover 1.7.3 wrote before the save.
-function workspaceIsThisDemo(folder: string, harness: string, profileName: string, files: string[]): boolean {
+function workspaceIsThisDemo(folder: string, harness: string, profileName: string, files: string[], source: string): boolean {
     let stat: fs.Stats
     try {
         stat = fs.lstatSync(folder)
@@ -110,6 +110,7 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
     let marked = false
     let staged = 0
     let temp = 0
+    const copied: string[] = []
     for (const entry of entries) {
         if (entry.isSymbolicLink() || !entry.isFile()) return false
         if (entry.name === DEMO_STAGE_MARKER) {
@@ -125,6 +126,7 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
         }
         if (expected.has(entry.name)) {
             staged += 1
+            if (!entry.name.endsWith('.sqlite')) copied.push(entry.name)
             continue
         }
         if (isTempSqlite(entry.name, files)) {
@@ -134,7 +136,16 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
         return false
     }
     // 1.7.3 did not write a marker or leave the temporary sqlite name behind after a finished stage.
+    // An unmarked non-sqlite file must be the bundled bytes, so an edited copy is not deleted.
     if (!marked && temp > 0) return false
+    if (
+        !marked &&
+        copied.some((name) => {
+            const bundled = files.find((file) => stagedFileName(file) === name)
+            return !bundled || !fs.readFileSync(path.join(folder, name)).equals(fs.readFileSync(path.join(source, bundled)))
+        })
+    )
+        return false
     return staged > 0
 }
 
@@ -211,19 +222,20 @@ async function releaseIdentifiedDemoWorkspaces(demo: DemoDefinition): Promise<vo
         expected.push(profileName)
         byProfile.set(profileName, { folder: profile.specialistWorkspace(profileName), files })
     }
+    const source = demoDataDir(demo.dataDir)
     const blockers = cleanup.nameReuseBlockers(demo.harness, { expected }) as string[]
     if (!blockers.length) return
     const folders: Array<{ folder: string; files: string[]; profileName: string }> = []
     for (const blocker of blockers) {
         const match = /^workspaces\/([A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(blocker)
         const staged = match ? byProfile.get(match[1]) : undefined
-        if (!match || !staged || !workspaceIsThisDemo(staged.folder, demo.harness, match[1], staged.files)) return
+        if (!match || !staged || !workspaceIsThisDemo(staged.folder, demo.harness, match[1], staged.files, source)) return
         folders.push({ ...staged, profileName: match[1] })
     }
     const again = (cleanup.nameReuseBlockers(demo.harness, { expected }) as string[]).slice().sort().join('\n')
     if (again !== blockers.slice().sort().join('\n')) return
     for (const item of folders) {
-        if (!workspaceIsThisDemo(item.folder, demo.harness, item.profileName, item.files)) return
+        if (!workspaceIsThisDemo(item.folder, demo.harness, item.profileName, item.files, source)) return
     }
     for (const item of folders) fs.rmSync(item.folder, { recursive: true, force: true })
 }
