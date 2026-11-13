@@ -130,6 +130,84 @@ describe('raw canvas nodes', () => {
         expect(again.edges.find((edge) => edge.source === 'analyst_0').targetHandle).toBe('chief_0-input-specialists-HarnessSpecialist')
     })
 
+    describe('edges whose saved handle the node no longer has', () => {
+        const nodeSpecs = [
+            { name: 'chatOpenAI', type: 'ChatOpenAI', baseClasses: ['ChatOpenAI', 'BaseChatModel'], inputs: [] },
+            { name: 'bufferMemory', type: 'BufferMemory', baseClasses: ['BufferMemory', 'BaseMemory'], inputs: [] },
+            {
+                name: 'conversationChain',
+                type: 'ConversationChain',
+                baseClasses: ['ConversationChain'],
+                inputs: [
+                    { name: 'model', type: 'BaseChatModel' },
+                    { name: 'memory', type: 'BaseMemory' }
+                ]
+            }
+        ]
+        const nodes = () => [
+            { id: 'chatOpenAI_0', data: { id: 'chatOpenAI_0', name: 'chatOpenAI', type: 'ChatOpenAI' } },
+            { id: 'bufferMemory_0', data: { id: 'bufferMemory_0', name: 'bufferMemory', type: 'BufferMemory' } },
+            { id: 'conversationChain_0', data: { id: 'conversationChain_0', name: 'conversationChain', type: 'ConversationChain' } }
+        ]
+        const liveOutput = 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel'
+        const edge = (id, source, target, sourceHandle, targetHandle) => ({ id, source, target, sourceHandle, targetHandle })
+        const repaired = (edges) => normalizeCanvasFlow({ nodes: nodes(), edges }, nodeSpecs).edges[0]
+
+        it.each(['e-model', 'e-5'])('keeps a removed source output as written (edge id %s)', (id) => {
+            const result = repaired([
+                edge(
+                    id,
+                    'chatOpenAI_0',
+                    'conversationChain_0',
+                    'chatOpenAI_0-output-legacyLLM-ChatOpenAI',
+                    'conversationChain_0-input-model-BaseChatModel'
+                )
+            ])
+            expect(result.sourceHandle).toBe('chatOpenAI_0-output-legacyLLM-ChatOpenAI')
+        })
+
+        it('keeps an unknown input as written when the edge id ends in a real input name', () => {
+            const result = repaired([
+                edge(
+                    'e-memory',
+                    'bufferMemory_0',
+                    'conversationChain_0',
+                    'bufferMemory_0-output-bufferMemory-BufferMemory|BaseMemory',
+                    'conversationChain_0-input-history-BaseMemory'
+                )
+            ])
+            expect(result.targetHandle).toBe('conversationChain_0-input-history-BaseMemory')
+        })
+
+        it('still points a handle at the live one when only the trailing type changed', () => {
+            const result = repaired([
+                edge(
+                    'e-model',
+                    'chatOpenAI_0',
+                    'conversationChain_0',
+                    'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseLanguageModel',
+                    'conversationChain_0-input-model-BaseLanguageModel'
+                )
+            ])
+            expect(result.sourceHandle).toBe(liveOutput)
+            expect(result.targetHandle).toBe('conversationChain_0-input-model-BaseChatModel')
+        })
+
+        it('still fills a missing source handle and a handle saved without its type', () => {
+            const result = repaired([edge('e-model', 'chatOpenAI_0', 'conversationChain_0', undefined, 'conversationChain_0-input-model')])
+            expect(result.sourceHandle).toBe(liveOutput)
+            expect(result.targetHandle).toBe('conversationChain_0-input-model-BaseChatModel')
+        })
+
+        it('leaves an exact live handle alone', () => {
+            const result = repaired([
+                edge('e-model', 'chatOpenAI_0', 'conversationChain_0', liveOutput, 'conversationChain_0-input-model-BaseChatModel')
+            ])
+            expect(result.sourceHandle).toBe(liveOutput)
+            expect(result.targetHandle).toBe('conversationChain_0-input-model-BaseChatModel')
+        })
+    })
+
     it('leaves a node that already has arrays alone', () => {
         const data = { inputParams: [{ name: 'keep' }], inputAnchors: [], outputAnchors: [], inputs: { a: 1 } }
         expect(normalizeNodeData(data, postgresSpec)).toBe(data)
