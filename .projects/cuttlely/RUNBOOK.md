@@ -313,6 +313,8 @@ Only actual verified host CLI bindings grandfather as the default operator. Lega
 
 Emergency root-shell invocation when the data belongs to node: `setpriv --reuid=node --regid=node --init-groups -- pnpm user --email you@example.com --bind-operator`. For Docker, use `docker compose exec -u node cuttlely pnpm user --email you@example.com --bind-operator`. Retain UID/0600 checks. If nobody can sign in, recover an explicitly selected account; do not infer authority from a password or owner role. [Full onboarding and recovery](../../docs/how-to/instance-operator.md).
 
+Refused host-log code requests: a request fails with 429 `OPERATOR_PROOF_ACTIVE` when the caller already holds an unexpired code (the message says to use it in the session that requested it, or wait about N minutes), and with 429 `OPERATOR_RATE_LIMIT` for every other refusal (the shared 4-per-hour limit, the per-user 2-per-hour limit and the 16-user cap), with one neutral message that names no other user. The wrong-code attempt limit keeps its own message. Known limitation: the proof state does not record who made the last request, so a plain 5-minute wait with no live code (for example right after the caller redeemed their code) gets the neutral `OPERATOR_RATE_LIMIT` message, not a message about the wait. A last-requester field in the proof state would fix that and is a possible follow-up. Check with `node --test scripts/panel-claim.test.cjs` and `pnpm --filter @cuttlely/ui test -- OperatorPanel`.
+
 Boot verification fixtures allocate both their HTTP and harness gateway ports independently. If smoke gets PROFILES_COMPILING after ping opens, inspect the isolated boot failure before retrying: a gateway bind failure can outlast the health cap. The fixture regression uses its own occupied listener; do not stop another service to make a test pass.
 
 ## Ordinary sign-in save safety
@@ -343,7 +345,7 @@ Keep normal commit hooks enabled. After the final handoff commit, run the Infra 
 
 ## Proxy-safe HTTP timeouts
 
-This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
+Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
 
 ## Canvas error page after no response
 
@@ -365,7 +367,7 @@ Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/4
 
 ## Local 1.7.4 release preparation
 
-This branch is `release/1.7.4-prep`, folded with `origin/main` at `c2e63f61` (#484), after #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. Keep the exact `## [1.7.4] - Unreleased` heading for the release tool. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
+The preparation branch `release/1.7.4-prep` landed on main as `774eed4e` (#487), after #484 at `c2e63f61`, #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. The release was cut as `986f64c5` (#489) with the `v1.7.4` tag and a GitHub release, and `CHANGELOG.md` dates it `## [1.7.4] - 2026-11-13`; new lines go under `## [Unreleased]`. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of an ordinary change. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 and 1.7.4 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
 
 ## Historical local 1.7.3 release preparation
 

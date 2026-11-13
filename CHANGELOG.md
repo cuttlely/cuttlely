@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   In **Server settings** > **Instance operator**, asking for a second host-log code while your own code is still active now says so: "You already have an active code. Use it in the session that requested it, or wait for it to expire (about N min) before requesting another." (`OPERATOR_PROOF_ACTIVE`). Every other refused request (the five-minute wait, an hourly limit, the per-user limit, or a code held by someone else) now says "A new code can't be requested right now. Try again in a few minutes." and reveals nothing about other users. A refused request mints and logs no code, and wrong-code attempts keep their limit message. A five-minute wait with no live code (for example right after you redeemed yours) still gets the neutral `OPERATOR_RATE_LIMIT` message, because the proof state does not record who made the last request. The panel now shows any failed request or confirmation in an error alert instead of the green success alert. [Designate the instance operator](./docs/how-to/instance-operator.md).
+
 ## [1.7.4] - 2026-11-13
 
 ### Added

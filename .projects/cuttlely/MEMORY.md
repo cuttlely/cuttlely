@@ -271,3 +271,4 @@ Release-tool dating changes a changelog heading's fragment. User-facing release 
 
 -   A TypeORM entity can declare varchar while the shipped Postgres migration retains UUID. Test cross-table comparisons against actual migrated Postgres, not only SQLite or entity synchronization. Cast only the mismatched query value when no schema change is needed, and exercise cleanup rollback through the real route.
 -   A selector initialized from props can keep Public after the server reports Private. Use a controlled value for saved access and assert the actual browser control after reload; a mocked controlled dropdown can hide the shared widget's stale internal state.
+-   A MUI `Alert` with no `severity` is a green success alert. A panel that shows a failed request must set `severity='error'` itself, or a refusal reads as if it worked. A refusal for a limit shared by many users should say nothing about the others and should not blame the caller for it.
