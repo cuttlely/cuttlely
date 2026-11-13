@@ -1,3 +1,7 @@
+## Follow-up prompt temperatures
+
+On `bugfix/followup-prompts-temperature`, follow-up model calls omit temperature when the saved value is blank or does not parse to a finite number. OpenAI and Azure OpenAI calls also omit it for the reasoning-model names matched by the chat nodes' shared `isReasoningModelOpenAI` rule. Normal models and other providers keep finite values. Focused constructor tests cover every follow-up provider without network calls.
+
 ## 1.7.4 release preparation
 
 This branch is `release/1.7.4-prep`, folded with a normal merge of `origin/main` at `c2e63f61` ([#484](https://github.com/cuttlely/cuttlely/pull/484)). It prepares the unpublished 1.7.4 patch. The four product manifests and current install pins are 1.7.4. `CHANGELOG.md` uses the planned heading `## [1.7.4] - Unreleased` so the release tool can date it at cut time. The date stays `Unreleased` until the cut.

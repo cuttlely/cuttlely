@@ -1,5 +1,6 @@
 import { FollowUpPromptConfig, FollowUpPromptProvider, ICommonObject } from './Interface'
-import { getCredentialData } from './utils'
+import { getCredentialData, isReasoningModelOpenAI } from './utils'
+import { parseOptionalNumber } from './numberInput'
 import { ChatOpenAI, AzureChatOpenAI } from '@langchain/openai'
 import { z } from 'zod/v3'
 import { PromptTemplate } from '@langchain/core/prompts'
@@ -34,13 +35,15 @@ export const generateFollowUpPrompts = async (
         const credentialId = providerConfig.credentialId as string
         const credentialData = await getCredentialData(credentialId ?? '', options)
         const followUpPromptsPrompt = providerConfig.prompt.replace('{history}', apiMessageContent)
+        const temperature = parseOptionalNumber(providerConfig.temperature)
+        const openAITemperature = isReasoningModelOpenAI(providerConfig.modelName) ? undefined : temperature
 
         switch (followUpPromptsConfig.selectedProvider) {
             case FollowUpPromptProvider.ANTHROPIC: {
                 const llm = new (anthropic().ChatAnthropic)({
                     apiKey: credentialData.anthropicApiKey,
                     model: providerConfig.modelName,
-                    temperature: parseFloat(`${providerConfig.temperature}`)
+                    ...(temperature !== undefined ? { temperature } : {})
                 })
                 // @ts-ignore
                 const structuredLLM = llm.withStructuredOutput(FollowUpPromptType, {
@@ -61,7 +64,7 @@ export const generateFollowUpPrompts = async (
                     azureOpenAIApiDeploymentName,
                     azureOpenAIApiVersion,
                     model: providerConfig.modelName,
-                    temperature: parseFloat(`${providerConfig.temperature}`)
+                    ...(openAITemperature !== undefined ? { temperature: openAITemperature } : {})
                 })
                 // use structured output parser because withStructuredOutput is not working
                 const parser = StructuredOutputParser.fromZodSchema(FollowUpPromptType as any)
@@ -82,7 +85,7 @@ export const generateFollowUpPrompts = async (
                 const model = new (googleGenai().ChatGoogleGenerativeAI)({
                     apiKey: credentialData.googleGenerativeAPIKey,
                     model: providerConfig.modelName,
-                    temperature: parseFloat(`${providerConfig.temperature}`)
+                    ...(temperature !== undefined ? { temperature } : {})
                 })
                 const structuredLLM = model.withStructuredOutput(FollowUpPromptType, {
                     method: 'functionCalling'
@@ -94,7 +97,7 @@ export const generateFollowUpPrompts = async (
                 const model = new (mistral().ChatMistralAI)({
                     apiKey: credentialData.mistralAIAPIKey,
                     model: providerConfig.modelName,
-                    temperature: parseFloat(`${providerConfig.temperature}`)
+                    ...(temperature !== undefined ? { temperature } : {})
                 })
                 // @ts-ignore
                 const structuredLLM = model.withStructuredOutput(FollowUpPromptType, {
@@ -107,7 +110,7 @@ export const generateFollowUpPrompts = async (
                 const model = new ChatOpenAI({
                     apiKey: credentialData.openAIApiKey,
                     model: providerConfig.modelName,
-                    temperature: parseFloat(`${providerConfig.temperature}`),
+                    ...(openAITemperature !== undefined ? { temperature: openAITemperature } : {}),
                     useResponsesApi: true
                 })
                 // @ts-ignore
@@ -121,7 +124,7 @@ export const generateFollowUpPrompts = async (
                 const llm = new (groq().ChatGroq)({
                     apiKey: credentialData.groqApiKey,
                     model: providerConfig.modelName,
-                    temperature: parseFloat(`${providerConfig.temperature}`)
+                    ...(temperature !== undefined ? { temperature } : {})
                 })
                 const structuredLLM = llm.withStructuredOutput(FollowUpPromptType, {
                     method: 'functionCalling'
@@ -159,7 +162,7 @@ export const generateFollowUpPrompts = async (
                         additionalProperties: false
                     },
                     options: {
-                        temperature: parseFloat(`${providerConfig.temperature}`)
+                        ...(temperature !== undefined ? { temperature } : {})
                     }
                 })
                 const result = FollowUpPromptType.parse(JSON.parse(response.message.content))
