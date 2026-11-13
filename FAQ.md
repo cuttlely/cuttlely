@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.3)
+# Cuttlely FAQ (1.7.4)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,17 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.3?
+### What's new in 1.7.4?
+
+-   An analyst specialist stays ready after another specialist lists tools. A later empty or failed list does not clear a recorded query or pinned query.
+-   Unset Analyst storage is Auto on a fresh start and on an upgrade that never set it. An explicit Off stays off.
+-   Importing a harness attaches a credential that already exists on this server with the same name and type, including a nested credential id next to an empty credential slot. If none matches, or more than one matches, the import stops and does not create or choose a credential.
+-   **Import & verify** retests every saved query on this server before Publish. A test stamp in the file is not trusted. The result is **Ready to publish**, **Needs attention**, or **Could not fully verify**. Live stays as it is.
+-   Try the demo on a fresh install saves the staged team. The specialist folders prepared for that demo are part of the demo, not leftovers.
+
+Use matching 1.7.4 server and widget packages. The [changelog](./CHANGELOG.md) lists the patch fixes; the [1.7.0 upgrade requirements](./docs/upgrading.md#170-security-exception-upgrade) still apply.
+
+### What changed in 1.7.3?
 
 -   A request that gets no answer no longer replaces the page with **Something went wrong**. The page stays put and says the server could not be reached. After quiet retries for a read or a failed page load, check your connection and reload. If a save or settings update was unanswered, keep the edits on the canvas and use Save or Retry when the connection is back; don't reload, or you may lose unsaved work. See [What does "The server could not be reached" mean?](./docs/faq.md#what-does-the-server-could-not-be-reached-mean).
 -   Importing a chatflow keeps a connection that still points at the same input when only the handle type name changed. A connection is still dropped when either end is gone.
