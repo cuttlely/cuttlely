@@ -124,6 +124,13 @@ export interface VerifyDeps {
     signal?: AbortSignal
 }
 
+function queryForTest(pin: SavedQuery): SavedQuery {
+    const entry = { ...pin }
+    delete entry.importedVerification
+    delete entry.verifiedHere
+    return entry
+}
+
 function paramsOf(pin: SavedQuery): ParamSpec[] {
     if (!Array.isArray(pin.params)) return []
     return pin.params.filter((item) => item && typeof item === 'object') as ParamSpec[]
@@ -705,7 +712,7 @@ async function verifyBody(options: {
                     attempts += 1
                     try {
                         result = await withTimeout(
-                            deps.testPin({ nodeId: query.nodeId, entry: pin, sampleValues: sample, credentialId }),
+                            deps.testPin({ nodeId: query.nodeId, entry: queryForTest(pin), sampleValues: sample, credentialId }),
                             timeoutMs,
                             deps.signal
                         )

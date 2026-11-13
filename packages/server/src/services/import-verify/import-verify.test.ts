@@ -1,3 +1,6 @@
+import { execFileSync } from 'child_process'
+import path from 'path'
+import { pathToFileURL } from 'url'
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
 import { planDiscovery, valuesFromDiscovery } from './discover'
 import { inspectFlow } from './inspect'
@@ -11,7 +14,9 @@ import {
     recoverOrphanedRun
 } from './job'
 import type { VerifyDeps, VerifyRecord } from './job'
+import { setPinnedQueryDeps, testPinnedQuery } from '../pinned-queries'
 import { parseFlow, queryReady, untrustImportedFlow } from './stamps'
+import type { SavedQuery } from './stamps'
 
 const ACCOUNT_SQL = `SELECT o.name
 FROM account a
@@ -113,7 +118,123 @@ function memoryDeps(overrides: Partial<VerifyDeps> = {}): {
     return { deps, live, drafts, records }
 }
 
+function compilePinned(
+    entry: unknown,
+    args?: unknown
+): { runText: string; checkText: string; binds: unknown[] | null; order: string[]; statementHash: string } {
+    const moduleUrl = pathToFileURL(path.resolve(__dirname, '../../../../harness/runtime/pinned-query.mjs')).href
+    const program = `import { compilePinned } from ${JSON.stringify(moduleUrl)}
+const input = JSON.parse(process.argv[1])
+process.stdout.write(JSON.stringify(compilePinned(input.entry, input.args)))`
+    return JSON.parse(
+        execFileSync(process.execPath, ['--input-type=module', '-e', program, JSON.stringify({ entry, args })], { encoding: 'utf8' })
+    ) as { runText: string; checkText: string; binds: unknown[] | null; order: string[]; statementHash: string }
+}
+
+async function verifyExportedContract(importedSql?: string): Promise<VerifyRecord> {
+    const { generateExportFlowData } = require('../../../../ui/src/utils/genericHelper.js') as {
+        generateExportFlowData: (
+            flow: unknown,
+            knownNodeNames: string[],
+            credentials: Array<{ id: string; name: string; credentialName: string }>
+        ) => Record<string, unknown>
+    }
+    const sourcePin = pin({
+        sql: 'SELECT :region AS region LIMIT 10',
+        params: [{ name: 'region', type: 'text', default: 'north' }]
+    })
+    const contractHash = compilePinned(sourcePin).statementHash
+    const base = flow([sourcePin])
+    const source = {
+        ...base,
+        nodes: [
+            ...base.nodes,
+            {
+                id: 'specialist',
+                data: {
+                    id: 'specialist',
+                    name: 'harnessSpecialist',
+                    label: 'Reporting specialist',
+                    inputs: {
+                        trustedOutputs: JSON.stringify([{ pin: sourcePin.name, hash: contractHash, mode: 'markdown', fields: [] }])
+                    }
+                }
+            }
+        ],
+        edges: [...base.edges, { source: 'pg', target: 'specialist' }]
+    }
+    const exported = generateExportFlowData(
+        structuredClone(source),
+        ['postgreSQLMCP', 'chatOpenAI', 'harnessSpecialist'],
+        [{ id: 'cred-openai', name: 'OpenAI main', credentialName: 'openAIApi' }]
+    ) as { nodes: Array<{ id?: string; data?: { inputs?: Record<string, unknown> } }>; edges: unknown[] }
+    if (importedSql) {
+        const postgres = exported.nodes.find((node) => node.id === 'pg')
+        const pins = JSON.parse(String(postgres?.data?.inputs?.pinnedQueries || '[]')) as Array<Record<string, unknown>>
+        pins[0].sql = importedSql
+        if (postgres?.data?.inputs) postgres.data.inputs.pinnedQueries = JSON.stringify(pins)
+    }
+    const { deps } = memoryDeps({
+        loadedNodeNames: ['postgreSQLMCP', 'chatOpenAI', 'harnessSpecialist'],
+        testPin: async ({ nodeId, entry, sampleValues, credentialId }) => {
+            const result = await testPinnedQuery({
+                body: { nodeId, entry, sampleValues, canvas: { credential: credentialId, inputs: {} } },
+                params: { chatflowId: 'imported-harness' },
+                user: { id: 'builder', activeWorkspaceId: 'workspace', activeOrganizationId: 'organization' }
+            } as never)
+            return {
+                ok: true,
+                rowCount: Number(result.rowCount || 0),
+                statementHash: String(result.statementHash || ''),
+                entry: result.entry as SavedQuery
+            }
+        }
+    })
+    setPinnedQueryDeps({
+        pinnedQueriesEnabled: () => true,
+        hasAnyPermission: async () => true,
+        getChatflowByIdForWorkspace: async () => ({ id: 'imported-harness', type: 'HARNESS' }),
+        flowDataForTestChat: async () => JSON.stringify(exported),
+        loadCredentialUrl: async () => '',
+        resolveAnalystConnection: () => ({ kind: 'url', postgresUrl: 'postgresql://example.invalid/test' }),
+        analystCallLimits: () => ({ rowCap: 100, timeoutMs: 15000 }),
+        compilePinned,
+        validateArgs: () => [],
+        stampPayload: (fields) => JSON.stringify(fields),
+        computeStamp: () => 'ff'.repeat(32),
+        pinnedToolDefinition: () => ({ name: sourcePin.name, description: sourcePin.purpose, inputSchema: {} }),
+        queryAnalystUrl: async () => ({ rows: [{ region: 'north' }], total: 1 }),
+        getPinnedQueryKey: async () => Buffer.alloc(32, 1),
+        recordTest: async () => undefined
+    })
+    try {
+        return await executeVerify({ flowText: JSON.stringify(exported), record: null, deps })
+    } finally {
+        setPinnedQueryDeps(null)
+    }
+}
+
 describe('imported verification', () => {
+    test('an unchanged exported harness with output contracts verifies after import', async () => {
+        const record = await verifyExportedContract()
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('an exported output contract still blocks after its query SQL changes', async () => {
+        const record = await verifyExportedContract('SELECT upper(:region) AS region LIMIT 10')
+        expect(record.status).toBe('attention')
+        expect(record.blockers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'contract:specialist:pq_account_opportunity:hash',
+                    message:
+                        'The output contract for pq_account_opportunity does not match the query that was just tested. Review the contract before publishing.'
+                })
+            ])
+        )
+    })
+
     test('a stamp from another server is not ready, and the query text stays', () => {
         const original = flow()
         expect(queryReady(pin())).toBe(true)
@@ -625,6 +746,7 @@ describe('imported verification', () => {
             statementHashes: { [`pg\0pin-1`]: 'cd'.repeat(32) }
         })
         expect(missingHash.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:hash')).toBe(true)
+        expect(missingHash.blockers.some((item) => item.message.includes('has no tested statement hash'))).toBe(true)
         expect(missingHash.smoke.some((item) => item.id === 'report')).toBe(false)
         const second = {
             id: 'pg-2',
