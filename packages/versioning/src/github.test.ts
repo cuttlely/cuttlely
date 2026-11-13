@@ -507,6 +507,30 @@ describe('copying history to a repository', () => {
         expectFastForwardOnly()
     })
 
+    test('reconnecting after a direct copy and a later GitHub commit resumes from this server copy', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await save('Two')
+        await settle()
+        const copied = bareMain(bare)!
+        foreignCommit(bare, path.join(tmp, 'direct-reconnect'))
+        const added = bareMain(bare)!
+        expect(bareRef(bare, `${added}^`)).toBe(copied)
+
+        await sync.disconnect()
+        const reconnected = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(reconnected.state).toBe('up-to-date')
+        expect(bareMain(bare)).toBe(added)
+
+        await save('Three')
+        await settle()
+        const tip = bareMain(bare)!
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(bareRef(bare, `${tip}^`)).toBe(added)
+        expect(bareGrep(bare, tip, 'Three')).toContain('flows/')
+        expectFastForwardOnly()
+    })
+
     test('history replaced on GitHub stops the copy and is left unchanged', async () => {
         await save('One')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
@@ -668,6 +692,31 @@ describe('copying history to a repository', () => {
         expect(again.state).toBe('up-to-date')
         expect(bareMain(bare)).toBe(tip)
         expect(bareFile(bare, tip, 'notes/later.md')).toBe('keep this note\n')
+    })
+
+    test('resetting the branch to an older graft stops before GitHub is changed', async () => {
+        foreignCommit(bare, path.join(tmp, 'graft-reset-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const latest = bareMain(bare)!
+        const latestRecorded = refOf(versionsDir(), 'refs/versions/github')
+        const latestGraft = refOf(versionsDir(), 'refs/versions/github-remote')
+        expect(latest).not.toBe(first)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await save('Three')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(first)
+        expect(refOf(versionsDir(), 'refs/versions/github')).toBe(latestRecorded)
+        expect(refOf(versionsDir(), 'refs/versions/github-remote')).toBe(latestGraft)
+        expectFastForwardOnly()
     })
 
     test('a mode-only GitHub change to a copied version file stops the next copy', async () => {
@@ -1523,7 +1572,7 @@ describe('Dev or Prod label', () => {
         staging.stop()
     })
 
-    test('a reader stops when a notes record exists but this version has none, and does not move incoming', async () => {
+    test('a reader uses the latest copied version note below a later GitHub commit', async () => {
         sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
         setGithubForTests(sync)
         await save('One')
@@ -1534,13 +1583,18 @@ describe('Dev or Prod label', () => {
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(noted)
         foreignCommit(bare, path.join(tmp, 'extra'), 'main')
-        expect(bareMain(bare)).not.toBe(noted)
+        const descendant = bareMain(bare)!
+        expect(descendant).not.toBe(noted)
         await sync.sync()
         await sync.idle()
         const status = await sync.status()
-        expect(status.state).toBe('stopped')
-        expect(status.message).toContain('no environment list recorded')
-        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(noted)
+        expect(status.state).toBe('up-to-date')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(descendant)
+
+        await sync.disconnect()
+        const reconnected = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(reconnected.state).toBe('up-to-date')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(descendant)
     })
 
     test('a notes fetch that cannot reach the repository stops, then succeeds on retry', async () => {
@@ -2174,10 +2228,7 @@ describe('Dev or Prod label', () => {
         expect(bareRef(bare, 'refs/heads/staging')).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
     })
 
-    test.each([
-        ['mismatched', 'mismatch'],
-        ['missing', 'absent']
-    ] as const)('a newer tip with a %s note is not installed and is not copied', async (_label, mode) => {
+    test('a newer tip with a mismatched note is not installed and is not copied', async () => {
         const chain = [
             { name: 'Dev', branch: 'main', server: 'dev' },
             { name: 'Staging', branch: 'staging', server: 'staging' },
@@ -2199,10 +2250,7 @@ describe('Dev or Prod label', () => {
                 gitCalls.push({ args, env })
                 if (args[0] !== 'fetch') return
                 fetches += 1
-                if (fetches === 2) newer = advancePrevious('refs/heads/main', mode === 'mismatch' ? 'not-this-list' : null)
-                if (mode === 'absent' && fetches === 3) {
-                    execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
-                }
+                if (fetches === 2) newer = advancePrevious('refs/heads/main', 'not-this-list')
             }
         })
         setGithubForTests(sync)
@@ -2211,6 +2259,40 @@ describe('Dev or Prod label', () => {
         expect(status.state).toBe('stopped')
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
         expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+    })
+
+    test('a newer tip without a note uses the note on the latest copied version', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        const listed = bareMain(bare)
+        let fetches = 0
+        let newer = ''
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] !== 'fetch') return
+                fetches += 1
+                if (fetches === 2) newer = advancePrevious('refs/heads/main', null)
+            }
+        })
+        setGithubForTests(sync)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(newer).not.toBe('')
+        expect(newer).not.toBe(listed)
+        expect(status.state).not.toBe('stopped')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(newer)
+        expect(bareRef(bare, 'refs/heads/staging')).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
     })
 })
 

@@ -13,7 +13,7 @@ import logger from '../../utils/logger'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { flushVersions, getVersion, isVersioningEnabled, recordFlowVersion, resetForTests, setGithubForTests } from '../flow-versions'
 import { GithubSync, GithubStatus, INCOMING_REF } from '../flow-versions/github'
-import { CredentialRef } from '../flow-versions/serialize'
+import { CredentialRef, flowFolderName } from '../flow-versions/serialize'
 import { gitEnv, VersionStore } from '../flow-versions/store'
 import { getIncoming, incomingCanvas, listIncoming, promotable, PromoteDeps } from './index'
 import { gitWordsIn, messagesInSource } from '../../utils/plainWords'
@@ -391,6 +391,69 @@ describe('Prod reads the shared repository and never writes to it', () => {
         expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:README.md`], { encoding: 'utf8', env: cleanEnv() })).toBe(
             '# already here\n'
         )
+    })
+
+    test('moving an original conflicting version path then trying again writes a version Prod can open', async () => {
+        await devSync.disconnect()
+        const repo = path.join(tmp, 'moved-conflict.git')
+        const work = path.join(tmp, 'moved-conflict-work')
+        const blocked = `flows/${flowFolderName({ id: FLOW, name: 'Support bot' })}/flow.json`
+        const env = {
+            ...cleanEnv(),
+            GIT_AUTHOR_NAME: 'a',
+            GIT_AUTHOR_EMAIL: 'a@example.invalid',
+            GIT_COMMITTER_NAME: 'a',
+            GIT_COMMITTER_EMAIL: 'a@example.invalid'
+        }
+        execFileSync('git', ['init', '-q', '--bare', repo], { env: cleanEnv() })
+        fs.mkdirSync(path.join(work, path.dirname(blocked)), { recursive: true })
+        execFileSync('git', ['init', '-q'], { cwd: work, env })
+        fs.writeFileSync(path.join(work, 'README.md'), '# existing repository\n')
+        fs.writeFileSync(path.join(work, blocked), 'move this file first\n')
+        execFileSync('git', ['add', '.'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'start'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${repo}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+
+        asDev()
+        await recordFlowVersion(
+            { id: OTHER, name: 'Existing copied flow', type: 'CHATFLOW', flowData: canvas('FIRST', DEV_KEY), workspaceId: 'ws-dev' },
+            { kind: 'publish', lookupCredentials: async () => new Map([[DEV_KEY, OPENAI]]) }
+        )
+        await flushVersions()
+        await devSync.connect({ repo: `file://${repo}`, token: TOKEN }, 'ws-dev')
+        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        expect((await devSync.status()).state).toBe('stopped')
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `main:${blocked}`], { encoding: 'utf8', env: cleanEnv() })).toBe(
+            'move this file first\n'
+        )
+
+        const movedWork = path.join(tmp, 'moved-conflict-fix')
+        fs.mkdirSync(movedWork)
+        execFileSync('git', ['clone', '-q', '-b', 'main', `file://${repo}`, '.'], { cwd: movedWork, env })
+        fs.mkdirSync(path.join(movedWork, 'archive'), { recursive: true })
+        execFileSync('git', ['mv', blocked, 'archive/flow.json'], { cwd: movedWork, env })
+        execFileSync('git', ['commit', '-q', '-m', 'move the conflicting file'], { cwd: movedWork, env })
+        execFileSync('git', ['push', '-q', `file://${repo}`, 'HEAD:refs/heads/main'], { cwd: movedWork, env })
+        const retried = await devSync.tryNow()
+        expect(retried.state).toBe('up-to-date')
+        const tip = execFileSync('git', ['--git-dir', repo, 'rev-parse', 'refs/heads/main'], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        }).trim()
+        expect(execFileSync('git', ['--git-dir', repo, 'show', `${tip}:${blocked}`], { encoding: 'utf8', env: cleanEnv() })).toContain(FLOW)
+
+        asProd()
+        await prodSync.connect({ repo: `file://${repo}`, token: TOKEN }, WS)
+        const list = await listIncoming(WS, deps)
+        expect(list.flows.map((item) => item.flowId)).toContain(FLOW)
+        const detail = await getIncoming(FLOW, WS, deps)
+        expect(detail.version.sha).toBe(tip)
+        const opened = await getVersion(
+            { id: FLOW, name: 'Support bot', type: 'CHATFLOW', flowData: '{}', workspaceId: WS },
+            detail.version.sha,
+            deps.readOptions!(WS)
+        )
+        expect(opened?.flowData).toContain('ALPHA')
     })
 
     test('switching between Dev and Prod while connected is refused; clearing a Dev label is not', async () => {

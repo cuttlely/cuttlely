@@ -1416,6 +1416,12 @@ export class GithubSync {
                 await this.assertNoOverwrite(repo, tip, marker.remote, marker.base, marker.base, head, false)
                 return { pushed: marker.base, graft: tip }
             }
+            const direct = await this.directCopyBase(tip, head)
+            if (direct) {
+                await this.ensureTree(EMPTY_TREE)
+                await this.assertNoOverwrite(repo, tip, EMPTY_TREE, direct, direct, head, false)
+                return { pushed: direct, graft: tip }
+            }
             await this.assertNoOverwrite(repo, tip, tip, null, null, head, false)
             return { pushed: null, graft: tip }
         } finally {
@@ -1445,6 +1451,38 @@ export class GithubSync {
         const remote = readTrailer(message, 'Remote')
         if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(remote)) return null
         return { base, remote }
+    }
+
+    // A direct copy keeps the local commit id. On reconnect, the merge base is therefore proof that
+    // the remote tip descends from a real version this server copied, without trusting a foreign Flow trailer.
+    private async directCopyBase(tip: string, head: string): Promise<string | null> {
+        let base = ''
+        try {
+            base = (await runGit(this.deps.store().dir, ['merge-base', tip, head])).stdout.trim()
+            if (!/^[0-9a-f]{40}$/.test(base) || !(await this.carriesVersion(base))) return null
+        } catch {
+            return null
+        }
+        return base
+    }
+
+    // The nearest saved version under a branch tip. Repository-side commits can sit above it, while
+    // the environment-list note remains on the copied version commit.
+    private async latestCopiedCommit(tip: string): Promise<string | null> {
+        let log = ''
+        try {
+            log = (await runGit(this.deps.store().dir, ['log', '--max-count=5000', '--format=%H%x1f%B%x1e', tip])).stdout
+        } catch {
+            return null
+        }
+        for (const record of log.split('\x1e')) {
+            const separator = record.indexOf('\x1f')
+            if (separator < 0) continue
+            const sha = record.slice(0, separator).trim()
+            const body = record.slice(separator + 1)
+            if (/^[0-9a-f]{40}$/.test(sha) && readTrailer(body, 'Flow')) return sha
+        }
+        return null
     }
 
     // Checks every local version that still has to be copied. `tip` is the remote tree that must stay.
@@ -1618,7 +1656,6 @@ export class GithubSync {
                     }
                     continue
                 }
-                if (origin.folded.has(fold)) continue
                 lines.push(`${entry.mode} ${entry.sha}\t${file}`)
             }
             if (published) {
@@ -1645,6 +1682,19 @@ export class GithubSync {
     private async carriesVersion(sha: string): Promise<boolean> {
         const body = (await runGit(this.deps.store().dir, ['log', '-1', '--format=%B', sha])).stdout
         return Boolean(readTrailer(body, 'Flow'))
+    }
+
+    // A copied version commit is useful to another server only when all of that version's files are in its tree.
+    // The root README is the deliberate exception: an existing repository keeps its own README.
+    private async carriesVersionFiles(treeSha: string, localSha: string, trees: Map<string, IndexedTree>): Promise<boolean> {
+        const tree = await this.indexedTree(treeSha, trees)
+        const local = await this.indexedTree(localSha, trees)
+        for (const [file, entry] of local.files) {
+            if (this.keptName(file)) continue
+            const copied = tree.files.get(file)
+            if (!copied || !sameTreeEntry(copied, entry)) return false
+        }
+        return true
     }
 
     // One local version, parented on the remote history, with the same message plus the local and remote ids.
@@ -2121,6 +2171,12 @@ export class GithubSync {
             return
         }
         const tip = looked.sha
+        // The branch must descend from the latest remote commit this process recorded, whether or not
+        // an older graft marker is still reachable after a branch reset.
+        if (graft && !(await this.isAncestor(graft, tip))) {
+            this.holdCopy(this.notOurHistory(config.repo, true))
+            return
+        }
         const marker = await this.ourGraftTip(tip)
         let origin = tip
         let published: string | null = null
@@ -2186,10 +2242,15 @@ export class GithubSync {
                 return
             }
             const tree = await this.composeTree(tip, origin, published, sha, trees)
+            const version = await this.carriesVersion(sha)
+            if (version && !(await this.carriesVersionFiles(tree, sha, trees))) {
+                this.holdCopy(this.notOurHistory(config.repo, true))
+                return
+            }
             // The history start has no version of its own, so an unchanged tree can be left out.
             // A version commit still has to land: its message is what another server reads, even when
             // every file already matches the repository.
-            if (tree === parentTree && !(await this.carriesVersion(sha))) continue
+            if (tree === parentTree && !version) continue
             parent = await this.commitGraft(tree, parent, sha, origin)
             parentTree = tree
             created = true
@@ -2473,7 +2534,17 @@ export class GithubSync {
         try {
             note = (await runGit(this.deps.store().dir, ['notes', '--ref=environment-list', 'show', sha])).stdout.trim()
         } catch {
-            return { kind: 'unverified' }
+            note = ''
+        }
+        if (!note) {
+            const copied = await this.latestCopiedCommit(sha)
+            if (copied && copied !== sha) {
+                try {
+                    note = (await runGit(this.deps.store().dir, ['notes', '--ref=environment-list', 'show', copied])).stdout.trim()
+                } catch {
+                    note = ''
+                }
+            }
         }
         if (!note) return { kind: 'unverified' }
         return note === environmentListFingerprint(plan.environments) ? { kind: 'match' } : { kind: 'mismatch' }
