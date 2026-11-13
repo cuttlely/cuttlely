@@ -2,6 +2,13 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.4
+
+-   An analyst specialist stays ready after another specialist lists tools. Unset Analyst storage is Auto. [Analyst mode](./analyst.md).
+-   Importing a harness attaches a credential that already exists here with the same name and type, including a nested credential id next to an empty credential slot. [Bring your existing flows](../bring-your-flows.md).
+-   **Import & verify** retests saved queries on this server before Publish. A stamp in the file is not trusted. Live stays as it is until the checks pass.
+-   Try the demo on a fresh install saves the staged team. [Try the demo](./try-the-demo.md).
+
 ## New in 1.7.3
 
 -   A request that gets no answer no longer replaces the page with **Something went wrong**. The page says the server could not be reached. Reload after a failed page load or read; for a failed save or settings update, use Save or Retry so unsaved edits are not discarded. See [What does "The server could not be reached" mean?](../faq.md#what-does-the-server-could-not-be-reached-mean). Importing a chatflow keeps a connection when only the handle type name changed.
@@ -64,6 +71,7 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 -   [Tune and publish an agent team](./tune-agent-team.md). Choose how a team reads data and answers, then check a draft before Publish.
 -   [Analyst mode](./analyst.md). A specialist with its own database that creates tables and answers from them.
 -   [Pinned queries](./pinned-queries.md). Saved, tested SQL with typed parameters on the Postgres (MCP) node.
+-   [Import and verify](./import-verify.md). Import a flow or harness file, retest its saved queries on this server, and publish only after the checks pass.
 -   [Set the evidence budget](./evidence-budget.md). How much protected source detail a specialist gets for analysis, for the server or one specialist.
 -   [Context and tokens](./context-and-tokens.md). How a team keeps each prompt short, and where a run shows the tokens it used.
 -   [How the customer care demo works](./customer-care-demo.md). The specialists, data and rules behind the demo team.

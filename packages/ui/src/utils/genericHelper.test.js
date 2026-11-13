@@ -224,6 +224,73 @@ describe('export of a node that is not installed', () => {
         expect(out.nodes[0].data.inputs.note).toBe('keep me')
     })
 
+    it('strips secrets and credential ids from a node the catalog does not list', () => {
+        const secret = 'pack-password-must-not-travel'
+        const fileBody = 'pack-file-must-not-travel'
+        const folderBody = 'pack-folder-must-not-travel'
+        const credentialId = 'pack-cred-id-must-not-travel'
+        const flow = {
+            nodes: [
+                {
+                    id: 'n1',
+                    position: { x: 4, y: 5 },
+                    data: {
+                        id: 'n1',
+                        label: 'Sample Pack Node',
+                        name: 'samplePackNode',
+                        type: 'SamplePackNode',
+                        nodePack: 'sample-pack',
+                        credential: credentialId,
+                        inputParams: [
+                            { name: 'note', type: 'string' },
+                            { name: 'secretField', type: 'password' },
+                            { name: 'upload', type: 'file' },
+                            { name: 'directory', type: 'folder' }
+                        ],
+                        inputs: {
+                            note: 'keep me',
+                            secretField: secret,
+                            upload: fileBody,
+                            directory: folderBody,
+                            FLOWISE_CREDENTIAL_ID: credentialId,
+                            agentModel: { credential: '', modelName: 'gpt-5.6-luna' }
+                        },
+                        extra: { untouched: true }
+                    }
+                }
+            ],
+            edges: [{ id: 'e1' }]
+        }
+        const stripped = generateExportFlowData(JSON.parse(JSON.stringify(flow)), ['chatOpenAI'])
+        const text = JSON.stringify(stripped)
+        expect(stripped.nodes).toHaveLength(1)
+        expect(stripped.nodes[0].data.name).toBe('samplePackNode')
+        expect(stripped.nodes[0].data.nodePack).toBe('sample-pack')
+        expect(stripped.nodes[0].data.extra).toEqual({ untouched: true })
+        expect(stripped.nodes[0].position).toEqual({ x: 4, y: 5 })
+        expect(stripped.nodes[0].data.inputs.note).toBe('keep me')
+        expect(stripped.nodes[0].data.inputs.agentModel).toEqual({ credential: '', modelName: 'gpt-5.6-luna' })
+        expect(stripped.nodes[0].data.inputs.secretField).toBeUndefined()
+        expect(stripped.nodes[0].data.inputs.upload).toBeUndefined()
+        expect(stripped.nodes[0].data.inputs.directory).toBeUndefined()
+        expect(stripped.nodes[0].data.credential).toBeUndefined()
+        expect(text).not.toContain('FLOWISE_CREDENTIAL_ID')
+        expect(text).not.toContain(secret)
+        expect(text).not.toContain(fileBody)
+        expect(text).not.toContain(folderBody)
+        expect(text).not.toContain(credentialId)
+
+        const named = generateExportFlowData(
+            JSON.parse(JSON.stringify(flow)),
+            ['chatOpenAI'],
+            [{ id: credentialId, name: 'Pack key', credentialName: 'samplePackApi' }]
+        )
+        expect(named.nodes[0].data.credential).toEqual({ $credential: { name: 'Pack key', credentialName: 'samplePackApi' } })
+        expect(named.nodes[0].data.inputs.note).toBe('keep me')
+        expect(JSON.stringify(named)).not.toContain(credentialId)
+        expect(JSON.stringify(named)).not.toContain(secret)
+    })
+
     it('exports the Rules text and its cap on a PostgreSQL MCP node, so an import gets both back', () => {
         const rules = 'Use monthly_sales for sales by month.\nWrite shop names as stores has them, for example Old Town.'
         const flow = {

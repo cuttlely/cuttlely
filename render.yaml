@@ -11,15 +11,15 @@
 # user, and password. The internal host does not require TLS, so DATABASE_SSL
 # stays false. An external URL would need DATABASE_SSL=true.
 #
-# Analyst mode is off. In the Dashboard, set CUTTLELY_ANALYST to auto to
-# create an analyst schema in cuttlely-db and a login that cannot read
-# application tables. The database user must be allowed to create roles.
-# If it cannot, leave the switch off and set CUTTLELY_POSTGRES_URL to a
-# separate database. Do not point that URL at cuttlely-db. The node refuses
-# a URL or login that is this service's application database. A host that
-# requires TLS needs sslmode on that URL. Cuttlely does not append it.
-# Do not put CUTTLELY_ANALYST or CUTTLELY_POSTGRES_URL in this file. A later
-# Blueprint sync would overwrite the Dashboard value.
+# Analyst storage is Auto when CUTTLELY_ANALYST is unset. Auto creates an
+# analyst schema in cuttlely-db and a login that cannot read application
+# tables. The database user must be allowed to create roles. If it cannot,
+# set CUTTLELY_ANALYST to off and set CUTTLELY_POSTGRES_URL to a separate
+# database. Do not point that URL at cuttlely-db. The node refuses a URL or
+# login that is this service's application database. A host that requires
+# TLS needs sslmode on that URL. Cuttlely does not append it. Do not put
+# CUTTLELY_ANALYST or CUTTLELY_POSTGRES_URL in this file. A later Blueprint
+# sync would overwrite a Dashboard value of off.
 #
 # The disk is one mount, /var/cuttlely. Uploads, harness session sqlite,
 # harness-queue.sqlite, ETL files, and the Hermes home all live under it.

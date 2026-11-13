@@ -1,3 +1,9 @@
+## Try the demo save
+
+-   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry of marked folders, retry of unmarked 1.7.3 folders, a non-demo file at a demo destination (nothing removed), a profile or link leftover, an unmarked folder with only `support.sqlite` (kept), and a saved team whose specialist files are missing.
+-   README step 4 and `website/src/guides/flowise-import/guide.md`: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
+
 ## PostgreSQL statement-guard regressions
 
 -   `scripts/analyst-relations.test.mjs`: PostgreSQL-backed regressions for joined-table whole rows whose first item is a derived query, including nested joins; explicit element conversions in chained array casts; and later comma items after clause words used as JOIN columns. The comma cases cover scoped `reg*` whole rows and unticked base tables that also underlie a selected view, in both policy modes.
@@ -15,7 +21,7 @@
 -   `packages/ui/src/utils/errorSummary.js`: status and message for the error card, and `requestFailureMessage` for page notifications. `ErrorBoundary.test.js` also checks that the canvas, agentflow canvas, custom assistant and forgot-password pages do not read `Api.error.response` unguarded. `packages/ui/src/ErrorBoundary.test.js` renders a no-response network error, a plain `TypeError` and a 500.
 -   `packages/ui/src/store/context/ErrorContext.jsx`: the page error belongs to the path whose request failed. `packages/ui/src/store/context/ErrorContext.test.js` covers navigating away, a clear from another page, a late canvas failure after the list failed, and a late failure followed by a direct return to the canvas.
 -   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx`: malformed `chatbotConfig` falls back to an empty object; `ShowToolEvents.test.js` covers it.
--   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Notes under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`.
 
 ## Silent canvas read retries
 
@@ -24,13 +30,19 @@
 -   `packages/ui/src/api/connectionState.js`, `store/context/ConnectionContext.jsx`, and `ui-component/connection/`: the count store and delayed app-shell **Reconnecting…** chip.
 -   `packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx`, `utils/analystStatus.js`, `views/canvas/CredentialInputHandler.jsx`, and `views/agentflowsv2/ConfigInput.jsx`: shared-client node loads and field-lifetime cancellation.
 -   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
--   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - Unreleased`.
+-   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - 2026-11-12`.
+
+## Import and verify
+
+-   `packages/server/src/services/import-verify/`: untrust imported stamps, match one destination credential by name and type, build read-only test values, retest saved queries, and keep the result on the draft.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: another server's stamp, ambiguous credentials, a required empty tool credential, schema-qualified and quoted tables, `BETWEEN` parameters, numeric range order, a same-named query on another card, an empty report that can be retried, a missing required model edge, a check that stops before it reads connections, coherent account and opportunity values, and publish staying blocked.
+-   `packages/ui/src/views/canvas/ImportVerifyDialog.jsx`, `ImportVerifyDialog.test.js`, and `docs/how-to/import-verify.md`. The dialog gives the saved draft to the canvas, and Close stays available while the check runs. `packages/ui/src/utils/importVerify.js` keeps the import hold across a canvas save, sends the loaded draft hash on the first existing-flow save, and stores a new legacy-agent import as MULTIAGENT. `packages/server/src/settings/database.test.ts` ignores a restart handler scheduled by an earlier test.
 
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
 -   `packages/ui/src/utils/edgeRefs.test.js` imports `examples/imports/bakery-helper.json` as-is and keeps the ChatOpenAI to Conversation Chain edge; a genuinely different input still drops it.
--   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`.
 
 ## Same-server flow and Harness nested calls
 
@@ -67,11 +79,13 @@
 
 # Artifacts
 
-1.7.3 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.3. `CHANGELOG.md` uses `## [1.7.3] - Unreleased`. The former PR-1, PR-2 and PR-3 placeholders are finalized with their squash SHAs: #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`. This branch is folded with `origin/main` at `3c981e82`, which also brings #463 `05701570`, #465 `c47bf628`, #464 `23aea50a`, #473 `05b71a12` and #469 `3c981e82`. The #469 changelog bullet is finalized with squash `3c981e82`. Generated website pages are not hand-edited. Publication is a later authorized step; the full gate must be rerun on this exact head.
+1.7.4 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.4. `CHANGELOG.md` uses `## [1.7.4] - Unreleased`. #483 is `9b4d8c90`, #484 is `c2e63f61`, and #486 is `f9cb1123`. The import guide pins `v1.7.4`. Generated website pages are not hand-edited. Publication is a later step.
+
+1.7.3 release: the same surfaces carried 1.7.3 and landed as `d52b83e5` ([#481](https://github.com/cuttlely/cuttlely/pull/481)) after preparation `33a158c7` ([#459](https://github.com/cuttlely/cuttlely/pull/459)). `CHANGELOG.md` dates it `## [1.7.3] - 2026-11-12`. The PR-1, PR-2 and PR-3 placeholders were finalized as #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`, with #469 `3c981e82`.
 
 Resilient canvas saves (landed on main as `52e29426`, [#462](https://github.com/cuttlely/cuttlely/pull/462)): `packages/ui/src/utils/saveQueue.js` is the pure queue and reconciliation core. Its adjacent test covers single flight, latest pending replacement, separate internal continuations, the four-attempt draft burst through no-response non-file reads, HTTP write non-retry, waiting after reconciliation HTTP errors, the bounded first-send/last-settle landed window, the other-tab guard, rejection when draft metadata is absent, file detection across all node inputs, file-canvas reconciliation, guarded resume, stored-file-aware Live reconciliation, one guarded Live PUT per action, confirmed-write ordering, one-POST creation with mode resolution and a latest-snapshot handoff, ambiguous-create settlement, non-replayed error settlement, busy state, and disposal. `packages/ui/src/hooks/useSaveQueue.js` binds injected canvas adapters to draft state, the connection indicator, busy state, one persistent notice, manual Retry, the browser online event, and cleanup; its adjacent test covers notice deduplication, online resume, one-POST creation handoff, unknown-mode queuing without a creation notice, non-replayed errors, busy state, effect cleanup/setup, and listener removal. `packages/ui/src/utils/buildWithAI.test.js` covers acknowledgement-gated starter-question cleanup, retention across the first-save continuation, retention after an unanswered update, and a newer question snapshot surviving an older acknowledgement. `packages/ui/src/hooks/useDraftSave.js` remains the source of the recorded draft hash, base canvas, conflict review, and adoption state. Both canvas views use the hook. `CanvasHeader.test.js` covers the busy name and Publish controls plus retention of an unanswered inline name for the next canvas Save. `packages/ui/src/api/flowDrafts.js` disables both client-level resilience replay and post-refresh replay for the draft write.
 
-User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [1.7.3] - Unreleased` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
+User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
 
 Focused UI checks pass 114 tests across the save queue, queue hook, session client, draft adapter, builder-state helper, and canvas header. The broader UI batch passes 141 suites and 1,177 tests; its only failure is the known 24-case sample-canvas golden mismatch in `savedFlowsUnchanged.test.js`. Changed-file lint passes. The browser runner was not executed.
 
@@ -141,6 +155,10 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Nodes manifest             | `packages/components/dist/nodes-manifest.json`                         |
 
 Pinned query runtime helpers live in `packages/harness/runtime/pinned-query.mjs`. The compiler emits typed run and NULL check texts together and validates their parameter spans. Bound URL queries require `readOnlySql: true`; paging retains the original binds, check text and pin identity. Unit coverage is in `packages/harness/runtime/pinned-query.test.mjs`; `scripts/analyst-pinned.test.mjs` exercises the PostgreSQL path and the test-only BEGIN ATOMIC equivalence oracle in the analyst-postgres matrix (14–18).
+
+Analyst tool status: `packages/harness/runtime/analyst-mcp-status.mjs` records query and pinned query offers in `analyst-mcp.json`. `packages/harness/runtime/analyst-mcp-status.test.mjs` and the bridge cases in `packages/harness/check.mjs` cover a later empty or failed list and overlapping lists. `docs/how-to/analyst.md` and `docs/how-to/harnesses.md` describe `X-Cuttlely-Analyst`.
+
+Analyst storage default and credential rebind: `packages/server/src/settings/apply.ts` (`ensureAnalystDefault`), `scripts/start-cuttlely.sh`, and `scripts/start-local-admin.test.mjs`. Export and import: `packages/ui/src/utils/credentialMarks.js`, `packages/ui/src/utils/credentialRebind.js`, and `packages/ui/src/utils/credentialRebind.test.js`. The guides are `docs/how-to/analyst.md`, `docs/how-to/server-settings.md`, and `docs/how-to/harnesses.md`.
 
 Analyst SQL trace capture: `packages/harness/analyst-capture.mjs` exports `sqlTraceFields` (full SHA-256 over the statement fingerprint normalisation) and retains original statement metadata for cursor pages. `packages/harness/trace.mjs` shapes the browser-safe public fields. SQL previews follow `CUTTLELY_ANALYST_TRACE_PREVIEW`, existing redaction and a 4096-byte UTF-8 cap; hashes remain with previews off. The agent runtime's tool-start events join with gateway metadata before streaming. Targeted regression coverage is in `packages/harness/test/pinned/trace-sql.test.mjs` and `trace-gateway.test.mjs`; `trace-golden.json` records the base trace shape with previews off and on. Run the directory with `node --test packages/harness/test/pinned/` on Node 24. No database is needed for these tests.
 

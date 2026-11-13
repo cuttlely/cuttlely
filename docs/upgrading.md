@@ -4,6 +4,16 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.4
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.4 server and widget versions. This patch adds one migration at startup: a nullable `importVerify` column on `flow_version_state`. Existing rows are unchanged and Publish behaves as before. It preserves the existing enforcement mode.
+
+Analyst storage is **Auto** when `CUTTLELY_ANALYST` was never set. A host or saved value of `off`, `false`, `0`, or `no` stays off. Auto creates a private store. On Postgres that store is a schema and a login in the application database, created the first time the analyst runs. If that database user cannot create roles, the analyst tool fails and says so. Cuttlely still starts, and `GET /api/v1/ping` still returns `pong`. Set `off`, or set `CUTTLELY_POSTGRES_URL` to a separate database, before upgrading when you do not want that private store. See [Analyst mode](./how-to/analyst.md#which-setting-wins).
+
+Importing a harness attaches one existing credential with the same name and type, including a nested credential id next to an empty credential slot, and stops when the match is missing or ambiguous. **Import & verify** retests saved queries on this server before Publish. Try the demo on a fresh install saves the staged team.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions. Enforcement remains **Off** by default; preparing or installing this patch does not activate it.
+
 ## Upgrading to 1.7.3
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.3 server and widget versions. This patch adds no schema migration and preserves the existing enforcement mode.

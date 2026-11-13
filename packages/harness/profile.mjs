@@ -1169,6 +1169,8 @@ function mcpServerBlocks(record) {
             // The data dir has to be in the profile env or the status file is never written.
             // Every bridge needs the runtime's turn identity, including specialists without analyst tools.
             // This flag injects that identity; it does not grant a query tool.
+            // Those bridges share one analyst-mcp.json. Only a query or pinned query
+            // tool raises its count, and a later empty or failed list does not clear it.
             env: { CUTTLELY_ANALYST_BRIDGE: '1', CUTTLELY_DATA_DIR: dataRoot() }
         })
         for (const mcp of specialist.mcpServers || []) {

@@ -1,6 +1,6 @@
 // Applies the admin settings file to the environment at start, before any other server module reads it.
 // The host always wins. When the start script already applied the file (CUTTLELY_SETTINGS_APPLIED=1), only the record is kept.
-import { HOST_KEYS_VAR, hostSetKeys, fileValuesToApply } from './resolve'
+import { HOST_KEYS_VAR, SCRIPT_DEFAULTS_VAR, hostSetKeys, fileValuesToApply, isBlank } from './resolve'
 import fs from 'fs'
 import path from 'path'
 import { beginStart } from './safeboot'
@@ -28,6 +28,19 @@ export interface StartState {
     rawAtStart?: string | null
     /** Safe boot restored the last good settings on this start. */
     rolledBack?: boolean
+}
+
+export const ANALYST_STORAGE_KEY = 'CUTTLELY_ANALYST'
+
+/** A missing or blank Analyst storage value is Auto. An explicit off value is left alone. */
+export function ensureAnalystDefault(env: Env): void {
+    if (!isBlank(env[ANALYST_STORAGE_KEY])) return
+    env[ANALYST_STORAGE_KEY] = 'auto'
+    const listed = String(env[SCRIPT_DEFAULTS_VAR] ?? '')
+        .split(/[\s,]+/)
+        .filter(Boolean)
+    if (!listed.includes(ANALYST_STORAGE_KEY)) listed.push(ANALYST_STORAGE_KEY)
+    env[SCRIPT_DEFAULTS_VAR] = listed.join(' ')
 }
 
 export function isOnValue(value: string | undefined): boolean {
@@ -87,5 +100,8 @@ export function applyAdminSettings(env: Env = process.env, options: { start?: bo
         for (const [key, value] of Object.entries(toApply)) env[key] = value
         if (env[HOST_KEYS_VAR] === undefined) env[HOST_KEYS_VAR] = state.hostKeys.join(',')
     }
+    // After the host record is fixed, so this default does not look host-set.
+    // A saved or host value of off, false, 0, or no is already non-blank and stays.
+    ensureAnalystDefault(env)
     return state
 }

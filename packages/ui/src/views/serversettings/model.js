@@ -310,7 +310,14 @@ export const GET_STARTED_DISMISSED = 'cuttlely.serverSettings.getStartedDismisse
 export function getStartedTiles(data) {
     const byKey = Object.fromEntries((data?.settings ?? []).map((setting) => [setting.key, setting]))
     const analyst = byKey.CUTTLELY_ANALYST
-    const analystOn = Boolean(analyst?.value) || Boolean(byKey.CUTTLELY_POSTGRES_URL?.secret?.set)
+    const analystValue = String(analyst?.value ?? '')
+        .trim()
+        .toLowerCase()
+    const analystFallback = String(analyst?.effective ?? analyst?.defaultValue ?? '')
+        .trim()
+        .toLowerCase()
+    const analystOn =
+        analystValue === 'auto' || (!analystValue && analystFallback === 'auto') || Boolean(byKey.CUTTLELY_POSTGRES_URL?.secret?.set)
     return [
         {
             id: 'signin',
