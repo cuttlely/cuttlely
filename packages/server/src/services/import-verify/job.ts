@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { applyCredential, connectionSlots, resolveSlot, type ConnectionResolution, type CredentialRow } from './connections'
 import { missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
-import { inspectFlow, nodeById, relationsOf, type Blocker, type SmokeNeed } from './inspect'
+import { inspectFlow, nodeById, nodeIdProblems, relationsOf, type Blocker, type SmokeNeed } from './inspect'
 import {
     clearImportHold,
     flowHasUntrustedImport,
@@ -431,6 +431,39 @@ async function verifyBody(options: {
         )
         await deps.saveRecord(empty)
         return empty
+    }
+
+    const nodeIdentity = nodeIdProblems(parsed)
+    if (nodeIdentity.length) {
+        const refused = finishRecord(
+            {
+                version: 1,
+                draftHash: hashFlow(options.flowText || ''),
+                status: 'attention',
+                phase: 'Cards need their own ids',
+                checked: 0,
+                total: 0,
+                queries: [],
+                connections: [],
+                blockers: nodeIdentity.map((item, index) => ({
+                    id: item.kind === 'missing' ? `node-id:missing:${index}` : `node-id:${item.nodeId}:duplicate`,
+                    severity: 'attention' as const,
+                    message:
+                        item.kind === 'missing'
+                            ? 'A card has no id, so this flow cannot be checked card by card. Give each card its own id, then verify again.'
+                            : 'Two cards use the same id, so one card could be overwritten. Give each card its own id, then verify again.',
+                    action: 'none' as const,
+                    nodeId: item.nodeId || undefined
+                })),
+                smoke: [],
+                summary: '',
+                publishOffered: false,
+                updatedAt: deps.now()
+            },
+            deps.now()
+        )
+        await deps.saveRecord(refused)
+        return refused
     }
 
     const currentHash = hashFlow(options.flowText || '')

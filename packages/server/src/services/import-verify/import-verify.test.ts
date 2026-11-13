@@ -303,6 +303,35 @@ describe('imported verification', () => {
         expect(saved).not.toContain('"hash":"' + 'cd'.repeat(32))
     })
 
+    test('a draft with duplicate node ids is refused and the draft is not changed', async () => {
+        const canvas = flow([pin()], 'cred-pg') as {
+            nodes: Array<{ id: string; data: { inputs: { pinnedQueries: string } } }>
+            edges: unknown[]
+        }
+        const copy = JSON.parse(JSON.stringify(canvas.nodes[0])) as (typeof canvas.nodes)[number]
+        copy.data.inputs.pinnedQueries = JSON.stringify([pin({ id: 'pin-2', name: 'pq_second', sql: 'SELECT 2 FROM account a LIMIT 5' })])
+        canvas.nodes.push(copy)
+        const text = JSON.stringify(canvas)
+        let ran = 0
+        const { deps, drafts } = memoryDeps({
+            testPin: async () => {
+                ran += 1
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...pin(), testedStamp: 'ff'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const record = await executeVerify({ flowText: text, record: null, deps })
+        expect(record.status).not.toBe('ready')
+        expect(record.publishOffered).toBe(false)
+        expect(record.blockers.some((item) => item.id.includes('node-id:') && item.id.includes('duplicate'))).toBe(true)
+        expect(ran).toBe(0)
+        expect(drafts.every((item) => item === text)).toBe(true)
+    })
+
     test('a duplicate or missing saved-query id cannot become ready or publishable', async () => {
         const calls: string[] = []
         const { deps, drafts } = memoryDeps({

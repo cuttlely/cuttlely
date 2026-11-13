@@ -360,6 +360,26 @@ function missingRequiredEdges(flow: { nodes?: unknown; edges?: unknown }): Block
     return blockers
 }
 
+// Card lookups use the node id: the first match is read, and a write visits every match.
+// A missing id and a repeated id are the same collision, so verification stops before it writes.
+export function nodeIdProblems(flow: { nodes?: unknown } | null | undefined): Array<{ nodeId: string; kind: 'missing' | 'duplicate' }> {
+    const nodes = Array.isArray(flow?.nodes) ? flow.nodes : []
+    const seen = new Map<string, number>()
+    const problems: Array<{ nodeId: string; kind: 'missing' | 'duplicate' }> = []
+    for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue
+        const id = String((node as { id?: unknown }).id ?? '').trim()
+        if (!id) {
+            problems.push({ nodeId: '', kind: 'missing' })
+            continue
+        }
+        const count = (seen.get(id) || 0) + 1
+        seen.set(id, count)
+        if (count > 1) problems.push({ nodeId: id, kind: 'duplicate' })
+    }
+    return problems
+}
+
 export function nodeById(flow: { nodes?: unknown }, nodeId: string): Record<string, unknown> | null {
     const nodes = Array.isArray(flow.nodes) ? flow.nodes : []
     for (const node of nodes) {
