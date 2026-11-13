@@ -41,6 +41,7 @@ import nodesApi from '@/api/nodes'
 import chatflowsApi from '@/api/chatflows'
 import harnessesApi from '@/api/harnesses'
 import credentialsApi from '@/api/credentials'
+import { rebindImportedFlow } from '@/utils/credentialRebind'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 import etlApi from '@/api/etl'
 import flowDraftsApi from '@/api/flowDrafts'
@@ -348,7 +349,23 @@ const Canvas = () => {
     const queueMigration = (payload) => {
         const staged = stageCanvasPayload(payload, getNodesApi.data)
         pendingMigration.current = staged.pending
-        if (staged.ready) applyFlowiseCanvas(JSON.stringify(staged.ready.flow))
+        if (staged.ready) importFlowiseCanvas(JSON.stringify(staged.ready.flow))
+    }
+
+    const importFlowiseCanvas = async (flowiseText) => {
+        let parsed
+        try {
+            parsed = JSON.parse(flowiseText)
+        } catch {
+            applyFlowiseCanvas(flowiseText)
+            return
+        }
+        const rebound = await rebindImportedFlow(parsed)
+        if (!rebound.ok) {
+            showImportError(rebound.message)
+            return
+        }
+        applyFlowiseCanvas(JSON.stringify(rebound.flow))
     }
 
     const handleLoadFlow = (file, expect = 'either') => {
@@ -377,7 +394,7 @@ const Canvas = () => {
                 )
                 return
             }
-            applyFlowiseCanvas(flowise)
+            importFlowiseCanvas(flowise)
             return
         }
         if (expect === 'langflow' || (expect === 'either' && langflow)) {
@@ -397,7 +414,7 @@ const Canvas = () => {
             showImportError('That file is not a Flowise chatflow JSON.')
             return
         }
-        applyFlowiseCanvas(flowise)
+        importFlowiseCanvas(flowise)
     }
 
     const handleDeleteFlow = async () => {
@@ -1448,7 +1465,7 @@ const Canvas = () => {
     useEffect(() => {
         const staged = stageCanvasPayload(pendingMigration.current, getNodesApi.data)
         pendingMigration.current = staged.pending
-        if (staged.ready) applyFlowiseCanvas(JSON.stringify(staged.ready.flow))
+        if (staged.ready) importFlowiseCanvas(JSON.stringify(staged.ready.flow))
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [getNodesApi.data])
 
@@ -1611,7 +1628,7 @@ const Canvas = () => {
                                 catalogError={getNodesApi.error}
                                 onRetryCatalog={() => getNodesApi.request()}
                                 onApplyMigration={({ canvas, name }) => {
-                                    applyFlowiseCanvas(JSON.stringify(canvas))
+                                    importFlowiseCanvas(JSON.stringify(canvas))
                                     if (!chatflowRef.current?.id && name) {
                                         dispatch({ type: SET_CHATFLOW, chatflow: { name } })
                                     }

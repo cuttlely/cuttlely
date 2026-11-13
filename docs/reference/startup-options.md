@@ -62,7 +62,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUTTLELY_HARNESS_WORKER_CONCURRENCY`        | 4                                           | 1 to 64           | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_WARM_HERMES`                       | probe                                       | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HERMES_KEEP_WARM_MINUTES`          | 5                                           | 1 to 1440         | minutes       | Host, then Server settings     | Yes     |
-| `CUTTLELY_ANALYST`                           | Off                                         | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_ANALYST`                           | auto                                        | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_POSTGRES_URL`                      | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_ANALYST_ROW_CAP`                   | 100                                         | 1 to 1000         | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`      | 15000                                       | 1 to 120          | ms-as-seconds | Host, then Server settings     | Yes     |

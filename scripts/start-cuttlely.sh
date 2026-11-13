@@ -82,6 +82,12 @@ if [[ -z "${CUTTLELY_LOCAL_ADMIN:-}" && -z "${RENDER:-}" ]] &&
         script_defaults+=(CUTTLELY_LOCAL_ADMIN)
     fi
 fi
+# Unset Analyst storage is Auto. off, false, 0, and no stay off. A saved Server settings
+# value is already in the environment from the helper above, so it wins over this default.
+if [[ -z "${CUTTLELY_ANALYST:-}" ]]; then
+    export CUTTLELY_ANALYST=auto
+    script_defaults+=(CUTTLELY_ANALYST)
+fi
 export CUTTLELY_SETTINGS_SCRIPT_DEFAULTS="${script_defaults[*]:-}"
 
 if [[ "$API_SERVER_HOST" != "127.0.0.1" ]]; then

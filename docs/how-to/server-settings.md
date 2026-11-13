@@ -91,6 +91,10 @@ Under **Agent runtime** > **Limits**, **Maximum concurrent agent runs** caps how
 
 The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime starts, `scripts/cuttlely-hermes-api.py` writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime's `config.yaml` (`$HERMES_HOME/config.yaml`). Only that key changes; the rest of the file is kept. A saved value replaces a value typed into that file by hand. Clearing the setting removes the value Cuttlely wrote, so the runtime default of 10 applies again, and leaves a value someone typed into the file afterwards alone.
 
+## Analyst storage
+
+**Analyst** > **Analyst storage** chooses the private store. Unset is **Auto**: each workspace gets a store the analyst can create tables in. **Off** saves the value `off` and leaves that store off. A value already set on the host, including `off`, `false`, `0`, or `no`, stays as it is and locks the field. A Postgres URL credential on a Postgres (MCP) node, or **Separate Postgres for the analyst** (`CUTTLELY_POSTGRES_URL`), still uses the read-only path. Auto does not replace that URL. [Analyst mode](./analyst.md#which-setting-wins).
+
 ## Analyst limits
 
 **Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.

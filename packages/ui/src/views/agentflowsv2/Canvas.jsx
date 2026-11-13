@@ -47,6 +47,7 @@ import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 // API
 import nodesApi from '@/api/nodes'
 import chatflowsApi from '@/api/chatflows'
+import { rebindImportedFlow } from '@/utils/credentialRebind'
 import flowDraftsApi from '@/api/flowDrafts'
 
 // Hooks
@@ -278,18 +279,36 @@ const AgentflowCanvas = () => {
     }
 
     const handleLoadFlow = (file) => {
-        try {
-            const flowData = JSON.parse(file)
-            const graph = flowData && flowData.cuttlelyMigration && flowData.flow ? flowData.flow : flowData
-            const cleared = untrustFlow(graph)
-            const nodes = cleared.nodes || []
-
-            setNodes(nodes)
-            setEdges(cleared.edges || [])
-            setTimeout(() => setDirty(), 0)
-        } catch (e) {
-            console.error(e)
-        }
+        ;(async () => {
+            try {
+                const flowData = JSON.parse(file)
+                const graph = flowData && flowData.cuttlelyMigration && flowData.flow ? flowData.flow : flowData
+                const rebound = await rebindImportedFlow(graph)
+                if (!rebound.ok) {
+                    enqueueSnackbar({
+                        message: rebound.message,
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'error',
+                            persist: true,
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                    return
+                }
+                const cleared = untrustFlow(rebound.flow)
+                const nodes = cleared.nodes || []
+                setNodes(nodes)
+                setEdges(cleared.edges || [])
+                setTimeout(() => setDirty(), 0)
+            } catch (e) {
+                console.error(e)
+            }
+        })()
     }
 
     const handleDeleteFlow = async () => {
