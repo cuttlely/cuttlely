@@ -57,7 +57,7 @@ Node 20+ 및 Docker
 <a id="watch-a-team-resolve-a-complaint"></a>
 
 <p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo에 있는 고객 지원 팀의 실행을 내레이션과 함께 봅니다(78초, 자막 포함). 타이틀 카드에는 로고 옆에서 손을 흔드는 Cuttlely 마스코트와 Your applications deserve agents라는 문구가 나옵니다." width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="고객 지원 팀의 실행을 내레이션과 함께 보기. 타이틀 카드에는 로고 옆에서 손을 흔드는 Cuttlely 마스코트, Your applications deserve agents와 The open-source agent platform for applications라는 문구, Meet Cuttlely! 버튼이 나옵니다." width="880"></a>
 <br>
 <a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722">내레이션이 있는 실행 보기(78초, 소리 있음)</a>
 </p>
@@ -72,10 +72,10 @@ Node 20+ 및 Docker
 <a id="test-every-change-before-it-goes-live"></a>
 <a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
-모든 편집은 초안에 저장되고, 그동안 Live는 계속 앱에 응답합니다. Publish 대화 상자의 Compare는 실제 질문을 Live와 초안에 모두 던지고, 게시하기 전에 각 답변을 Same, Changed, Error 중 하나로 표시합니다. passing test set(통과해야 하는 테스트 세트)을 켜면 Publish는 초안이 통과할 때까지 기다립니다. 최대 100개의 질문과 답변 쌍으로 테스트할 수 있으며, 더 늘리는 것은 로드맵에 있습니다.
+모든 편집은 초안에 저장되고, 그동안 Live는 계속 앱에 응답합니다. Publish 대화 상자의 Compare는 실제 질문을 Live와 초안에 모두 던지고, 게시하기 전에 각 답변을 Same, Changed, Error 중 하나로 표시합니다. passing test set(통과해야 하는 테스트 세트)을 켜면 Publish는 초안이 통과할 때까지 기다립니다. 최대 100개의 질문과 답변 쌍으로 테스트할 수 있습니다.
 
 <p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="테스트 영상의 타이틀 카드. Cuttlely 마스코트가 클립보드와 돋보기를 들고 있고, 옆에 Cuttlely 로고, Testing이라는 단어, Compare, score, then publish라는 문구가 있습니다." width="880"></a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="테스트 실행 보기. 타이틀 카드에는 체크리스트가 있는 클립보드와 돋보기를 든 Cuttlely 마스코트, 옆에 Cuttlely 로고, Testing이라는 단어, Compare, score, then publish라는 문구가 나옵니다." width="880"></a>
 <br>
 <a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063">테스트 실행 보기(56초, 소리 있음)</a>
 </p>

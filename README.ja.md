@@ -57,7 +57,7 @@ Node 20+ と Docker
 <a id="watch-a-team-resolve-a-complaint"></a>
 
 <p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo のカスタマーケアチームの実行を、ナレーション付きで見られます（78 秒、字幕あり）。タイトルカードには、ロゴの横で手を振る Cuttlely のマスコットと、Your applications deserve agents という一文が映っています。" width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="カスタマーケアチームの実行をナレーション付きで見る。タイトルカードには、ロゴの横で手を振る Cuttlely のマスコット、Your applications deserve agents と The open-source agent platform for applications という文言、Meet Cuttlely! というボタンが映っています。" width="880"></a>
 <br>
 <a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722">ナレーション付きの実行を見る（78 秒、音声あり）</a>
 </p>
@@ -72,10 +72,10 @@ Node 20+ と Docker
 <a id="test-every-change-before-it-goes-live"></a>
 <a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
-編集はすべて下書きに保存され、その間も Live はアプリへの応答を続けます。Publish ダイアログの Compare は、実際の質問を Live と下書きの両方に投げ、公開する前にそれぞれの答えに Same、Changed、Error のいずれかの印を付けます。passing test set（合格が必要なテストセット）をオンにすると、Publish は下書きが合格するまで待ちます。テストには最大 100 組の質問と回答のペアを使えます。さらに増やすことはロードマップにあります。
+編集はすべて下書きに保存され、その間も Live はアプリへの応答を続けます。Publish ダイアログの Compare は、実際の質問を Live と下書きの両方に投げ、公開する前にそれぞれの答えに Same、Changed、Error のいずれかの印を付けます。passing test set（合格が必要なテストセット）をオンにすると、Publish は下書きが合格するまで待ちます。テストには最大 100 組の質問と回答のペアを使えます。
 
 <p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="テスト動画のタイトルカード。Cuttlely のマスコットがクリップボードと虫眼鏡を持ち、その横に Cuttlely のロゴ、Testing という文字、Compare, score, then publish という一文があります。" width="880"></a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="テストの実行を見る。タイトルカードには、チェックリストの付いたクリップボードと虫眼鏡を持つ Cuttlely のマスコット、その横に Cuttlely のロゴ、Testing という文字、Compare, score, then publish という一文が映っています。" width="880"></a>
 <br>
 <a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063">テストの実行を見る（56 秒、音声あり）</a>
 </p>

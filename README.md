@@ -55,7 +55,7 @@ Latest stable is **1.7.4**. Pin image `1.7.4` or install `cuttlely@1.7.4`. [1.7.
 ## Watch a team resolve a complaint
 
 <p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Watch a narrated run of the customer care team in Try the demo, 78 seconds with captions. The title card shows the Cuttlely mascot waving next to the logo and the line Your applications deserve agents." width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Watch the customer care team's narrated run. The title card shows the Cuttlely mascot waving beside the logo, the line Your applications deserve agents, the line The open-source agent platform for applications, and a Meet Cuttlely! button." width="880"></a>
 <br>
 <a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722">Watch the narrated run (78 seconds, sound on)</a>
 </p>
@@ -68,10 +68,10 @@ A customer writes in about a late order. A customer specialist reads the account
 <a id="test-every-change-before-it-goes-live"></a>
 <a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
-Every edit saves to a draft while Live keeps serving your app. Compare, in the Publish dialog, asks real questions on Live and on the draft and marks each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes. Test with up to 100 question-and-answer pairs, with more on the roadmap.
+Every edit saves to a draft while Live keeps serving your app. Compare, in the Publish dialog, asks real questions on Live and on the draft and marks each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes. Test with up to 100 question-and-answer pairs.
 
 <p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="Watch the testing run. The title card shows the Cuttlely mascot holding a checklist clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
 <br>
 <a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063">Watch the testing run (56 seconds, sound on)</a>
 </p>
