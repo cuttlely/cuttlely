@@ -192,6 +192,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 
 ## Gotchas
 
+-   **Try the demo stages specialist files after the harness save.** A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed. `scripts/demo-save.test.mjs` in the verify-test step covers a fresh install, a retry of marked folders, a retry of unmarked 1.7.3 folders, a non-demo file at a demo name, an unmarked folder that has only `support.sqlite`, and a saved team whose files are missing.
 -   **A failed chat is not proof its runtime worker stopped.** Cleanup targets the admitted run id and waits at most two seconds for a terminal runtime status. `Runtime stop was not confirmed` means the worker may still be active; inspect runtime health and worker state rather than deleting history or raising the concurrency cap. The client does not forcibly kill a worker that ignores interruption.
 
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.
