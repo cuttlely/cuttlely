@@ -365,7 +365,7 @@ Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/4
 
 ## Local 1.7.4 release preparation
 
-The preparation branch `release/1.7.4-prep` landed on main as `774eed4e` (#487), after #484 at `c2e63f61`, #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. Keep the exact `## [1.7.4] - Unreleased` heading for the release tool. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
+The preparation branch `release/1.7.4-prep` landed on main as `774eed4e` (#487), after #484 at `c2e63f61`, #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. The release was cut as `986f64c5` (#489) with the `v1.7.4` tag, and `CHANGELOG.md` dates it `## [1.7.4] - 2026-11-13`; new lines go under `## [Unreleased]`. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
 
 ## Historical local 1.7.3 release preparation
 

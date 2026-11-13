@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   **#457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
+
 ## [1.7.4] - 2026-11-13
 
 ### Added
@@ -25,8 +29,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   **#484 (`c2e63f61`):** Import & verify does not mark a flow ready when a saved query has no id, or two saved queries on the same card share an id. A ready result also does not publish a draft that still has a saved query this server did not verify. A second start while the first check is still being admitted does not run a second check. Saved-query text that is not a list of queries, including the text `null` or a list with entries that are not queries, is left as stored and is not marked ready. A saved-query field that is missing, empty, or null means the card has no saved queries. A verified-output value that is not a list of contracts is left as stored and is not marked ready. A verified-output field that is missing, empty, or null means there is no contract. Turn off Publish instantly to verify an import into that flow. The file can still be imported as a new flow. A ready file that matches Live says **Matches Live; nothing to publish.** and does not offer Publish.
 
 -   **#486 (`f9cb1123`):** **Try the demo** on a new install saves the customer care team. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. An edited copy of one of those files still blocks the save. Any other file at those names still blocks the save, and any other blocker means nothing is removed. A team that was saved before its specialist files were copied is finished on the next Try the demo, and a file already there is not replaced. The README says policy runs after operations, and that the demo card stays on **Harness · Agent Team** once a flow is saved. `npx cuttlely logs` is named for diagnosing a quiet start.
-
--   **#457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
 
 ### Upgrade notes / breaking changes
 
