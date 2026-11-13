@@ -12,7 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   Version History can connect a GitHub repository that already has files or commits. The first copy adds the version files beside what is already there and never replaces or removes an existing file. A version is still recorded when those files already match. Files added on GitHub later stay, and the next copy adds new versions on top of them. A repository with no versions from the previous environment is still refused.
+-   Version History can connect a GitHub repository that already has files or commits. The first copy adds version files beside what is already there. Later versions update only this server's earlier version paths while their bytes and mode are unchanged. Files added in later GitHub commits stay, and the next copy adds new versions on top of them. A branch that no longer descends from this server's copy, a different existing path, or a changed copied path stops the copy. A repository with no real version commit from the previous environment is still refused.
 
 ## [1.7.4] - 2026-11-13
 

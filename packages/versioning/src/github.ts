@@ -15,10 +15,10 @@
 // - The token reaches git only through the child's environment, as an HTTP header scoped to the
 //   repository URL. It is never on a command line, in a remote URL, or in the repo config.
 // - No force push, ever. A repository that already has history gets the version files in new
-//   commits on top of that history, and only when that update fast-forwards. An existing file is
-//   never replaced or removed. Files added on GitHub later stay: the next copy adds versions on
-//   top of them and still only fast-forwards. A path that would replace a different existing file
-//   stops the copy. History that does not descend from this server's copy stops the copy too.
+//   commits on top of that history, and only when that update fast-forwards. Files added on GitHub
+//   later stay: the next copy adds versions on top of them. A version path this server wrote can
+//   advance while its bytes and mode are unchanged. A path that would replace a different existing
+//   file stops the copy. History that does not descend from this server's copy stops the copy too.
 // - Before each copy, the commits being copied are checked for secret-shaped text again.
 import { execFile, spawn } from 'child_process'
 import { randomBytes } from 'crypto'
@@ -101,7 +101,7 @@ export interface GithubRepoChoice {
     repo: string
     private: boolean
     // GitHub reports no content yet. Empty repositories still connect. A repository that already
-    // has files can connect too: the copy adds version files beside them and never replaces a path.
+    // has files can connect too: the copy adds version files beside them without replacing a different path.
     empty: boolean
     pushedAt: string | null
 }
@@ -207,10 +207,10 @@ const ADOPT_REF = 'refs/versions/adopt'
 const KEPT_PATH = 'README.md'
 // A tree with no files. Used when this server created the history, so no pre-existing file needs protecting.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
-const VERSION_COMMITTER = 'system@versions.local'
-
 type TreeEntry = { mode: string; sha: string }
 type IndexedTree = { files: Map<string, TreeEntry>; folded: Map<string, string> }
+
+const sameTreeEntry = (left: TreeEntry, right: TreeEntry): boolean => left.mode === right.mode && left.sha === right.sha
 
 interface ActivePlan extends SyncPlan {
     invalid: boolean
@@ -1295,7 +1295,7 @@ export class GithubSync {
 
     // The branch and notes checks for the list on disk. Nothing is written. A later environment must have this
     // server's list recorded on the previous environment's tip from the listing. A copying server may connect
-    // a branch that already has files: the copy adds version files on top and never replaces an existing path.
+    // a branch that already has files: the copy adds version files on top without replacing a different path.
     private async acceptConnection(
         plan: ActivePlan,
         refs: string[],
@@ -1370,17 +1370,15 @@ export class GithubSync {
         }
     }
 
-    // True when a commit this server writes is reachable: the committer is Cuttlely, or the message carries a version trailer.
+    // True only when a saved version is reachable. The history-start and graft metadata commits are not versions.
     private async remoteHasCuttlelyCommits(url: string, token: string, branch: string, repo: string): Promise<boolean> {
         const dir = this.deps.store().dir
         await this.fetchBranch(url, token, branch, ADOPT_REF, repo)
         try {
             const tip = await this.refSha(ADOPT_REF)
             if (!tip) return false
-            const emails = (await runGit(dir, ['log', '--max-count=5000', '--format=%ce', ADOPT_REF])).stdout
-            if (emails.split('\n').some((line) => line.trim() === VERSION_COMMITTER)) return true
-            const bodies = (await runGit(dir, ['log', '--max-count=200', '--format=%B%x1e', ADOPT_REF])).stdout
-            return bodies.includes('Version-Flow:') || bodies.includes('Version-Base:')
+            const bodies = (await runGit(dir, ['log', '--max-count=5000', '--format=%B%x1e', ADOPT_REF])).stdout
+            return bodies.split('\x1e').some((body) => Boolean(readTrailer(body, 'Flow')))
         } finally {
             await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
         }
@@ -1557,18 +1555,18 @@ export class GithubSync {
             if (tipName) {
                 const existing = tip.files.get(tipName)!
                 if (this.keptName(tipName) || this.keptName(file)) continue
-                if (tipName === file && existing.sha === entry.sha) continue
+                if (tipName === file && sameTreeEntry(existing, entry)) continue
                 const publishedName = published?.folded.get(fold)
                 const publishedEntry = publishedName ? published!.files.get(publishedName) : undefined
-                // A file this server wrote, still holding those bytes, can take the next version.
-                // Any other different bytes would replace what is already there.
-                if (!origin.folded.has(fold) && publishedEntry && tipName === file && existing.sha === publishedEntry.sha) continue
+                // A file this server wrote, still holding those bytes and mode, can take the next version.
+                // Any other different entry would replace what is already there.
+                if (!origin.folded.has(fold) && publishedEntry && tipName === file && sameTreeEntry(existing, publishedEntry)) continue
                 return tipName
             }
             for (const other of tipPaths) {
                 const left = fold
                 const right = other.toLowerCase()
-                if (right.startsWith(`${left}/`) || left.startsWith(`${right}/`)) return file
+                if (right.startsWith(`${left}/`) || left.startsWith(`${right}/`)) return other
             }
         }
         if (published) {
@@ -1579,7 +1577,7 @@ export class GithubSync {
                 if (!tipName) continue
                 const existing = tip.files.get(tipName)!
                 const previous = published.files.get(file)!
-                if (tipName !== file || existing.sha !== previous.sha) return tipName
+                if (tipName !== file || !sameTreeEntry(existing, previous)) return tipName
             }
         }
         return null
@@ -1612,10 +1610,10 @@ export class GithubSync {
                 if (tipName) {
                     if (this.keptName(tipName) || this.keptName(file) || origin.folded.has(fold)) continue
                     const existing = tip.files.get(tipName)!
-                    if (tipName === file && existing.sha === entry.sha) continue
+                    if (tipName === file && sameTreeEntry(existing, entry)) continue
                     const publishedName = published?.folded.get(fold)
                     const publishedEntry = publishedName ? published!.files.get(publishedName) : undefined
-                    if (publishedEntry && tipName === file && existing.sha === publishedEntry.sha) {
+                    if (publishedEntry && tipName === file && sameTreeEntry(existing, publishedEntry)) {
                         lines.push(`${entry.mode} ${entry.sha}\t${file}`)
                     }
                     continue
@@ -1631,7 +1629,7 @@ export class GithubSync {
                     if (tipName !== file) continue
                     const existing = tip.files.get(tipName)!
                     const previous = published.files.get(file)!
-                    if (existing.sha !== previous.sha) continue
+                    if (!sameTreeEntry(existing, previous)) continue
                     lines.push(`0 ${'0'.repeat(40)}\t${file}`)
                 }
             }

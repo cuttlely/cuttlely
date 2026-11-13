@@ -193,6 +193,10 @@ function bareFile(repo: string, rev: string, file: string): string {
     return execFileSync('git', ['--git-dir', repo, 'show', `${rev}:${file}`], { encoding: 'utf8', env: cleanEnv() })
 }
 
+function bareMode(repo: string, rev: string, file: string): string {
+    return execFileSync('git', ['--git-dir', repo, 'ls-tree', rev, '--', file], { encoding: 'utf8', env: cleanEnv() }).trim().split(/\s/)[0]
+}
+
 function bareGrep(repo: string, rev: string, text: string): string {
     return execFileSync('git', ['--git-dir', repo, 'grep', '-l', text, rev], { encoding: 'utf8', env: cleanEnv() })
 }
@@ -666,6 +670,36 @@ describe('copying history to a repository', () => {
         expect(bareFile(bare, tip, 'notes/later.md')).toBe('keep this note\n')
     })
 
+    test('a mode-only GitHub change to a copied version file stops the next copy', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        const work = path.join(tmp, 'mode-only')
+        fs.mkdirSync(work)
+        const env = cleanEnv({
+            GIT_AUTHOR_NAME: 'someone',
+            GIT_AUTHOR_EMAIL: 'someone@example.invalid',
+            GIT_COMMITTER_NAME: 'someone',
+            GIT_COMMITTER_EMAIL: 'someone@example.invalid'
+        })
+        execFileSync('git', ['clone', '-q', '-b', 'main', `file://${bare}`, '.'], { cwd: work, env })
+        execFileSync('git', ['update-index', '--chmod=+x', file], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'Make the version file executable'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+        const changed = bareMain(bare)!
+        expect(bareMode(bare, changed, file)).toBe('100755')
+
+        await save('Two')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain(file)
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(changed)
+        expect(bareMode(bare, changed, file)).toBe('100755')
+    })
+
     test('a later version that would replace an existing path stops and leaves GitHub unchanged', async () => {
         const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
         const blocked = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}/flow.json`
@@ -766,7 +800,7 @@ describe('copying history to a repository', () => {
         const foreign = bareMain(bare)
         await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
             status: 409,
-            message: expect.stringContaining('never overwrites GitHub')
+            message: expect.stringContaining('already has flows, which this copy would replace')
         })
         expect(bareMain(bare)).toBe(foreign)
         expect(bareFile(bare, foreign!, 'flows')).toBe('not a directory\n')
@@ -1552,11 +1586,14 @@ describe('Dev or Prod label', () => {
         expect(plainGit(versionsDir(), 'rev-parse', 'refs/versions/incoming').trim()).toBe(head)
     })
 
-    test('a repository with no environment-list record still offers versions from this server', async () => {
+    test('Prod accepts a real version commit even when the repository has no environment-list record', async () => {
         await save('One')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const head = bareMain(bare)
         expect(head).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'log', '-1', '--format=%B', head!], { encoding: 'utf8', env: cleanEnv() })
+        ).toContain('Version-Flow:')
         await sync.disconnect()
         execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
         expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
@@ -1583,6 +1620,24 @@ describe('Dev or Prod label', () => {
         expect(bareMain(bare)).toBe(foreign)
         expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
         expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
+    })
+
+    test('Prod refuses a repository with only a Cuttlely history-start commit', async () => {
+        await getStore().ensure()
+        const start = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        expect(plainGit(versionsDir(), 'log', '-1', '--format=%ce', start).trim()).toBe('system@versions.local')
+        expect(plainGit(versionsDir(), 'log', '-1', '--format=%B', start)).not.toContain('Version-Flow:')
+        seedRemote('refs/heads/main')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('prod')
+
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('no versions from a Dev server')
+        })
+        expect(bareMain(bare)).toBe(start)
+        expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
     })
 
     test('a named Dev server copies onto a README and the next server can read that copy', async () => {

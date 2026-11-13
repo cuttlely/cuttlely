@@ -394,7 +394,9 @@ describe('Prod reads the shared repository and never writes to it', () => {
     })
 
     test('switching between Dev and Prod while connected is refused; clearing a Dev label is not', async () => {
-        await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const empty = path.join(tmp, 'prod-empty.git')
+        execFileSync('git', ['init', '-q', '--bare', empty], { env: cleanEnv() })
+        await prodSync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
         await expect(prodSync.setEnvironment('dev')).rejects.toMatchObject({
             status: 409,
             message: expect.stringContaining('Disconnect GitHub')
@@ -420,7 +422,9 @@ describe('Prod reads the shared repository and never writes to it', () => {
     })
 
     test('a Prod save does not start a copy', async () => {
-        await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const empty = path.join(tmp, 'prod-empty.git')
+        execFileSync('git', ['init', '-q', '--bare', empty], { env: cleanEnv() })
+        await prodSync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
         const calls = gitCalls.length
         prodSync.notify()
         await new Promise((resolve) => setTimeout(resolve, 30))
@@ -429,13 +433,14 @@ describe('Prod reads the shared repository and never writes to it', () => {
 })
 
 describe('new versions from Dev, per flow', () => {
-    beforeEach(async () => {
+    async function publishBeforeProdConnect(id: string, name: string, flowData: string, category?: string) {
+        await devPublishes(id, name, flowData, category)
         asProd()
         await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
-    })
+    }
 
     test('a flow Prod does not have is offered as new, with the credentials it needs mapped by name', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         const list = await listIncoming(WS, deps)
         expect(list).toMatchObject({ enabled: true, connected: true })
@@ -466,7 +471,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a credential Prod does not have is listed, and the check waits for it', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY, { credential: 'dev-cred-2' }))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY, { credential: 'dev-cred-2' }))
         await prodReads()
         const detail = await getIncoming(FLOW, WS, deps)
         expect(detail.missingCredentials).toEqual([SEARCH])
@@ -487,7 +492,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('after Promote the flow is no longer offered, until Dev publishes again; then only the newer versions are listed', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         const first = (await listIncoming(WS, deps)).flows[0]
         await prodPromotes(FLOW, first.version.sha)
@@ -509,7 +514,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a version that already matches Live is not offered, and a flow in another workspace is left out', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await devPublishes(OTHER, 'Elsewhere', canvas('ZULU', DEV_KEY))
         await prodReads()
         prodFlows.set(FLOW, {
@@ -531,7 +536,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a release that only moves the flow to another category is offered, and the version carries the category', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY), 'Front desk')
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY), 'Front desk')
         await prodReads()
         prodFlows.set(FLOW, {
             id: FLOW,
@@ -549,7 +554,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a flow deleted on Dev is not offered', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         asDev()
         const { recordFlowDeletion } = await import('../flow-versions')
         await recordFlowDeletion({ id: FLOW, name: 'Support bot' })
@@ -560,7 +565,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a Prod draft is reported, never changed', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('BRAVO', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('BRAVO', DEV_KEY))
         await prodReads()
         prodFlows.set(FLOW, {
             id: FLOW,
@@ -574,7 +579,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('Promote needs the newest version: an older or unknown id is refused', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         const older = rev(prodDir, INCOMING_REF)!
         await devPublishes(FLOW, 'Support bot', canvas('BRAVO', DEV_KEY))
@@ -590,7 +595,7 @@ describe('new versions from Dev, per flow', () => {
     })
 
     test('a Dev server lists nothing to promote', async () => {
-        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        await publishBeforeProdConnect(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         await prodReads()
         expect(await listIncoming(WS, { ...deps, environment: () => 'dev' })).toMatchObject({ enabled: false, flows: [] })
     })
