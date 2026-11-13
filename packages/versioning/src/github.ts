@@ -21,7 +21,7 @@
 //   file stops the copy. History that does not descend from this server's copy stops the copy too.
 // - Before each copy, the commits being copied are checked for secret-shaped text again.
 import { execFile, spawn } from 'child_process'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import readline from 'readline'
 import fs from 'fs'
 import path from 'path'
@@ -201,6 +201,9 @@ const NOTE_REMOTE_CACHE = 'refs/notes/remote-list'
 const CONNECT_SOURCE_REF = 'refs/versions/connect-source'
 // The remote commit the last graft pushed. Absent when this server pushes its own commits directly.
 const GRAFT_REF = 'refs/versions/github-remote'
+// The newest commit this server copied to each repository/branch. These scoped refs survive
+// Disconnect, unlike the active-connection refs above, so a reset cannot be adopted later.
+const LATEST_COPY_REF_PREFIX = 'refs/versions/github-latest'
 // A fetched remote tip, dropped before the connection is saved.
 const ADOPT_REF = 'refs/versions/adopt'
 // Every history repo starts with this file. An existing one on GitHub is kept as it is, in any capitalization.
@@ -1293,6 +1296,26 @@ export class GithubSync {
         return (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
     }
 
+    private latestCopyRef(repo: string, url: string, branch: string): string {
+        const scope = createHash('sha256')
+            .update(JSON.stringify([repo, url, branch]))
+            .digest('hex')
+        return `${LATEST_COPY_REF_PREFIX}/${scope}`
+    }
+
+    private async latestCopy(repo: string, url: string, branch: string): Promise<string | null> {
+        return this.refSha(this.latestCopyRef(repo, url, branch))
+    }
+
+    private async rememberLatestCopy(repo: string, url: string, branch: string, sha: string): Promise<void> {
+        await runGit(this.deps.store().dir, ['update-ref', this.latestCopyRef(repo, url, branch), sha])
+    }
+
+    private async remoteDescendsLatestCopy(repo: string, url: string, branch: string, tip: string): Promise<boolean> {
+        const latest = await this.latestCopy(repo, url, branch)
+        return !latest || (Boolean(tip) && this.isAncestor(latest, tip))
+    }
+
     // The branch and notes checks for the list on disk. Nothing is written. A later environment must have this
     // server's list recorded on the previous environment's tip from the listing. A copying server may connect
     // a branch that already has files: the copy adds version files on top without replacing a different path.
@@ -1302,12 +1325,13 @@ export class GithubSync {
         repo: string,
         url: string,
         token: string
-    ): Promise<{ plan: ActivePlan; pushed: string | null; graft: string | null }> {
+    ): Promise<{ plan: ActivePlan; pushed: string | null; graft: string | null; latest: string | null }> {
         if (plan.invalid) throw new GithubError(409, LIST_UNREADABLE)
         if (!plan.reads && !plan.copies) throw new GithubError(409, PICK_ENVIRONMENT)
         const reading = plan.reads && !plan.copies
         let pushed: string | null = null
         let graft: string | null = null
+        let latest: string | null = null
         let verifiedSource: string | null = null
         if (reading && isLegacyChain(plan.environments)) {
             // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
@@ -1323,17 +1347,34 @@ export class GithubSync {
         }
         const branch = plan.publishBranch
         const remotePublish = branch ? this.listedSha(refs, `refs/heads/${branch}`) : ''
+        if (branch && !reading && (await this.latestCopy(repo, url, branch))) {
+            if (!remotePublish) throw new GithubError(409, this.notOurHistory(repo))
+            await this.fetchBranch(url, token, branch, ADOPT_REF, repo)
+            try {
+                const tip = await this.refSha(ADOPT_REF)
+                if (tip !== remotePublish) {
+                    throw new GithubError(409, `GitHub changed ${repo} while Cuttlely was checking it. Nothing was saved. Try again.`)
+                }
+                if (!(await this.remoteDescendsLatestCopy(repo, url, branch, tip || ''))) {
+                    throw new GithubError(409, this.notOurHistory(repo))
+                }
+            } finally {
+                await runGit(this.deps.store().dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
+            }
+        }
         if (branch && remotePublish && !reading) {
             const head = await this.refSha('refs/heads/main')
             if (head && (await this.isAncestor(remotePublish, head))) {
                 pushed = remotePublish
+                latest = remotePublish
             } else {
                 const adopted = await this.adoptExisting(remotePublish, branch, repo, url, token)
                 pushed = adopted.pushed
                 graft = adopted.graft
+                latest = adopted.latest
             }
         }
-        return { plan: { ...plan, verifiedSource }, pushed, graft }
+        return { plan: { ...plan, verifiedSource }, pushed, graft, latest }
     }
 
     private noDevVersions(repo: string): string {
@@ -1391,7 +1432,7 @@ export class GithubSync {
         repo: string,
         url: string,
         token: string
-    ): Promise<{ pushed: string | null; graft: string }> {
+    ): Promise<{ pushed: string | null; graft: string; latest: string | null }> {
         const dir = this.deps.store().dir
         await this.fetchBranch(url, token, branch, ADOPT_REF, repo)
         try {
@@ -1414,16 +1455,16 @@ export class GithubSync {
                 }
                 await this.ensureTree(marker.remote)
                 await this.assertNoOverwrite(repo, tip, marker.remote, marker.base, marker.base, head, false)
-                return { pushed: marker.base, graft: tip }
+                return { pushed: marker.base, graft: tip, latest: marker.sha }
             }
             const direct = await this.directCopyBase(tip, head)
             if (direct) {
                 await this.ensureTree(EMPTY_TREE)
                 await this.assertNoOverwrite(repo, tip, EMPTY_TREE, direct, direct, head, false)
-                return { pushed: direct, graft: tip }
+                return { pushed: direct, graft: tip, latest: direct }
             }
             await this.assertNoOverwrite(repo, tip, tip, null, null, head, false)
-            return { pushed: null, graft: tip }
+            return { pushed: null, graft: tip, latest: null }
         } finally {
             await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
         }
@@ -1816,6 +1857,7 @@ export class GithubSync {
         const plan = accepted.plan
         const pushed = accepted.pushed
         const graft = accepted.graft
+        const latest = accepted.latest
 
         this.generation += 1
         this.clearTimer()
@@ -1848,6 +1890,7 @@ export class GithubSync {
         else await runGit(store.dir, ['update-ref', '-d', PUSHED_REF]).catch(() => undefined)
         if (graft) await runGit(store.dir, ['update-ref', GRAFT_REF, graft])
         else await runGit(store.dir, ['update-ref', '-d', GRAFT_REF]).catch(() => undefined)
+        if (latest && plan.publishBranch) await this.rememberLatestCopy(repo, url, plan.publishBranch, latest)
         // A new connection starts from what this repository holds now.
         await runGit(store.dir, ['update-ref', '-d', INCOMING_REF]).catch(() => undefined)
         this.resetState()
@@ -2041,6 +2084,18 @@ export class GithubSync {
         const head = await this.refSha('refs/heads/main')
         const base = await this.refSha(PUSHED_REF)
         const graft = await this.refSha(GRAFT_REF)
+        const looked = await this.lookupTip(config, branch)
+        if (generation !== this.generation) return
+        if (looked.kind === 'error') {
+            if (looked.retry) this.scheduleRetry(looked.message)
+            else this.holdCopy(looked.message)
+            return
+        }
+        const remoteTip = looked.kind === 'tip' ? looked.sha : ''
+        if (!(await this.remoteDescendsLatestCopy(config.repo, config.url, branch, remoteTip))) {
+            this.holdCopy(this.notOurHistory(config.repo, true))
+            return
+        }
         if (!head || head === base) {
             // A graft records the list on the commit this server added. A pre-existing tip is left alone.
             let notedOn = head
@@ -2074,13 +2129,6 @@ export class GithubSync {
             await this.pushGraft(config, plan, generation, store, head, base, graft, branch)
             return
         }
-        const looked = await this.lookupTip(config, branch)
-        if (generation !== this.generation) return
-        if (looked.kind === 'error') {
-            if (looked.retry) this.scheduleRetry(looked.message)
-            else this.holdCopy(looked.message)
-            return
-        }
         if (looked.kind === 'tip' && base && !(await this.isAncestor(looked.sha, head)) && (await this.isAncestor(base, looked.sha))) {
             await this.pushGraft(config, plan, generation, store, head, base, looked.sha, branch)
             return
@@ -2100,6 +2148,7 @@ export class GithubSync {
         if (generation !== this.generation) return
         if (result.ok) {
             await runGit(store.dir, ['update-ref', PUSHED_REF, head])
+            await this.rememberLatestCopy(config.repo, config.url, branch, head)
             const noted = await this.publishEnvironmentNote(config, head, plan, generation)
             if (generation !== this.generation) return
             if (!noted) {
@@ -2171,7 +2220,11 @@ export class GithubSync {
             return
         }
         const tip = looked.sha
-        // The branch must descend from the latest remote commit this process recorded, whether or not
+        if (!(await this.remoteDescendsLatestCopy(config.repo, config.url, branch, tip))) {
+            this.holdCopy(this.notOurHistory(config.repo, true))
+            return
+        }
+        // The branch must descend from the latest remote commit this server recorded, whether or not
         // an older graft marker is still reachable after a branch reset.
         if (graft && !(await this.isAncestor(graft, tip))) {
             this.holdCopy(this.notOurHistory(config.repo, true))
@@ -2274,9 +2327,15 @@ export class GithubSync {
                 return
             }
             await runGit(dir, ['update-ref', GRAFT_REF, parent])
+            await this.rememberLatestCopy(config.repo, config.url, branch, parent)
         } else if (graft !== tip && (await this.graftMarker(tip))) {
             // The copy landed, and this process stopped before recording it. The tip is already ours.
             await runGit(dir, ['update-ref', GRAFT_REF, tip])
+            await this.rememberLatestCopy(config.repo, config.url, branch, tip)
+        } else if (marker) {
+            await this.rememberLatestCopy(config.repo, config.url, branch, marker.sha)
+        } else if (published) {
+            await this.rememberLatestCopy(config.repo, config.url, branch, published)
         }
         await runGit(dir, ['update-ref', PUSHED_REF, head])
         const notedOn = created ? parent : (await this.graftMarker(tip)) ? tip : null
@@ -2355,6 +2414,13 @@ export class GithubSync {
             const next = await runGit(dir, ['rev-parse', '--verify', '-q', `${INCOMING_NEXT_REF}^{commit}`]).catch(() => null)
             const sha = next?.stdout.trim()
             if (sha) {
+                if (!(await this.remoteDescendsLatestCopy(config.repo, config.url, branch, sha))) {
+                    await drop(INCOMING_NEXT_REF)
+                    this.state = 'stopped'
+                    this.message = this.notOurHistory(config.repo, true)
+                    this.nextTryAt = null
+                    return
+                }
                 const note = await this.environmentNoteCheck(config, sha, plan, generation)
                 if (generation !== this.generation) {
                     await drop(INCOMING_NEXT_REF)

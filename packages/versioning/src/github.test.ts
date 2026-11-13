@@ -719,6 +719,80 @@ describe('copying history to a repository', () => {
         expectFastForwardOnly()
     })
 
+    test('resetting a direct-copy branch to an older copy stops before GitHub is changed', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const latest = bareMain(bare)!
+        expect(latest).not.toBe(first)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await save('Three')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('not the history this server has')
+        expect(bareMain(bare)).toBe(first)
+        expectFastForwardOnly()
+    })
+
+    test('a graft reset stays stopped after Disconnect and Connect', async () => {
+        foreignCommit(bare, path.join(tmp, 'graft-reconnect-reset-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        expect(bareMain(bare)).not.toBe(first)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await sync.disconnect()
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+        expect(bareMain(bare)).toBe(first)
+        expect((await sync.status()).connected).toBe(false)
+        expectFastForwardOnly()
+    })
+
+    test('a direct-copy reset stays stopped after Disconnect and Connect', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        expect(bareMain(bare)).not.toBe(first)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await sync.disconnect()
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+        expect(bareMain(bare)).toBe(first)
+        expect((await sync.status()).connected).toBe(false)
+        expectFastForwardOnly()
+    })
+
+    test('the latest-copy record for one repository does not block a different repository', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const firstRepoTip = bareMain(bare)
+        await sync.disconnect()
+
+        const other = makeBare(path.join(tmp, 'other.git'))
+        const status = await sync.connect({ repo: `file://${other}`, token: TOKEN }, WS)
+
+        expect(status.state).toBe('up-to-date')
+        expect(bareMain(other)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(bareMain(bare)).toBe(firstRepoTip)
+        expectFastForwardOnly()
+    })
+
     test('a mode-only GitHub change to a copied version file stops the next copy', async () => {
         await save('One')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
@@ -1595,6 +1669,27 @@ describe('Dev or Prod label', () => {
         const reconnected = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect(reconnected.state).toBe('up-to-date')
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(descendant)
+    })
+
+    test('a reader does not install a branch reset behind this server latest copy', async () => {
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        expect(bareMain(bare)).not.toBe(first)
+
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('not the history this server has')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
+        expect(bareMain(bare)).toBe(first)
     })
 
     test('a notes fetch that cannot reach the repository stops, then succeeds on retry', async () => {
