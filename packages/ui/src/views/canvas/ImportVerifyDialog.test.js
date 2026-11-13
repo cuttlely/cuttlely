@@ -368,6 +368,109 @@ describe('Import & verify canvas', () => {
         })
         expect(onImported).toHaveBeenCalledTimes(painted)
         expect(onClose).toHaveBeenCalled()
+        expect(document.body.textContent).toContain('Ready to publish')
+        act(() => root.unmount())
+    })
+
+    test('Close during the draft-status read does not paint, and the finished result stays available', async () => {
+        let releaseStatus
+        let statusCalls = 0
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockImplementation(() => {
+            statusCalls += 1
+            if (statusCalls === 1) return Promise.resolve({ data: { mode: 'draft', draft: { flowData: stored, hash: 'saved' } } })
+            return new Promise((resolve) => {
+                releaseStatus = resolve
+            })
+        })
+        importVerifyApi.start.mockResolvedValue({
+            data: {
+                status: 'ready',
+                publishOffered: true,
+                draftHash: 'verified-hash',
+                summary: 'Ready to publish.',
+                connections: [],
+                queries: [],
+                blockers: [],
+                smoke: []
+            }
+        })
+        const onImported = jest.fn()
+        const onDraftUnavailable = jest.fn()
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            onImported,
+            onDraftUnavailable,
+            draftStatus: { mode: 'draft', draft: { hash: 'saved' } }
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            for (let i = 0; i < 20 && statusCalls < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 10))
+        })
+        expect(statusCalls).toBe(2)
+        const painted = onImported.mock.calls.length
+        await act(async () => {
+            click('Close')
+        })
+        await act(async () => {
+            releaseStatus({ data: { mode: 'draft', draft: { flowData: '{"nodes":[{"id":"later"}]}', hash: 'later' } } })
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(onImported).toHaveBeenCalledTimes(painted)
+        expect(onDraftUnavailable).not.toHaveBeenCalled()
+        expect(document.body.textContent).toContain('Ready to publish')
+        act(() => root.unmount())
+    })
+
+    test('a second start that is still running is followed until Ready', async () => {
+        let started = false
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { flowData: stored, hash: 'saved' } } })
+        importVerifyApi.start.mockImplementation(() => {
+            started = true
+            return Promise.resolve({
+                data: {
+                    status: 'running',
+                    running: true,
+                    phase: 'Checking this flow.',
+                    publishOffered: false,
+                    connections: [],
+                    queries: [],
+                    blockers: [],
+                    smoke: []
+                }
+            })
+        })
+        importVerifyApi.status.mockImplementation(() =>
+            Promise.resolve({
+                data: started
+                    ? {
+                          status: 'ready',
+                          publishOffered: true,
+                          draftHash: 'verified-hash',
+                          summary: 'Ready to publish.',
+                          connections: [],
+                          queries: [],
+                          blockers: [],
+                          smoke: []
+                      }
+                    : { status: 'idle' }
+            })
+        )
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            draftStatus: { mode: 'draft', draft: { hash: 'saved' } }
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 800))
+        })
+        expect(document.body.textContent).toContain('Ready to publish')
+        expect(document.body.textContent).toContain('Publish')
         act(() => root.unmount())
     })
 

@@ -184,7 +184,18 @@ const start = async (req: Request, res: Response, next: NextFunction) => {
             const flow = await flowFor(req)
             const state = await flowDraftsService.getState(flow.id)
             const record = readRecord(state?.importVerify)
-            if (record) return res.json(record)
+            if (record) return res.json({ ...record, running: true })
+            return res.json({
+                version: 1,
+                status: 'running',
+                running: true,
+                phase: 'Checking this flow.',
+                publishOffered: false,
+                blockers: [],
+                queries: [],
+                smoke: [],
+                connections: []
+            })
         }
         return res.json(await run(req, req.body?.retryFailures === true))
     } catch (error) {

@@ -47,6 +47,7 @@ const ImportVerifyDialog = ({
     const openRef = useRef(open)
     const dirtyRef = useRef(canvasDirty === true)
     const closedWhileRunning = useRef(false)
+    const pollGen = useRef(0)
 
     useEffect(() => {
         if (chatflow?.id) setChatflowId(chatflow.id)
@@ -97,6 +98,8 @@ const ImportVerifyDialog = ({
     const mayPaint = () => openRef.current && !closedWhileRunning.current && !dirtyRef.current
 
     const showImported = async (id, fallback) => {
+        const dirtyAtStart = dirtyRef.current
+        if (!openRef.current || closedWhileRunning.current) return false
         let saved = fallback
         let status = null
         try {
@@ -107,6 +110,8 @@ const ImportVerifyDialog = ({
         } catch {
             // The file already written to the draft is enough to replace the canvas.
         }
+        // Close, or an edit that started during this read, must not replace the cards.
+        if (!openRef.current || closedWhileRunning.current || (!dirtyAtStart && dirtyRef.current)) return false
         const delivered = deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
         setDraftStatusFailed(!status || typeof status !== 'object')
         if (!status || typeof status !== 'object') {
@@ -188,6 +193,7 @@ const ImportVerifyDialog = ({
                 resume: extra.resume
             })
             closedWhileRunning.current = false
+            const generation = ++pollGen.current
             const id = await ensureFlow(replaceDraft)
             if (replaceDraft && flowText && openRef.current && !closedWhileRunning.current) await showImported(id, flowText)
             const pending = importVerifyApi.start(id, extra)
@@ -195,15 +201,28 @@ const ImportVerifyDialog = ({
                 importVerifyApi
                     .status(id)
                     .then((response) => {
+                        if (generation !== pollGen.current) return
                         if (response?.data?.status && response.data.status !== 'idle') setRecord(response.data)
                     })
                     .catch(() => undefined)
             }, 700)
             try {
                 const response = await pending
-                if (!mayPaint()) return
-                if (response?.data) setRecord(response.data)
-                await showImported(id, replaceDraft ? flowText : '')
+                let data = response?.data
+                // A second start answers with the check that is still running. Keep reading until it finishes
+                // so a reopened dialog can show Ready instead of the last running line.
+                while (data?.status === 'running' && data.running !== false) {
+                    await new Promise((resolve) => setTimeout(resolve, 700))
+                    try {
+                        const status = await importVerifyApi.status(id)
+                        if (status?.data?.status && status.data.status !== 'idle') data = status.data
+                    } catch {
+                        break
+                    }
+                }
+                pollGen.current += 1
+                if (data) setRecord(data)
+                if (mayPaint()) await showImported(id, replaceDraft ? flowText : '')
             } finally {
                 clearInterval(timer)
             }
