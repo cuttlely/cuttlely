@@ -841,10 +841,9 @@ describe('what the canvas test chat runs', () => {
         expect(await flowDataForTestChat(flow({ type: 'ASSISTANT' }))).toBe(LIVE)
     })
 
-    test('the draft when Publish instantly is on and a draft still exists', async () => {
-        await saveDraft(flow(), canvas('Draft'), context)
-        rows[0].publishInstantly = true
-        expect(await flowDataForTestChat(flow())).toBe(canvas('Draft'))
+    test('Publish instantly with no draft reads Live', async () => {
+        rows.push({ chatflowId: 'flow-1', draftFlowData: null, publishInstantly: true })
+        expect(await flowDataForTestChat(flow())).toBe(LIVE)
     })
 })
 

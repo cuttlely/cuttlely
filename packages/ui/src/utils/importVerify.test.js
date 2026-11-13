@@ -156,6 +156,7 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
 
 test('the three finished results use plain titles', () => {
     expect(statusTitle('ready')).toBe('Ready to publish')
+    expect(statusTitle('ready', { summary: 'Matches Live; nothing to publish.' })).toBe('Matches Live')
     expect(statusTitle('attention')).toBe('Needs attention')
     expect(statusTitle('incomplete')).toBe('Could not fully verify')
 })

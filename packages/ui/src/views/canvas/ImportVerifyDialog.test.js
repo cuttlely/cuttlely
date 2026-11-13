@@ -170,6 +170,32 @@ describe('Import & verify canvas', () => {
         act(() => root.unmount())
     })
 
+    test('Publish instantly does not verify into this flow and still imports a new one', async () => {
+        chatflowsApi.createNewChatflow.mockResolvedValue({ data: { id: 'flow-new', name: 'Team', type: 'CHATFLOW' } })
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { flowData: stored } } })
+        importVerifyApi.start.mockResolvedValue({
+            data: { status: 'attention', summary: 'Needs attention.', blockers: [], connections: [], queries: [] }
+        })
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            draftStatus: { mode: 'live', reason: 'publish-instantly', publishInstantly: true },
+            onClose: () => {}
+        })
+        await chooseFile()
+        expect(document.body.textContent).toContain('Turn off Publish instantly to verify an import into this flow.')
+        expect([...document.body.querySelectorAll('button')].some((item) => item.textContent === 'Import & verify')).toBe(false)
+        await act(async () => {
+            click('Import as a new flow')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(chatflowsApi.createNewChatflow).toHaveBeenCalled()
+        expect(flowDraftsApi.saveDraft).not.toHaveBeenCalledWith('flow-1', expect.anything(), expect.anything())
+        expect(flowDraftsApi.saveDraft).toHaveBeenCalledWith('flow-new', expect.stringContaining('"api"'))
+        expect(importVerifyApi.start).toHaveBeenCalledWith('flow-new', expect.any(Object))
+        act(() => root.unmount())
+    })
+
     test('a new canvas adopts the created flow before verification starts', async () => {
         chatflowsApi.createNewChatflow.mockResolvedValue({ data: { id: 'flow-new', name: 'Team', type: 'CHATFLOW' } })
         flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })

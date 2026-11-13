@@ -152,8 +152,13 @@ const ImportVerifyDialog = ({
         reader.readAsText(file)
     }
 
-    const ensureFlow = async (saveFile) => {
-        const id = verificationFlowId(chatflow?.id, chatflowId)
+    const publishesInstantly = draftStatus?.reason === 'publish-instantly'
+
+    const ensureFlow = async (saveFile, asNew = false) => {
+        const id = asNew ? '' : verificationFlowId(chatflow?.id, chatflowId)
+        if (id && publishesInstantly) {
+            throw new Error('Turn off Publish instantly to verify an import into this flow.')
+        }
         if (id) {
             if (saveFile && flowText) {
                 const loaded = typeof expectedDraftHash === 'function' ? expectedDraftHash() : {}
@@ -194,7 +199,7 @@ const ImportVerifyDialog = ({
             })
             closedWhileRunning.current = false
             const generation = ++pollGen.current
-            const id = await ensureFlow(replaceDraft)
+            const id = await ensureFlow(replaceDraft, extra.asNew === true)
             if (replaceDraft && flowText && openRef.current && !closedWhileRunning.current) await showImported(id, flowText)
             const pending = importVerifyApi.start(id, extra)
             const timer = setInterval(() => {
@@ -236,7 +241,8 @@ const ImportVerifyDialog = ({
     const unresolved = (record?.connections || []).filter(connectionNeedsChoice)
     const retryable = (record?.queries || []).some((item) => item.state === 'failed')
     const flowId = verificationFlowId(chatflow?.id, chatflowId)
-    const title = statusTitle(record?.status)
+    const title = statusTitle(record?.status, record)
+    const intoThisFlowBlocked = Boolean(verificationFlowId(chatflow?.id, chatflowId)) && draftStatus?.reason === 'publish-instantly'
 
     return (
         <Dialog fullWidth maxWidth='sm' open={open} onClose={close} aria-labelledby='import-verify-title'>
@@ -256,9 +262,12 @@ const ImportVerifyDialog = ({
                             {fileName}
                         </Typography>
                     ) : null}
-                    {!chatflow?.id && (
+                    {!chatflow?.id || intoThisFlowBlocked ? (
                         <TextField label='Name' value={name} onChange={(event) => setName(event.target.value)} size='small' fullWidth />
-                    )}
+                    ) : null}
+                    {intoThisFlowBlocked ? (
+                        <Typography variant='body2'>Turn off Publish instantly to verify an import into this flow.</Typography>
+                    ) : null}
                     {record && (
                         <Alert severity={record.status === 'ready' ? 'success' : record.status === 'attention' ? 'warning' : 'info'}>
                             <strong>{title}.</strong> {record.summary || progressLine(record)}
@@ -332,11 +341,17 @@ const ImportVerifyDialog = ({
                         Publish
                     </Button>
                 )}
-                {!record && unresolved.length === 0 && (
-                    <Button variant='contained' disabled={busy || !flowText} onClick={() => run({})}>
-                        Import & verify
-                    </Button>
-                )}
+                {!record &&
+                    unresolved.length === 0 &&
+                    (intoThisFlowBlocked ? (
+                        <Button variant='contained' disabled={busy || !flowText} onClick={() => run({ asNew: true })}>
+                            Import as a new flow
+                        </Button>
+                    ) : (
+                        <Button variant='contained' disabled={busy || !flowText} onClick={() => run({})}>
+                            Import & verify
+                        </Button>
+                    ))}
             </DialogActions>
         </Dialog>
     )

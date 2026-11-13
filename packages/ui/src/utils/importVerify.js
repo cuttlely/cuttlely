@@ -59,7 +59,8 @@ export function untrustFlow(flow) {
     return copy
 }
 
-export function statusTitle(status) {
+export function statusTitle(status, record) {
+    if (record?.summary === 'Matches Live; nothing to publish.') return 'Matches Live'
     if (status === 'ready') return 'Ready to publish'
     if (status === 'attention') return 'Needs attention'
     if (status === 'incomplete' || status === 'cancelled') return 'Could not fully verify'
@@ -107,8 +108,7 @@ export function deliverImportedDraft({ status, flowText, onDraftStatus, onImport
     if (onDraftStatus) onDraftStatus(status)
     const stored = status.draft?.flowData
     const text = typeof stored === 'string' && stored ? stored : flowText
-    // Publish instantly reports mode live even when Import & verify has stored a draft.
-    // Those cards still have to appear, or the canvas keeps showing Live.
+    // A stored draft is shown even when the status mode is live, so those cards are not left off the canvas.
     const paints = Boolean(text) && (status.mode === 'draft' || (typeof stored === 'string' && Boolean(stored)))
     if (paints && onImported) onImported(text)
     return paints
