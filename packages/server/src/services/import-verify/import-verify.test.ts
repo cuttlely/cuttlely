@@ -386,7 +386,7 @@ describe('imported verification', () => {
 
     test('a required credential on a tool card blocks publish when the slot is empty', async () => {
         const canvas = flow([pin()], 'cred-pg')
-        canvas.nodes.push({
+        ;(canvas.nodes as unknown[]).push({
             id: 'api',
             data: {
                 id: 'api',
@@ -407,7 +407,7 @@ describe('imported verification', () => {
 
     test('an optional empty credential on a tool card does not block publish', async () => {
         const canvas = flow([pin()], 'cred-pg')
-        canvas.nodes.push({
+        ;(canvas.nodes as unknown[]).push({
             id: 'api',
             data: {
                 id: 'api',
