@@ -71,10 +71,19 @@ export function connectionNeedsChoice(item) {
 }
 
 export function showResume(record) {
-    if (!record || record.publishOffered || record.status === 'running' || record.status === 'idle') return false
+    if (!record || record.publishOffered || record.status === 'idle') return false
+    // A running record whose job is still in this process is not ready to resume. After a restart the
+    // saved record can still say running while no job is active; that one can be resumed.
+    if (record.status === 'running' && record.running !== false) return false
     if ((record.connections || []).some(connectionNeedsChoice)) return false
     if ((record.queries || []).some((item) => item.state === 'failed')) return false
     return !(record.smoke || []).some((item) => (item.id === 'report' || item.id === 'csv') && item.state === 'failed')
+}
+
+// Draft status has to land before the canvas text. Save reads the status that was current when the text was recorded.
+export function deliverImportedDraft({ status, flowText, onDraftStatus, onImported } = {}) {
+    if (status && onDraftStatus) onDraftStatus(status)
+    if (flowText && onImported) onImported(flowText)
 }
 
 export function canvasPathForImport(flowType, id, agentV2 = false) {

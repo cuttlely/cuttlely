@@ -8,7 +8,7 @@ import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
 import flowDraftsService, { canvasHash, DraftChangedError } from '../../services/flow-drafts'
 import { harnessCallerFor } from '../../services/harnesses/apiAccess'
-import { executeVerify, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
+import { executeVerify, recoverOrphanedRun, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
 import { readOnlyRows, testPinnedQuery, PinnedRequestError } from '../../services/pinned-queries'
 import { pinnedQueriesEnabled } from '../../services/pinned-queries/sql'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -190,7 +190,10 @@ const status = async (req: Request, res: Response, next: NextFunction) => {
         const record = readRecord(state?.importVerify)
         if (!record)
             return res.json({ version: 1, status: 'idle', publishOffered: false, blockers: [], queries: [], smoke: [], connections: [] })
-        return res.json({ ...record, running: active.has(flow.id) })
+        const jobActive = active.has(flow.id)
+        const recovered = recoverOrphanedRun(record, jobActive)
+        if (recovered && recovered !== record) await writeRecord(flow.id, recovered)
+        return res.json({ ...(recovered || record), running: jobActive })
     } catch (error) {
         next(error)
     }

@@ -139,6 +139,28 @@ export function finishRecord(record: VerifyRecord, now: string): VerifyRecord {
     }
 }
 
+// A running record with no live job was left by a restart. Publish stays off, and Resume can continue the same draft.
+export function recoverOrphanedRun(record: VerifyRecord | null, jobActive: boolean): VerifyRecord | null {
+    if (!record || jobActive || record.status !== 'running') return record
+    return finishRecord(
+        {
+            ...record,
+            status: 'incomplete',
+            phase: 'Verification stopped',
+            blockers: [
+                ...record.blockers.filter((item) => item.id !== 'verify-stopped'),
+                {
+                    id: 'verify-stopped',
+                    severity: 'incomplete',
+                    message: 'Verification stopped before it finished. Resume it from Import & verify. Nothing was marked ready.',
+                    action: 'none'
+                }
+            ]
+        },
+        record.updatedAt
+    )
+}
+
 export function importVerifyPublishBlock(raw: unknown, draftFlowData: string | null | undefined): string | null {
     if (!draftFlowData || raw == null || raw === '') return null
     let record: VerifyRecord | null = null

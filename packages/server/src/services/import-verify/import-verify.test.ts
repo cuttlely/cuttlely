@@ -1,7 +1,7 @@
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
 import { planDiscovery, valuesFromDiscovery } from './discover'
 import { inspectFlow } from './inspect'
-import { executeVerify, hashFlow, importVerifyPublishBlock } from './job'
+import { executeVerify, hashFlow, importVerifyPublishBlock, recoverOrphanedRun } from './job'
 import type { VerifyDeps, VerifyRecord } from './job'
 import { parseFlow, queryReady, untrustImportedFlow } from './stamps'
 
@@ -361,6 +361,63 @@ describe('imported verification', () => {
         expect(mismatched.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:hash' && item.nodeId === 'pg')).toBe(
             true
         )
+        const hashless = JSON.parse(JSON.stringify(canvas)) as typeof canvas
+        hashless.nodes[1].data.inputs.trustedOutputs = JSON.stringify([{ pin: 'pq_account_opportunity', mode: 'markdown' }])
+        const missingHash = inspectFlow({
+            flow: hashless,
+            pinnedQueriesEnabled: true,
+            resolutions: [],
+            statementHashes: { [`pg\0pin-1`]: 'cd'.repeat(32) }
+        })
+        expect(missingHash.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:hash')).toBe(true)
+        expect(missingHash.smoke.some((item) => item.id === 'report')).toBe(false)
+        const second = {
+            id: 'pg-2',
+            data: {
+                name: 'postgreSQLMCP',
+                label: 'Other',
+                inputs: { pinnedQueries: JSON.stringify([pin({ id: 'pin-2', testedStamp: undefined, needsRetest: true })]) }
+            }
+        }
+        const both = {
+            ...canvas,
+            nodes: [canvas.nodes[0], second, canvas.nodes[1]],
+            edges: [
+                { source: 'pg', target: 'spec' },
+                { source: 'pg-2', target: 'spec' }
+            ]
+        }
+        const ambiguous = inspectFlow({
+            flow: both,
+            pinnedQueriesEnabled: true,
+            resolutions: [],
+            statementHashes: { [`pg\0pin-1`]: 'cd'.repeat(32), [`pg-2\0pin-2`]: 'cd'.repeat(32) }
+        })
+        expect(ambiguous.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:ambiguous')).toBe(true)
+        expect(ambiguous.smoke.some((item) => item.id === 'report')).toBe(false)
+    })
+
+    test('a running check with no live job can be resumed and still blocks publish', () => {
+        const running = {
+            version: 1 as const,
+            draftHash: hashFlow('draft'),
+            status: 'running' as const,
+            phase: 'Checking this flow.',
+            checked: 0,
+            total: 1,
+            queries: [],
+            connections: [],
+            blockers: [],
+            smoke: [],
+            summary: '',
+            publishOffered: false,
+            updatedAt: '2026-11-13T00:00:00.000Z'
+        }
+        expect(recoverOrphanedRun(running, true)).toBe(running)
+        const recovered = recoverOrphanedRun(running, false)
+        expect(recovered?.status).toBe('incomplete')
+        expect(recovered?.publishOffered).toBe(false)
+        expect(importVerifyPublishBlock(JSON.stringify(recovered), 'draft')).toMatch(/could not be fully verified/)
     })
 
     test('a newer draft stops the checkpoint instead of being replaced', async () => {

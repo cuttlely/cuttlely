@@ -1,12 +1,13 @@
 import express from 'express'
 import importVerifyController from '../../controllers/import-verify'
-import { requireAnyPermission } from '../../identity/rbac'
+import { requireAnyPermission, requirePermission } from '../../identity/rbac'
 import { requireHarnessCanvasAccess } from '../../services/harnesses/apiAccess'
 
 const router = express.Router()
 
 const gate = [
     requireAnyPermission('chatflows:update,agentflows:update'),
+    requirePermission('credentials:view'),
     requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false, draft: true })
 ]
 

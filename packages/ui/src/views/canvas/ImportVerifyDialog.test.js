@@ -87,15 +87,17 @@ describe('Import & verify canvas', () => {
 
     test('the imported draft is loaded into the canvas, including when it needs attention', async () => {
         flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
-        flowDraftsApi.getStatus.mockResolvedValue({ data: { draft: { flowData: stored } } })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { flowData: stored } } })
         importVerifyApi.start.mockResolvedValue({
             data: { status: 'attention', summary: 'Needs attention.', blockers: [], connections: [], queries: [] }
         })
         const onImported = jest.fn()
+        const onDraftStatus = jest.fn()
         const root = await renderDialog({
             chatflow: { id: 'flow-1', name: 'Team' },
             onClose: () => {},
-            onImported
+            onImported,
+            onDraftStatus
         })
         await chooseFile()
         await act(async () => {
@@ -107,6 +109,8 @@ describe('Import & verify canvas', () => {
         const shown = onImported.mock.calls.at(-1)[0]
         expect(JSON.parse(shown).nodes[0].id).toBe('api')
         expect(shown).toContain('verifiedHere')
+        expect(onDraftStatus).toHaveBeenCalledWith(expect.objectContaining({ mode: 'draft' }))
+        expect(onDraftStatus.mock.invocationCallOrder[0]).toBeLessThan(onImported.mock.invocationCallOrder[0])
         act(() => root.unmount())
     })
 

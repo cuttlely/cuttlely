@@ -185,28 +185,35 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
         }
         for (const contract of contracts) {
             if (!contract.pin) continue
-            const provided = pinsForContracts(input.flow, nodeId).find((item) => item.pin.name === contract.pin)
-            if (!provided) {
+            const matches = pinsForContracts(input.flow, nodeId).filter((item) => item.pin.name === contract.pin)
+            if (matches.length !== 1) {
                 blockers.push({
-                    id: `contract:${nodeId}:${contract.pin}`,
+                    id: `contract:${nodeId}:${contract.pin}${matches.length ? ':ambiguous' : ''}`,
                     severity: 'attention',
-                    message: `${label} expects saved query ${contract.pin}, and that query is not on a card connected to it.`,
+                    message:
+                        matches.length > 1
+                            ? `${label} has more than one connected saved query named ${contract.pin}. A report has to use one of them.`
+                            : `${label} expects saved query ${contract.pin}, and that query is not on a card connected to it.`,
                     action: 'review-contract',
                     nodeId
                 })
                 continue
             }
-            const fresh = input.statementHashes?.[`${provided.nodeId}\0${String(provided.pin.id || '')}`]
-            const expected = String(contract.hash || contract.statementHash || '')
-            if (fresh && expected && fresh !== expected) {
+            const provided = matches[0]
+            const fresh = input.statementHashes?.[`${provided.nodeId}\0${String(provided.pin.id || '')}`] || ''
+            const expected = String(contract.hash || contract.statementHash || '').trim()
+            if (!expected || !fresh || fresh !== expected) {
                 blockers.push({
                     id: `contract:${nodeId}:${contract.pin}:hash`,
                     severity: 'attention',
-                    message: `The output contract for ${contract.pin} does not match the query that was just tested. Review the contract before publishing.`,
+                    message: expected
+                        ? `The output contract for ${contract.pin} does not match the query that was just tested. Review the contract before publishing.`
+                        : `The output contract for ${contract.pin} has no tested statement hash, so row count alone is not proof. Review the contract before publishing.`,
                     action: 'review-contract',
                     nodeId: provided.nodeId,
                     pinId: String(provided.pin.id || '')
                 })
+                continue
             }
             const smokePin = {
                 nodeId: provided.nodeId,

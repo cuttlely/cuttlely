@@ -2,6 +2,7 @@ import {
     adoptImportedIdentity,
     canvasPathForImport,
     connectionNeedsChoice,
+    deliverImportedDraft,
     queryReady,
     shouldReplaceDraft,
     showResume,
@@ -58,6 +59,20 @@ test('a flow id that arrives later replaces an empty one, and resume does not re
         })
     ).toBe(false)
     expect(showResume(null)).toBe(false)
+    expect(showResume({ status: 'running', running: true, publishOffered: false, queries: [{ state: 'pending' }], connections: [] })).toBe(
+        false
+    )
+    expect(showResume({ status: 'running', running: false, publishOffered: false, queries: [{ state: 'pending' }], connections: [] })).toBe(
+        true
+    )
+    const order = []
+    deliverImportedDraft({
+        status: { mode: 'draft' },
+        flowText: '{"nodes":[],"edges":[]}',
+        onDraftStatus: () => order.push('status'),
+        onImported: () => order.push('canvas')
+    })
+    expect(order).toEqual(['status', 'canvas'])
     expect(connectionNeedsChoice({ status: 'empty', required: true })).toBe(true)
     expect(connectionNeedsChoice({ status: 'empty', required: false })).toBe(false)
     expect(connectionNeedsChoice({ status: 'ambiguous' })).toBe(true)

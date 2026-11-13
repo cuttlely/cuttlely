@@ -982,6 +982,7 @@ const CanvasHeader = ({
                 flowType={isEtlCanvas ? 'ETL' : isHarnessCanvas ? 'HARNESS' : isAgentCanvas ? 'AGENTFLOW' : 'CHATFLOW'}
                 onClose={() => setImportVerifyOpen(false)}
                 onImported={(flowText) => onApplyCanvas(flowText)}
+                onDraftStatus={onDraftStatus}
                 onFlowCreated={onFlowCreated}
                 onPublished={() => {
                     setImportVerifyOpen(false)

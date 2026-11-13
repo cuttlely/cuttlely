@@ -9,6 +9,7 @@ import { requestFailureMessage } from '@/utils/errorSummary'
 import {
     PLACEHOLDER_FLOW,
     connectionNeedsChoice,
+    deliverImportedDraft,
     progressLine,
     shouldReplaceDraft,
     showResume,
@@ -17,7 +18,7 @@ import {
     verificationFlowId
 } from '@/utils/importVerify'
 
-const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished, onImported, onFlowCreated }) => {
+const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished, onImported, onFlowCreated, onDraftStatus }) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
     const [name, setName] = useState('')
@@ -65,16 +66,17 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
     }
 
     const showImported = async (id, fallback) => {
-        if (!onImported) return
         let saved = fallback
+        let status = null
         try {
-            const status = await flowDraftsApi.getStatus(id)
-            const stored = status?.data?.draft?.flowData
+            const response = await flowDraftsApi.getStatus(id)
+            status = response?.data || null
+            const stored = status?.draft?.flowData
             if (typeof stored === 'string' && stored) saved = stored
         } catch {
             // The file already written to the draft is enough to replace the canvas.
         }
-        if (saved) onImported(saved)
+        deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
     }
 
     const onFile = (event) => {
@@ -276,7 +278,8 @@ ImportVerifyDialog.propTypes = {
     flowType: PropTypes.string,
     onPublished: PropTypes.func,
     onImported: PropTypes.func,
-    onFlowCreated: PropTypes.func
+    onFlowCreated: PropTypes.func,
+    onDraftStatus: PropTypes.func
 }
 
 export default ImportVerifyDialog
