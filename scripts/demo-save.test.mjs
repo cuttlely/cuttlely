@@ -242,9 +242,40 @@ describe('Try the demo save', () => {
         assert.deepEqual(fs.readdirSync(specialistDir('customer')).sort(), ['.cuttlely-demo-stage', 'support.sqlite', 'support_desk.py'])
         assert.ok(fs.existsSync(path.join(specialistDir('operations'), 'fulfillment.sqlite')))
         assert.ok(fs.existsSync(path.join(specialistDir('policy'), 'service-policy.md')))
-        const repeat = await demo.create('cred-1', caller, 'customer-care')
-        assert.equal(repeat.created, false)
+        const py = path.join(specialistDir('customer'), 'support_desk.py')
+        fs.writeFileSync(py, 'edited specialist file')
+        fs.rmSync(path.join(specialistDir('customer'), 'support.sqlite'))
+        const repaired = await demo.create('cred-1', caller, 'customer-care')
+        assert.equal(repaired.created, false)
+        assert.equal(fs.readFileSync(py, 'utf8'), 'edited specialist file')
+        assert.ok(fs.existsSync(path.join(specialistDir('customer'), 'support.sqlite')))
         assert.equal(saveCount, savesBefore)
         savedCanvas = null
+    })
+
+    it('saves a retry when the specialist folders were staged with no marker', async () => {
+        ran += 1
+        const stage = serverRequire('./src/services/demo/index.ts').stageDemoFiles
+        const sample = path.join(root, 'samples', 'demo', 'customer-care')
+        const files = {
+            customer: ['support.sql', 'support_desk.py'],
+            operations: ['fulfillment.sql', 'fulfillment.py'],
+            policy: ['service-policy.md', 'policy_book.py']
+        }
+        for (const [name, list] of Object.entries(files)) {
+            const folder = specialistDir(name)
+            fs.rmSync(folder, { recursive: true, force: true })
+            await stage(folder, sample, list)
+            assert.equal(fs.existsSync(path.join(folder, '.cuttlely-demo-stage')), false)
+            assert.ok(fs.readdirSync(folder).length > 0)
+        }
+        const savesBefore = saveCount
+        const saved = await demo.create('cred-1', caller, 'customer-care')
+        assert.equal(saved.created, true)
+        assert.equal(saved.name, 'customer-care-demo')
+        assert.equal(saveCount, savesBefore + 1)
+        assert.ok(fs.existsSync(path.join(specialistDir('customer'), 'support.sqlite')))
+        assert.ok(fs.existsSync(path.join(specialistDir('operations'), 'fulfillment.sqlite')))
+        assert.ok(fs.existsSync(path.join(specialistDir('policy'), 'service-policy.md')))
     })
 })

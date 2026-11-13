@@ -64,7 +64,7 @@ function stagedFileName(file: string): string {
     return file.endsWith('.sql') ? `${path.basename(file, '.sql')}.sqlite` : path.basename(file)
 }
 
-// Written only by this demo, next to the files it stages. A directory without it is not demo staging.
+// Written next to files this demo stages. 1.7.3 staged the same files and did not write this marker.
 const DEMO_STAGE_MARKER = '.cuttlely-demo-stage'
 
 function stageMarkerText(harness: string, profileName: string): string {
@@ -81,9 +81,17 @@ function specialistFilesReady(folder: string, files: string[]): boolean {
     })
 }
 
-// A plain directory whose marker names this harness and specialist, and whose other entries are only
-// the files this demo stages (or the temporary sqlite file it writes before renaming). Anything else,
-// including a link, stays.
+function isTempSqlite(name: string, files: string[]): boolean {
+    return files.some((file) => {
+        if (!file.endsWith('.sql')) return false
+        const base = path.basename(file, '.sql')
+        return new RegExp(`^\\.${base}-\\d+-\\d+\\.sqlite$`).test(name)
+    })
+}
+
+// A plain directory this demo may remove. Its entries are only that specialist's bundled file names.
+// A marker from this demo may sit with them, and so may the temporary sqlite file written before rename.
+// A link, a profile, or any other file stays. An unmarked folder is the leftover 1.7.3 wrote before the save.
 function workspaceIsThisDemo(folder: string, harness: string, profileName: string, files: string[]): boolean {
     let stat: fs.Stats
     try {
@@ -93,7 +101,6 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
     }
     if (stat.isSymbolicLink() || !stat.isDirectory()) return false
     const expected = new Set(files.map(stagedFileName))
-    const sqlBases = files.filter((file) => file.endsWith('.sql')).map((file) => path.basename(file, '.sql'))
     let entries: fs.Dirent[]
     try {
         entries = fs.readdirSync(folder, { withFileTypes: true })
@@ -102,6 +109,7 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
     }
     let marked = false
     let staged = 0
+    let temp = 0
     for (const entry of entries) {
         if (entry.isSymbolicLink() || !entry.isFile()) return false
         if (entry.name === DEMO_STAGE_MARKER) {
@@ -115,11 +123,52 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
             marked = true
             continue
         }
-        const temp = sqlBases.some((base) => new RegExp(`^\\.${base}-\\d+-\\d+\\.sqlite$`).test(entry.name))
-        if (!expected.has(entry.name) && !temp) return false
-        staged += 1
+        if (expected.has(entry.name)) {
+            staged += 1
+            continue
+        }
+        if (isTempSqlite(entry.name, files)) {
+            temp += 1
+            continue
+        }
+        return false
     }
-    return marked && staged > 0
+    // 1.7.3 did not write a marker or leave the temporary sqlite name behind after a finished stage.
+    if (!marked && temp > 0) return false
+    return staged > 0
+}
+
+function isRegularFile(file: string): boolean {
+    try {
+        return fs.lstatSync(file).isFile()
+    } catch {
+        return false
+    }
+}
+
+// Copies one bundled file when that name is not already a regular file, so a later Try the demo
+// does not replace a specialist file someone edited.
+function writeMissingStagedFile(folder: string, source: string, file: string): void {
+    const dest = path.join(folder, stagedFileName(file))
+    if (isRegularFile(dest)) return
+    try {
+        if (fs.lstatSync(dest)) return
+    } catch {
+        // Missing. Write it.
+    }
+    if (!file.endsWith('.sql')) {
+        fs.copyFileSync(path.join(source, file), dest)
+        return
+    }
+    const { DatabaseSync } = require('node:sqlite') as SqliteModule
+    const temp = path.join(folder, `.${path.basename(file, '.sql')}-${process.pid}-${Date.now()}.sqlite`)
+    const db = new DatabaseSync(temp)
+    try {
+        db.exec(fs.readFileSync(path.join(source, file), 'utf8'))
+    } finally {
+        db.close()
+    }
+    fs.renameSync(temp, dest)
 }
 
 async function stageDemoWorkspace(folder: string, source: string, files: string[], harness: string, profileName: string): Promise<void> {
@@ -129,11 +178,12 @@ async function stageDemoWorkspace(folder: string, source: string, files: string[
     } catch {
         stat = null
     }
-    // A link is not a place to write the demo. A missing folder is created by stageDemoFiles.
+    // A link is not a place to write the demo. A missing folder is created here.
     if (stat?.isSymbolicLink()) throw new Error(`Demo folder is a link: ${path.basename(folder)}`)
-    await stageDemoFiles(folder, source, files)
+    fs.mkdirSync(folder, { recursive: true })
+    for (const file of files) writeMissingStagedFile(folder, source, file)
     const marker = path.join(folder, DEMO_STAGE_MARKER)
-    fs.writeFileSync(marker, stageMarkerText(harness, profileName), { flag: 'w' })
+    if (!isRegularFile(marker)) fs.writeFileSync(marker, stageMarkerText(harness, profileName), { flag: 'wx' })
 }
 
 // Writes any specialist folder that is missing a bundled file. A team that was saved and then stopped

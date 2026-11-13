@@ -1,7 +1,7 @@
 ## Try the demo save
 
--   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory marked as this demo's own staged files.
--   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry of those marked folders, a non-demo file at a demo destination (nothing removed), a profile or link leftover, and a saved team whose specialist files are missing.
+-   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory whose entries are only that specialist's bundled file names. A 1.7.3 folder has no stage marker. Any other blocker means nothing is removed.
+-   `scripts/demo-save.test.mjs` (verify-test): fresh install, retry of marked folders, retry of unmarked 1.7.3 folders, a non-demo file at a demo destination (nothing removed), a profile or link leftover, and a saved team whose specialist files are missing.
 -   README step 4 and `website/src/guides/flowise-import/guide.md`: policy runs after operations, the demo card stays on **Harness · Agent Team** once a flow is saved, and Save on an existing flow stores a draft when drafts are on.
 
 ## PostgreSQL statement-guard regressions
