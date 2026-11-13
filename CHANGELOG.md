@@ -4,8 +4,19 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Upgrade notes / breaking changes
+
+-   Analyst storage is **Auto** when `CUTTLELY_ANALYST` was never set. A host or saved value of `off`, `false`, `0`, or `no` stays off. Auto creates a private store. On Postgres that store is a schema and a login in the application database, created the first time the analyst runs. If that database user cannot create roles, the analyst tool fails and says so. Cuttlely still starts, and `GET /api/v1/ping` still returns `pong`. Set `off`, or set `CUTTLELY_POSTGRES_URL` to a separate database, before upgrading when you do not want that private store.
+
+### Changed
+
+-   Analyst storage is **Auto** when `CUTTLELY_ANALYST` is unset, including a fresh deploy and an upgrade that never set it. A host or saved value of `off`, `false`, `0`, or `no` stays off. Saving **Off** in Server settings stores `off`. A Postgres URL credential or `CUTTLELY_POSTGRES_URL` still uses the read-only path.
+-   A canvas export names each credential by its name and type. The file omits secrets, password, file, and folder inputs, and every `FLOWISE_CREDENTIAL_ID`, including on a card whose pack is not loaded. That card stays in the file. An empty credential slot stays empty. Import, including **Import All**, attaches a credential that already exists on that server with the same name and type. If none matches, or more than one does, the import stops and names it. The import does not create a credential. A matched id is written back onto `FLOWISE_CREDENTIAL_ID` inside an agent, LLM, condition, or tool config, which is where that card reads it. An empty `credential` field next to that id does not drop it. When more than one credential has the same name and type, the import stops and does not choose one. Keep exactly one of those credentials, then import again. **QUERY** and other non-secret node inputs stay in the file.
+
 ### Fixed
 
+-   Counting analyst tool names no longer uses a regular expression. A tools/list name that starts with `pq_` and repeats `__pq_` cannot stall the bridge. The count is still only `query` and pinned query (`pq_...`) tools.
+-   Postgres (MCP) **Tools it can use** stays listed after an analyst specialist has offered a query or pinned query tool. A later tool list that returns nothing, fails, or lists only other tools no longer sets `X-Cuttlely-Analyst` back to `missing` or replaces that menu with **Analyst tool unavailable**. Refreshing the menu reads the status again.
 -   **Try the demo** on a new install saves the customer care team. A previous attempt can be run again when every folder it left holds only that specialist's bundled files, and each non-sqlite file matches the copy shipped with Cuttlely. That includes a 1.7.3 install, which staged those folders and did not write a stage marker. An edited copy of one of those files still blocks the save. Any other file at those names still blocks the save, and nothing is removed unless every blocker is one of those folders. A team that was saved before its specialist files were copied is finished on the next Try the demo, and a file already there is not replaced. The README says policy runs after operations, and that the demo card stays on **Harness · Agent Team** once a flow is saved. `npx cuttlely logs` is named for diagnosing a quiet start.
 
 ## [1.7.3] - 2026-11-12

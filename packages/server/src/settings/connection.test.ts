@@ -256,9 +256,12 @@ describe('analyst', () => {
         expect(JSON.stringify(res)).not.toContain(DB_PASSWORD)
     })
 
-    it('needs nothing with Auto', async () => {
+    it('needs nothing with Auto, including when Analyst storage was never set', async () => {
         expect((await test({ kind: 'analyst', values: { CUTTLELY_ANALYST: 'auto' } })).body.ok).toBe(true)
-        expect((await test({ kind: 'analyst', values: {} })).body.ok).toBe(false)
+        expect((await test({ kind: 'analyst', values: {} })).body.ok).toBe(true)
+        const off = (await test({ kind: 'analyst', values: { CUTTLELY_ANALYST: 'off' } })).body
+        expect(off.ok).toBe(false)
+        expect(off.summary).toBe('Add an analyst database address, or turn on Auto.')
     })
 })
 

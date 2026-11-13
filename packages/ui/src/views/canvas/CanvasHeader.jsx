@@ -61,6 +61,7 @@ import useConfirm from '@/hooks/useConfirm'
 
 // utils
 import { generateExportFlowData, showHideInputAnchors, showHideInputParams, updateOutdatedNodeData } from '@/utils/genericHelper'
+import { credentialsForExport, exportErrorMessage, flowNeedsCredentialList } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
@@ -298,22 +299,39 @@ const CanvasHeader = ({
                 console.error(e)
             }
         } else if (setting === 'exportChatflow') {
-            try {
-                const flowData = JSON.parse(chatflow.flowData)
-                let dataStr = JSON.stringify(generateExportFlowData(flowData, exportKnownNodeNames(canvas.componentNodes)), null, 2)
-                //let dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
-                const blob = new Blob([dataStr], { type: 'application/json' })
-                const dataUri = URL.createObjectURL(blob)
-
-                let exportFileDefaultName = `${chatflow.name} ${title}.json`
-
-                let linkElement = document.createElement('a')
-                linkElement.setAttribute('href', dataUri)
-                linkElement.setAttribute('download', exportFileDefaultName)
-                linkElement.click()
-            } catch (e) {
-                console.error(e)
-            }
+            ;(async () => {
+                try {
+                    const flowData = JSON.parse(chatflow.flowData)
+                    const credentials = flowNeedsCredentialList(flowData) ? await credentialsForExport() : undefined
+                    const dataStr = JSON.stringify(
+                        generateExportFlowData(flowData, exportKnownNodeNames(canvas.componentNodes), credentials),
+                        null,
+                        2
+                    )
+                    const blob = new Blob([dataStr], { type: 'application/json' })
+                    const dataUri = URL.createObjectURL(blob)
+                    const exportFileDefaultName = `${chatflow.name} ${title}.json`
+                    const linkElement = document.createElement('a')
+                    linkElement.setAttribute('href', dataUri)
+                    linkElement.setAttribute('download', exportFileDefaultName)
+                    linkElement.click()
+                } catch (e) {
+                    console.error(e)
+                    enqueueSnackbar({
+                        message: exportErrorMessage(e),
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'error',
+                            persist: true,
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                }
+            })()
         }
     }
 

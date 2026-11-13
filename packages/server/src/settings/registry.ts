@@ -715,14 +715,14 @@ export const SETTINGS: SettingDef[] = [
         key: 'CUTTLELY_ANALYST',
         section: 'analyst',
         label: 'Analyst storage',
-        help: 'Auto gives each workspace its own private store the analyst can create tables in.',
+        help: 'Auto gives each workspace its own private store the analyst can create tables in. Unset is Auto. Off stays off. A Postgres URL or a Postgres URL credential still uses the read-only path.',
         type: 'select',
         options: [
-            { value: '', label: 'Off' },
-            { value: 'auto', label: 'Auto' }
+            { value: 'auto', label: 'Auto' },
+            { value: 'off', label: 'Off' }
         ],
-        defaultLabel: 'Off',
-        defaultValue: '',
+        defaultLabel: 'Auto',
+        defaultValue: 'auto',
         risk: 'medium'
     },
     {

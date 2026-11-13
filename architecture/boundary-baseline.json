@@ -4403,6 +4403,10 @@
             "reason": "The executions paging test lives next to the service it checks."
         },
         {
+            "path": "packages/server/src/services/export-import/credentialMark.test.ts",
+            "reason": "The import credential-mark test stays with the export-import service."
+        },
+        {
             "path": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
             "reason": "tests for inherited public config endpoints and template saving"
         },
@@ -4553,6 +4557,18 @@
         {
             "path": "packages/ui/src/utils/chatArtifacts.test.js",
             "reason": "tests for chatArtifacts.js, which is inherited"
+        },
+        {
+            "path": "packages/ui/src/utils/credentialMarks.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
+            "path": "packages/ui/src/utils/credentialRebind.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
+        },
+        {
+            "path": "packages/ui/src/utils/credentialRebind.test.js",
+            "reason": "Canvas export names a credential by name and type and stays with the other canvas export helpers."
         },
         {
             "path": "packages/ui/src/utils/flowCategoryPermission.js",

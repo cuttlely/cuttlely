@@ -451,7 +451,7 @@ class PostgreSQL_MCP implements INode {
                             label: 'Analyst tool unavailable',
                             name: 'error',
                             description:
-                                'Hermes has not registered the analyst query tool. The gateway was not answering when Hermes listed tools. Wait a few seconds and refresh Tools it can use, or restart Cuttlely.'
+                                'The analyst bridge has not recorded a query or pinned query tool yet. When GET /api/v1/ping shows X-Cuttlely-Analyst: ready, refresh Tools it can use. Restart Cuttlely if it stays unavailable.'
                         }
                     ]
                 }
