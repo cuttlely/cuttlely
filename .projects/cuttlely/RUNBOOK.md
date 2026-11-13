@@ -343,11 +343,11 @@ Keep normal commit hooks enabled. After the final handoff commit, run the Infra 
 
 ## Proxy-safe HTTP timeouts
 
-This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
+Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
 
 ## Canvas error page after no response
 
-Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). Keep this fix under `## [1.7.3] - Unreleased`. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
+Landed on main as `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)). `CHANGELOG.md` lists it in the dated `## [1.7.3]` notes. Focused coverage: `cd packages/ui && npx jest src/api/client.test.js src/ErrorBoundary.test.js src/store/context/ErrorContext.test.js src/ui-component/extended/ShowToolEvents.test.js`. A test that imports `@/store/constant` needs a `jest.mock` for it, because that module reads `import.meta`. To reproduce in a browser, abort the API requests with Playwright `page.route(...).abort('failed')` while editing canvas nodes, then go back to the list. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled.
 
 ## Silent canvas read retries
 
@@ -363,9 +363,9 @@ GET and HEAD retry by default. A non-GET call retries only with `retry: true` or
 
 Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). `CHANGELOG.md` lists it in the dated `## [1.7.3]` notes. Edges whose saved handle the node no longer has are dropped and reported on import ([#457](https://github.com/cuttlely/cuttlely/issues/457)); run `pnpm --dir packages/ui exec jest src/utils/normalizeCanvasFlow.test.js src/utils/edgeRefs.test.js` for the focused coverage. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
-## Local 1.7.3 release preparation
+## Historical local 1.7.3 release preparation
 
-This branch is `release/1.7.3` from `origin/main` at `932bd8df`. The four product manifests and current docs pins are 1.7.3. Keep the exact `## [1.7.3] - Unreleased` heading for the release tool. After PR-1, PR-2 and PR-3 merge, take a normal merge of `origin/main` and finalize their changelog and docs from each PR. Then run the Infra prebuild check and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+1.7.3 was prepared on `release/1.7.3` ([#459](https://github.com/cuttlely/cuttlely/pull/459), `33a158c7`) and released on main as `11fab773` ([#481](https://github.com/cuttlely/cuttlely/pull/481)). The four product manifests and docs pins were 1.7.3 at that release, and its notes are dated `## [1.7.3] - 2026-11-12`. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
 ## Historical local 1.7.2 release preparation
 
