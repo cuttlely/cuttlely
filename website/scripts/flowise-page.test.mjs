@@ -89,6 +89,7 @@ describe('Flowise import page wiring', () => {
         const guide = read('src/pages/flowise/import-guide.astro')
         assert.match(guide, /How to import a Flowise export into Cuttlely/)
         assert.match(guide, /guides\/flowise-import\/guide\.md/)
+        assert.ok(guide.includes("rel: 'canonical', href: canonical"), 'the DEV copy is the canonical URL')
         const body = read('src/guides/flowise-import/guide.md')
         assert.match(body, /^Already have flows\? Bring them over\./)
         for (const image of ['import-wizard-upload.png', 'import-result-needs-credentials.png']) {
