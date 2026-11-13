@@ -19,6 +19,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Analyst storage is Auto when `CUTTLELY_ANALYST` is unset; on Render, see [Analyst database](./how-to/render.md#analyst-database).
 -   [Pinned queries](./how-to/pinned-queries.md). Saved SQL with typed parameters on the Postgres (MCP) node, off unless `CUTTLELY_PINNED_QUERIES` is `1` or `true`. Tested is not an approval.
+-   [Import and verify](./how-to/import-verify.md). Retest an imported flow on this server without typing sample values, then publish when the checks pass.
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
 -   [A/B test a change with Compare](./how-to/ab-testing.md). Ask the same questions on Live and on your draft, see each Changed answer before you publish, and make Publish wait for a passing test set.
 -   [Evaluations](./how-to/evaluations.md). Create a dataset, add text, JSON, numeric, and model checks, run them, and refuse Publish until that test set passes. [Turn real answers into tests](./how-to/tests-from-answers.md) starts from a rated answer in the message viewer.
