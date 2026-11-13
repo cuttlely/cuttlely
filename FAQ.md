@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.4)
+# Cuttlely FAQ (1.7.5)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,13 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.4?
+### What's new in 1.7.5?
+
+-   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+
+Use matching 1.7.5 server and widget packages. The [changelog](./CHANGELOG.md) lists the patch fix; the [1.7.0 upgrade requirements](./docs/upgrading.md#170-security-exception-upgrade) still apply.
+
+### What changed in 1.7.4?
 
 -   An analyst specialist stays ready after another specialist lists tools. A later empty or failed list does not clear a recorded query or pinned query.
 -   Unset Analyst storage is Auto on a fresh start and on an upgrade that never set it. An explicit Off stays off.

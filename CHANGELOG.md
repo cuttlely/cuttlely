@@ -2,11 +2,15 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.5] - Unreleased
 
 ### Fixed
 
--   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+-   **#491 (`f4edfc8c`):** Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains Off by default.
 
 ## [1.7.4] - 2026-11-13
 
@@ -1026,6 +1030,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...HEAD
+[1.7.5]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...HEAD
 [1.7.4]: https://github.com/cuttlely/cuttlely/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2

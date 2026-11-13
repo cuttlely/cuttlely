@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.5
+
+-   Follow-up prompts omit blank or invalid temperature values and omit temperature for OpenAI reasoning models that do not accept one.
+
 ## New in 1.7.4
 
 -   An analyst specialist stays ready after another specialist lists tools. Unset Analyst storage is Auto. [Analyst mode](./analyst.md).

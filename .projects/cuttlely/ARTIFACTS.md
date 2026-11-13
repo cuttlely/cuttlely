@@ -79,7 +79,9 @@
 
 # Artifacts
 
-1.7.4 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.4. `CHANGELOG.md` uses `## [1.7.4] - Unreleased`. #483 is `9b4d8c90`, #484 is `c2e63f61`, and #486 is `f9cb1123`. The import guide pins `v1.7.4`. Generated website pages are not hand-edited. Publication is a later step.
+1.7.5 release preparation: branch `release/1.7.5-prep` starts from `origin/main` at `f4edfc8c` ([#491](https://github.com/cuttlely/cuttlely/pull/491)). The four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.5. `CHANGELOG.md` uses `## [1.7.5] - Unreleased`. The import guide pins `v1.7.5`. Generated website pages are not hand-edited. Publication is a later step.
+
+1.7.4 release preparation is historical. It shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). It included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
 
 1.7.3 release: the same surfaces carried 1.7.3 and landed as `d52b83e5` ([#481](https://github.com/cuttlely/cuttlely/pull/481)) after preparation `33a158c7` ([#459](https://github.com/cuttlely/cuttlely/pull/459)). `CHANGELOG.md` dates it `## [1.7.3] - 2026-11-12`. The PR-1, PR-2 and PR-3 placeholders were finalized as #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`, with #469 `3c981e82`.
 
