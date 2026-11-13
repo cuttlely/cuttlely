@@ -59,6 +59,188 @@ export async function stageBakery(folder: string, source = demoDataDir('bakery')
     await stageDemoFiles(folder, source, DEMOS.bakery.files.analyst)
 }
 
+// The file stageDemoFiles writes for one bundled source file. A .sql file becomes a SQLite database.
+function stagedFileName(file: string): string {
+    return file.endsWith('.sql') ? `${path.basename(file, '.sql')}.sqlite` : path.basename(file)
+}
+
+// Written next to files this demo stages. 1.7.3 staged the same files and did not write this marker.
+const DEMO_STAGE_MARKER = '.cuttlely-demo-stage'
+
+function stageMarkerText(harness: string, profileName: string): string {
+    return `${harness}\n${profileName}\n`
+}
+
+function specialistFilesReady(folder: string, files: string[]): boolean {
+    return files.every((file) => {
+        try {
+            return fs.lstatSync(path.join(folder, stagedFileName(file))).isFile()
+        } catch {
+            return false
+        }
+    })
+}
+
+function isTempSqlite(name: string, files: string[]): boolean {
+    return files.some((file) => {
+        if (!file.endsWith('.sql')) return false
+        const base = path.basename(file, '.sql')
+        return new RegExp(`^\\.${base}-\\d+-\\d+\\.sqlite$`).test(name)
+    })
+}
+
+// A plain directory this demo may remove. An unmarked folder is removed only when every bundled file
+// is present and each non-sqlite file matches the shipped bytes. A leftover missing a bundled file,
+// such as only support.sqlite, stays. A marker from this demo may sit with the files, and so may the
+// temporary sqlite file written before rename. A link, a profile, or any other file stays.
+function workspaceIsThisDemo(folder: string, harness: string, profileName: string, files: string[], source: string): boolean {
+    let stat: fs.Stats
+    try {
+        stat = fs.lstatSync(folder)
+    } catch {
+        return false
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return false
+    const expected = new Set(files.map(stagedFileName))
+    let entries: fs.Dirent[]
+    try {
+        entries = fs.readdirSync(folder, { withFileTypes: true })
+    } catch {
+        return false
+    }
+    let marked = false
+    let staged = 0
+    let temp = 0
+    const copied: string[] = []
+    for (const entry of entries) {
+        if (entry.isSymbolicLink() || !entry.isFile()) return false
+        if (entry.name === DEMO_STAGE_MARKER) {
+            let text = ''
+            try {
+                text = fs.readFileSync(path.join(folder, entry.name), 'utf8')
+            } catch {
+                return false
+            }
+            if (text !== stageMarkerText(harness, profileName)) return false
+            marked = true
+            continue
+        }
+        if (expected.has(entry.name)) {
+            staged += 1
+            if (!entry.name.endsWith('.sqlite')) copied.push(entry.name)
+            continue
+        }
+        if (isTempSqlite(entry.name, files)) {
+            temp += 1
+            continue
+        }
+        return false
+    }
+    // 1.7.3 did not write a marker or leave the temporary sqlite name behind after a finished stage.
+    // An unmarked folder must hold every bundled file, and each non-sqlite file must be the bundled bytes.
+    if (!marked && (temp > 0 || staged !== expected.size)) return false
+    if (
+        !marked &&
+        copied.some((name) => {
+            const bundled = files.find((file) => stagedFileName(file) === name)
+            return !bundled || !fs.readFileSync(path.join(folder, name)).equals(fs.readFileSync(path.join(source, bundled)))
+        })
+    )
+        return false
+    return staged > 0
+}
+
+function isRegularFile(file: string): boolean {
+    try {
+        return fs.lstatSync(file).isFile()
+    } catch {
+        return false
+    }
+}
+
+// Copies one bundled file when that name is not already a regular file, so a later Try the demo
+// does not replace a specialist file someone edited.
+function writeMissingStagedFile(folder: string, source: string, file: string): void {
+    const dest = path.join(folder, stagedFileName(file))
+    if (isRegularFile(dest)) return
+    try {
+        if (fs.lstatSync(dest)) return
+    } catch {
+        // Missing. Write it.
+    }
+    if (!file.endsWith('.sql')) {
+        fs.copyFileSync(path.join(source, file), dest)
+        return
+    }
+    const { DatabaseSync } = require('node:sqlite') as SqliteModule
+    const temp = path.join(folder, `.${path.basename(file, '.sql')}-${process.pid}-${Date.now()}.sqlite`)
+    const db = new DatabaseSync(temp)
+    try {
+        db.exec(fs.readFileSync(path.join(source, file), 'utf8'))
+    } finally {
+        db.close()
+    }
+    fs.renameSync(temp, dest)
+}
+
+async function stageDemoWorkspace(folder: string, source: string, files: string[], harness: string, profileName: string): Promise<void> {
+    let stat: fs.Stats | null = null
+    try {
+        stat = fs.lstatSync(folder)
+    } catch {
+        stat = null
+    }
+    // A link is not a place to write the demo. A missing folder is created here.
+    if (stat?.isSymbolicLink()) throw new Error(`Demo folder is a link: ${path.basename(folder)}`)
+    fs.mkdirSync(folder, { recursive: true })
+    for (const file of files) writeMissingStagedFile(folder, source, file)
+    const marker = path.join(folder, DEMO_STAGE_MARKER)
+    if (!isRegularFile(marker)) fs.writeFileSync(marker, stageMarkerText(harness, profileName), { flag: 'wx' })
+}
+
+// Writes any specialist folder that is missing a bundled file. A team that was saved and then stopped
+// before this copy finished is completed on the next Try the demo. A complete folder is left as it is.
+async function ensureDemoFiles(demo: DemoDefinition): Promise<void> {
+    const profile = await loadHarness('profile.mjs')
+    const source = demoDataDir(demo.dataDir)
+    for (const [specialist, files] of Object.entries(demo.files)) {
+        const profileName = profile.specialistProfileName(demo.harness, specialist)
+        const folder = profile.specialistWorkspace(profileName)
+        if (!specialistFilesReady(folder, files)) await stageDemoWorkspace(folder, source, files, demo.harness, profileName)
+    }
+}
+
+// Remove one only when every blocker is a directory this demo staged: marked with only its own files,
+// or an unmarked 1.7.3 folder holding every bundled file with matching bytes. Any other blocker means
+// nothing is removed, so a later refusal cannot follow a partial delete.
+async function releaseIdentifiedDemoWorkspaces(demo: DemoDefinition): Promise<void> {
+    const profile = await loadHarness('profile.mjs')
+    const cleanup = await loadHarness('cleanup.mjs')
+    const byProfile = new Map<string, { folder: string; files: string[] }>()
+    const expected: string[] = []
+    for (const [specialist, files] of Object.entries(demo.files)) {
+        const profileName = profile.specialistProfileName(demo.harness, specialist)
+        expected.push(profileName)
+        byProfile.set(profileName, { folder: profile.specialistWorkspace(profileName), files })
+    }
+    const source = demoDataDir(demo.dataDir)
+    const blockers = cleanup.nameReuseBlockers(demo.harness, { expected }) as string[]
+    if (!blockers.length) return
+    const folders: Array<{ folder: string; files: string[]; profileName: string }> = []
+    for (const blocker of blockers) {
+        const match = /^workspaces\/([A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(blocker)
+        const staged = match ? byProfile.get(match[1]) : undefined
+        if (!match || !staged || !workspaceIsThisDemo(staged.folder, demo.harness, match[1], staged.files, source)) return
+        folders.push({ ...staged, profileName: match[1] })
+    }
+    const again = (cleanup.nameReuseBlockers(demo.harness, { expected }) as string[]).slice().sort().join('\n')
+    if (again !== blockers.slice().sort().join('\n')) return
+    for (const item of folders) {
+        if (!workspaceIsThisDemo(item.folder, demo.harness, item.profileName, item.files, source)) return
+    }
+    for (const item of folders) fs.rmSync(item.folder, { recursive: true, force: true })
+}
+
 async function existingDemo(demo: DemoDefinition, workspaceId: string): Promise<ChatFlow | null> {
     return getRunningExpressApp()
         .AppDataSource.getRepository(ChatFlow)
@@ -119,7 +301,10 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         throw new AppError(StatusCodes.BAD_REQUEST, 'Pick the model key the demo should use.')
     await credentialsService.assertCredentialInWorkspace(credentialId, workspaceId)
     const existing = await existingDemo(demo, workspaceId)
-    if (existing) return { id: existing.id, name: existing.name, created: false, starterQuestions: demo.starters }
+    if (existing) {
+        await ensureDemoFiles(demo)
+        return { id: existing.id, name: existing.name, created: false, starterQuestions: demo.starters }
+    }
 
     const nodes = componentNodes()
     const rows: any[] = (await credentialsService.getAllCredentials(undefined, workspaceId)) || []
@@ -136,12 +321,12 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
 
     const pipelineName = demo.pipelineSample ? await demoPipeline(demo, workspaceId) : ''
     const profile = await loadHarness('profile.mjs')
-    const source = demoDataDir(demo.dataDir)
+    // The name check treats a specialist workspace that is already there as a leftover. Clear it only when
+    // every blocker is a directory this demo itself staged. Any other blocker is left for that check.
+    await releaseIdentifiedDemoWorkspaces(demo)
     const folders: Record<string, string> = {}
-    for (const [specialist, files] of Object.entries(demo.files)) {
-        const folder = profile.specialistWorkspace(profile.specialistProfileName(demo.harness, specialist))
-        await stageDemoFiles(folder, source, files)
-        folders[specialist] = folder.split(path.sep).join('/')
+    for (const specialist of Object.keys(demo.files)) {
+        folders[specialist] = profile.specialistWorkspace(profile.specialistProfileName(demo.harness, specialist)).split(path.sep).join('/')
     }
 
     const chatModel = { name: model.name, credential: credentialId, inputs: model.modelName ? { modelName: model.modelName } : {} }
@@ -171,6 +356,9 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         actor,
         { caller: harnessCaller }
     )
+    // The save compiles the profiles. The specialist files go in after that, so the name check never sees
+    // this demo's own folders as leftovers. A later Try the demo fills any folder this copy did not finish.
+    await ensureDemoFiles(demo)
     logger.info(`[server]: Try the demo made ${demo.harness} with ${model.name}${model.modelName ? ` (${model.modelName})` : ''}`)
     return { id: saved.id, name: saved.name, created: true, starterQuestions: demo.starters }
 }
