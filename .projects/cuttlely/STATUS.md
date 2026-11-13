@@ -1,7 +1,3 @@
-## Try the demo save
-
-Try the demo (`packages/server/src/services/demo/index.ts`) writes each specialist's files after the harness save. If that copy stops, the next Try the demo writes any missing specialist file and leaves a complete team as it is. A previous attempt can leave plain specialist workspaces with no profile. `removeUnprofiledWorkspace` in `packages/harness/cleanup.mjs` removes only those before the save. A profile entry, a symbolic link, or another harness's workspace still makes `clearStaleNameData` (`packages/server/src/services/harnesses/index.ts`) refuse the save with 503. `scripts/demo-save.test.mjs` covers a fresh install, a retry with those folders already present, and those refusals. The README says policy runs after operations, and that the demo card shows only under **Harness · Agent Team** once a flow is saved.
-
 ## 1.7.3 release preparation
 
 This branch is `release/1.7.3`, started from `origin/main` at `932bd8df` ([#456](https://github.com/cuttlely/cuttlely/pull/456)), previously folded with `05b71a12` ([#473](https://github.com/cuttlely/cuttlely/pull/473)), and now folded with a normal merge of `origin/main` at `3c981e82` ([#469](https://github.com/cuttlely/cuttlely/pull/469)). It prepares the unpublished 1.7.3 patch. The four product manifests and current install pins are 1.7.3. `CHANGELOG.md` uses the planned heading `## [1.7.3] - Unreleased` so the release tool can date it at cut time.

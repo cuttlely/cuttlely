@@ -85,11 +85,19 @@ const componentNodes = {
 }
 
 let savedCanvas = null
-let recordSaved = false
-let blockStage = false
+let saveCount = 0
 const appMod = serverRequire('./src/utils/getRunningExpressApp.ts')
 appMod.getRunningExpressApp = () => ({
-    AppDataSource: { getRepository: () => ({ findOneBy: async () => savedCanvas }) },
+    AppDataSource: {
+        getRepository: () => ({
+            findOneBy: async (where) => {
+                if (!savedCanvas) return null
+                if (where?.name && where.name !== savedCanvas.name) return null
+                if (where?.workspaceId && where.workspaceId !== savedCanvas.workspaceId) return null
+                return savedCanvas
+            }
+        })
+    },
     nodesPool: { componentNodes },
     usageCacheManager: {}
 })
@@ -112,15 +120,8 @@ chatflows.default.saveChatflow = async (chatflow) => {
             specialists
         }
     })
-    const saved = { id: 'flow-customer-care', name: chatflow.name, workspaceId: chatflow.workspaceId, type: chatflow.type }
-    if (blockStage) {
-        const blocked = specialistDir('customer')
-        fs.rmSync(blocked, { recursive: true, force: true })
-        fs.mkdirSync(path.dirname(blocked), { recursive: true })
-        fs.writeFileSync(blocked, 'not a directory')
-    }
-    if (recordSaved) savedCanvas = saved
-    return saved
+    saveCount += 1
+    return { id: 'flow-customer-care', name: chatflow.name, workspaceId: chatflow.workspaceId, type: chatflow.type }
 }
 
 const credentials = serverRequire('./src/services/credentials/index.ts')
@@ -151,9 +152,13 @@ describe('Try the demo save', () => {
         const saved = await demo.create('cred-1', caller, 'customer-care')
         assert.equal(saved.created, true)
         assert.equal(saved.name, 'customer-care-demo')
-        assert.deepEqual(fs.readdirSync(specialistDir('customer')).sort(), ['support.sqlite', 'support_desk.py'])
-        assert.deepEqual(fs.readdirSync(specialistDir('operations')).sort(), ['fulfillment.py', 'fulfillment.sqlite'])
-        assert.deepEqual(fs.readdirSync(specialistDir('policy')).sort(), ['policy_book.py', 'service-policy.md'])
+        assert.deepEqual(fs.readdirSync(specialistDir('customer')).sort(), ['.cuttlely-demo-stage', 'support.sqlite', 'support_desk.py'])
+        assert.deepEqual(fs.readdirSync(specialistDir('operations')).sort(), [
+            '.cuttlely-demo-stage',
+            'fulfillment.py',
+            'fulfillment.sqlite'
+        ])
+        assert.deepEqual(fs.readdirSync(specialistDir('policy')).sort(), ['.cuttlely-demo-stage', 'policy_book.py', 'service-policy.md'])
     })
 
     it('saves again when the demo specialist folders are already there', async () => {
@@ -201,27 +206,45 @@ describe('Try the demo save', () => {
         fs.rmSync(specialistDir('policy'), { force: true })
     })
 
-    it('finishes specialist files when the team was saved and the copy failed', async () => {
+    it('does not remove a demo folder when another demo name holds a non-demo file', async () => {
         ran += 1
         const customer = specialistDir('customer')
-        recordSaved = true
-        blockStage = true
-        savedCanvas = null
-        await assert.rejects(() => demo.create('cred-1', caller, 'customer-care'))
-        assert.equal(savedCanvas.name, 'customer-care-demo')
-        blockStage = false
-        fs.rmSync(customer)
-        const again = await demo.create('cred-1', caller, 'customer-care')
-        assert.equal(again.created, false)
-        assert.equal(again.id, 'flow-customer-care')
-        assert.deepEqual(fs.readdirSync(specialistDir('customer')).sort(), ['support.sqlite', 'support_desk.py'])
+        const operationsFile = path.join(specialistDir('operations'), 'fulfillment.py')
+        fs.writeFileSync(path.join(customer, 'notes.txt'), 'not demo staging')
+        const before = fs.readFileSync(operationsFile, 'utf8')
+        fs.writeFileSync(operationsFile, `${before}\nLOCAL`)
+        const savesBefore = saveCount
+        await assert.rejects(demo.create('cred-1', caller, 'customer-care'), (error) => {
+            assert.equal(error.statusCode, 503)
+            assert.match(error.message, /could not be removed/)
+            return true
+        })
+        assert.equal(saveCount, savesBefore)
+        assert.equal(fs.readFileSync(path.join(customer, 'notes.txt'), 'utf8'), 'not demo staging')
+        assert.equal(fs.readFileSync(operationsFile, 'utf8'), `${before}\nLOCAL`)
+        assert.ok(fs.existsSync(path.join(customer, 'support.sqlite')))
+    })
+
+    it('fills missing specialist files for a demo that is already saved', async () => {
+        ran += 1
+        for (const name of ['customer', 'operations', 'policy']) fs.rmSync(specialistDir(name), { recursive: true, force: true })
+        savedCanvas = {
+            id: 'flow-customer-care',
+            name: 'customer-care-demo',
+            workspaceId: WORKSPACE,
+            type: 'HARNESS'
+        }
+        const savesBefore = saveCount
+        const saved = await demo.create('cred-1', caller, 'customer-care')
+        assert.equal(saved.created, false)
+        assert.equal(saved.id, 'flow-customer-care')
+        assert.equal(saveCount, savesBefore)
+        assert.deepEqual(fs.readdirSync(specialistDir('customer')).sort(), ['.cuttlely-demo-stage', 'support.sqlite', 'support_desk.py'])
         assert.ok(fs.existsSync(path.join(specialistDir('operations'), 'fulfillment.sqlite')))
         assert.ok(fs.existsSync(path.join(specialistDir('policy'), 'service-policy.md')))
         const repeat = await demo.create('cred-1', caller, 'customer-care')
         assert.equal(repeat.created, false)
-        assert.equal(fs.readFileSync(path.join(specialistDir('customer'), 'support_desk.py'), 'utf8').length > 0, true)
-        recordSaved = false
-        blockStage = false
+        assert.equal(saveCount, savesBefore)
         savedCanvas = null
     })
 })

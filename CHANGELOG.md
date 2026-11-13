@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   **Try the demo** on a new install saves the customer care team. A previous attempt that left the demo's specialist folders behind can be run again. A profile, a link, or another harness's workspace left under that name still blocks the save. The README says policy runs after operations, and that the demo card stays on **Harness · Agent Team** once a flow is saved. `npx cuttlely logs` is named for diagnosing a quiet start.
+-   **Try the demo** on a new install saves the customer care team. A previous attempt can be run again when the folders it left contain only that demo's own staged files. Any other leftover at those names still blocks the save, and nothing is removed unless every blocker is one of those folders. A team that was saved before its specialist files were copied is finished on the next Try the demo. The README says policy runs after operations, and that the demo card stays on **Harness · Agent Team** once a flow is saved. `npx cuttlely logs` is named for diagnosing a quiet start.
 
 ## [1.7.3] - 2026-11-12
 

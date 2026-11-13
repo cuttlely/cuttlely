@@ -90,46 +90,6 @@ export function containedEntry(root, entry) {
     return target
 }
 
-// A specialist workspace Try the demo created before the harness existed. The name-reuse check treats a
-// workspace with no profile as a leftover and refuses the save, and a retry leaves the folder in place.
-// Remove it only when it is a plain directory and no profile entry of that name exists. A link (or a link
-// anywhere inside), a profile, or a path outside the workspaces root stays, so a real leftover and another
-// harness's workspace still block the save.
-export function removeUnprofiledWorkspace(entry) {
-    if (typeof entry !== 'string' || !ENTRY_RE.test(entry)) return false
-    if (lstatOrNull(path.join(profilesRoot(), entry))) return false
-    const target = containedEntry(workspacesRoot(), entry)
-    if (!target) return false
-    const stat = lstatOrNull(target)
-    if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return false
-    if (treeHasLink(target)) return false
-    fs.rmSync(target, { recursive: true, force: true })
-    cleanupHooks.log(`[harness] removed workspaces/${entry}: it was staged before the harness was saved`)
-    return true
-}
-
-// True when any entry in the tree is a symbolic link. The walk uses lstat, so a link is not followed.
-function treeHasLink(dir) {
-    const stack = [dir]
-    let seen = 0
-    while (stack.length) {
-        const current = stack.pop()
-        const stat = lstatOrNull(current)
-        if (!stat) continue
-        if (stat.isSymbolicLink()) return true
-        if (!stat.isDirectory()) continue
-        if (++seen > WALK_LIMIT) return true
-        let names = []
-        try {
-            names = fs.readdirSync(current)
-        } catch {
-            return true
-        }
-        for (const name of names) stack.push(path.join(current, name))
-    }
-    return false
-}
-
 // Removes one entry of a root. A link is unlinked (its target stays). A missing entry is already done.
 function removeEntry(root, entry) {
     const target = containedEntry(root, entry)
