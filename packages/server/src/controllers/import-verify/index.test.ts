@@ -228,7 +228,9 @@ describe('import-verify start while a check is already running', () => {
         ;(flowDraftsService.saveDraft as jest.Mock).mockImplementation(async (_flow, flowText: string, context) => {
             const strict = context?.strictDraftHash === true
             const expected = context?.expectedDraftHash
-            if (stored && strict && expected === null && flowText !== stored) throw new DraftChangedError()
+            if (stored && strict && expected === null && flowText !== stored) {
+                throw new DraftChangedError({ id: 'other', name: 'Someone else' }, '2026-11-13T00:00:00.000Z')
+            }
             stored = flowText
             return { draft: { flowData: stored } }
         })
