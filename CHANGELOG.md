@@ -26,6 +26,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Upgrade notes / breaking changes
 
+-   This patch adds one migration at startup: a nullable `importVerify` column on `flow_version_state`. Existing rows are unchanged and Publish behaves as before.
+
 -   Analyst storage is **Auto** when `CUTTLELY_ANALYST` was never set. A host or saved value of `off`, `false`, `0`, or `no` stays off. Auto creates a private store. On Postgres that store is a schema and a login in the application database, created the first time the analyst runs. If that database user cannot create roles, the analyst tool fails and says so. Cuttlely still starts, and `GET /api/v1/ping` still returns `pong`. Set `off`, or set `CUTTLELY_POSTGRES_URL` to a separate database, before upgrading when you do not want that private store.
 
 ## [1.7.3] - 2026-11-12
