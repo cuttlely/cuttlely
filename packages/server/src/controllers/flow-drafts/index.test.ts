@@ -287,7 +287,8 @@ test('ZZ-TEST-publishing a draft someone else saved is the same 409, and Live is
     expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
         userId: 'user-1',
         expectedDraftHash: 'stale-hash',
-        overwriteDraftChanges: 'true'
+        overwriteDraftChanges: 'true',
+        strictDraftHash: false
     })
     expect(next).not.toHaveBeenCalled()
     expect(updateChatflow).not.toHaveBeenCalled()
