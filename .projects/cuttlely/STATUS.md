@@ -84,9 +84,11 @@ Now the interceptor rejects a no-response error as it is. `ErrorBoundary` shows 
 
 ## Import target-handle types
 
-Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). `CHANGELOG.md` keeps this fix under `## [1.7.3] - Unreleased`; the dated 1.7.2 notes stay as shipped.
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). `CHANGELOG.md` lists this fix in the dated `## [1.7.3]` notes.
 
 Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example (`examples/imports/bakery-helper.json`) stores the Conversation Chain model handle with `BaseLanguageModel` while the refreshed node uses `BaseChatModel`. Comparison now treats those as the same input, then writes the live handle id, so the ChatOpenAI to Conversation Chain connection stays. A genuinely different input still drops the edge. The Connections bullet in `docs/bring-your-flows.md` describes this. Focused `packages/ui/src/utils/edgeRefs.test.js` coverage imports that shipped file as-is and includes a different-input case.
+
+Edges whose saved handle the node no longer has ([#457](https://github.com/cuttlely/cuttlely/issues/457)): `chooseHandle` in `packages/ui/src/utils/normalizeCanvasFlow.js` no longer treats every unknown handle as a legacy form. An edge with no handle, or a handle saved without its type segment, is still matched to the live handle. A handle that names the same input or output with only the trailing type changed is still pointed at the live one. Any other unknown source output or target input stays as written, so `healImportedFlow` drops the edge and the import reports it, as the Connections bullet in `docs/bring-your-flows.md` says. The edge id and the node's first output are no longer used to guess a replacement. Focused tests are in `packages/ui/src/utils/normalizeCanvasFlow.test.js` and `packages/ui/src/utils/edgeRefs.test.js`. The `CHANGELOG.md` entry is under `## [Unreleased]`.
 
 The 1.7.0 backup, operator onboarding/recovery and default-Off enforcement requirements still apply.
 

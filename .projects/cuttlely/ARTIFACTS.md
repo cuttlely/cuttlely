@@ -30,7 +30,8 @@
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
 -   `packages/ui/src/utils/edgeRefs.test.js` imports `examples/imports/bakery-helper.json` as-is and keeps the ChatOpenAI to Conversation Chain edge; a genuinely different input still drops it.
--   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   `packages/ui/src/utils/normalizeCanvasFlow.js`: `chooseHandle` repairs a missing handle or one saved without its type segment, and leaves any other handle the node no longer has as written. `packages/ui/src/utils/normalizeCanvasFlow.test.js` and `packages/ui/src/utils/edgeRefs.test.js` cover a removed source output and an unknown input whose edge id ends in a real input name ([#457](https://github.com/cuttlely/cuttlely/issues/457)).
+-   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes in `CHANGELOG.md`: the dated `## [1.7.3]` section for #454 and `## [Unreleased]` for #457.
 
 ## Same-server flow and Harness nested calls
 
