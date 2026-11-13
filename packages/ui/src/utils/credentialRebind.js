@@ -107,7 +107,7 @@ export function credentialRebindError(result) {
     }
     for (const ref of result?.ambiguous || []) {
         lines.push(
-            `This server has ${ref.count} credentials named "${ref.name}" (${ref.credentialName}). Rename them so one name and type match, then import again.`
+            `This server has ${ref.count} credentials named "${ref.name}" (${ref.credentialName}). The import does not choose one. Give them different names so only one has this name and type, then import again.`
         )
     }
     return lines.join(' ')

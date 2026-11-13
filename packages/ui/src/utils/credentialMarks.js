@@ -33,7 +33,11 @@ export function replaceCredentialIds(value, byId) {
         }
         out[key] = key === 'credential' ? credentialRef(item, byId) : replaceCredentialIds(item, byId)
     }
-    if (promoted && out.credential === undefined) out.credential = promoted
+    // A saved config often has credential: "" next to the id that was actually chosen.
+    // An empty string is present, so it must not hide that id.
+    const slotEmpty =
+        out.credential === undefined || out.credential === null || (typeof out.credential === 'string' && !out.credential.trim())
+    if (promoted && slotEmpty) out.credential = promoted
     return out
 }
 
