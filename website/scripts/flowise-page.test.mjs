@@ -92,7 +92,7 @@ describe('Flowise import page wiring', () => {
         const body = read('src/guides/flowise-import/guide.md')
         assert.match(body, /^Already have flows\? Bring them over\./)
         for (const image of ['import-wizard-upload.png', 'import-result-needs-credentials.png']) {
-            assert.match(body, new RegExp(`\\]\\(${image.replace(/\./g, '\\.')}\\)`))
+            assert.ok(body.includes(`](${image})`), `guide.md links ${image}`)
             assert.equal(fs.existsSync(path.join(SITE, 'src/guides/flowise-import', image)), true)
         }
         assert.match(read('src/pages/flowise.astro'), /href="\/flowise\/import-guide\/"/)
