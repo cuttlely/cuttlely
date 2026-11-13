@@ -128,7 +128,7 @@ export const tokenHelp = (reading = false, from = '', hostInput = '') => {
             ? `Pick the repository your ${
                   from || 'Dev'
               } server copies to. The link below fills in the name, expiry and Contents. You pick the repository.`
-            : 'Create the repository on GitHub first, so you can pick it there. It can already have files. Cuttlely never overwrites GitHub. The link below fills in the name, expiry and Contents. You pick the repository.'
+            : 'Create the repository on GitHub first, so you can pick it there. It can already have files, and files added later stay. Cuttlely never overwrites GitHub. The link below fills in the name, expiry and Contents. You pick the repository.'
     }
 }
 
