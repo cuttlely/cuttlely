@@ -6,7 +6,8 @@ import { AppError } from '../../errors/appError'
 import { hasAnyPermission } from '../../identity/rbac'
 import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
-import flowDraftsService from '../../services/flow-drafts'
+import flowDraftsService, { canvasHash } from '../../services/flow-drafts'
+import { DraftChangedError } from '../../services/flow-drafts/draftChanged'
 import { harnessCallerFor } from '../../services/harnesses/apiAccess'
 import { executeVerify, type SavedQuery, type VerifyRecord } from '../../services/import-verify'
 import { readOnlyRows, testPinnedQuery, PinnedRequestError } from '../../services/pinned-queries'
@@ -86,21 +87,33 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
     try {
         const app = getRunningExpressApp()
         const loaded = app.nodesPool?.componentNodes ? Object.keys(app.nodesPool.componentNodes) : undefined
+        const starting = (await flowDraftsService.getState(flow.id))?.draftFlowData || draft
+        let expectedHash = starting ? canvasHash(starting) : undefined
         return await executeVerify({
-            flowText: (await flowDraftsService.getState(flow.id))?.draftFlowData || draft,
+            flowText: starting,
             record: readRecord((await flowDraftsService.getState(flow.id))?.importVerify),
             choices,
             retryFailures,
             deps: {
                 now: () => new Date().toISOString(),
                 saveFlow: async (flowText) => {
-                    await flowDraftsService.saveDraft(flow, flowText, {
-                        userId: req.user?.id || null,
-                        orgId,
-                        subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
-                        caller: await harnessCallerFor(req)
-                    })
-                    return (await flowDraftsService.getState(flow.id))?.draftFlowData || flowText
+                    try {
+                        await flowDraftsService.saveDraft(flow, flowText, {
+                            userId: req.user?.id || null,
+                            orgId,
+                            subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
+                            caller: await harnessCallerFor(req),
+                            expectedDraftHash: expectedHash
+                        })
+                    } catch (error) {
+                        if (error instanceof DraftChangedError) {
+                            throw Object.assign(new Error('The draft changed while verification was running.'), { code: 'draft-moved' })
+                        }
+                        throw error
+                    }
+                    const stored = (await flowDraftsService.getState(flow.id))?.draftFlowData || flowText
+                    expectedHash = canvasHash(stored)
+                    return stored
                 },
                 saveRecord: (record) => writeRecord(flow.id, record),
                 credentials: async () => {

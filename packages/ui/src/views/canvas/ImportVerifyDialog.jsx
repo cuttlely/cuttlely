@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import chatflowsApi from '@/api/chatflows'
@@ -6,7 +6,15 @@ import flowDraftsApi from '@/api/flowDrafts'
 import importVerifyApi from '@/api/importVerify'
 import { harnessNameFrom } from '@/utils/buildWithAI'
 import { requestFailureMessage } from '@/utils/errorSummary'
-import { PLACEHOLDER_FLOW, progressLine, statusTitle, untrustFlow } from '@/utils/importVerify'
+import {
+    PLACEHOLDER_FLOW,
+    progressLine,
+    shouldReplaceDraft,
+    showResume,
+    statusTitle,
+    untrustFlow,
+    verificationFlowId
+} from '@/utils/importVerify'
 
 const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', onPublished }) => {
     const [fileName, setFileName] = useState('')
@@ -17,6 +25,26 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
     const [record, setRecord] = useState(null)
     const [chatflowId, setChatflowId] = useState(chatflow?.id || '')
     const [choices, setChoices] = useState({})
+
+    useEffect(() => {
+        if (chatflow?.id) setChatflowId(chatflow.id)
+    }, [chatflow?.id])
+
+    useEffect(() => {
+        const id = chatflow?.id || chatflowId
+        if (!open || !id) return undefined
+        let cancelled = false
+        importVerifyApi
+            .status(id)
+            .then((response) => {
+                const data = response?.data
+                if (!cancelled && data?.status && data.status !== 'idle') setRecord(data)
+            })
+            .catch(() => undefined)
+        return () => {
+            cancelled = true
+        }
+    }, [open, chatflow?.id, chatflowId])
 
     const reset = () => {
         setFileName('')
@@ -63,27 +91,36 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
     }
 
     const ensureFlow = async (saveFile) => {
-        if (chatflowId) {
-            if (saveFile) await flowDraftsApi.saveDraft(chatflowId, flowText)
-            return chatflowId
+        const id = verificationFlowId(chatflow?.id, chatflowId)
+        if (id) {
+            if (saveFile && flowText) await flowDraftsApi.saveDraft(id, flowText)
+            if (id !== chatflowId) setChatflowId(id)
+            return id
         }
         const typed = name.trim() || 'Imported flow'
         const savedName = flowType === 'HARNESS' ? harnessNameFrom(typed) : typed
         const body = { name: savedName, type: flowType, deployed: false, flowData: PLACEHOLDER_FLOW }
         if (flowType === 'HARNESS') body.draftFlowData = flowText
         const created = await chatflowsApi.createNewChatflow(body)
-        const id = created?.data?.id
-        if (!id) throw new Error('The flow was not created.')
-        if (flowType !== 'HARNESS') await flowDraftsApi.saveDraft(id, flowText)
-        setChatflowId(id)
-        return id
+        const createdId = created?.data?.id
+        if (!createdId) throw new Error('The flow was not created.')
+        if (flowType !== 'HARNESS') await flowDraftsApi.saveDraft(createdId, flowText)
+        setChatflowId(createdId)
+        return createdId
     }
 
     const run = async (extra = {}) => {
         setBusy(true)
         setError('')
         try {
-            const id = await ensureFlow(!extra.retryFailures && !extra.choices)
+            const id = await ensureFlow(
+                shouldReplaceDraft({
+                    flowText,
+                    retryFailures: extra.retryFailures,
+                    choices: extra.choices,
+                    resume: extra.resume
+                })
+            )
             const pending = importVerifyApi.start(id, extra)
             const timer = setInterval(() => {
                 importVerifyApi
@@ -171,8 +208,13 @@ const ImportVerifyDialog = ({ open, onClose, chatflow, flowType = 'CHATFLOW', on
                     </Button>
                 )}
                 {record?.queries?.some((item) => item.state === 'failed') && (
-                    <Button variant='outlined' disabled={busy} onClick={() => run({ retryFailures: true, choices })}>
+                    <Button variant='outlined' disabled={busy} onClick={() => run({ retryFailures: true, choices, resume: true })}>
                         Retry
+                    </Button>
+                )}
+                {showResume(record) && (
+                    <Button variant='outlined' disabled={busy} data-testid='import-verify-resume' onClick={() => run({ resume: true })}>
+                        Resume
                     </Button>
                 )}
                 {record?.publishOffered && (

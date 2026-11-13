@@ -259,9 +259,47 @@ function allowedMatch(param: ParamSpec, value: string): boolean {
     return param.allowedValues.some((item) => textOf(item) === value)
 }
 
+function decimalCompare(left: string, right: string): number {
+    const parts = (raw: string) => {
+        let sign = 1
+        let text = raw.trim()
+        if (text.startsWith('-')) {
+            sign = -1
+            text = text.slice(1)
+        } else if (text.startsWith('+')) text = text.slice(1)
+        const [wholeRaw, fracRaw = ''] = text.split('.')
+        return { sign, whole: wholeRaw.replace(/^0+/, '') || '0', frac: fracRaw.replace(/0+$/, '') }
+    }
+    const a = parts(left)
+    const b = parts(right)
+    if (a.sign !== b.sign) return a.sign - b.sign
+    const textCompare = (x: string, y: string) => (x.length !== y.length ? x.length - y.length : x < y ? -1 : x > y ? 1 : 0)
+    const whole = textCompare(a.whole, b.whole)
+    if (whole) return whole * a.sign
+    const width = Math.max(a.frac.length, b.frac.length)
+    return textCompare(a.frac.padEnd(width, '0'), b.frac.padEnd(width, '0')) * a.sign
+}
+
 function inRange(param: ParamSpec, value: string): boolean {
-    if (param.min !== undefined && param.min !== null && textOf(param.min) && value < textOf(param.min)) return false
-    if (param.max !== undefined && param.max !== null && textOf(param.max) && value > textOf(param.max)) return false
+    const min = textOf(param.min)
+    const max = textOf(param.max)
+    if (param.type === 'int8') {
+        try {
+            const number = BigInt(value)
+            if (min && number < BigInt(min)) return false
+            if (max && number > BigInt(max)) return false
+        } catch {
+            return false
+        }
+        return true
+    }
+    if (param.type === 'numeric') {
+        if (min && decimalCompare(value, min) < 0) return false
+        if (max && decimalCompare(value, max) > 0) return false
+        return true
+    }
+    if (min && value < min) return false
+    if (max && value > max) return false
     return true
 }
 

@@ -1,5 +1,6 @@
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
 import { planDiscovery, valuesFromDiscovery } from './discover'
+import { inspectFlow } from './inspect'
 import { executeVerify, hashFlow, importVerifyPublishBlock } from './job'
 import type { VerifyDeps, VerifyRecord } from './job'
 import { parseFlow, queryReady, untrustImportedFlow } from './stamps'
@@ -305,6 +306,82 @@ describe('imported verification', () => {
         expect(importVerifyPublishBlock(JSON.stringify({ ...record, status: 'ready' }), draft)).toBeNull()
         expect(importVerifyPublishBlock(JSON.stringify(record), JSON.stringify(flow([pin({ sql: 'SELECT 2 LIMIT 5' })])))).toBeNull()
         expect(importVerifyPublishBlock(null, draft)).toBeNull()
+    })
+
+    test('an integer bound compares as a number, so 20 is inside 1 to 100', () => {
+        const params = [{ name: 'n', type: 'int8', required: true, min: '1', max: '100' }]
+        const binding = [{ param: 'n', table: 'account', column: 'n', op: '=' as const }]
+        expect(valuesFromDiscovery(params, [{ n: '20' }], binding).n).toBe('20')
+        expect(valuesFromDiscovery(params, [{ n: '200' }], binding).n).toBeUndefined()
+        const amount = [{ name: 'amount', type: 'numeric', required: true, min: '1', max: '100' }]
+        const amountBinding = [{ param: 'amount', table: 'account', column: 'amount', op: '=' as const }]
+        expect(valuesFromDiscovery(amount, [{ amount: '20.5' }], amountBinding).amount).toBe('20.5')
+        expect(valuesFromDiscovery(amount, [{ amount: '100.01' }], amountBinding).amount).toBeUndefined()
+    })
+
+    test('a specialist contract uses the saved query on the connected card', () => {
+        const canvas = {
+            nodes: [
+                {
+                    id: 'pg',
+                    data: {
+                        name: 'postgreSQLMCP',
+                        label: 'PostgreSQL MCP',
+                        inputs: { pinnedQueries: JSON.stringify([pin({ testedStamp: undefined, needsRetest: true })]) }
+                    }
+                },
+                {
+                    id: 'spec',
+                    data: {
+                        name: 'harnessSpecialist',
+                        label: 'Analyst',
+                        inputs: {
+                            trustedOutputs: JSON.stringify([{ pin: 'pq_account_opportunity', hash: 'cd'.repeat(32), mode: 'markdown' }])
+                        }
+                    }
+                }
+            ],
+            edges: [{ source: 'pg', target: 'spec' }]
+        }
+        const inspected = inspectFlow({
+            flow: canvas,
+            pinnedQueriesEnabled: true,
+            resolutions: [],
+            statementHashes: { [`pg\0pin-1`]: 'cd'.repeat(32) }
+        })
+        expect(inspected.blockers.some((item) => item.action === 'review-contract')).toBe(false)
+        expect(inspected.smoke.some((item) => item.id === 'report')).toBe(true)
+        const mismatched = inspectFlow({
+            flow: canvas,
+            pinnedQueriesEnabled: true,
+            resolutions: [],
+            statementHashes: { [`pg\0pin-1`]: '11'.repeat(32) }
+        })
+        expect(mismatched.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:hash' && item.nodeId === 'pg')).toBe(
+            true
+        )
+    })
+
+    test('a newer draft stops the checkpoint instead of being replaced', async () => {
+        let saves = 0
+        const { deps } = memoryDeps({
+            concurrency: 1,
+            saveFlow: async (flowText) => {
+                saves += 1
+                if (saves > 1) throw Object.assign(new Error('moved'), { code: 'draft-moved' })
+                return flowText
+            }
+        })
+        const second = { ...pin({ id: 'pin-2', name: 'pq_second', purpose: 'Second' }), sql: 'SELECT 1 FROM account a LIMIT 5', params: [] }
+        const record = await executeVerify({
+            flowText: JSON.stringify(flow([pin(), second], 'cred-pg')),
+            record: null,
+            deps
+        })
+        expect(record.status).toBe('incomplete')
+        expect(record.summary).toContain('Could not fully verify')
+        expect(record.blockers.some((item) => item.id === 'draft-moved')).toBe(true)
+        expect(saves).toBe(2)
     })
 
     test('choosing a connection writes that id and leaves another empty slot empty', () => {

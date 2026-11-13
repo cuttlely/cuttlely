@@ -55,3 +55,18 @@ export function progressLine(record) {
 }
 
 export const PLACEHOLDER_FLOW = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } })
+
+export function verificationFlowId(propId, stateId) {
+    return propId || stateId || ''
+}
+
+export function shouldReplaceDraft({ flowText, retryFailures = false, choices = false, resume = false } = {}) {
+    return Boolean(flowText) && !retryFailures && !choices && !resume
+}
+
+export function showResume(record) {
+    if (!record || record.publishOffered || record.status === 'running' || record.status === 'idle') return false
+    const unresolved = (record.connections || []).some((item) => item.status === 'missing' || item.status === 'ambiguous')
+    if (unresolved) return false
+    return !(record.queries || []).some((item) => item.state === 'failed')
+}

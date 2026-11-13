@@ -1,4 +1,4 @@
-import { queryReady, statusTitle, untrustFlow } from './importVerify'
+import { queryReady, shouldReplaceDraft, showResume, statusTitle, untrustFlow, verificationFlowId } from './importVerify'
 
 const pin = {
     id: 'pin-1',
@@ -20,6 +20,17 @@ test('an imported stamp is not treated as ready', () => {
     expect(saved.sql).toBe(pin.sql)
     expect(saved.testedStamp).toBeUndefined()
     expect(queryReady(saved)).toBe(false)
+})
+
+test('a flow id that arrives later replaces an empty one, and resume does not replace the draft', () => {
+    expect(verificationFlowId('', '')).toBe('')
+    expect(verificationFlowId('flow-9', '')).toBe('flow-9')
+    expect(shouldReplaceDraft({ flowText: '{"nodes":[]}' })).toBe(true)
+    expect(shouldReplaceDraft({ flowText: '{"nodes":[]}', resume: true })).toBe(false)
+    expect(shouldReplaceDraft({ flowText: '', resume: true })).toBe(false)
+    expect(showResume({ status: 'incomplete', publishOffered: false, queries: [{ state: 'pending' }], connections: [] })).toBe(true)
+    expect(showResume({ status: 'attention', publishOffered: false, queries: [{ state: 'failed' }], connections: [] })).toBe(false)
+    expect(showResume(null)).toBe(false)
 })
 
 test('the three finished results use plain titles', () => {

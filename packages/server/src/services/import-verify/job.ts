@@ -184,8 +184,41 @@ function isTransient(error: unknown): boolean {
     return /timeout|timed out|ECONNRESET|ECONNREFUSED|503|504|temporarily|connection terminated/i.test(message)
 }
 
-async function persist(deps: VerifyDeps, flow: unknown, record: VerifyRecord): Promise<{ flowText: string; record: VerifyRecord }> {
-    const stored = await deps.saveFlow(JSON.stringify(flow))
+function draftMoved(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object' && (error as { code?: string }).code === 'draft-moved')
+}
+
+async function persist(
+    deps: VerifyDeps,
+    flow: unknown,
+    record: VerifyRecord
+): Promise<{ flowText: string; record: VerifyRecord; moved?: boolean }> {
+    let stored: string
+    try {
+        stored = await deps.saveFlow(JSON.stringify(flow))
+    } catch (error) {
+        if (!draftMoved(error)) throw error
+        const stopped = finishRecord(
+            {
+                ...record,
+                status: 'incomplete',
+                phase: 'The draft changed',
+                blockers: [
+                    ...record.blockers,
+                    {
+                        id: 'draft-moved',
+                        severity: 'incomplete',
+                        message:
+                            'The draft changed while verification was running. The newer copy was left as it is. Resume to check that copy.',
+                        action: 'none'
+                    }
+                ]
+            },
+            deps.now()
+        )
+        await deps.saveRecord(stopped)
+        return { flowText: '', record: stopped, moved: true }
+    }
     const next = { ...record, draftHash: hashFlow(stored), updatedAt: deps.now() }
     await deps.saveRecord(next)
     return { flowText: stored, record: next }
@@ -290,6 +323,7 @@ export async function executeVerify(options: {
         updatedAt: deps.now()
     }
     let stored = await persist(deps, flow, record)
+    if (stored.moved) return stored.record
     flow = parseFlow(stored.flowText) || flow
     record = stored.record
 
@@ -433,6 +467,7 @@ export async function executeVerify(options: {
         record.phase = progressText(record.checked, record.total)
         record.queries = record.queries.map((item) => ({ ...item }))
         stored = await persist(deps, flow, record)
+        if (stored.moved) return stored.record
         flow = parseFlow(stored.flowText) || flow
         record = { ...stored.record, queries: record.queries, checked: record.checked, phase: record.phase }
         if (deps.signal?.aborted) {

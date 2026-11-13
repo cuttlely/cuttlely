@@ -58,6 +58,30 @@ function contractsOf(inputs: Record<string, unknown>): Contract[] {
     return parsed.filter((item) => item && typeof item === 'object') as Contract[]
 }
 
+// A contract sits on the specialist. The saved query sits on a Postgres card wired into that specialist.
+function pinsForContracts(
+    flow: { nodes?: unknown; edges?: unknown },
+    nodeId: string
+): Array<{ nodeId: string; pin: ReturnType<typeof readQueries>[number] }> {
+    const nodes = Array.isArray(flow.nodes) ? flow.nodes : []
+    const edges = Array.isArray(flow.edges) ? flow.edges : []
+    const byId = new Map(nodes.map((node) => [String((node as { id?: string })?.id || ''), node]))
+    const found: Array<{ nodeId: string; pin: ReturnType<typeof readQueries>[number] }> = []
+    const add = (id: string, node: unknown) => {
+        const data = nodeData(node)
+        const inputs = data?.inputs && typeof data.inputs === 'object' ? (data.inputs as Record<string, unknown>) : {}
+        for (const pin of readQueries(inputs.pinnedQueries)) found.push({ nodeId: id, pin })
+    }
+    add(nodeId, byId.get(nodeId))
+    for (const edge of edges) {
+        if (!edge || typeof edge !== 'object') continue
+        if (String((edge as { target?: string }).target || '') !== nodeId) continue
+        const sourceId = String((edge as { source?: string }).source || '')
+        if (sourceId) add(sourceId, byId.get(sourceId))
+    }
+    return found
+}
+
 function usesPdf(inputs: Record<string, unknown>): boolean {
     const preset = String(inputs.preset || '').toLowerCase()
     if (preset === 'assets') return true
@@ -163,18 +187,18 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
         }
         for (const contract of contracts) {
             if (!contract.pin) continue
-            const pin = queries.find((item) => item.name === contract.pin)
-            if (!pin) {
+            const provided = pinsForContracts(input.flow, nodeId).find((item) => item.pin.name === contract.pin)
+            if (!provided) {
                 blockers.push({
                     id: `contract:${nodeId}:${contract.pin}`,
                     severity: 'attention',
-                    message: `${label} expects saved query ${contract.pin}, and that query is not on this flow.`,
+                    message: `${label} expects saved query ${contract.pin}, and that query is not on a card connected to it.`,
                     action: 'review-contract',
                     nodeId
                 })
                 continue
             }
-            const fresh = input.statementHashes?.[`${nodeId}\0${String(pin.id || '')}`]
+            const fresh = input.statementHashes?.[`${provided.nodeId}\0${String(provided.pin.id || '')}`]
             const expected = String(contract.hash || contract.statementHash || '')
             if (fresh && expected && fresh !== expected) {
                 blockers.push({
@@ -182,8 +206,8 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
                     severity: 'attention',
                     message: `The output contract for ${contract.pin} does not match the query that was just tested. Review the contract before publishing.`,
                     action: 'review-contract',
-                    nodeId,
-                    pinId: String(pin.id || '')
+                    nodeId: provided.nodeId,
+                    pinId: String(provided.pin.id || '')
                 })
             }
             if (contract.mode === 'table-payload-csv') csvPins.push(String(contract.pin))
