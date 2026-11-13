@@ -52,7 +52,7 @@ const runningRecord = {
 
 jest.mock('../../services/flow-drafts', () => ({
     __esModule: true,
-    canvasHash: () => 'abc',
+    canvasHash: (flowData: string) => `hash:${String(flowData ?? '')}`,
     DraftChangedError: class DraftChangedError extends Error {},
     default: {
         getState: jest.fn(async () => ({
@@ -70,6 +70,7 @@ jest.mock('../../services/import-verify', () => ({
 }))
 
 import { executeVerify } from '../../services/import-verify'
+import flowDraftsService from '../../services/flow-drafts'
 
 const response = () => {
     const res = { json: jest.fn(), status: jest.fn() }
@@ -106,5 +107,27 @@ describe('import-verify start while a check is already running', () => {
         release({ ...runningRecord, status: 'ready', publishOffered: true })
         await started
         expect(first.status).not.toHaveBeenCalledWith(StatusCodes.INTERNAL_SERVER_ERROR)
+    })
+
+    test('a draft that changes between the save and the re-read is draft-moved, not ready', async () => {
+        const original = '{"nodes":[],"edges":[]}'
+        const newer = '{"nodes":[{"id":"user-save"}],"edges":[]}'
+        let saved = false
+        ;(flowDraftsService.saveDraft as jest.Mock).mockImplementation(async (_flow, flowText: string) => {
+            saved = true
+            return { draft: { flowData: flowText } }
+        })
+        ;(flowDraftsService.getState as jest.Mock).mockImplementation(async () => ({
+            draftFlowData: saved ? newer : original,
+            importVerify: null
+        }))
+        const actual = jest.requireActual('../../services/import-verify') as { executeVerify: typeof executeVerify }
+        ;(executeVerify as jest.Mock).mockImplementation((options) => actual.executeVerify(options))
+        const res = response()
+        await controller.start(request(), res as any, jest.fn())
+        const body = res.json.mock.calls[0][0]
+        expect(body.status).toBe('incomplete')
+        expect(body.blockers.some((item: { id: string }) => item.id === 'draft-moved')).toBe(true)
+        expect(body.publishOffered).toBe(false)
     })
 })

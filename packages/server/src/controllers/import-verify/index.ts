@@ -104,8 +104,9 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
             deps: {
                 now: () => new Date().toISOString(),
                 saveFlow: async (flowText) => {
+                    let written = flowText
                     try {
-                        await flowDraftsService.saveDraft(flow, flowText, {
+                        const saved = await flowDraftsService.saveDraft(flow, flowText, {
                             userId: req.user?.id || null,
                             orgId,
                             subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
@@ -113,13 +114,17 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
                             expectedDraftHash: expectedHash,
                             strictDraftHash: true
                         })
+                        if (saved.draft?.flowData) written = saved.draft.flowData
                     } catch (error) {
                         if (error instanceof DraftChangedError) {
                             throw Object.assign(new Error('The draft changed while verification was running.'), { code: 'draft-moved' })
                         }
                         throw error
                     }
-                    const stored = (await flowDraftsService.getState(flow.id))?.draftFlowData || flowText
+                    const stored = (await flowDraftsService.getState(flow.id))?.draftFlowData || written
+                    if (canvasHash(stored) !== canvasHash(written)) {
+                        throw Object.assign(new Error('The draft changed while verification was running.'), { code: 'draft-moved' })
+                    }
                     expectedHash = canvasHash(stored)
                     return stored
                 },
