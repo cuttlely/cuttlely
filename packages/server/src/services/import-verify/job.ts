@@ -447,7 +447,7 @@ async function verifyBody(options: {
         const fingerprint = fingerprintFor(nodeId, pin)
         if (old && (old.state === 'passed' || old.state === 'empty') && old.fingerprint && old.fingerprint === fingerprint) keep.add(key)
     }
-    flow = untrustImportedFlow(flow, keep).flow
+    flow = untrustImportedFlow(flow, keep).flow as typeof flow
 
     const listed = queriesOnFlow(flow)
     const queries: QueryProgress[] = listed.map(({ nodeId, pin }) => {
