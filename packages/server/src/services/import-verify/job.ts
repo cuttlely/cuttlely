@@ -124,6 +124,13 @@ export interface VerifyDeps {
     signal?: AbortSignal
 }
 
+function queryForTest(pin: SavedQuery): SavedQuery {
+    const entry = { ...pin }
+    delete entry.importedVerification
+    delete entry.verifiedHere
+    return entry
+}
+
 function paramsOf(pin: SavedQuery): ParamSpec[] {
     if (!Array.isArray(pin.params)) return []
     return pin.params.filter((item) => item && typeof item === 'object') as ParamSpec[]
@@ -642,14 +649,26 @@ async function verifyBody(options: {
 
     const concurrency = Math.max(1, Math.min(deps.concurrency ?? 4, 8))
     const timeoutMs = deps.timeoutMs ?? 20000
-    const pending = record.queries.filter((item) => item.state === 'pending')
+    const pending = record.queries
+        .filter((item) => item.state === 'pending')
+        .map((item) => ({ nodeId: item.nodeId, pinId: item.pinId, indexOnNode: item.indexOnNode }))
 
     for (let offset = 0; offset < pending.length; offset += concurrency) {
         if (deps.signal?.aborted) {
             record.status = 'cancelled'
             break
         }
-        const slice = pending.slice(offset, offset + concurrency)
+        const slice = pending
+            .slice(offset, offset + concurrency)
+            .map(
+                (pendingQuery) =>
+                    record.queries.find(
+                        (item) =>
+                            item.nodeId === pendingQuery.nodeId &&
+                            item.pinId === pendingQuery.pinId &&
+                            item.indexOnNode === pendingQuery.indexOnNode
+                    )!
+            )
         await Promise.all(
             slice.map(async (query) => {
                 if (deps.signal?.aborted) return
@@ -705,7 +724,7 @@ async function verifyBody(options: {
                     attempts += 1
                     try {
                         result = await withTimeout(
-                            deps.testPin({ nodeId: query.nodeId, entry: pin, sampleValues: sample, credentialId }),
+                            deps.testPin({ nodeId: query.nodeId, entry: queryForTest(pin), sampleValues: sample, credentialId }),
                             timeoutMs,
                             deps.signal
                         )
