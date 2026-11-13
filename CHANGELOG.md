@@ -2,7 +2,23 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.4] - Unreleased
+
+### Added
+
+-   **#484 (squash commit pending):** Import a flow or harness and choose **Import & verify**. Cuttlely keeps the queries and configuration, treats a test stamp in the file as untrusted, and retests every saved query on this server. You do not type sample values or paste secrets. The result is **Ready to publish**, **Needs attention**, or **Could not fully verify**. Live stays as it is, and Publish is offered after the required checks pass. One saved connection with the same name and type is reused. A missing, ambiguous, or required empty connection shows a picker.
+
+### Changed
+
+-   **#483 (squash commit pending):** Unset Analyst storage is Auto on a fresh start and on an upgrade that never set it. A host or saved value of Off, `false`, `0`, or `no` stays off. Saving **Off** stores `off`. A Postgres URL credential or `CUTTLELY_POSTGRES_URL` still uses the read-only path.
+
+### Fixed
+
+-   **#483 (squash commit pending):** A harness with an analyst specialist no longer shows **Analyst tool unavailable** after another specialist lists tools. A later list that is empty, fails, or has no query or pinned query tool does not replace a recorded offer, so **Tools it can use** stays ready.
+
+-   **#483 (squash commit pending):** Importing a harness attaches a credential that already exists on this server with the same name and type. That includes a nested credential id and a config that stores an empty credential slot beside the chosen id. The export names each credential by name and type and leaves out secrets and credential ids. An empty credential slot stays empty. If none matches, or more than one matches, the import stops and does not create or choose a credential.
+
+-   **Try the demo fresh-install save (pull request number and squash commit pending):** On a fresh install, Try the demo saves the staged team. The specialist folders prepared for that demo are no longer treated as leftovers, which had refused the save. The README's first-ten-minutes step 4 and the Flowise import guide use the same wording.
 
 ## [1.7.3] - 2026-11-12
 
@@ -994,6 +1010,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.3...HEAD
+[1.7.4]: https://github.com/cuttlely/cuttlely/compare/v1.7.3...HEAD
 [1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/cuttlely/cuttlely/compare/v1.7.0...v1.7.1

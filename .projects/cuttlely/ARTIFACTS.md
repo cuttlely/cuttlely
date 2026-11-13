@@ -15,7 +15,7 @@
 -   `packages/ui/src/utils/errorSummary.js`: status and message for the error card, and `requestFailureMessage` for page notifications. `ErrorBoundary.test.js` also checks that the canvas, agentflow canvas, custom assistant and forgot-password pages do not read `Api.error.response` unguarded. `packages/ui/src/ErrorBoundary.test.js` renders a no-response network error, a plain `TypeError` and a 500.
 -   `packages/ui/src/store/context/ErrorContext.jsx`: the page error belongs to the path whose request failed. `packages/ui/src/store/context/ErrorContext.test.js` covers navigating away, a clear from another page, a late canvas failure after the list failed, and a late failure followed by a direct return to the canvas.
 -   `packages/ui/src/ui-component/extended/ShowToolEvents.jsx`: malformed `chatbotConfig` falls back to an empty object; `ShowToolEvents.test.js` covers it.
--   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   User guidance: "What does \"The server could not be reached\" mean?" in `docs/faq.md`. Notes under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`.
 
 ## Silent canvas read retries
 
@@ -24,13 +24,13 @@
 -   `packages/ui/src/api/connectionState.js`, `store/context/ConnectionContext.jsx`, and `ui-component/connection/`: the count store and delayed app-shell **Reconnecting…** chip.
 -   `packages/ui/src/ui-component/dropdown/AsyncDropdown.jsx`, `utils/analystStatus.js`, `views/canvas/CredentialInputHandler.jsx`, and `views/agentflowsv2/ConfigInput.jsx`: shared-client node loads and field-lifetime cancellation.
 -   `packages/ui/src/store/reducers/canvasReducer.js` and its test: monotonic `editRev` and stale save-reply protection. `utils/flowDrafts.test.js` covers refusing to paint when draft status is unknown.
--   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - Unreleased`.
+-   User guidance: `docs/how-to/canvas.md`, `docs/faq.md`, and `CHANGELOG.md` under `## [1.7.3] - 2026-11-12`.
 
 ## Import target-handle types
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
 -   `packages/ui/src/utils/edgeRefs.test.js` imports `examples/imports/bakery-helper.json` as-is and keeps the ChatOpenAI to Conversation Chain edge; a genuinely different input still drops it.
--   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - Unreleased` in `CHANGELOG.md`.
+-   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`.
 
 ## Same-server flow and Harness nested calls
 
@@ -67,11 +67,13 @@
 
 # Artifacts
 
-1.7.3 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.3. `CHANGELOG.md` uses `## [1.7.3] - Unreleased`. The former PR-1, PR-2 and PR-3 placeholders are finalized with their squash SHAs: #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`. This branch is folded with `origin/main` at `3c981e82`, which also brings #463 `05701570`, #465 `c47bf628`, #464 `23aea50a`, #473 `05b71a12` and #469 `3c981e82`. The #469 changelog bullet is finalized with squash `3c981e82`. Generated website pages are not hand-edited. Publication is a later authorized step; the full gate must be rerun on this exact head.
+1.7.4 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.4. `CHANGELOG.md` uses `## [1.7.4] - Unreleased`. The entries name #483 and #484 and leave their squash commits pending. The Try the demo fresh-install save entry is waiting on its pull request number. `website/src/guides/flowise-import/guide.md` still pins 1.7.3 and `blob/v1.7.3`; that page landed after the 1.7.3 bump (#485) and was not one of the files that bump touched. Update those pins after the three pull requests merge, including any wording that pull request changes. Generated website pages are not hand-edited. Publication is a later step.
+
+1.7.3 release: the same surfaces carried 1.7.3 and landed as `d52b83e5` ([#481](https://github.com/cuttlely/cuttlely/pull/481)) after preparation `33a158c7` ([#459](https://github.com/cuttlely/cuttlely/pull/459)). `CHANGELOG.md` dates it `## [1.7.3] - 2026-11-12`. The PR-1, PR-2 and PR-3 placeholders were finalized as #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`, with #469 `3c981e82`.
 
 Resilient canvas saves (landed on main as `52e29426`, [#462](https://github.com/cuttlely/cuttlely/pull/462)): `packages/ui/src/utils/saveQueue.js` is the pure queue and reconciliation core. Its adjacent test covers single flight, latest pending replacement, separate internal continuations, the four-attempt draft burst through no-response non-file reads, HTTP write non-retry, waiting after reconciliation HTTP errors, the bounded first-send/last-settle landed window, the other-tab guard, rejection when draft metadata is absent, file detection across all node inputs, file-canvas reconciliation, guarded resume, stored-file-aware Live reconciliation, one guarded Live PUT per action, confirmed-write ordering, one-POST creation with mode resolution and a latest-snapshot handoff, ambiguous-create settlement, non-replayed error settlement, busy state, and disposal. `packages/ui/src/hooks/useSaveQueue.js` binds injected canvas adapters to draft state, the connection indicator, busy state, one persistent notice, manual Retry, the browser online event, and cleanup; its adjacent test covers notice deduplication, online resume, one-POST creation handoff, unknown-mode queuing without a creation notice, non-replayed errors, busy state, effect cleanup/setup, and listener removal. `packages/ui/src/utils/buildWithAI.test.js` covers acknowledgement-gated starter-question cleanup, retention across the first-save continuation, retention after an unanswered update, and a newer question snapshot surviving an older acknowledgement. `packages/ui/src/hooks/useDraftSave.js` remains the source of the recorded draft hash, base canvas, conflict review, and adoption state. Both canvas views use the hook. `CanvasHeader.test.js` covers the busy name and Publish controls plus retention of an unanswered inline name for the next canvas Save. `packages/ui/src/api/flowDrafts.js` disables both client-level resilience replay and post-refresh replay for the draft write.
 
-User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [1.7.3] - Unreleased` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
+User guidance is in `docs/how-to/canvas.md` and `docs/faq.md`; release notes are under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`. The local browser runner defines scenarios for lost replies, late replies, a full outage and online resume, HTTP status responses, file uploads, and a conflicting second context. It has not been run on this head and is not browser evidence. The optional `Idempotency-Key` request header and `expectedUpdatedDate` comparison are deferred, with no server or API-description change in this work.
 
 Focused UI checks pass 114 tests across the save queue, queue hook, session client, draft adapter, builder-state helper, and canvas header. The broader UI batch passes 141 suites and 1,177 tests; its only failure is the known 24-case sample-canvas golden mismatch in `savedFlowsUnchanged.test.js`. Changed-file lint passes. The browser runner was not executed.
 

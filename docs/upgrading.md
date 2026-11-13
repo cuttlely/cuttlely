@@ -4,6 +4,14 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.4
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.4 server and widget versions. This patch adds no schema migration and preserves the existing enforcement mode.
+
+Unset Analyst storage becomes Auto on a fresh start and on an upgrade that never set it. A host or saved Off stays off. Importing a harness attaches one existing credential with the same name and type, including a nested credential id next to an empty credential slot, and stops when the match is missing or ambiguous. **Import & verify** retests saved queries on this server before Publish. Try the demo on a fresh install saves the staged team.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions. Enforcement remains **Off** by default; preparing or installing this patch does not activate it.
+
 ## Upgrading to 1.7.3
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.3 server and widget versions. This patch adds no schema migration and preserves the existing enforcement mode.
