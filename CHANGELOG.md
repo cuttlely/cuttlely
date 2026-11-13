@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   **#457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
+
 ## [1.7.4] - 2026-11-13
 
 ### Added

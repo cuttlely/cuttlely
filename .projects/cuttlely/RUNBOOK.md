@@ -343,7 +343,7 @@ Keep normal commit hooks enabled. After the final handoff commit, run the Infra 
 
 ## Proxy-safe HTTP timeouts
 
-This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
+Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
 
 ## Canvas error page after no response
 
@@ -361,11 +361,11 @@ GET and HEAD retry by default. A non-GET call retries only with `retry: true` or
 
 ## Import target-handle types
 
-Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Edges whose saved handle the node no longer has are dropped and reported on import ([#457](https://github.com/cuttlely/cuttlely/issues/457)); run `pnpm --dir packages/ui exec jest src/utils/normalizeCanvasFlow.test.js src/utils/edgeRefs.test.js` for the focused coverage. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
 ## Local 1.7.4 release preparation
 
-This branch is `release/1.7.4-prep`, folded with `origin/main` at `c2e63f61` (#484), after #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. Keep the exact `## [1.7.4] - Unreleased` heading for the release tool. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
+The preparation branch `release/1.7.4-prep` landed on main as `774eed4e` (#487), after #484 at `c2e63f61`, #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. The release was cut as `986f64c5` (#489) with the `v1.7.4` tag, and `CHANGELOG.md` dates it `## [1.7.4] - 2026-11-13`; new lines go under `## [Unreleased]`. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
 
 ## Historical local 1.7.3 release preparation
 
