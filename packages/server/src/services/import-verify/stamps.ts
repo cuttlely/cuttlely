@@ -101,7 +101,8 @@ export function parseFlow(value: unknown): { nodes: unknown[]; edges: unknown[];
     }
 }
 
-// Drop destination-untrusted stamps. `keep` names queries this server already retested in the current run.
+// Drop destination-untrusted stamps. `keep` names queries this server already retested for this
+// exact statement. A stamp flag on the file, including verifiedHere, is not that proof.
 export function untrustImportedFlow(flow: { nodes?: unknown }, keep: Set<string> = new Set()): { flow: typeof flow; stripped: number } {
     const copy = structuredClone(flow) as { nodes?: unknown; importVerification?: string }
     copy.importVerification = IMPORT_HOLD
@@ -111,7 +112,7 @@ export function untrustImportedFlow(flow: { nodes?: unknown }, keep: Set<string>
         const nodeId = String(node.id || (node.data as { id?: string } | undefined)?.id || '')
         const next = readQueries(inputs.pinnedQueries).map((pin) => {
             const key = `${nodeId}\0${String(pin.id || '')}`
-            if (keep.has(key) && pin.verifiedHere === true && queryReady(pin)) return pin
+            if (keep.has(key)) return pin
             if (!pin.testedStamp && pin.importedVerification === 'untrusted' && pin.needsRetest) return pin
             if (pin.testedStamp || pin.testedAt || pin.testedColumns || pin.importedVerification !== 'untrusted') stripped += 1
             return untrustQuery(pin)

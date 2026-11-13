@@ -30,7 +30,8 @@ const ImportVerifyDialog = ({
     onFlowCreated,
     onDraftStatus,
     onDraftUnavailable,
-    expectedDraftHash
+    expectedDraftHash,
+    draftStatus
 }) => {
     const [fileName, setFileName] = useState('')
     const [flowText, setFlowText] = useState('')
@@ -38,6 +39,7 @@ const ImportVerifyDialog = ({
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
     const [record, setRecord] = useState(null)
+    const [draftStatusFailed, setDraftStatusFailed] = useState(false)
     const [chatflowId, setChatflowId] = useState(chatflow?.id || '')
     const [choices, setChoices] = useState({})
     const adoptedId = useRef('')
@@ -69,9 +71,13 @@ const ImportVerifyDialog = ({
         setError('')
         setBusy(false)
         setRecord(null)
+        setDraftStatusFailed(false)
         setChoices({})
         setChatflowId(chatflow?.id || adoptedId.current || '')
     }
+
+    const publishHash = typeof record?.draftHash === 'string' ? record.draftHash : ''
+    const draftKnown = Boolean(draftStatus?.mode) && draftStatus.mode !== 'unknown' && !draftStatusFailed
 
     const close = () => {
         onClose()
@@ -90,6 +96,7 @@ const ImportVerifyDialog = ({
             // The file already written to the draft is enough to replace the canvas.
         }
         const delivered = deliverImportedDraft({ status, flowText: saved, onDraftStatus, onImported })
+        setDraftStatusFailed(!status || typeof status !== 'object')
         if (!status || typeof status !== 'object') {
             if (onDraftUnavailable) onDraftUnavailable(draftStatusWhenImportUnknown(id))
             setError(
@@ -267,14 +274,14 @@ const ImportVerifyDialog = ({
                         Resume
                     </Button>
                 )}
-                {record?.publishOffered && (
+                {record?.publishOffered && publishHash && draftKnown && (
                     <Button
                         variant='contained'
                         disabled={busy}
                         onClick={async () => {
                             setBusy(true)
                             try {
-                                await flowDraftsApi.publish(flowId, {})
+                                await flowDraftsApi.publish(flowId, { expectedDraftHash: publishHash })
                                 if (onPublished) onPublished(flowId)
                             } catch (err) {
                                 setError(requestFailureMessage(err))
@@ -306,7 +313,8 @@ ImportVerifyDialog.propTypes = {
     onFlowCreated: PropTypes.func,
     onDraftStatus: PropTypes.func,
     onDraftUnavailable: PropTypes.func,
-    expectedDraftHash: PropTypes.func
+    expectedDraftHash: PropTypes.func,
+    draftStatus: PropTypes.object
 }
 
 export default ImportVerifyDialog

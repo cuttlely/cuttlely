@@ -1,7 +1,15 @@
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
 import { planDiscovery, valuesFromDiscovery } from './discover'
 import { inspectFlow } from './inspect'
-import { beginVerification, executeVerify, hashFlow, importVerifyPublishBlock, openingVerifyRecord, recoverOrphanedRun } from './job'
+import {
+    beginVerification,
+    executeVerify,
+    hashFlow,
+    importVerifyPublishBlock,
+    openingVerifyRecord,
+    queryFingerprint,
+    recoverOrphanedRun
+} from './job'
 import type { VerifyDeps, VerifyRecord } from './job'
 import { parseFlow, queryReady, untrustImportedFlow } from './stamps'
 
@@ -419,6 +427,9 @@ describe('imported verification', () => {
     test('resume reads the stored check before the opening record replaces it', async () => {
         const verified = pin({ verifiedHere: true, testedStamp: 'ff'.repeat(32), needsRetest: false })
         const text = JSON.stringify(flow([verified], 'cred-pg'))
+        const parsed = JSON.parse(text) as { nodes: Array<Record<string, unknown>> }
+        const savedPin = JSON.parse((parsed.nodes[0].data as { inputs: { pinnedQueries: string } }).inputs.pinnedQueries)[0]
+        const fingerprint = queryFingerprint(savedPin, parsed.nodes[0], 'cred-pg')
         const passed = {
             version: 1 as const,
             draftHash: hashFlow(text),
@@ -434,7 +445,8 @@ describe('imported verification', () => {
                     title: 'Opportunity for an account',
                     state: 'passed' as const,
                     message: 'Tested on this server.',
-                    attempts: 1
+                    attempts: 1,
+                    fingerprint
                 }
             ],
             connections: [],
@@ -471,6 +483,41 @@ describe('imported verification', () => {
         const again = await executeVerify({ flowText: text, record: resume, deps })
         expect(ran).toBe(0)
         expect(again.queries[0].state).toBe('passed')
+        const changed = pin({
+            sql: 'SELECT 2 FROM account a LIMIT 5',
+            verifiedHere: true,
+            testedStamp: 'ff'.repeat(32),
+            needsRetest: false
+        })
+        const changedText = JSON.stringify(flow([changed], 'cred-pg'))
+        const moved = await beginVerification({
+            read: async () => passed,
+            write: async () => undefined,
+            draftText: changedText,
+            now: '2026-11-13T00:00:02.000Z'
+        })
+        expect(moved).toBeNull()
+        let reran = 0
+        const { deps: againDeps } = memoryDeps({
+            testPin: async () => {
+                reran += 1
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...changed, testedStamp: 'ee'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const forged = await executeVerify({
+            flowText: changedText,
+            record: { ...passed, draftHash: hashFlow(changedText), queries: [{ ...passed.queries[0], statementHash: 'cd'.repeat(32) }] },
+            deps: againDeps
+        })
+        expect(reran).toBe(0)
+        expect(forged.queries[0].state).toBe('failed')
+        expect(forged.queries[0].statementHash).toBeUndefined()
+        expect(forged.publishOffered).toBe(false)
     })
 
     test('a running check with no live job can be resumed and still blocks publish', () => {

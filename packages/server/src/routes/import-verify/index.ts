@@ -6,7 +6,7 @@ import { requireHarnessCanvasAccess } from '../../services/harnesses/apiAccess'
 const router = express.Router()
 
 const gate = [
-    requireAnyPermission('chatflows:update,agentflows:update'),
+    requireAnyPermission('chatflows:update,agentflows:update,assistants:update'),
     requirePermission('credentials:view'),
     requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false, draft: true })
 ]

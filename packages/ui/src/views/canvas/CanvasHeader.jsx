@@ -993,6 +993,7 @@ const CanvasHeader = ({
                 onImported={(flowText) => onApplyCanvas(flowText)}
                 onDraftStatus={onDraftStatus}
                 onDraftUnavailable={onDraftUnavailable}
+                draftStatus={draftStatus}
                 onFlowCreated={onFlowCreated}
                 onPublished={() => {
                     setImportVerifyOpen(false)

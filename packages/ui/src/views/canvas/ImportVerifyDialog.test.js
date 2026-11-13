@@ -271,4 +271,52 @@ describe('Import & verify canvas', () => {
         expect(importVerifyApi.start).toHaveBeenCalledWith('flow-1', expect.objectContaining({ resume: true }))
         act(() => root.unmount())
     })
+
+    test('Publish sends the verified draft hash and stays hidden when draft status fails', async () => {
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: {} })
+        flowDraftsApi.getStatus.mockRejectedValue(new Error('status down'))
+        flowDraftsApi.publish.mockResolvedValue({ data: {} })
+        importVerifyApi.start.mockResolvedValue({
+            data: {
+                status: 'ready',
+                summary: 'Ready to publish.',
+                publishOffered: true,
+                draftHash: 'verified-hash',
+                connections: [],
+                queries: [],
+                blockers: [],
+                smoke: []
+            }
+        })
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            draftStatus: { mode: 'draft', draft: { hash: 'loaded-hash' } }
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(document.body.textContent).not.toContain('Publish')
+        act(() => root.unmount())
+
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { mode: 'draft', draft: { hash: 'verified-hash', flowData: stored } } })
+        const ready = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            draftStatus: { mode: 'draft', draft: { hash: 'verified-hash' } }
+        })
+        await chooseFile()
+        await act(async () => {
+            click('Import & verify')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        await act(async () => {
+            click('Publish')
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(flowDraftsApi.publish).toHaveBeenCalledWith('flow-1', { expectedDraftHash: 'verified-hash' })
+        act(() => ready.unmount())
+    })
 })

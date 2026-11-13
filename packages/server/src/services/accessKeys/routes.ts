@@ -27,6 +27,9 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
         if (root === 'vector' && req.method === 'POST' && parts[1] === 'upsert' && parts.length <= 3) return
         const key = accessContext(req)?.key || (await authenticateRequest(req))
         if (!key) throw new AccessKeyAuthenticationError()
+        // Import & verify lists credentials and runs saved queries. It stays a signed-in action, including
+        // for a legacy key, the same way a draft check is not a scoped management operation.
+        if (root === 'import-verify') throw new AppError(403, 'Sign in to import and verify a flow.')
         if (accessRollout() !== 'on') {
             if (!key.accessPolicy?.legacy) throw new AppError(503, 'Scoped access keys require INBOUND_ACCESS_V2=on.')
             if (root === 'dashflows') throw new AppError(403, 'Sign in to your team to use Dashflows.')

@@ -484,6 +484,22 @@ it('rejects unclassified APIs, workspace lists and scoped-key management; regist
                 .set('Authorization', 'Bearer fixture-token')
         ).status
     ).toBe(403)
+    for (const path of [`import-verify/${FLOW}`, `import-verify/${FLOW}/cancel`])
+        expect(
+            (
+                await request(app)
+                    .post('/api/v1/' + path)
+                    .set('Authorization', 'Bearer fixture-token')
+                    .send({})
+            ).status
+        ).toBe(403)
+    expect(
+        (
+            await request(app)
+                .get('/api/v1/import-verify/' + FLOW)
+                .set('Authorization', 'Bearer fixture-token')
+        ).status
+    ).toBe(403)
 })
 it('scoped list refusals retain 403 and explain the signed-in or resource-specific recovery path', async () => {
     mockKeys.set('fixture-token', key({ scopes: ['predict'] }))

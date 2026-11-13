@@ -7,7 +7,6 @@ import {
     flowHasUntrustedImport,
     parseFlow,
     queriesOnFlow,
-    queryReady,
     replaceQuery,
     untrustImportedFlow,
     type SavedQuery
@@ -15,6 +14,30 @@ import {
 
 export function hashFlow(flowText: string): string {
     return createHash('sha256').update(flowText).digest('hex')
+}
+
+// Identifies the query that was actually tested. A later draft can keep the same ids and a client
+// stamp, including verifiedHere, and still be a different statement.
+export function queryFingerprint(pin: SavedQuery, node: Record<string, unknown> | null, credentialId: string): string {
+    const data = node && typeof node.data === 'object' && node.data ? (node.data as { inputs?: unknown }) : null
+    const inputs =
+        data?.inputs && typeof data.inputs === 'object' && !Array.isArray(data.inputs) ? (data.inputs as Record<string, unknown>) : {}
+    const guard: Record<string, unknown> = {}
+    for (const key of Object.keys(inputs).sort()) {
+        if (key === 'pinnedQueries' || key === 'FLOWISE_CREDENTIAL_ID') continue
+        guard[key] = inputs[key]
+    }
+    return createHash('sha256')
+        .update(
+            JSON.stringify({
+                sql: String(pin.sql || ''),
+                params: pin.params ?? null,
+                rowCap: pin.rowCap ?? null,
+                credentialId: credentialId || '',
+                guard
+            })
+        )
+        .digest('hex')
 }
 
 export type QueryState = 'pending' | 'running' | 'passed' | 'empty' | 'failed'
@@ -29,6 +52,8 @@ export interface QueryProgress {
     attempts: number
     rowCount?: number
     statementHash?: string
+    // sha256 of the statement, parameters, connection, and guard settings this server tested.
+    fingerprint?: string
 }
 
 export interface SmokeProgress {
@@ -320,8 +345,10 @@ export async function beginVerification(args: {
     now: string
 }): Promise<VerifyRecord | null> {
     const previous = await args.read()
+    const current = hashFlow(args.draftText || '')
+    const reusable = previous && previous.draftHash === current ? previous : null
     if (args.draftText) await args.write(openingVerifyRecord(args.draftText, args.now))
-    return previous
+    return reusable
 }
 
 export async function executeVerify(options: {
@@ -394,13 +421,9 @@ async function verifyBody(options: {
         return empty
     }
 
-    const previous = options.record
-    const keep = new Set(
-        (previous?.queries || [])
-            .filter((item) => item.state === 'passed' || item.state === 'empty')
-            .map((item) => `${item.nodeId}\0${item.pinId}`)
-    )
-    let flow = untrustImportedFlow(parsed, keep).flow
+    const currentHash = hashFlow(options.flowText || '')
+    const previous = options.record?.draftHash === currentHash ? options.record : null
+    let flow = parsed
     const credentials = await deps.credentials()
     const choices = options.choices || {}
     let resolutions = connectionSlots(flow).map((slot) => resolveSlot(slot, credentials, choices[slot.id]))
@@ -414,13 +437,25 @@ async function verifyBody(options: {
         return resolved
     })
 
-    const listed = queriesOnFlow(flow)
     const prior = new Map((previous?.queries || []).map((item) => [`${item.nodeId}\0${item.pinId}`, item]))
+    const fingerprintFor = (nodeId: string, pin: SavedQuery) =>
+        queryFingerprint(pin, nodeById(flow, nodeId), resolutions.find((item) => item.slot.nodeId === nodeId)?.credentialId || '')
+    const keep = new Set<string>()
+    for (const { nodeId, pin } of queriesOnFlow(flow)) {
+        const key = `${nodeId}\0${String(pin.id || '')}`
+        const old = prior.get(key)
+        const fingerprint = fingerprintFor(nodeId, pin)
+        if (old && (old.state === 'passed' || old.state === 'empty') && old.fingerprint && old.fingerprint === fingerprint) keep.add(key)
+    }
+    flow = untrustImportedFlow(flow, keep).flow
+
+    const listed = queriesOnFlow(flow)
     const queries: QueryProgress[] = listed.map(({ nodeId, pin }) => {
         const key = `${nodeId}\0${String(pin.id || '')}`
         const old = prior.get(key)
+        const reused = keep.has(key)
         let state: QueryState = 'pending'
-        if (old && (old.state === 'passed' || old.state === 'empty') && queryReady(pin)) state = old.state
+        if (reused && old) state = old.state
         else if (options.retryFailures && old?.state === 'failed') state = 'pending'
         return {
             nodeId,
@@ -430,8 +465,9 @@ async function verifyBody(options: {
             state,
             message: state === 'passed' || state === 'empty' ? old?.message || '' : '',
             attempts: state === 'pending' ? 0 : old?.attempts || 0,
-            rowCount: old?.rowCount,
-            statementHash: old?.statementHash
+            rowCount: reused ? old?.rowCount : undefined,
+            statementHash: reused ? old?.statementHash : undefined,
+            fingerprint: reused ? old?.fingerprint : undefined
         }
     })
 
@@ -584,6 +620,7 @@ async function verifyBody(options: {
                 const rowCount = Number(result.rowCount || 0)
                 query.rowCount = rowCount
                 query.statementHash = result.statementHash
+                query.fingerprint = queryFingerprint(pin, node, credentialId)
                 query.state = rowCount > 0 ? 'passed' : 'empty'
                 query.message =
                     rowCount > 0

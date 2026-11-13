@@ -17,10 +17,12 @@ const active = new Map<string, AbortController>()
 
 function permissionFor(type: string | null | undefined): string {
     if (type === 'AGENTFLOW' || type === 'MULTIAGENT') return 'agentflows:update'
+    if (type === 'ASSISTANT') return 'assistants:update'
     return 'chatflows:update'
 }
 
 async function flowFor(req: Request) {
+    if (req.user?.apiKeyId) throw new AppError(StatusCodes.FORBIDDEN, 'Sign in to import and verify a flow.')
     const workspaceId = req.user?.activeWorkspaceId
     if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     const flow = await chatflowsService.getChatflowByIdForWorkspace(req.params.chatflowId, workspaceId)
