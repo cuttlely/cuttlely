@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { generateExportFlowData } from './genericHelper'
 import { flowNeedsCredentialList, UnnamedCredentialError } from './credentialMarks'
 import { credentialRebindError, rebindCredentialBundle, rebindFlowCredentials } from './credentialRebind'
@@ -11,6 +13,15 @@ const credentials = [
     { id: SOURCE_ID, name: 'Bakery model', credentialName: 'openAIApi' },
     { id: POSTGRES_SOURCE, name: 'Bakery warehouse', credentialName: 'PostgresUrl' }
 ]
+
+// A direction to alter a credential's name, including one that avoids the word rename.
+const NAME_CHANGE_DIRECTION =
+    /\b(rename\w*|re-name\w*|different name|change (?:the |their |its |a |each )?name|new name|another name|unique name|name them|names so)\b/i
+
+function expectNoCredentialNameChange(text) {
+    expect(text).toMatch(/keep exactly one/i)
+    expect(text).not.toMatch(NAME_CHANGE_DIRECTION)
+}
 
 function flow() {
     return {
@@ -117,9 +128,15 @@ describe('credential export and import', () => {
             { id: POSTGRES_DEST, name: 'Bakery warehouse', credentialName: 'PostgresUrl' }
         ])
         expect(rebound.flow.nodes[0].data.credential).toBe('')
-        expect(credentialRebindError(rebound)).toContain('2 credentials named "Bakery model"')
-        expect(credentialRebindError(rebound)).toContain('does not choose one')
-        expect(credentialRebindError(rebound)).not.toMatch(/rename/i)
+        const message = credentialRebindError(rebound)
+        expect(message).toContain('2 credentials named "Bakery model"')
+        expectNoCredentialNameChange(message)
+        const guide = fs.readFileSync(path.resolve(__dirname, '../../../../docs/how-to/harnesses.md'), 'utf8')
+        const guidance = guide.split('\n').find((line) => line.includes('more than one credential has that name and type'))
+        expectNoCredentialNameChange(guidance)
+        const source = fs.readFileSync(path.resolve(__dirname, './credentialRebind.js'), 'utf8')
+        const copy = source.slice(source.indexOf('credentials named'))
+        expectNoCredentialNameChange(copy.slice(0, copy.indexOf('`')))
     })
 
     it('does not save an export when a credential id is no longer on this server', () => {
