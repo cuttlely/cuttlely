@@ -10,6 +10,7 @@ import {
     queryIdProblems,
     queryReady,
     replaceQuery,
+    unreadableQueryNodes,
     untrustImportedFlow,
     type SavedQuery
 } from './stamps'
@@ -454,6 +455,36 @@ async function verifyBody(options: {
                             : 'Two cards use the same id, so one card could be overwritten. Give each card its own id, then verify again.',
                     action: 'none' as const,
                     nodeId: item.nodeId || undefined
+                })),
+                smoke: [],
+                summary: '',
+                publishOffered: false,
+                updatedAt: deps.now()
+            },
+            deps.now()
+        )
+        await deps.saveRecord(refused)
+        return refused
+    }
+
+    const unreadable = unreadableQueryNodes(parsed)
+    if (unreadable.length) {
+        const refused = finishRecord(
+            {
+                version: 1,
+                draftHash: hashFlow(options.flowText || ''),
+                status: 'attention',
+                phase: 'Saved queries could not be read',
+                checked: 0,
+                total: 0,
+                queries: [],
+                connections: [],
+                blockers: unreadable.map((nodeId) => ({
+                    id: `queries:unreadable:${nodeId}`,
+                    severity: 'attention' as const,
+                    message: 'Saved queries could not be read, so nothing was marked ready. The saved text was left as it is.',
+                    action: 'none' as const,
+                    nodeId: nodeId || undefined
                 })),
                 smoke: [],
                 summary: '',

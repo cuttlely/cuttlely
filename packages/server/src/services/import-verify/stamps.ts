@@ -36,6 +36,34 @@ export function readQueries(value: unknown): SavedQuery[] {
     return parsed.filter((item) => item && typeof item === 'object') as SavedQuery[]
 }
 
+// Absent or empty saved queries are a real empty list. A non-empty value that is not a query list
+// has to stay as stored. Treating it as [] would delete it and let a check with no queries become Ready.
+export function pinnedQueriesUnreadable(value: unknown): boolean {
+    if (value == null) return false
+    if (typeof value === 'string') {
+        const text = value.trim()
+        if (!text) return false
+        try {
+            const parsed = JSON.parse(text) as unknown
+            return parsed != null && !Array.isArray(parsed)
+        } catch {
+            return true
+        }
+    }
+    return !Array.isArray(value)
+}
+
+export function unreadableQueryNodes(flow: { nodes?: unknown } | null | undefined): string[] {
+    if (!flow) return []
+    const ids: string[] = []
+    for (const { node, inputs } of walkNodes(flow)) {
+        if (!Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue
+        if (!pinnedQueriesUnreadable(inputs.pinnedQueries)) continue
+        ids.push(String(node.id || (node.data as { id?: string } | undefined)?.id || ''))
+    }
+    return ids
+}
+
 export function writeQueries(list: SavedQuery[]): string {
     return JSON.stringify(list)
 }
@@ -109,6 +137,7 @@ export function untrustImportedFlow(flow: { nodes?: unknown }, keep: Set<string>
     let stripped = 0
     for (const { node, inputs } of walkNodes(copy)) {
         if (!Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue
+        if (pinnedQueriesUnreadable(inputs.pinnedQueries)) continue
         const nodeId = String(node.id || (node.data as { id?: string } | undefined)?.id || '')
         const next = readQueries(inputs.pinnedQueries).map((pin) => {
             const key = `${nodeId}\0${String(pin.id || '')}`

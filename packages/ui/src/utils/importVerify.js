@@ -16,6 +16,21 @@ export function readQueries(value) {
     return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object') : []
 }
 
+function pinnedQueriesUnreadable(value) {
+    if (value == null) return false
+    if (typeof value === 'string') {
+        const text = value.trim()
+        if (!text) return false
+        try {
+            const parsed = JSON.parse(text)
+            return parsed != null && !Array.isArray(parsed)
+        } catch {
+            return true
+        }
+    }
+    return !Array.isArray(value)
+}
+
 export function queryReady(pin) {
     if (!pin || typeof pin.testedStamp !== 'string' || !pin.testedStamp.trim()) return false
     if (pin.needsRetest || pin.columnsChanged) return false
@@ -32,6 +47,7 @@ export function untrustFlow(flow) {
     for (const node of copy.nodes) {
         const inputs = node?.data?.inputs
         if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, 'pinnedQueries')) continue
+        if (pinnedQueriesUnreadable(inputs.pinnedQueries)) continue
         const next = readQueries(inputs.pinnedQueries).map((pin) => {
             const cleared = { ...pin, needsRetest: true, importedVerification: 'untrusted' }
             for (const field of STAMP_FIELDS) delete cleared[field]

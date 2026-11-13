@@ -27,6 +27,22 @@ const pin = {
     needsRetest: false
 }
 
+test('unreadable saved queries are left unchanged', () => {
+    const bad = '{not json'
+    const cleared = untrustFlow({
+        nodes: [{ id: 'pg', data: { inputs: { pinnedQueries: bad } } }],
+        edges: []
+    })
+    expect(cleared.nodes[0].data.inputs.pinnedQueries).toBe(bad)
+    expect(cleared.importVerification).toBe(IMPORT_HOLD)
+    const objectValue = { sql: 'SELECT 1' }
+    const objectFlow = untrustFlow({
+        nodes: [{ id: 'pg', data: { inputs: { pinnedQueries: objectValue } } }],
+        edges: []
+    })
+    expect(objectFlow.nodes[0].data.inputs.pinnedQueries).toEqual(objectValue)
+})
+
 test('an imported stamp is not treated as ready', () => {
     expect(queryReady(pin)).toBe(true)
     const cleared = untrustFlow({

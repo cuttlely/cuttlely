@@ -338,6 +338,38 @@ describe('imported verification', () => {
         expect(saved).not.toContain('"hash":"' + 'cd'.repeat(32))
     })
 
+    test('an unreadable saved-query value is left in place and the check is not ready', async () => {
+        const bad = '{not json'
+        const canvas = {
+            nodes: [
+                {
+                    id: 'pg',
+                    data: {
+                        name: 'postgreSQLMCP',
+                        label: 'PostgreSQL MCP',
+                        inputs: { pinnedQueries: bad }
+                    }
+                }
+            ],
+            edges: []
+        }
+        const kept = untrustImportedFlow(canvas).flow.nodes as Array<{ data: { inputs: { pinnedQueries: string } } }>
+        expect(kept[0].data.inputs.pinnedQueries).toBe(bad)
+        const text = JSON.stringify(canvas)
+        const { deps, drafts } = memoryDeps()
+        const record = await executeVerify({ flowText: text, record: null, deps })
+        expect(record.status).not.toBe('ready')
+        expect(record.publishOffered).toBe(false)
+        expect(record.blockers.some((item) => item.id === 'queries:unreadable:pg' && /could not be read/i.test(item.message))).toBe(true)
+        expect(drafts.every((item) => item.includes(bad))).toBe(true)
+        const notArray = {
+            nodes: [{ id: 'pg', data: { inputs: { pinnedQueries: { sql: 'SELECT 1' } } } }],
+            edges: []
+        }
+        const objectKept = untrustImportedFlow(notArray).flow.nodes as Array<{ data: { inputs: { pinnedQueries: { sql: string } } } }>
+        expect(objectKept[0].data.inputs.pinnedQueries).toEqual({ sql: 'SELECT 1' })
+    })
+
     test('a draft with duplicate node ids is refused and the draft is not changed', async () => {
         const canvas = flow([pin()], 'cred-pg') as {
             nodes: Array<{ id: string; data: { inputs: { pinnedQueries: string } } }>
