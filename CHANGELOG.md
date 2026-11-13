@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags in versions through 5.11.2).
+
 ### Fixed
 
 -   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
