@@ -1,5 +1,5 @@
 import { generateExportFlowData } from './genericHelper'
-import { credentialRebindError, rebindFlowCredentials } from './credentialRebind'
+import { credentialRebindError, rebindCredentialBundle, rebindFlowCredentials } from './credentialRebind'
 
 const SOURCE_ID = 'cred-source-should-not-travel'
 const DEST_ID = 'cred-dest-already-here'
@@ -125,6 +125,60 @@ describe('credential export and import', () => {
         expect(JSON.stringify(exported)).not.toContain(SOURCE_ID)
         const rebound = rebindFlowCredentials(exported, credentials)
         expect(credentialRebindError(rebound)).toContain('Export it again')
+    })
+
+    it('keeps an empty credential slot empty and still imports it', () => {
+        const saved = {
+            nodes: [
+                {
+                    id: 'sqlAgent_0',
+                    data: {
+                        id: 'sqlAgent_0',
+                        label: 'SQL Agent',
+                        name: 'sqlAgent',
+                        type: 'SQLAgent',
+                        credential: '',
+                        inputParams: [{ name: 'agentModel', type: 'json' }],
+                        inputAnchors: [],
+                        inputs: {
+                            agentModel: { credential: '', modelName: 'gpt-5.6-luna', FLOWISE_CREDENTIAL_ID: '' }
+                        },
+                        outputAnchors: [],
+                        outputs: {},
+                        selected: false
+                    }
+                }
+            ],
+            edges: []
+        }
+        const exported = generateExportFlowData(JSON.parse(JSON.stringify(saved)), ['sqlAgent'], credentials)
+        expect(exported.nodes[0].data.inputs.agentModel.credential).toBe('')
+        expect(exported.nodes[0].data.inputs.agentModel.modelName).toBe('gpt-5.6-luna')
+        expect(JSON.stringify(exported)).not.toContain('$credential')
+        const rebound = rebindFlowCredentials(exported, [])
+        expect(credentialRebindError(rebound)).toBe('')
+        expect(rebound.flow.nodes[0].data.inputs.agentModel.credential).toBe('')
+    })
+
+    it('rebinds a named credential in an Import All bundle and stops when one is missing', () => {
+        const exported = generateExportFlowData(JSON.parse(JSON.stringify(flow())), ['chatOpenAI', 'postgreSQLMCP'], credentials)
+        const bundle = {
+            ChatFlow: [{ id: 'flow-1', name: 'bakery', flowData: JSON.stringify(exported), type: 'CHATFLOW' }],
+            Variable: [{ id: 'v1', name: 'shop', value: 'old town' }]
+        }
+        const ready = rebindCredentialBundle(bundle, [
+            { id: DEST_ID, name: 'Bakery model', credentialName: 'openAIApi' },
+            { id: POSTGRES_DEST, name: 'Bakery warehouse', credentialName: 'PostgresUrl' }
+        ])
+        expect(ready.message).toBe('')
+        const canvas = JSON.parse(ready.bundle.ChatFlow[0].flowData)
+        expect(canvas.nodes[0].data.credential).toBe(DEST_ID)
+        expect(canvas.nodes[1].data.credential).toBe(POSTGRES_DEST)
+        expect(canvas.nodes[1].data.inputs.mcpActions).toBe('["query"]')
+        expect(ready.bundle.Variable).toEqual(bundle.Variable)
+        const missing = rebindCredentialBundle(bundle, [{ id: DEST_ID, name: 'Bakery model', credentialName: 'openAIApi' }])
+        expect(missing.message).toContain('Bakery warehouse')
+        expect(missing.message).toContain('did not create one')
     })
 
     it('leaves an older export that has no credential mark alone', () => {

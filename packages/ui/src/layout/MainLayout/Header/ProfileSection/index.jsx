@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, REMOVE_DIRTY } from '@/store/actions'
 import { exportData, stringify } from '@/utils/exportImport'
-import { credentialsForExport, exportFailureMessage } from '@/utils/credentialRebind'
+import { credentialsForExport, exportFailureMessage, rebindImportedBundle } from '@/utils/credentialRebind'
 import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 
@@ -285,8 +285,21 @@ const ProfileSection = ({ handleLogout }) => {
             if (!evt?.target?.result) {
                 return
             }
-            const body = JSON.parse(evt.target.result)
-            importAllApi.request(body)
+            ;(async () => {
+                try {
+                    const body = JSON.parse(evt.target.result)
+                    const rebound = await rebindImportedBundle(body)
+                    if (!rebound.ok) {
+                        setImportDialogOpen(false)
+                        errorFailed(`Failed to import: ${rebound.message}`)
+                        return
+                    }
+                    importAllApi.request(rebound.bundle)
+                } catch (error) {
+                    setImportDialogOpen(false)
+                    errorFailed(`Failed to import: ${getErrorMessage(error)}`)
+                }
+            })()
         }
         reader.readAsText(file)
     }

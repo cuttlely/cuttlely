@@ -11,7 +11,9 @@ export function credentialById(credentials) {
 function credentialRef(value, byId) {
     if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1 && '$credential' in value)
         return value
-    if (typeof value !== 'string' || !value.trim()) return { $credential: null }
+    // An empty slot is not a credential. Leave it empty instead of marking it unresolved.
+    if (typeof value !== 'string') return value
+    if (!value.trim()) return ''
     const found = byId.get(value.trim())
     const name = typeof found?.name === 'string' ? found.name.trim() : ''
     const credentialName = typeof found?.credentialName === 'string' ? found.credentialName.trim() : ''

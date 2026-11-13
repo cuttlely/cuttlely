@@ -109,6 +109,65 @@ export function credentialRebindError(result) {
     return lines.join(' ')
 }
 
+const BUNDLE_FLOW_KEYS = ['AgentFlow', 'AgentFlowV2', 'AssistantFlow', 'ChatFlow']
+
+function bundleFlowRows(bundle) {
+    if (!bundle || typeof bundle !== 'object') return []
+    const rows = []
+    for (const key of BUNDLE_FLOW_KEYS) {
+        if (Array.isArray(bundle[key])) rows.push(...bundle[key])
+    }
+    return rows
+}
+
+export function bundleHasCredentialRefs(bundle) {
+    for (const row of bundleFlowRows(bundle)) {
+        if (!row || typeof row.flowData !== 'string') continue
+        try {
+            if (flowHasCredentialRefs(JSON.parse(row.flowData))) return true
+        } catch {
+            // The server reports a flow it cannot parse.
+        }
+    }
+    return false
+}
+
+export function rebindCredentialBundle(bundle, credentials) {
+    const next = { ...bundle }
+    const errors = []
+    for (const key of BUNDLE_FLOW_KEYS) {
+        if (!Array.isArray(next[key])) continue
+        next[key] = next[key].map((row) => {
+            if (!row || typeof row.flowData !== 'string') return row
+            let parsed
+            try {
+                parsed = JSON.parse(row.flowData)
+            } catch {
+                return row
+            }
+            if (!flowHasCredentialRefs(parsed)) return row
+            const rebound = rebindFlowCredentials(parsed, credentials)
+            const message = credentialRebindError(rebound)
+            if (message) errors.push(message)
+            return { ...row, flowData: JSON.stringify(rebound.flow) }
+        })
+    }
+    return { bundle: next, message: [...new Set(errors)].join(' ') }
+}
+
+export async function rebindImportedBundle(bundle) {
+    if (!bundleHasCredentialRefs(bundle)) return { ok: true, bundle }
+    let credentials
+    try {
+        credentials = await credentialsForExport()
+    } catch {
+        return { ok: false, message: importListFailureMessage() }
+    }
+    const rebound = rebindCredentialBundle(bundle, credentials)
+    if (rebound.message) return { ok: false, message: rebound.message }
+    return { ok: true, bundle: rebound.bundle }
+}
+
 export async function rebindImportedFlow(flow) {
     if (!flowHasCredentialRefs(flow)) return { ok: true, flow }
     let credentials
