@@ -288,6 +288,9 @@ const ImportVerifyDialog = ({
                         </Typography>
                     ))}
                     {error ? <Alert severity='error'>{error}</Alert> : null}
+                    {record?.publishOffered && publishHash && draftKnown && canvasDirty ? (
+                        <Typography variant='body2'>Save your changes, then verify again before publishing.</Typography>
+                    ) : null}
                 </Stack>
             </DialogContent>
             <DialogActions>
@@ -307,7 +310,7 @@ const ImportVerifyDialog = ({
                         Resume
                     </Button>
                 )}
-                {record?.publishOffered && publishHash && draftKnown && (
+                {record?.publishOffered && publishHash && draftKnown && !canvasDirty && (
                     <Button
                         variant='contained'
                         disabled={busy}

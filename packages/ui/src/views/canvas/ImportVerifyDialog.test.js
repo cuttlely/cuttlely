@@ -504,4 +504,31 @@ describe('Import & verify canvas', () => {
         expect(onImported).toHaveBeenCalledTimes(1)
         act(() => root.unmount())
     })
+
+    test('Publish is not offered while the canvas has unsaved edits', async () => {
+        importVerifyApi.status.mockResolvedValue({
+            data: {
+                status: 'ready',
+                publishOffered: true,
+                draftHash: 'verified-hash',
+                summary: 'Ready to publish.',
+                connections: [],
+                queries: [],
+                blockers: [],
+                smoke: []
+            }
+        })
+        const root = await renderDialog({
+            chatflow: { id: 'flow-1', name: 'Team' },
+            onClose: () => {},
+            canvasDirty: true,
+            draftStatus: { mode: 'draft', draft: { hash: 'verified-hash' } }
+        })
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+        })
+        expect(document.body.textContent).toContain('Save your changes, then verify again before publishing.')
+        expect([...document.body.querySelectorAll('button')].some((item) => item.textContent === 'Publish')).toBe(false)
+        act(() => root.unmount())
+    })
 })
