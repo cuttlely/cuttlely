@@ -295,4 +295,21 @@ describe('Try the demo save', () => {
         assert.deepEqual(fs.readdirSync(specialistDir('customer')), ['support_desk.py'])
         assert.equal(fs.readFileSync(py, 'utf8'), 'edited specialist file')
     })
+
+    it('keeps an unmarked folder that has only support.sqlite', async () => {
+        ran += 1
+        for (const name of ['customer', 'operations', 'policy']) fs.rmSync(specialistDir(name), { recursive: true, force: true })
+        const db = path.join(specialistDir('customer'), 'support.sqlite')
+        fs.mkdirSync(specialistDir('customer'), { recursive: true })
+        fs.writeFileSync(db, 'partial sqlite')
+        const savesBefore = saveCount
+        await assert.rejects(demo.create('cred-1', caller, 'customer-care'), (error) => {
+            assert.equal(error.statusCode, 503)
+            assert.match(error.message, /could not be removed/)
+            return true
+        })
+        assert.equal(saveCount, savesBefore)
+        assert.deepEqual(fs.readdirSync(specialistDir('customer')), ['support.sqlite'])
+        assert.equal(fs.readFileSync(db, 'utf8'), 'partial sqlite')
+    })
 })

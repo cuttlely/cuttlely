@@ -136,8 +136,8 @@ function workspaceIsThisDemo(folder: string, harness: string, profileName: strin
         return false
     }
     // 1.7.3 did not write a marker or leave the temporary sqlite name behind after a finished stage.
-    // An unmarked non-sqlite file must be the bundled bytes, so an edited copy is not deleted.
-    if (!marked && temp > 0) return false
+    // An unmarked folder must hold every bundled file, and each non-sqlite file must be the bundled bytes.
+    if (!marked && (temp > 0 || staged !== expected.size)) return false
     if (
         !marked &&
         copied.some((name) => {
