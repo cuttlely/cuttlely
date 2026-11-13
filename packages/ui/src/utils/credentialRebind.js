@@ -76,8 +76,12 @@ export function rebindFlowCredentials(flow, credentials) {
                     continue
                 }
                 value[key] = matches[0].id
-                if (key === 'credential' && value.inputs && typeof value.inputs === 'object' && !Array.isArray(value.inputs)) {
-                    value.inputs.FLOWISE_CREDENTIAL_ID = matches[0].id
+                if (key === 'credential') {
+                    // Node data keeps the id on inputs. Agent, LLM, condition, and tool
+                    // configs have no inputs child and read FLOWISE_CREDENTIAL_ID on this object.
+                    const inputs = value.inputs
+                    if (inputs && typeof inputs === 'object' && !Array.isArray(inputs)) inputs.FLOWISE_CREDENTIAL_ID = matches[0].id
+                    else value.FLOWISE_CREDENTIAL_ID = matches[0].id
                 }
             } else {
                 walk(item)

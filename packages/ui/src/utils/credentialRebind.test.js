@@ -127,6 +127,56 @@ describe('credential export and import', () => {
         expect(credentialRebindError(rebound)).toContain('Export it again')
     })
 
+    it('round-trips a nested config credential id back onto FLOWISE_CREDENTIAL_ID', () => {
+        const saved = {
+            nodes: [
+                {
+                    id: 'agentAgentflow_0',
+                    data: {
+                        id: 'agentAgentflow_0',
+                        label: 'Agent',
+                        name: 'agentAgentflow',
+                        type: 'Agent',
+                        inputParams: [
+                            { name: 'agentModelConfig', type: 'json' },
+                            { name: 'llmModelConfig', type: 'json' },
+                            { name: 'conditionAgentModelConfig', type: 'json' },
+                            { name: 'agentTools', type: 'json' }
+                        ],
+                        inputAnchors: [],
+                        inputs: {
+                            agentModelConfig: { FLOWISE_CREDENTIAL_ID: SOURCE_ID, modelName: 'gpt-5.6-luna' },
+                            llmModelConfig: { FLOWISE_CREDENTIAL_ID: SOURCE_ID, modelName: 'gpt-5.6-luna' },
+                            conditionAgentModelConfig: { FLOWISE_CREDENTIAL_ID: SOURCE_ID, modelName: 'gpt-5.6-luna' },
+                            agentTools: [{ agentSelectedToolConfig: { FLOWISE_CREDENTIAL_ID: SOURCE_ID, toolName: 'lookup' } }]
+                        },
+                        outputAnchors: [],
+                        outputs: {},
+                        selected: false
+                    }
+                }
+            ],
+            edges: []
+        }
+        const exported = generateExportFlowData(JSON.parse(JSON.stringify(saved)), ['agentAgentflow'], credentials)
+        const exportedText = JSON.stringify(exported)
+        expect(exportedText).not.toContain(SOURCE_ID)
+        expect(exportedText).not.toContain('FLOWISE_CREDENTIAL_ID')
+        expect(exported.nodes[0].data.inputs.agentModelConfig.credential).toEqual({
+            $credential: { name: 'Bakery model', credentialName: 'openAIApi' }
+        })
+        const rebound = rebindFlowCredentials(exported, [{ id: DEST_ID, name: 'Bakery model', credentialName: 'openAIApi' }])
+        expect(credentialRebindError(rebound)).toBe('')
+        const inputs = rebound.flow.nodes[0].data.inputs
+        expect(inputs.agentModelConfig.FLOWISE_CREDENTIAL_ID).toBe(DEST_ID)
+        expect(inputs.llmModelConfig.FLOWISE_CREDENTIAL_ID).toBe(DEST_ID)
+        expect(inputs.conditionAgentModelConfig.FLOWISE_CREDENTIAL_ID).toBe(DEST_ID)
+        expect(inputs.agentTools[0].agentSelectedToolConfig.FLOWISE_CREDENTIAL_ID).toBe(DEST_ID)
+        expect(inputs.agentModelConfig.modelName).toBe('gpt-5.6-luna')
+        expect(inputs.agentTools[0].agentSelectedToolConfig.toolName).toBe('lookup')
+        expect(JSON.stringify(rebound.flow)).not.toContain(SOURCE_ID)
+    })
+
     it('keeps an empty credential slot empty and still imports it', () => {
         const saved = {
             nodes: [
