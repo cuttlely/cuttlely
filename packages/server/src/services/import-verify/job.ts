@@ -7,6 +7,8 @@ import {
     flowHasUntrustedImport,
     parseFlow,
     queriesOnFlow,
+    queryIdProblems,
+    queryReady,
     replaceQuery,
     untrustImportedFlow,
     type SavedQuery
@@ -45,6 +47,7 @@ export type QueryState = 'pending' | 'running' | 'passed' | 'empty' | 'failed'
 export interface QueryProgress {
     nodeId: string
     pinId: string
+    indexOnNode: number
     name: string
     title: string
     state: QueryState
@@ -219,7 +222,13 @@ export function importVerifyPublishBlock(raw: unknown, draftFlowData: string | n
         }
         return null
     }
-    if (record.status === 'ready') return null
+    if (record.status === 'ready') {
+        const flow = parseFlow(draftFlowData)
+        if (untrusted || (flow && queryIdProblems(flow).length > 0)) {
+            return 'A saved query on this draft was not verified on this server. Open Import & verify and finish the check before publishing.'
+        }
+        return null
+    }
     if (record.status === 'running') return 'Verification is still running. Publish stays available after it finishes.'
     if (record.status === 'attention') return 'This import needs attention. Open Import & verify, use the actions it shows, then publish.'
     return 'This import could not be fully verified. Resume it from Import & verify. Publish stays off until the required checks pass.'
@@ -453,16 +462,18 @@ async function verifyBody(options: {
     flow = untrustImportedFlow(flow, keep).flow as typeof flow
 
     const listed = queriesOnFlow(flow)
-    const queries: QueryProgress[] = listed.map(({ nodeId, pin }) => {
+    const identityBlocksReuse = queryIdProblems(flow).length > 0
+    const queries: QueryProgress[] = listed.map(({ nodeId, pin, indexOnNode }) => {
         const key = `${nodeId}\0${String(pin.id || '')}`
         const old = prior.get(key)
-        const reused = keep.has(key)
+        const reused = keep.has(key) && !identityBlocksReuse
         let state: QueryState = 'pending'
         if (reused && old) state = old.state
         else if (options.retryFailures && old?.state === 'failed') state = 'pending'
         return {
             nodeId,
             pinId: String(pin.id || ''),
+            indexOnNode,
             name: String(pin.name || ''),
             title: String(pin.purpose || pin.name || 'Saved query'),
             state,
@@ -496,6 +507,24 @@ async function verifyBody(options: {
     if (stored.moved) return stored.record
     flow = parseFlow(stored.flowText) || flow
     record = stored.record
+
+    const identity = queryIdProblems(flow)
+    if (identity.length) {
+        const blockers: Blocker[] = identity.map((item, index) => ({
+            id: `query-id:${item.nodeId}:${item.kind}:${index}`,
+            severity: 'attention' as const,
+            message:
+                item.kind === 'missing'
+                    ? 'A saved query has no id, so it cannot be checked on its own. Give it an id, then verify again.'
+                    : 'Two saved queries on the same card use the same id, so one of them would not be checked. Give each saved query its own id, then verify again.',
+            action: 'none' as const,
+            nodeId: item.nodeId,
+            pinId: item.pinId || undefined
+        }))
+        record = finishRecord({ ...record, blockers, phase: 'Saved queries need their own ids' }, deps.now())
+        await deps.saveRecord(record)
+        return record
+    }
 
     const waitingConnection = resolutions.some((item) => {
         if (!item.slot.needed) return false
@@ -551,9 +580,7 @@ async function verifyBody(options: {
                 if (deps.signal?.aborted) return
                 query.state = 'running'
                 const node = nodeById(flow, query.nodeId)
-                const pin = queriesOnFlow(flow).find(
-                    (item) => item.nodeId === query.nodeId && String(item.pin.id || '') === query.pinId
-                )?.pin
+                const pin = queriesOnFlow(flow).find((item) => item.nodeId === query.nodeId && item.indexOnNode === query.indexOnNode)?.pin
                 if (!pin || !node) {
                     query.state = 'failed'
                     query.message = 'The saved query is no longer on this draft.'
@@ -629,7 +656,9 @@ async function verifyBody(options: {
                     rowCount > 0
                         ? 'Tested on this server.'
                         : 'The query ran and returned no rows. That is a valid run, and it is not proof that a report works.'
-                if (result.entry) flow = replaceQuery(flow, query.nodeId, { ...result.entry, verifiedHere: true }) as typeof flow
+                if (result.entry) {
+                    flow = replaceQuery(flow, query.nodeId, { ...result.entry, verifiedHere: true }, query.indexOnNode) as typeof flow
+                }
             })
         )
         record.checked = record.queries.filter((item) => item.state !== 'pending' && item.state !== 'running').length
@@ -705,11 +734,32 @@ async function verifyBody(options: {
         },
         deps.now()
     )
-    if (finished.status !== 'ready') {
-        await deps.saveRecord(finished)
-        return finished
+    let outcome = finished
+    if (outcome.status === 'ready') {
+        const leftover = queriesOnFlow(flow).filter((item) => item.pin.importedVerification === 'untrusted' || !queryReady(item.pin))
+        if (leftover.length || queryIdProblems(flow).length) {
+            outcome = finishRecord(
+                {
+                    ...outcome,
+                    blockers: [
+                        ...outcome.blockers,
+                        {
+                            id: 'query-untrusted',
+                            severity: 'attention',
+                            message: 'A saved query on this draft was not verified on this server. Nothing was marked ready.',
+                            action: 'none'
+                        }
+                    ]
+                },
+                deps.now()
+            )
+        }
     }
-    const readyStored = await persist(deps, clearImportHold(flow), finished)
+    if (outcome.status !== 'ready') {
+        await deps.saveRecord(outcome)
+        return outcome
+    }
+    const readyStored = await persist(deps, clearImportHold(flow), outcome)
     return readyStored.record
 }
 

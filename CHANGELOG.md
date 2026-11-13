@@ -19,6 +19,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Import & verify does not mark a flow ready when a saved query has no id, or two saved queries on the same card share an id. A ready result also does not publish a draft that still has a saved query this server did not verify. A second start while the first check is still being admitted does not run a second check.
 -   Counting analyst tool names no longer uses a regular expression. A tools/list name that starts with `pq_` and repeats `__pq_` cannot stall the bridge. The count is still only `query` and pinned query (`pq_...`) tools.
 -   Postgres (MCP) **Tools it can use** stays listed after an analyst specialist has offered a query or pinned query tool. A later tool list that returns nothing, fails, or lists only other tools no longer sets `X-Cuttlely-Analyst` back to `missing` or replaces that menu with **Analyst tool unavailable**. Refreshing the menu reads the status again.
 

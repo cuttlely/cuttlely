@@ -303,6 +303,51 @@ describe('imported verification', () => {
         expect(saved).not.toContain('"hash":"' + 'cd'.repeat(32))
     })
 
+    test('a duplicate or missing saved-query id cannot become ready or publishable', async () => {
+        const calls: string[] = []
+        const { deps, drafts } = memoryDeps({
+            testPin: async ({ entry }) => {
+                calls.push(String(entry.id || ''))
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...entry, testedStamp: 'ff'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const duplicate = await executeVerify({
+            flowText: JSON.stringify(flow([pin(), pin({ sql: 'SELECT 2 FROM account a LIMIT 5', name: 'pq_second' })], 'cred-pg')),
+            record: null,
+            deps
+        })
+        expect(duplicate.status).not.toBe('ready')
+        expect(duplicate.publishOffered).toBe(false)
+        expect(calls).toEqual([])
+        const duplicateDraft = drafts.at(-1) || ''
+        expect(
+            importVerifyPublishBlock(
+                JSON.stringify({ ...duplicate, status: 'ready', publishOffered: true, blockers: [], draftHash: hashFlow(duplicateDraft) }),
+                duplicateDraft
+            )
+        ).toMatch(/not verified/)
+        const missing = await executeVerify({
+            flowText: JSON.stringify(flow([pin({ id: '' })], 'cred-pg')),
+            record: null,
+            deps
+        })
+        expect(missing.status).not.toBe('ready')
+        expect(missing.publishOffered).toBe(false)
+        expect(calls).toEqual([])
+        const missingDraft = drafts.at(-1) || ''
+        expect(
+            importVerifyPublishBlock(
+                JSON.stringify({ ...missing, status: 'ready', publishOffered: true, blockers: [], draftHash: hashFlow(missingDraft) }),
+                missingDraft
+            )
+        ).toMatch(/not verified/)
+    })
+
     test('publish stays blocked only for the draft that was verified', () => {
         const draft = JSON.stringify(flow())
         const record = {

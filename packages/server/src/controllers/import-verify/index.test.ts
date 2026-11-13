@@ -70,6 +70,7 @@ jest.mock('../../services/import-verify', () => ({
 }))
 
 import { executeVerify } from '../../services/import-verify'
+import chatflowsService from '../../services/chatflows'
 import flowDraftsService from '../../services/flow-drafts'
 
 const response = () => {
@@ -129,5 +130,37 @@ describe('import-verify start while a check is already running', () => {
         expect(body.status).toBe('incomplete')
         expect(body.blockers.some((item: { id: string }) => item.id === 'draft-moved')).toBe(true)
         expect(body.publishOffered).toBe(false)
+    })
+
+    test('a second start during admission does not run a second job', async () => {
+        let release: () => void = () => undefined
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let lookups = 0
+        ;(chatflowsService.getChatflowByIdForWorkspace as jest.Mock).mockImplementation(async () => {
+            lookups += 1
+            if (lookups === 1) await gate
+            return { id: 'flow-1', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}' }
+        })
+        let jobs = 0
+        ;(executeVerify as jest.Mock).mockImplementation(async () => {
+            jobs += 1
+            return { ...runningRecord, status: 'incomplete', publishOffered: false }
+        })
+        const first = response()
+        const started = controller.start(request(), first as any, jest.fn())
+        const second = response()
+        await controller.start(request(), second as any, jest.fn())
+        expect(jobs).toBe(0)
+        expect(second.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'running', running: true }))
+        release()
+        await started
+        expect(jobs).toBe(1)
+        ;(chatflowsService.getChatflowByIdForWorkspace as jest.Mock).mockImplementation(async () => ({
+            id: 'flow-1',
+            type: 'CHATFLOW',
+            flowData: '{"nodes":[],"edges":[]}'
+        }))
     })
 })

@@ -122,26 +122,53 @@ export function untrustImportedFlow(flow: { nodes?: unknown }, keep: Set<string>
     return { flow: copy, stripped }
 }
 
-export function queriesOnFlow(flow: { nodes?: unknown }): Array<{ nodeId: string; nodeLabel: string; pin: SavedQuery }> {
+export function queriesOnFlow(flow: {
+    nodes?: unknown
+}): Array<{ nodeId: string; nodeLabel: string; pin: SavedQuery; indexOnNode: number }> {
     const found = []
     for (const { node, inputs } of walkNodes(flow)) {
         const data = node.data as { id?: string; label?: string; name?: string }
         const nodeId = String(node.id || data?.id || '')
         const nodeLabel = String(data?.label || data?.name || nodeId)
-        for (const pin of readQueries(inputs.pinnedQueries)) {
-            found.push({ nodeId, nodeLabel, pin })
-        }
+        readQueries(inputs.pinnedQueries).forEach((pin, indexOnNode) => {
+            found.push({ nodeId, nodeLabel, pin, indexOnNode })
+        })
     }
     return found
 }
 
-export function replaceQuery(flow: { nodes?: unknown }, nodeId: string, entry: SavedQuery): { nodes?: unknown } {
+// Saved-query identity is the id on that card. A blank id, or two queries on the same card with the same id,
+// cannot be checked one-to-one. The first match would be tested twice and the other left untrusted.
+export function queryIdProblems(
+    flow: { nodes?: unknown } | null | undefined
+): Array<{ nodeId: string; pinId: string; kind: 'missing' | 'duplicate' }> {
+    if (!flow) return []
+    const seen = new Map<string, number>()
+    const problems: Array<{ nodeId: string; pinId: string; kind: 'missing' | 'duplicate' }> = []
+    for (const { nodeId, pin } of queriesOnFlow(flow)) {
+        const pinId = typeof pin.id === 'string' ? pin.id.trim() : ''
+        if (!pinId) {
+            problems.push({ nodeId, pinId: '', kind: 'missing' })
+            continue
+        }
+        const key = `${nodeId}\0${pinId}`
+        const count = (seen.get(key) || 0) + 1
+        seen.set(key, count)
+        if (count > 1) problems.push({ nodeId, pinId, kind: 'duplicate' })
+    }
+    return problems
+}
+
+export function replaceQuery(flow: { nodes?: unknown }, nodeId: string, entry: SavedQuery, indexOnNode?: number): { nodes?: unknown } {
     const copy = structuredClone(flow) as { nodes?: unknown }
     for (const { node, inputs } of walkNodes(copy)) {
         const id = String(node.id || (node.data as { id?: string } | undefined)?.id || '')
         if (id !== nodeId) continue
         const list = readQueries(inputs.pinnedQueries)
-        const index = list.findIndex((pin) => pin.id === entry.id)
+        const index =
+            typeof indexOnNode === 'number' && indexOnNode >= 0 && indexOnNode < list.length
+                ? indexOnNode
+                : list.findIndex((pin) => pin.id === entry.id)
         const stored = { ...entry }
         delete stored.importedVerification
         if (index >= 0) list[index] = stored

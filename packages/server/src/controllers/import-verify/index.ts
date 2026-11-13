@@ -67,7 +67,7 @@ function python(code: string): Promise<boolean> {
     })
 }
 
-async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> {
+async function run(req: Request, retryFailures: boolean, controller: AbortController): Promise<VerifyRecord> {
     const flow = await flowFor(req)
     const orgId = req.user?.activeOrganizationId
     if (!orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
@@ -83,8 +83,11 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
         })
     }
     const choices = req.body?.choices && typeof req.body.choices === 'object' && !Array.isArray(req.body.choices) ? req.body.choices : {}
-    const controller = new AbortController()
-    active.set(flow.id, controller)
+    const reservedId = String(req.params.chatflowId || flow.id)
+    if (reservedId !== flow.id && active.get(reservedId) === controller) {
+        active.delete(reservedId)
+        active.set(flow.id, controller)
+    }
     try {
         const app = getRunningExpressApp()
         const loaded = app.nodesPool?.componentNodes ? Object.keys(app.nodesPool.componentNodes) : undefined
@@ -184,8 +187,9 @@ async function run(req: Request, retryFailures: boolean): Promise<VerifyRecord> 
 }
 
 const start = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        if (active.has(String(req.params.chatflowId || ''))) {
+    const chatflowId = String(req.params.chatflowId || '')
+    if (active.has(chatflowId)) {
+        try {
             const flow = await flowFor(req)
             const state = await flowDraftsService.getState(flow.id)
             const record = readRecord(state?.importVerify)
@@ -201,9 +205,17 @@ const start = async (req: Request, res: Response, next: NextFunction) => {
                 smoke: [],
                 connections: []
             })
+        } catch (error) {
+            next(error)
         }
-        return res.json(await run(req, req.body?.retryFailures === true))
+        return
+    }
+    const controller = new AbortController()
+    active.set(chatflowId, controller)
+    try {
+        return res.json(await run(req, req.body?.retryFailures === true, controller))
     } catch (error) {
+        if (active.get(chatflowId) === controller) active.delete(chatflowId)
         next(error)
     }
 }
