@@ -122,6 +122,37 @@ describe('applying the settings file at start', () => {
         expect(env[HOST_KEYS_VAR]).toBe('LOG_LEVEL')
     })
 
+    it('uses Auto when Analyst storage was never set, and leaves an explicit Off', () => {
+        const unsetEnv: Record<string, string | undefined> = {
+            CUTTLELY_DATA_DIR: tempData(),
+            FLOWISE_SECRETKEY_OVERWRITE: KEY,
+            CUTTLELY_ANALYST: ''
+        }
+        const unset = applyAdminSettings(unsetEnv)
+        expect(unsetEnv.CUTTLELY_ANALYST).toBe('auto')
+        expect(unsetEnv.CUTTLELY_SETTINGS_SCRIPT_DEFAULTS).toBe('CUTTLELY_ANALYST')
+        expect(unset.hostKeys).not.toContain('CUTTLELY_ANALYST')
+        expect(unset.applied).toEqual([])
+        const offDir = setup({ CUTTLELY_ANALYST: 'off' })
+        const offEnv: Record<string, string | undefined> = {
+            CUTTLELY_DATA_DIR: offDir,
+            FLOWISE_SECRETKEY_OVERWRITE: KEY,
+            CUTTLELY_ANALYST: ''
+        }
+        const off = applyAdminSettings(offEnv)
+        expect(offEnv.CUTTLELY_ANALYST).toBe('off')
+        expect(off.applied).toEqual(['CUTTLELY_ANALYST'])
+        expect(offEnv.CUTTLELY_SETTINGS_SCRIPT_DEFAULTS).toBeUndefined()
+        const hostOff: Record<string, string | undefined> = {
+            CUTTLELY_DATA_DIR: tempData(),
+            FLOWISE_SECRETKEY_OVERWRITE: KEY,
+            CUTTLELY_ANALYST: 'false'
+        }
+        applyAdminSettings(hostOff)
+        expect(hostOff.CUTTLELY_ANALYST).toBe('false')
+        expect(hostOff.CUTTLELY_SETTINGS_HOST_KEYS).toBe('CUTTLELY_ANALYST')
+    })
+
     it('does nothing to the environment when the ignore flag is on', () => {
         const data = setup({ CUTTLELY_ANALYST: 'auto' })
         const env: Record<string, string | undefined> = {
