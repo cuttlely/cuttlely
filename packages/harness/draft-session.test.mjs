@@ -6,7 +6,7 @@ import { after, test } from 'node:test'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-draft-session-'))
 process.env.CUTTLELY_DATA_DIR = root
-process.env.CUTTLELY_HERMES_HOME = path.join(root, 'hermes')
+process.env.CUTTLELY_HERMES_HOME = path.join(root, 'runtime')
 const { appendTurn, closeSessions, draftSessionScope, readMessages, readPromptContext, removeDraftSessions } = await import('./session.mjs')
 const { nameReuseBlockers, removeHarnessProfiles } = await import('./cleanup.mjs')
 const { compileProfileCached } = await import('./profile.mjs')
@@ -45,7 +45,7 @@ test('previewing an unpublished harness retains draft context and leaves its nam
         })
         assert.equal(result.text, `Echo ${input}`)
         assert.equal(getHarness(draft.name), null)
-        assert.equal(fs.existsSync(path.join(root, 'hermes', 'profiles', draft.name)), false)
+        assert.equal(fs.existsSync(path.join(root, 'runtime', 'profiles', draft.name)), false)
     }
     const context = readPromptContext(draft.name, 'same-chat', { scope: draftSessionScope(draft) })
     assert.deepEqual(
@@ -92,7 +92,7 @@ test('existing published sessions keep their current profile path during canvas 
         readMessages(published.name, 'chat').map((message) => message.content),
         ['before preview', 'prior answer', 'after', 'Echo after']
     )
-    assert.equal(fs.existsSync(path.join(root, 'hermes', 'profiles', published.name, 'sessions.sqlite')), true)
+    assert.equal(fs.existsSync(path.join(root, 'runtime', 'profiles', published.name, 'sessions.sqlite')), true)
 })
 
 test('draft session storage refuses linked directories and linked SQLite files', () => {
