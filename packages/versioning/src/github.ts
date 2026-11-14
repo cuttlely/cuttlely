@@ -221,6 +221,7 @@ const VERSION_KINDS = new Set(['create', 'save', 'delete', 'restore', 'publish',
 type TreeEntry = { mode: string; sha: string }
 type IndexedTree = { files: Map<string, TreeEntry>; folded: Map<string, string> }
 type OwnedPathRecord = { version: 1; latest: string; paths: string[] }
+type PathClash = { file: string; kind: 'different' | 'missing' }
 
 const sameTreeEntry = (left: TreeEntry, right: TreeEntry): boolean => left.mode === right.mode && left.sha === right.sha
 
@@ -1548,8 +1549,17 @@ export class GithubSync {
         return `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
     }
 
-    private overwriteMessage(repo: string, file: string, saved: boolean): string {
-        return `${repo} already has ${file}, which this copy would replace. Cuttlely never overwrites GitHub. Move that file on GitHub, or connect a repository that does not already use that path. ${
+    private overwriteMessage(repo: string, clash: PathClash, saved: boolean): string {
+        if (clash.kind === 'missing') {
+            return `${repo} no longer has ${
+                clash.file
+            } at the path this server copied. Cuttlely never overwrites GitHub. Restore it at that path on GitHub, or connect a different branch. ${
+                saved ? 'Nothing was changed on GitHub.' : 'Nothing was saved.'
+            }`
+        }
+        return `${repo} already has ${
+            clash.file
+        }, which this copy would replace. Cuttlely never overwrites GitHub. Move that file on GitHub, or connect a repository that does not already use that path. ${
             saved ? 'Nothing was changed on GitHub.' : 'Nothing was saved.'
         }`
     }
@@ -1694,9 +1704,9 @@ export class GithubSync {
         return null
     }
 
-    // Checks every local version that still has to be copied. `tip` is the remote tree that must stay.
-    // `published` is the local version already copied, when there is one. Only paths in the durable ownership
-    // record may be changed or removed. A clash saves nothing.
+    // Checks every local version that still has to be copied. The first comparison uses the fetched remote tree
+    // and the last published tree; each later comparison uses the tree composed for the preceding local version.
+    // Only paths in the durable ownership record may be changed or removed. A clash saves nothing.
     private async assertNoOverwrite(
         repo: string,
         tip: string,
@@ -1714,12 +1724,19 @@ export class GithubSync {
             throw new GithubError(409, this.notOurHistory(repo))
         }
         const trees = new Map<string, IndexedTree>()
+        let baseline = tip
+        let publishedBaseline = published
+        let baselineOwned = new Set(owned)
         for (const sha of listed
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)) {
-            const clash = await this.clashPath(tip, published, sha, owned, trees)
+            const clash = await this.clashPath(baseline, publishedBaseline, sha, baselineOwned, trees)
             if (clash) throw new GithubError(409, this.overwriteMessage(repo, clash, saved))
+            const tree = await this.composeTree(baseline, publishedBaseline, sha, baselineOwned, trees)
+            baselineOwned = await this.ownedAfterTreeChange(baselineOwned, baseline, tree, trees)
+            baseline = tree
+            publishedBaseline = tree
         }
     }
 
@@ -1793,7 +1810,7 @@ export class GithubSync {
         localSha: string,
         ownedPaths: Set<string>,
         trees: Map<string, IndexedTree>
-    ): Promise<string | null> {
+    ): Promise<PathClash | null> {
         const tip = await this.indexedTree(tipSha, trees)
         const published = publishedSha ? await this.indexedTree(publishedSha, trees) : null
         const local = await this.indexedTree(localSha, trees)
@@ -1818,14 +1835,14 @@ export class GithubSync {
                 // A file this server wrote, still holding those bytes and mode, can take the next version.
                 // Any other different entry would replace what is already there.
                 if (owned.has(fold) && publishedEntry && tipName === file && sameTreeEntry(existing, publishedEntry)) continue
-                return tipName
+                return tipName === file ? { file: tipName, kind: 'different' } : { file: publishedName || file, kind: 'missing' }
             }
             const publishedName = published?.folded.get(fold)
-            if (publishedName && (!this.keptName(file) || owned.has(fold))) return publishedName
+            if (publishedName && (!this.keptName(file) || owned.has(fold))) return { file: publishedName, kind: 'missing' }
             for (const other of tipPaths) {
                 const left = fold
                 const right = other.toLowerCase()
-                if (right.startsWith(`${left}/`) || left.startsWith(`${right}/`)) return other
+                if (right.startsWith(`${left}/`) || left.startsWith(`${right}/`)) return { file: other, kind: 'different' }
             }
         }
         if (localBefore) {
@@ -1833,7 +1850,7 @@ export class GithubSync {
                 const fold = file.toLowerCase()
                 if (!fold.startsWith('flows/') || local.folded.has(fold) || owned.has(fold) || this.keptName(file)) continue
                 const tipName = tip.folded.get(fold)
-                if (tipName) return tipName
+                if (tipName) return { file: tipName, kind: 'different' }
             }
         }
         if (published) {
@@ -1841,10 +1858,11 @@ export class GithubSync {
                 const fold = file.toLowerCase()
                 if (!owned.has(fold) || local.folded.has(fold) || this.keptName(file)) continue
                 const tipName = tip.folded.get(fold)
-                if (!tipName) return file
+                if (!tipName) return { file, kind: 'missing' }
                 const existing = tip.files.get(tipName)!
                 const previous = published.files.get(file)!
-                if (tipName !== file || !sameTreeEntry(existing, previous)) return tipName
+                if (tipName !== file) return { file, kind: 'missing' }
+                if (!sameTreeEntry(existing, previous)) return { file: tipName, kind: 'different' }
             }
         }
         return null
@@ -2079,6 +2097,7 @@ export class GithubSync {
         const tip = fetched.ok ? await this.refSha(CONNECT_SOURCE_REF) : null
         await runGit(dir, ['update-ref', '-d', CONNECT_SOURCE_REF]).catch(() => undefined)
         if (!fetched.ok || tip !== sourceSha) throw refused
+        if (!(await this.latestCopiedCommit(sourceSha))) throw refused
         const note = await this.environmentNoteCheck(
             {
                 repo,
@@ -2324,10 +2343,10 @@ export class GithubSync {
                     }
                     await this.backfillActiveLatestCopy(plan)
                     if (plan.reads) await this.readOnce(plan)
-                    // A read that just failed must not be followed by a copy in the same pass.
+                    // A read that is not ready must not be followed by a copy in the same pass.
                     // A copy that already stopped for a reason the operator has to fix is not retried by the next read.
-                    const readFailed = plan.reads && (this.state === 'retrying' || this.state === 'stopped')
-                    if (plan.copies && !readFailed && !this.copyHold) await this.pushOnce(plan)
+                    const readReady = !plan.reads || this.state === 'up-to-date'
+                    if (plan.copies && readReady && !this.copyHold) await this.pushOnce(plan)
                     if (this.copyHold) {
                         this.state = 'stopped'
                         this.message = this.copyHold
@@ -2533,23 +2552,23 @@ export class GithubSync {
             this.holdCopy(this.notOurHistory(config.repo, true))
             return
         }
-        const tip = looked.sha
-        if (!(await this.remoteDescendsLatestCopy(config.repo, config.url, branch, tip))) {
+        const remoteTip = looked.sha
+        if (!(await this.remoteDescendsLatestCopy(config.repo, config.url, branch, remoteTip))) {
             this.holdCopy(this.notOurHistory(config.repo, true))
             return
         }
         // The branch must descend from the latest remote commit this server recorded, whether or not
         // an older graft marker is still reachable after a branch reset.
-        if (graft && !(await this.isAncestor(graft, tip))) {
+        if (graft && !(await this.isAncestor(graft, remoteTip))) {
             this.holdCopy(this.notOurHistory(config.repo, true))
             return
         }
-        const marker = await this.ourGraftTip(tip)
-        let origin = tip
+        const marker = await this.ourGraftTip(remoteTip)
+        let origin = remoteTip
         let published: string | null = null
         let replayFrom: string | null = base
         if (marker) {
-            if (!(await this.isAncestor(marker.sha, tip))) {
+            if (!(await this.isAncestor(marker.sha, remoteTip))) {
                 this.holdCopy(
                     `${config.repo} on GitHub has changes that are not on this server, so copying stopped. Cuttlely never overwrites GitHub.`
                 )
@@ -2563,22 +2582,22 @@ export class GithubSync {
             origin = marker.remote
             published = marker.base
             replayFrom = marker.base
-        } else if (base && (await this.isAncestor(base, tip)) && !(await this.isAncestor(tip, head))) {
+        } else if (base && (await this.isAncestor(base, remoteTip)) && !(await this.isAncestor(remoteTip, head))) {
             origin = EMPTY_TREE
             const accepted = await this.latestCopy(config.repo, config.url, branch)
             const owned = await this.ownedPaths(config.repo, config.url, branch)
-            const acceptedVersion = accepted === tip && (await this.isRealVersionCommit(tip))
-            const acceptedUnchanged = accepted === tip && (await this.ownedEntriesMatch(base, tip, owned))
-            published = acceptedVersion || acceptedUnchanged ? tip : base
+            const acceptedVersion = accepted === remoteTip && (await this.isRealVersionCommit(remoteTip))
+            const acceptedUnchanged = accepted === remoteTip && (await this.ownedEntriesMatch(base, remoteTip, owned))
+            published = acceptedVersion || acceptedUnchanged ? remoteTip : base
             replayFrom = base
-        } else if (base && graft !== tip) {
+        } else if (base && graft !== remoteTip) {
             // The recorded copy is not under this tip. A first copy still in progress keeps that tip.
             this.holdCopy(
                 `${config.repo} on GitHub has changes that are not on this server, so copying stopped. Cuttlely never overwrites GitHub.`
             )
             return
         }
-        let parent = tip
+        let parent = remoteTip
         let parentTree = ''
         try {
             await this.ensureTree(origin)
@@ -2596,15 +2615,17 @@ export class GithubSync {
         }
         const trees = new Map<string, IndexedTree>()
         let owned = await this.ownedPaths(config.repo, config.url, branch)
+        let baseline = remoteTip
+        let publishedBaseline = published
         let created = false
         for (const sha of listed
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)) {
             if (generation !== this.generation) return
-            let clash: string | null = null
+            let clash: PathClash | null = null
             try {
-                clash = await this.clashPath(tip, published, sha, owned, trees)
+                clash = await this.clashPath(baseline, publishedBaseline, sha, owned, trees)
             } catch {
                 this.holdCopy(this.notOurHistory(config.repo, true))
                 return
@@ -2613,7 +2634,7 @@ export class GithubSync {
                 this.holdCopy(this.overwriteMessage(config.repo, clash, true))
                 return
             }
-            const tree = await this.composeTree(tip, published, sha, owned, trees)
+            const tree = await this.composeTree(baseline, publishedBaseline, sha, owned, trees)
             const version = await this.isRealVersionCommit(sha)
             if (version && !(await this.carriesVersionFiles(tree, sha, trees))) {
                 this.holdCopy(this.notOurHistory(config.repo, true))
@@ -2622,8 +2643,10 @@ export class GithubSync {
             // The history start has no version of its own, so an unchanged tree can be left out.
             // A version commit still has to land: its message is what another server reads, even when
             // every file already matches the repository.
+            owned = await this.ownedAfterTreeChange(owned, baseline, tree, trees)
+            baseline = tree
+            publishedBaseline = tree
             if (tree === parentTree && !version) continue
-            owned = await this.ownedAfterTreeChange(owned, parentTree, tree, trees)
             parent = await this.commitGraft(tree, parent, sha, origin)
             parentTree = tree
             created = true
@@ -2652,17 +2675,17 @@ export class GithubSync {
                 return
             }
             await runGit(dir, ['update-ref', GRAFT_REF, parent])
-        } else if (graft !== tip && (await this.graftMarker(tip))) {
+        } else if (graft !== remoteTip && (await this.graftMarker(remoteTip))) {
             // The copy landed, and this process stopped before recording it. The tip is already ours.
-            await runGit(dir, ['update-ref', GRAFT_REF, tip])
-            await this.rememberLatestCopy(config.repo, config.url, branch, tip)
+            await runGit(dir, ['update-ref', GRAFT_REF, remoteTip])
+            await this.rememberLatestCopy(config.repo, config.url, branch, remoteTip)
         } else if (marker) {
             await this.rememberLatestCopy(config.repo, config.url, branch, marker.sha)
         } else if (published) {
             await this.rememberLatestCopy(config.repo, config.url, branch, published)
         }
         await runGit(dir, ['update-ref', PUSHED_REF, head])
-        const notedOn = created ? parent : (await this.graftMarker(tip)) ? tip : null
+        const notedOn = created ? parent : (await this.graftMarker(remoteTip)) ? remoteTip : null
         const note = created ? { base: head, remote: origin } : notedOn ? await this.graftMarker(notedOn) : null
         // A pre-existing tip is not a version. Record the list only on a commit this server added.
         if (note) {

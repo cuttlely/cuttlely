@@ -1,3 +1,11 @@
+## GitHub history ownership round 6
+
+On `cursor/connect-existing-github-history-62d9`, multi-commit copies compare the first pending commit with the fetched GitHub tip and the last published tree, then advance the composed tree, published baseline and ownership set together for each later commit. Direct-origin and existing-history regressions cover deletion followed by different re-created content, a moved flow path, add then delete, and an unrelated GitHub commit. A separate control changes a server-owned path on GitHub before the replay and confirms the copy stops without writing. The original fetched tip remains separate for remote descent and copy recovery checks.
+
+Named Connect now requires a reachable real version before a matching environment note can be accepted. A middle server treats a waiting source read as not ready and does not run its copy pass. Focused unit and three-environment service tests cover a history-start-only Dev, refused Staging, waiting Prod, then normal Staging and Prod progress after Dev publishes a real version. Missing server-owned paths now have restore-or-change-branch guidance, while existing paths with different content keep the move guidance. A waiting reader names the source whose first version it needs.
+
+The round-6 targeted gate and variant matrix are recorded outside the repository. This work does not claim a full verification run, publication, deployment, or activation.
+
 ## GitHub history ownership round 5
 
 On `cursor/connect-existing-github-history-62d9`, Version History readers advance the durable accepted tip without replacing the paired path-ownership set. One history store can therefore disconnect, change from Dev to Prod, read, disconnect, and change back to Dev while retaining the paths it wrote. This holds when the source tip is unchanged, when an unrelated GitHub file was added, and when an accepted real version from another Dev history store advanced the tip. A reconnect uses that accepted real-version tip as the comparison baseline; an ordinary accepted descendant is used only when every owned entry still matches, so a GitHub change to an owned path still stops copying.

@@ -1022,6 +1022,37 @@ describe('copying history to a repository', () => {
         expect(bareMode(bare, changed, file)).toBe('100755')
     })
 
+    test('a mode-only GitHub change to a copied version file stops a grafted copy', async () => {
+        foreignCommit(bare, path.join(tmp, 'mode-only-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        const work = path.join(tmp, 'mode-only-grafted')
+        fs.mkdirSync(work)
+        const env = cleanEnv({
+            GIT_AUTHOR_NAME: 'someone',
+            GIT_AUTHOR_EMAIL: 'someone@example.invalid',
+            GIT_COMMITTER_NAME: 'someone',
+            GIT_COMMITTER_EMAIL: 'someone@example.invalid'
+        })
+        execFileSync('git', ['clone', '-q', '-b', 'main', `file://${bare}`, '.'], { cwd: work, env })
+        execFileSync('git', ['update-index', '--chmod=+x', file], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'Make the version file executable'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+        const changed = bareMain(bare)!
+
+        await save('Two')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain(file)
+        expect(status.message).toContain('already has')
+        expect(status.message).toContain('Move that file')
+        expect(bareMain(bare)).toBe(changed)
+        expect(bareMode(bare, changed, file)).toBe('100755')
+    })
+
     test.each([
         ['direct', false],
         ['grafted', true]
@@ -1044,6 +1075,9 @@ describe('copying history to a repository', () => {
         expect(status.state).toBe('stopped')
         expect(status.message).toContain(file)
         expect(status.message).toContain('never overwrites GitHub')
+        expect(status.message).toContain('no longer has')
+        expect(status.message).toContain('Restore it at that path')
+        expect(status.message).not.toContain('Move that file')
         expect(bareMain(bare)).toBe(changed)
         expect(
             execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', changed], { encoding: 'utf8', env: cleanEnv() })
@@ -1072,6 +1106,9 @@ describe('copying history to a repository', () => {
         expect(status.state).toBe('stopped')
         expect(status.message).toContain(`${folder}/`)
         expect(status.message).toContain('never overwrites GitHub')
+        expect(status.message).toContain('no longer has')
+        expect(status.message).toContain('Restore it at that path')
+        expect(status.message).not.toContain('Move that file')
         expect(bareMain(bare)).toBe(changed)
         expect(ownedPathRecords()[0].paths.some((entry) => entry.startsWith(`${folder}/`))).toBe(true)
     })
@@ -1105,6 +1142,9 @@ describe('copying history to a repository', () => {
         expect(status.state).toBe('stopped')
         expect(status.message).toContain(file)
         expect(status.message).toContain('never overwrites GitHub')
+        expect(status.message).toContain('no longer has')
+        expect(status.message).toContain('Restore it at that path')
+        expect(status.message).not.toContain('Move that file')
         expect(bareMain(bare)).toBe(changed)
         const names = execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', changed], {
             encoding: 'utf8',
@@ -1161,6 +1201,162 @@ describe('copying history to a repository', () => {
         expect((await sync.status()).state).toBe('up-to-date')
         expect(ownedPathRecords()[0].paths.some((file) => file.startsWith(`${folder}/`))).toBe(true)
         expect(bareFile(bare, bareMain(bare)!, `${folder}/flow.json`)).toContain(ID)
+    })
+
+    test.each([
+        ['direct-origin', false],
+        ['existing-history', true]
+    ])('one sync replays a deletion and later re-creation over %s history', async (_history, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'replay-delete-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        sync.stop()
+        setGithubForTests(null)
+
+        await recordFlowDeletion({ id: ID, name: 'Bakery helper' })
+        await flushVersions()
+        await save('Recreated in the same sync')
+        await flushVersions()
+        const githubTip = commitGithubChange(
+            bare,
+            path.join(tmp, `replay-delete-${grafted ? 'existing' : 'direct'}`),
+            (work) => fs.writeFileSync(path.join(work, 'github-note.txt'), 'keep this file\n'),
+            'Add an unrelated file'
+        )
+
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+
+        const status = await sync.status()
+        const folder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}`
+        const tip = bareMain(bare)!
+        expect(status.state).toBe('up-to-date')
+        expect(tip).not.toBe(githubTip)
+        expect(bareFile(bare, tip, 'github-note.txt')).toBe('keep this file\n')
+        expect(bareFile(bare, tip, `${folder}/nodes/harnessChief_0.json`)).toContain('Recreated in the same sync')
+    })
+
+    test.each([
+        ['direct-origin', false],
+        ['existing-history', true]
+    ])('one sync moves a flow path over %s history', async (_history, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'replay-move-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        sync.stop()
+        setGithubForTests(null)
+
+        await recordFlowVersion(
+            { id: ID, name: 'Cafe helper', type: 'CHATFLOW', flowData: JSON.stringify(flow('Moved path content')) },
+            { lookupCredentials }
+        )
+        await flushVersions()
+        commitGithubChange(
+            bare,
+            path.join(tmp, `replay-move-${grafted ? 'existing' : 'direct'}`),
+            (work) => fs.writeFileSync(path.join(work, 'github-note.txt'), 'keep this file\n'),
+            'Add an unrelated file'
+        )
+
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+
+        const tip = bareMain(bare)!
+        const before = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}`
+        const after = `flows/${flowFolderName({ id: ID, name: 'Cafe helper' })}`
+        const files = execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', tip], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        })
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(files).not.toContain(`${before}/`)
+        expect(files).toContain(`${after}/flow.json`)
+        expect(bareFile(bare, tip, `${after}/nodes/harnessChief_0.json`)).toContain('Moved path content')
+        expect(bareFile(bare, tip, 'github-note.txt')).toBe('keep this file\n')
+    })
+
+    test.each([
+        ['direct-origin', false],
+        ['existing-history', true]
+    ])('one sync replays an added and then deleted flow over %s history', async (_history, grafted) => {
+        const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
+        if (grafted) foreignCommit(bare, path.join(tmp, 'replay-add-delete-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        sync.stop()
+        setGithubForTests(null)
+
+        await recordFlowVersion(
+            { id: other, name: 'Short visit', type: 'CHATFLOW', flowData: JSON.stringify(flow('Temporary content')) },
+            { lookupCredentials }
+        )
+        await flushVersions()
+        await recordFlowDeletion({ id: other, name: 'Short visit' })
+        await flushVersions()
+        commitGithubChange(
+            bare,
+            path.join(tmp, `replay-add-delete-${grafted ? 'existing' : 'direct'}`),
+            (work) => fs.writeFileSync(path.join(work, 'github-note.txt'), 'keep this file\n'),
+            'Add an unrelated file'
+        )
+
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+
+        const tip = bareMain(bare)!
+        const folder = `flows/${flowFolderName({ id: other, name: 'Short visit' })}`
+        const files = execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', tip], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        })
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(files).not.toContain(`${folder}/`)
+        expect(bareFile(bare, tip, 'github-note.txt')).toBe('keep this file\n')
+    })
+
+    test.each([
+        ['direct-origin', false],
+        ['existing-history', true]
+    ])('a GitHub edit before a deletion and re-creation replay stops %s with nothing written', async (_history, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'replay-edit-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        sync.stop()
+        setGithubForTests(null)
+
+        await recordFlowDeletion({ id: ID, name: 'Bakery helper' })
+        await flushVersions()
+        await save('Recreated after the GitHub edit')
+        await flushVersions()
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        const changed = commitGithubChange(
+            bare,
+            path.join(tmp, `replay-edit-${grafted ? 'existing' : 'direct'}`),
+            (work) => fs.writeFileSync(path.join(work, ...file.split('/')), 'changed on GitHub\n'),
+            'Change a copied file'
+        )
+
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('already has')
+        expect(status.message).toContain('Move that file')
+        expect(bareMain(bare)).toBe(changed)
+        expect(bareFile(bare, changed, file)).toBe('changed on GitHub\n')
     })
 
     test('copy completeness rejects a tree that retains a locally deleted flow', async () => {
@@ -1845,6 +2041,8 @@ describe('Dev or Prod label', () => {
             { name: 'Prod', branch: 'prod', server: 'prod' }
         ]
         await sync.setEnvironment('prod', chain)
+        await save('One')
+        await flushVersions()
         seedRecordedVersions('refs/heads/staging', chain)
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
@@ -2562,6 +2760,61 @@ describe('Dev or Prod label', () => {
         const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect(status.connected).toBe(true)
         expect(status.state).not.toBe('stopped')
+    })
+
+    test('a named middle server refuses a history-start-only source and publishes nothing', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await getStore().ensure()
+        const start = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        await sync.setEnvironment('dev', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBe(start)
+        expect(remoteNote(bare, start, path.join(tmp, 'history-start-note'))).toBe(environmentListFingerprint(chain))
+
+        await sync.disconnect()
+        await sync.setEnvironment('staging', chain)
+        const calls = gitCalls.length
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+
+        expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
+        expect(bareMain(bare)).toBe(start)
+    })
+
+    test('a middle server does not copy while its source read is waiting', async () => {
+        const backfill = jest.spyOn(sync as any, 'backfillActiveLatestCopy').mockResolvedValue(undefined)
+        const read = jest.spyOn(sync as any, 'readOnce').mockImplementation(async function (this: any) {
+            this.state = 'waiting'
+        })
+        const copy = jest.spyOn(sync as any, 'pushOnce').mockResolvedValue(undefined)
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+
+        await sync.sync({
+            invalid: false,
+            environment: 'staging',
+            environments: chain,
+            reads: true,
+            copies: true,
+            sourceBranch: 'main',
+            publishBranch: 'staging',
+            verifiedSource: null
+        } as any)
+
+        expect(backfill).toHaveBeenCalled()
+        expect(read).toHaveBeenCalled()
+        expect(copy).not.toHaveBeenCalled()
     })
 
     test('a README on main is not versions from the previous environment', async () => {

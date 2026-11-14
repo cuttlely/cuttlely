@@ -709,6 +709,68 @@ describe('three environments, in order', () => {
         stagingSync.stop()
     })
 
+    test('history-start-only Dev keeps Staging disconnected until a real version starts the chain', async () => {
+        const stagingDeps: PromoteDeps = {
+            findFlow: async (id) => stagingFlows.get(id) || null,
+            draftOf: async () => null,
+            environment: () => stagingSync.environment(),
+            environments: () => stagingSync.environments(),
+            connected: () => stagingSync.isConnected(),
+            lastCheckedAt: async () => (await stagingSync.status()).lastCheckedAt,
+            readOptions: () => ({ matchCredentials: async () => [] })
+        }
+        const start = bareMain(bare)
+
+        asStaging()
+        await expect(stagingSync.connect({ repo: `file://${bare}`, token: TOKEN }, 'ws-staging')).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(stagingSync.isConnected()).toBe(false)
+        expect(bareRef('refs/heads/staging')).toBeNull()
+        asProd()
+        expect((await listIncoming(WS, { ...deps, environments: () => prodSync.environments() })).flows).toEqual([])
+
+        await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
+        expect(bareMain(bare)).not.toBe(start)
+
+        asStaging()
+        await expect(stagingSync.connect({ repo: `file://${bare}`, token: TOKEN }, 'ws-staging')).resolves.toMatchObject({
+            connected: true,
+            state: 'up-to-date'
+        })
+        const offered = await listIncoming('ws-staging', stagingDeps)
+        expect(offered.flows).toHaveLength(1)
+        const devSha = offered.flows[0].version.sha
+        const blank = {
+            id: FLOW,
+            name: 'Support bot',
+            type: 'CHATFLOW',
+            flowData: '{"nodes":[],"edges":[]}',
+            workspaceId: 'ws-staging'
+        } as ChatFlow
+        const staged = await getVersion(blank, devSha, stagingDeps.readOptions!('ws-staging'))
+        const row = { ...blank, name: staged!.name, flowData: staged!.flowData } as ChatFlow
+        stagingFlows.set(FLOW, row)
+        await recordFlowVersion(row, {
+            kind: 'promote',
+            title: 'Promoted from Dev',
+            promotedFrom: devSha,
+            lookupCredentials: async () => new Map()
+        })
+        await flushVersions()
+        await stagingSync.sync()
+        const stagingSha = rev(stagingDir, 'refs/heads/main')!
+        expect(bareRef('refs/heads/staging')).toBe(stagingSha)
+
+        asProd()
+        await expect(prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).resolves.toMatchObject({
+            connected: true,
+            state: 'up-to-date'
+        })
+        expect((await listIncoming(WS, { ...deps, environments: () => prodSync.environments() })).flows[0].version.sha).toBe(stagingSha)
+    })
+
     test('dev promotes to staging, then staging to prod, and a skipped hop is refused', async () => {
         const prodDeps: PromoteDeps = { ...deps, environments: () => prodSync.environments() }
         const stagingDeps: PromoteDeps = {

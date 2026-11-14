@@ -50,7 +50,22 @@ describe('githubSync helpers', () => {
             syncLine({ connected: true, state: 'up-to-date', lastCopiedAt: '2026-10-08T22:58:00Z' }, NOW),
             syncLine({ connected: true, state: 'up-to-date' }, NOW),
             syncLine({ connected: true, state: 'copying' }, NOW),
-            syncLine({ connected: true, state: 'waiting', waiting: 1 }, NOW),
+            syncLine({ connected: true, state: 'waiting', waiting: 1, role: 'copy' }, NOW),
+            syncLine(
+                {
+                    connected: true,
+                    state: 'waiting',
+                    waiting: null,
+                    role: 'read',
+                    environment: 'prod',
+                    environments: [
+                        { name: 'Dev', server: 'dev' },
+                        { name: 'Staging', server: 'staging' },
+                        { name: 'Prod', server: 'prod' }
+                    ]
+                },
+                NOW
+            ),
             syncLine({ connected: true, state: 'retrying', nextTryAt: '2026-10-08T23:05:00Z' }, NOW)
         ]
         expect(lines).toEqual([
@@ -58,6 +73,7 @@ describe('githubSync helpers', () => {
             'Every version is on GitHub',
             'Syncing your versions now',
             '1 new version syncs in a moment',
+            'Waiting for the first version from Staging',
             'Trying again in 5 minutes'
         ])
         for (const line of lines) expect(line).not.toMatch(/push|commit|branch|main|merge/i)

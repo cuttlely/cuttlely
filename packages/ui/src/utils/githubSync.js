@@ -1,6 +1,6 @@
 // Plain-words helpers for the Version History settings page: the GitHub copy and the Dev or Prod label.
 // No Git words on screen: versions are "synced" or "copied", never pushed or committed.
-import { isSavedDevProdPair } from './promote'
+import { isSavedDevProdPair, previousEnvironmentTitle } from './promote'
 
 export const OWNER_PERMISSION = 'server:owner'
 export const TOKEN_HELP_URL = 'https://github.com/settings/personal-access-tokens/new'
@@ -192,7 +192,10 @@ export const syncLine = (status, now = Date.now()) => {
     if (status.state === 'up-to-date')
         return status.lastCopiedAt ? `Last synced ${timeAgo(status.lastCopiedAt, now)}` : 'Every version is on GitHub'
     if (status.state === 'copying') return 'Syncing your versions now'
-    if (status.state === 'waiting') return status.waiting === 1 ? '1 new version syncs in a moment' : 'New versions sync in a moment'
+    if (status.state === 'waiting') {
+        if (status.role === 'read') return `Waiting for the first version from ${previousEnvironmentTitle(status) || 'the source'}`
+        return status.waiting === 1 ? '1 new version syncs in a moment' : 'New versions sync in a moment'
+    }
     if (status.state === 'retrying') return retryIn(status.nextTryAt, now)
     return ''
 }
