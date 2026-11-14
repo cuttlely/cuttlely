@@ -1567,6 +1567,16 @@
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
         },
         {
+            "from": "packages/server/src/services/import-verify/import-verify.test.ts",
+            "to": "packages/server/src/services/pinned-queries/index.ts",
+            "reason": "The import verification round-trip test exercises the actual export and saved-query test paths."
+        },
+        {
+            "from": "packages/server/src/services/import-verify/import-verify.test.ts",
+            "to": "packages/ui/src/utils/genericHelper.js",
+            "reason": "The import verification round-trip test exercises the actual export and saved-query test paths."
+        },
+        {
             "from": "packages/server/src/services/orchestrate/fileLinks.ts",
             "to": "packages/server/src/utils/getRunningExpressApp.ts",
             "reason": "Orchestrate and A2A file links read the flow's workspace organization and sign get-upload-file links; the tool note test covers agents.ts"
@@ -4301,6 +4311,14 @@
         {
             "path": "packages/server/src/controllers/chatflows/publicChatflow.test.ts",
             "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
+            "path": "packages/server/src/controllers/import-verify/python.test.ts",
+            "reason": "Import verification uses the agent runtime Python for PDF checks."
+        },
+        {
+            "path": "packages/server/src/controllers/import-verify/python.ts",
+            "reason": "Import verification uses the agent runtime Python for PDF checks."
         },
         {
             "path": "packages/server/src/controllers/pinned-queries/index.test.ts",

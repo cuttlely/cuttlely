@@ -1,3 +1,11 @@
+## Import verification follow-up
+
+On `bugfix/import-verify-untested-contracts`, an output contract with no fresh result is still a blocker but is reported as not tested, with the saved query's reason, instead of as a hash mismatch. A tested query whose SQL changed keeps the mismatch blocker, and a contract without an expected hash keeps its existing blocker. Sample selection continues to use saved defaults and allowed values or a value read safely through a direct selected-relation comparison; a required parameter without one of those sources is not guessed. PDF checks now use the configured or bundled agent-runtime Python environment, which is where the image installs the PDF library. A PostgreSQL card whose saved queries all need a retest returns a clear error instead of an empty result; the server log and run trace identify saved queries that are missing a tested stamp. Focused import-verification, Python-selection, PostgreSQL-node, gateway, and trace tests cover the change.
+
+## Imported output contract verification
+
+On `bugfix/import-verify-contract-hash`, Import & verify now tests every saved query in flows larger than one four-query batch and checks each output contract against its own fresh result. The verifier previously replaced its saved progress objects after the first batch but kept updating older copies, leaving later queries pending without a tested hash and reporting false contract mismatches. It also removes internal trust markers before testing a saved query and preserves the authored parameter representation used to create the contract hash. Changed saved-query SQL still produces the existing contract mismatch blocker. Focused import-verification, saved-query, type, and lint checks cover the change.
+
 ## Follow-up prompt temperatures
 
 Landed on `main` as `f4edfc8c` ([#491](https://github.com/cuttlely/cuttlely/pull/491)) and ships in 1.7.5. Follow-up model calls omit temperature when the saved value is blank or does not parse to a finite number. OpenAI and Azure OpenAI calls also omit it for the reasoning-model names matched by the chat nodes' shared `isReasoningModelOpenAI` rule. Normal models and other providers keep finite values. Focused constructor tests cover every follow-up provider without network calls.
