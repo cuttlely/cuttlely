@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
-import { planDiscovery, valuesFromDiscovery } from './discover'
+import { expressionLookups, literalSamples, planDiscovery, valuesFromDiscovery } from './discover'
 import { inspectFlow } from './inspect'
 import {
     beginVerification,
@@ -1263,5 +1263,108 @@ describe('imported verification', () => {
         const next = applyCredential(canvas, 'pg:credential', 'cred-pg') as typeof canvas
         expect((next.nodes[0].data as { credential: string }).credential).toBe('cred-pg')
         expect((next.nodes[1].data as { credential: string }).credential).toBe('')
+    })
+})
+
+describe('destination sample values', () => {
+    test('database Date values become ISO dates and exclusive bounds cover the last observed day', () => {
+        const params = [
+            { name: 'from', type: 'date', required: true },
+            { name: 'to', type: 'date', required: true }
+        ]
+        const values = valuesFromDiscovery(
+            params,
+            [{ from: new Date('2025-12-30T00:00:00Z') }],
+            [
+                { param: 'from', table: 'orders', column: 'closed', op: '>=' },
+                { param: 'to', table: 'orders', column: 'closed', op: '<' }
+            ]
+        )
+        expect(values).toEqual({ from: '2025-12-30', to: '2025-12-31' })
+    })
+    test('calendar defaults obey parameter constraints and do not manufacture text identities', () => {
+        expect(
+            valuesFromDiscovery(
+                [
+                    { name: 'year', type: 'int8', required: true, min: 1900, max: 2100 },
+                    { name: 'account_name', type: 'text', required: true },
+                    { name: 'start_date', type: 'date', secure: true }
+                ],
+                [],
+                []
+            )
+        ).toEqual({ year: String(new Date().getUTCFullYear()) })
+    })
+})
+
+describe('expression sampling', () => {
+    test('an imported expression query is tested with a discovered identity and optional filters remain unset', async () => {
+        const entry = pin({
+            sql: 'WITH args AS (SELECT lower(:account_name) AS phrase) SELECT a.name FROM account a WHERE lower(a.name) = (SELECT phrase FROM args) LIMIT 10',
+            params: [
+                { name: 'account_name', type: 'text', required: true },
+                { name: 'year', type: 'int8' },
+                { name: 'start_date', type: 'date' }
+            ]
+        })
+        const canvas = flow([entry], 'cred-pg')
+        const calls: Record<string, unknown>[] = []
+        const { deps } = memoryDeps({
+            discover: async () => ({ rows: [{ account_name: 'Example Company' }] }),
+            testPin: async ({ sampleValues }) => {
+                calls.push(sampleValues)
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...entry, testedStamp: 'ff'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const result = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(calls).toEqual([{ account_name: 'Example Company' }])
+        expect(result.status).toBe('ready')
+    })
+
+    test('samples a name used through a CTE without reading unselected or sensitive columns', () => {
+        const sql = `WITH args AS (SELECT lower(:account_name) AS phrase)
+            SELECT a.name FROM public.account a JOIN private.secret s ON s.id = a.id
+            WHERE lower(a.name) = (SELECT phrase FROM args) AND s.password = :password`
+        const plans = expressionLookups(
+            sql,
+            ['public.account'],
+            [
+                { name: 'account_name', type: 'text', required: true },
+                { name: 'password', type: 'text', required: true }
+            ]
+        )
+        expect(plans).toHaveLength(1)
+        expect(plans[0].text).toContain('FROM "public"."account"')
+        expect(plans[0].text).not.toContain('secret')
+        expect(plans[0].bindings).toEqual([{ param: 'account_name', table: 'public.account', column: 'name', op: '=' }])
+    })
+    test('uses authored literal alternatives, while ignoring comments and secure parameters', () => {
+        expect(
+            literalSamples(
+                `-- :family = 'bad'
+SELECT CASE WHEN p.family = 'inventory' THEN 1 END FROM packet p`,
+                [{ name: 'family', type: 'text', required: true }]
+            )
+        ).toEqual({ family: 'inventory' })
+        expect(literalSamples(`SELECT :family = 'inventory'`, [{ name: 'family', required: true, secure: true }])).toEqual({})
+    })
+    test('does not activate mutually exclusive optional calendar filters', () => {
+        expect(
+            valuesFromDiscovery(
+                [
+                    { name: 'year', type: 'int8' },
+                    { name: 'month', type: 'int8' },
+                    { name: 'start_date', type: 'date' },
+                    { name: 'end_date', type: 'date' }
+                ],
+                [],
+                []
+            )
+        ).toEqual({})
     })
 })

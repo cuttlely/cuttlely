@@ -4,6 +4,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Import & verify now normalizes date samples, generates required calendar and numeric test inputs, and samples parameters used through SQL expressions from referenced columns on selected tables. Optional filters stay unset unless they have an authored default. Existing query validation, output contracts, and publication gates remain in force.
+-   Signed-in users can test a new unpublished Harness canvas before it has a Live roster. Admission checks the canvas workspace and name ownership; external and access-key runs still require the published harness.
+
 ## [1.7.5] - 2026-11-14
 
 ### Changed

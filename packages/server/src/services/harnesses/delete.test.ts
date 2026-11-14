@@ -756,3 +756,45 @@ describe('orphan on the list and when opened', () => {
         await expect(harnessesService.getHarness('navi', TEAM)).resolves.not.toHaveProperty('orphaned')
     })
 })
+
+describe('unpublished canvas admission', () => {
+    const record = { name: 'imported', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'reader' }] }
+    it('admits an owned canvas roster without writing a live harness', async () => {
+        const result = await harnessesService.assertRunRequest(
+            'imported',
+            { question: 'hello' },
+            TEAM,
+            { via: 'session' },
+            { canvasRecord: record }
+        )
+        expect(result.harness).toEqual(record)
+        expect(has('imported')).toBe(false)
+        expect(claimedNames).toEqual([])
+    })
+    it('refuses a canvas from another team, a missing canvas, and a name owned by another canvas', async () => {
+        for (const changed of [
+            { ...record, chatflowId: CANVAS_GONE },
+            { ...record, workspaceId: 'other' },
+            { ...record, name: 'other' }
+        ]) {
+            await expect(
+                harnessesService.assertRunRequest('imported', { question: 'hello' }, TEAM, { via: 'session' }, { canvasRecord: changed })
+            ).rejects.toMatchObject({ statusCode: 404 })
+        }
+        write({ name: 'imported', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [] })
+        await expect(
+            harnessesService.assertRunRequest('imported', { question: 'hello' }, TEAM, { via: 'session' }, { canvasRecord: record })
+        ).rejects.toThrow()
+    })
+    it('does not allow an API key to substitute a canvas roster for a missing live harness', async () => {
+        await expect(
+            harnessesService.assertRunRequest(
+                'imported',
+                { question: 'hello' },
+                TEAM,
+                { via: 'api_key', apiKeyId: 'key', harnesses: ['imported'] },
+                { canvasRecord: record }
+            )
+        ).rejects.toMatchObject({ statusCode: 404 })
+    })
+})

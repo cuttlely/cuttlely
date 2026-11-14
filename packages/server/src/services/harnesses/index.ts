@@ -1319,7 +1319,7 @@ const assertRunRequest = async (
     body: Record<string, unknown>,
     workspaceId: string | null | undefined,
     caller: IHarnessCaller | undefined,
-    access: { allowFlow?: boolean; expectedChatflowId?: string; dataSource?: DataSource } = {}
+    access: { allowFlow?: boolean; expectedChatflowId?: string; dataSource?: DataSource; canvasRecord?: Record<string, any> } = {}
 ) => {
     // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
     if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
@@ -1332,7 +1332,30 @@ const assertRunRequest = async (
     )
         throw new AppError(StatusCodes.FORBIDDEN, 'An authorized Harness canvas id is required for this access-key run.')
     const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
-    const harness = await requireHarness(name, workspaceId, access.dataSource)
+    const candidate = access.canvasRecord
+    let harness
+    try {
+        harness = await requireHarness(name, workspaceId, access.dataSource)
+    } catch (error) {
+        if (!candidate || caller?.via !== 'session' || !(error instanceof AppError) || error.statusCode !== StatusCodes.NOT_FOUND)
+            throw error
+        const canvas = await canvasState(candidate, access.dataSource)
+        if (
+            candidate.name !== name ||
+            !canvas ||
+            canvas.state !== 'present' ||
+            canvas.type !== 'HARNESS' ||
+            !inWorkspace(canvas.workspaceId ?? null, workspaceOf(workspaceId)) ||
+            candidate.workspaceId !== canvas.workspaceId
+        )
+            throw notFound(name)
+        await assertNameAvailable(name, workspaceId, { claiming: true, readOnly: true, record: candidate })
+        harness = candidate
+    }
+    if (candidate && caller?.via === 'session') {
+        if (candidate.name !== name || candidate.workspaceId !== workspaceOf(workspaceId)) throw notFound(name)
+        assertSameCanvas(harness, candidate, name, true)
+    }
     if (
         access.expectedChatflowId !== undefined &&
         (typeof harness.chatflowId !== 'string' || harness.chatflowId !== access.expectedChatflowId)
@@ -1406,7 +1429,8 @@ const startRun = async (
     const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, {
         allowFlow: opts.allowFlow === true,
         expectedChatflowId: opts.expectedChatflowId,
-        dataSource: opts.runtime?.appDataSource
+        dataSource: opts.runtime?.appDataSource,
+        canvasRecord: opts.record
     })
     const apiKeyId = callerKeyId(opts.caller)
     if (!opts.runtime) await configureRuntime()
