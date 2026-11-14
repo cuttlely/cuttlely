@@ -40,6 +40,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.7.5?
 
+-   Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history, and a GitHub change to a path this server copied stops the copy instead of overwriting it.
 -   Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead.
 -   Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
 -   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
