@@ -38,6 +38,7 @@ import {
     type SyncPlan
 } from './environments'
 import { gitEnv, runGit, VersionStore } from './store'
+import { flowFolderName } from './serialize'
 import { scanForSecrets } from './secrets'
 import { readTrailer, trailerLine } from './trailers'
 import {
@@ -215,6 +216,8 @@ const ADOPT_REF = 'refs/versions/adopt'
 const KEPT_PATH = 'README.md'
 // A tree with no files. Used when this server created the history, so no pre-existing file needs protecting.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+const FLOW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const VERSION_KINDS = new Set(['create', 'save', 'delete', 'restore', 'publish', 'rollback', 'promote'])
 type TreeEntry = { mode: string; sha: string }
 type IndexedTree = { files: Map<string, TreeEntry>; folded: Map<string, string> }
 type OwnedPathRecord = { version: 1; latest: string; paths: string[] }
@@ -1348,7 +1351,7 @@ export class GithubSync {
             const paths = new Set<string>()
             const folded = new Set<string>()
             for (const file of parsed.paths) {
-                if (typeof file !== 'string' || !file || file.includes('\0') || this.keptName(file)) return null
+                if (typeof file !== 'string' || !file || file.includes('\0')) return null
                 const key = file.toLowerCase()
                 if (folded.has(key)) return null
                 folded.add(key)
@@ -1384,9 +1387,9 @@ export class GithubSync {
         }
         try {
             const head = await this.refSha('refs/heads/main')
-            if (!head || !(await this.isAncestor(sha, head)) || !(await this.carriesVersion(sha))) return new Set()
+            if (!head || !(await this.isAncestor(sha, head)) || !(await this.isRealVersionCommit(sha))) return new Set()
             const tree = await this.indexedTree(sha, trees)
-            return new Set([...tree.files.keys()].filter((file) => !this.keptName(file)))
+            return new Set(tree.files.keys())
         } catch {
             return new Set()
         }
@@ -1434,7 +1437,7 @@ export class GithubSync {
         if (graft) {
             try {
                 const marker = await this.graftMarker(graft)
-                if (marker && (await this.carriesVersion(marker.base))) return graft
+                if (marker && (await this.isRealVersionCommit(marker.base))) return graft
             } catch {
                 // An incomplete active graft is not migration evidence.
             }
@@ -1442,7 +1445,7 @@ export class GithubSync {
         const pushed = await this.refSha(PUSHED_REF)
         if (pushed) {
             try {
-                if (await this.carriesVersion(pushed)) return pushed
+                if (await this.isRealVersionCommit(pushed)) return pushed
             } catch {
                 // An incomplete active direct copy is not migration evidence.
             }
@@ -1573,8 +1576,11 @@ export class GithubSync {
         try {
             const tip = await this.refSha(ADOPT_REF)
             if (!tip) return false
-            const bodies = (await runGit(dir, ['log', '--max-count=5000', '--format=%B%x1e', ADOPT_REF])).stdout
-            return bodies.split('\x1e').some((body) => Boolean(readTrailer(body, 'Flow')))
+            const commits = (await runGit(dir, ['rev-list', '--max-count=5000', ADOPT_REF])).stdout
+            for (const sha of commits.split('\n').filter(Boolean)) {
+                if (await this.isRealVersionCommit(sha)) return true
+            }
+            return false
         } finally {
             await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
         }
@@ -1657,7 +1663,7 @@ export class GithubSync {
         let base = ''
         try {
             base = (await runGit(this.deps.store().dir, ['merge-base', tip, head])).stdout.trim()
-            if (!/^[0-9a-f]{40}$/.test(base) || !(await this.carriesVersion(base))) return null
+            if (!/^[0-9a-f]{40}$/.test(base) || !(await this.isRealVersionCommit(base))) return null
         } catch {
             return null
         }
@@ -1669,16 +1675,12 @@ export class GithubSync {
     private async latestCopiedCommit(tip: string): Promise<string | null> {
         let log = ''
         try {
-            log = (await runGit(this.deps.store().dir, ['log', '--max-count=5000', '--format=%H%x1f%B%x1e', tip])).stdout
+            log = (await runGit(this.deps.store().dir, ['rev-list', '--max-count=5000', tip])).stdout
         } catch {
             return null
         }
-        for (const record of log.split('\x1e')) {
-            const separator = record.indexOf('\x1f')
-            if (separator < 0) continue
-            const sha = record.slice(0, separator).trim()
-            const body = record.slice(separator + 1)
-            if (/^[0-9a-f]{40}$/.test(sha) && readTrailer(body, 'Flow')) return sha
+        for (const sha of log.split('\n').filter(Boolean)) {
+            if (await this.isRealVersionCommit(sha)) return sha
         }
         return null
     }
@@ -1803,6 +1805,8 @@ export class GithubSync {
                 if (owned.has(fold) && publishedEntry && tipName === file && sameTreeEntry(existing, publishedEntry)) continue
                 return tipName
             }
+            const publishedName = published?.folded.get(fold)
+            if (publishedName && (!this.keptName(file) || owned.has(fold))) return publishedName
             for (const other of tipPaths) {
                 const left = fold
                 const right = other.toLowerCase()
@@ -1858,6 +1862,7 @@ export class GithubSync {
                     }
                     continue
                 }
+                if (this.keptName(file)) continue
                 lines.push(`${entry.mode} ${entry.sha}\t${file}`)
             }
             if (published) {
@@ -1905,13 +1910,60 @@ export class GithubSync {
 
     private async directOwnedPaths(sha: string): Promise<Set<string>> {
         const tree = await this.indexedTree(sha, new Map())
-        return new Set([...tree.files.keys()].filter((file) => !this.keptName(file)))
+        return new Set(tree.files.keys())
     }
 
-    // True when this commit is a saved version. The history's first commit is not.
-    private async carriesVersion(sha: string): Promise<boolean> {
-        const body = (await runGit(this.deps.store().dir, ['log', '-1', '--format=%B', sha])).stdout
-        return Boolean(readTrailer(body, 'Flow'))
+    private async flowIdAt(revision: string, file: string): Promise<string> {
+        try {
+            const text = (await runGit(this.deps.store().dir, ['show', `${revision}:${file}`])).stdout
+            const id = JSON.parse(text)?.id
+            return typeof id === 'string' ? id : ''
+        } catch {
+            return ''
+        }
+    }
+
+    // A real version has the complete trailer envelope and its matching flow folder in the tree. A deletion
+    // instead changes the tree by removing that folder.
+    private async isRealVersionCommit(sha: string): Promise<boolean> {
+        if (!/^[0-9a-f]{40}$/.test(sha)) return false
+        let body = ''
+        try {
+            body = (await runGit(this.deps.store().dir, ['log', '-1', '--format=%B', sha])).stdout
+        } catch {
+            return false
+        }
+        const flow = readTrailer(body, 'Flow')
+        const kind = readTrailer(body, 'Kind')
+        const name = readTrailer(body, 'Name')
+        if (!FLOW_ID.test(flow) || !VERSION_KINDS.has(kind) || !name) return false
+        const expected = flowFolderName({ id: flow, name })
+        const full = `${expected.split('--')[0]}--${flow.replace(/-/g, '')}`
+        const candidates = new Set([`flows/${expected}`, `flows/${full}`])
+        if (kind !== 'delete') {
+            for (const folder of candidates) {
+                if ((await this.flowIdAt(sha, `${folder}/flow.json`)) === flow) return true
+            }
+            return false
+        }
+        let changed = ''
+        try {
+            changed = (await runGit(this.deps.store().dir, ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '-z', sha]))
+                .stdout
+        } catch {
+            return false
+        }
+        const folders = new Set<string>()
+        for (const file of changed.split('\0').filter(Boolean)) {
+            const parts = file.split('/')
+            const folder = parts.length >= 3 && parts[0] === 'flows' ? `flows/${parts[1]}` : ''
+            if (candidates.has(folder)) folders.add(folder)
+        }
+        for (const folder of folders) {
+            const meta = `${folder}/flow.json`
+            if (!(await this.flowIdAt(sha, meta)) && (await this.flowIdAt(`${sha}^`, meta)) === flow) return true
+        }
+        return false
     }
 
     // A copied version commit is useful to another server only when all of that version's files are in its tree.
@@ -2503,7 +2555,7 @@ export class GithubSync {
                 return
             }
             const tree = await this.composeTree(tip, published, sha, owned, trees)
-            const version = await this.carriesVersion(sha)
+            const version = await this.isRealVersionCommit(sha)
             if (version && !(await this.carriesVersionFiles(tree, sha, trees))) {
                 this.holdCopy(this.notOurHistory(config.repo, true))
                 return

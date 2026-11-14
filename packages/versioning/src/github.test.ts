@@ -221,7 +221,7 @@ function makeBare(dir: string): string {
 }
 
 // A commit on the remote's main that this server does not have.
-function foreignCommit(bare: string, work: string, branch = 'main', files: Record<string, string> = {}) {
+function foreignCommit(bare: string, work: string, branch = 'main', files: Record<string, string> = {}, message = 'Initial commit') {
     fs.mkdirSync(work, { recursive: true })
     const env = cleanEnv({
         GIT_AUTHOR_NAME: 'someone',
@@ -238,8 +238,24 @@ function foreignCommit(bare: string, work: string, branch = 'main', files: Recor
         fs.writeFileSync(full, content)
     }
     execFileSync('git', ['add', '-A'], { cwd: work, env })
-    execFileSync('git', ['commit', '-q', '-m', 'Initial commit'], { cwd: work, env })
+    execFileSync('git', ['commit', '-q', '-m', message], { cwd: work, env })
     execFileSync('git', ['push', '-q', `file://${bare}`, `HEAD:refs/heads/${branch}`], { cwd: work, env })
+}
+
+function commitGithubChange(bare: string, work: string, change: (dir: string) => void, message: string): string {
+    fs.mkdirSync(work, { recursive: true })
+    const env = cleanEnv({
+        GIT_AUTHOR_NAME: 'someone',
+        GIT_AUTHOR_EMAIL: 'someone@example.invalid',
+        GIT_COMMITTER_NAME: 'someone',
+        GIT_COMMITTER_EMAIL: 'someone@example.invalid'
+    })
+    execFileSync('git', ['clone', '-q', '-b', 'main', `file://${bare}`, '.'], { cwd: work, env })
+    change(work)
+    execFileSync('git', ['add', '-A'], { cwd: work, env })
+    execFileSync('git', ['commit', '-q', '-m', message], { cwd: work, env })
+    execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/main'], { cwd: work, env })
+    return bareMain(bare)!
 }
 
 function bareFile(repo: string, rev: string, file: string): string {
@@ -954,6 +970,121 @@ describe('copying history to a repository', () => {
         expect(status.message).toContain('never overwrites GitHub')
         expect(bareMain(bare)).toBe(changed)
         expect(bareMode(bare, changed, file)).toBe('100755')
+    })
+
+    test.each([
+        ['direct', false],
+        ['grafted', true]
+    ])('a GitHub deletion of a copied file stops a %s copy and leaves the remote unchanged', async (_copy, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'delete-copied-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        const changed = commitGithubChange(
+            bare,
+            path.join(tmp, 'delete-copied'),
+            (work) => fs.unlinkSync(path.join(work, ...file.split('/'))),
+            'Delete a copied file'
+        )
+
+        await save('Two')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain(file)
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(changed)
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', changed], { encoding: 'utf8', env: cleanEnv() })
+        ).not.toContain(file)
+    })
+
+    test.each([
+        ['direct', false],
+        ['grafted', true]
+    ])('a GitHub move of a copied file stops a %s copy and leaves the remote unchanged', async (_copy, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'move-copied-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/flow.json`
+        const moved = 'archive/flow.json'
+        const changed = commitGithubChange(
+            bare,
+            path.join(tmp, 'move-copied'),
+            (work) => {
+                const source = path.join(work, ...file.split('/'))
+                const target = path.join(work, ...moved.split('/'))
+                fs.mkdirSync(path.dirname(target), { recursive: true })
+                fs.copyFileSync(source, target)
+                fs.unlinkSync(source)
+            },
+            'Move a copied file'
+        )
+
+        await save('Two')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain(file)
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(changed)
+        const names = execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', changed], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        }).split('\n')
+        expect(names).toContain(moved)
+        expect(names).not.toContain(file)
+    })
+
+    test('a GitHub deletion of the root README stops the next direct copy and leaves the remote unchanged', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const changed = commitGithubChange(
+            bare,
+            path.join(tmp, 'delete-root-readme'),
+            (work) => fs.unlinkSync(path.join(work, 'README.md')),
+            'Delete the root README'
+        )
+
+        await save('Two')
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('README.md')
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(changed)
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', changed], { encoding: 'utf8', env: cleanEnv() })
+        ).not.toContain('README.md')
+    })
+
+    test.each([
+        ['direct', false],
+        ['grafted', true]
+    ])('a server-produced flow deletion clears %s ownership and a later version can add the path again', async (_copy, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'local-delete-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const folder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}`
+
+        await recordFlowDeletion({ id: ID, name: 'Bakery helper' })
+        await settle()
+
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(ownedPathRecords()[0].paths.some((file) => file.startsWith(`${folder}/`))).toBe(false)
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', bareMain(bare)!], { encoding: 'utf8', env: cleanEnv() })
+        ).not.toContain(`${folder}/`)
+
+        await save('Three')
+        await settle()
+
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(ownedPathRecords()[0].paths.some((file) => file.startsWith(`${folder}/`))).toBe(true)
+        expect(bareFile(bare, bareMain(bare)!, `${folder}/flow.json`)).toContain(ID)
     })
 
     test('a later version that would replace an existing path stops and leaves GitHub unchanged', async () => {
@@ -1904,6 +2035,28 @@ describe('Dev or Prod label', () => {
         expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
     })
 
+    test('Prod Connect refuses a forged version envelope without a flow file', async () => {
+        foreignCommit(
+            bare,
+            path.join(tmp, 'forged-connect'),
+            'main',
+            {},
+            `Unrelated commit\n\nVersion-Flow: ${ID}\nVersion-Kind: save\nVersion-Name: Bakery helper`
+        )
+        const foreign = bareMain(bare)
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('prod')
+
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('no versions from a Dev server')
+        })
+        expect(bareMain(bare)).toBe(foreign)
+        expect(latestCopyTips()).toEqual([])
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
+    })
+
     test('Prod refuses a repository with only a Cuttlely history-start commit', async () => {
         await getStore().ensure()
         const start = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
@@ -2844,6 +2997,29 @@ describe('custom GitHub host', () => {
 })
 
 describe('durable GitHub tip records', () => {
+    test('a background reader refuses a foreign commit with only a forged Flow trailer', async () => {
+        const readerDir = path.join(tmp, 'reader-forged-source')
+        const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
+        await reader.setEnvironment('prod')
+        const waiting = await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(waiting.state).toBe('up-to-date')
+        expect(latestCopyTips(readerDir)).toEqual([])
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
+
+        foreignCommit(bare, path.join(tmp, 'forged-background'), 'main', {}, `Unrelated commit\n\nVersion-Flow: ${ID}`)
+        const foreign = bareMain(bare)
+        await reader.sync()
+        await reader.idle()
+
+        const stopped = await reader.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('no versions from a Dev server')
+        expect(bareMain(bare)).toBe(foreign)
+        expect(latestCopyTips(readerDir)).toEqual([])
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
+        reader.stop()
+    })
+
     test('an empty Prod reader waits through non-version tips and accepts the first real version', async () => {
         const readerDir = path.join(tmp, 'reader-empty-source')
         const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
