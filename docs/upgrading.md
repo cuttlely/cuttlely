@@ -6,7 +6,7 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 
 ## Upgrading to 1.7.5
 
-Back up the application database, encryption key and settings before upgrading. Use matching 1.7.5 server and widget versions. This patch fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491). It adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains **Off** by default.
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.5 server and widget versions. This patch fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491). It also fixes Import & verify reporting false output contract mismatches (#494) and reporting untested contracts as mismatches (#495). It adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains **Off** by default.
 
 The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions.
 

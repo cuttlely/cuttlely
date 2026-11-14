@@ -27,7 +27,7 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.7.5 fixes follow-up prompts that sent unsupported temperature values.** Blank and invalid saved values are omitted. OpenAI reasoning models also omit temperature when they do not accept it.
+**1.7.5 fixes follow-up prompts that sent unsupported temperature values, and Import & verify reporting false or untested output-contract mismatches.** Blank and invalid saved temperature values are omitted. OpenAI reasoning models also omit temperature when they do not accept it. Import & verify tests every saved query in a large flow and checks each output contract against its own fresh result. Skipped or untested contracts are reported as not tested, and PDF checks use the bundled agent runtime's Python libraries.
 
 Latest stable is **1.7.5**. Pin image `1.7.5` or install `cuttlely@1.7.5`. [1.7.5 release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.5) · [Changelog](./CHANGELOG.md).
 

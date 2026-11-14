@@ -27,7 +27,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.7.5는 후속 프롬프트가 지원되지 않는 temperature 값을 보내는 문제를 수정합니다.** 저장된 값이 비어 있거나 유한한 숫자가 아니면 생략합니다. OpenAI 추론 모델이 temperature를 받지 않는 경우에도 생략합니다.
+**1.7.5는 후속 프롬프트가 지원되지 않는 temperature 값을 보내는 문제와, Import & verify가 테스트되지 않았거나 잘못된 출력 계약 불일치를 보고하던 문제를 수정합니다.** 저장된 값이 비어 있거나 유한한 숫자가 아니면 생략합니다. OpenAI 추론 모델이 temperature를 받지 않는 경우에도 생략합니다. Import & verify는 큰 플로우에서도 저장된 쿼리를 모두 테스트하고 각 출력 계약을 그 새로운 결과와 대조합니다. 건너뛰었거나 테스트되지 않은 계약은 테스트되지 않음으로 보고되며, PDF 확인에는 함께 제공되는 에이전트 런타임의 Python 라이브러리를 사용합니다.
 
 최신 안정 버전은 **1.7.5**입니다. 이미지 `1.7.5`를 지정하거나 `cuttlely@1.7.5`를 설치하세요. [1.7.5 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.5) · [변경 기록](./CHANGELOG.md).
 

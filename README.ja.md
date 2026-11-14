@@ -27,7 +27,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.7.5 は、フォローアッププロンプトがサポートされていない temperature 値を送信する問題を修正します。** 保存値が空または有限数値でない場合は省略します。OpenAI の推論モデルが temperature を受け付けない場合も省略します。
+**1.7.5 は、フォローアッププロンプトがサポートされていない temperature 値を送信する問題と、Import & verify が未テストまたは誤った出力契約の不一致を報告する問題を修正します。** 保存値が空または有限数値でない場合は省略します。OpenAI の推論モデルが temperature を受け付けない場合も省略します。Import & verify は大きなフローでも保存済みクエリをすべてテストし、各出力契約をその新しい結果と照合します。スキップまたは未テストの契約は未テストとして報告され、PDF の確認には同梱のエージェントランタイムの Python ライブラリを使います。
 
 最新の安定版は **1.7.5** です。イメージ `1.7.5` を指定するか、`cuttlely@1.7.5` をインストールしてください。[1.7.5 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.5) · [変更履歴](./CHANGELOG.md)。
 
