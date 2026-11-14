@@ -977,6 +977,118 @@ describe('copying history to a repository', () => {
         expectFastForwardOnly()
     })
 
+    test.each([
+        ['direct', false],
+        ['grafted', true]
+    ])('accepted GitHub tips above a %s copy protect every earlier tip after disconnects', async (_copy, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'accepted-tip-graft-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const copied = bareMain(bare)!
+        await sync.disconnect()
+
+        const firstAccepted = commitGithubChange(
+            bare,
+            path.join(tmp, `accepted-tip-${grafted ? 'graft' : 'direct'}`),
+            (work) => {
+                fs.mkdirSync(path.join(work, 'notes'), { recursive: true })
+                fs.writeFileSync(path.join(work, 'notes', 'accepted.md'), 'keep this accepted file\n')
+            },
+            'Add an accepted file'
+        )
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({ state: 'up-to-date' })
+        expect(bareMain(bare)).toBe(firstAccepted)
+        expect(ownedPathRecords()[0]).toMatchObject({ latest: firstAccepted })
+        await sync.disconnect()
+
+        const latestAccepted = commitGithubChange(
+            bare,
+            path.join(tmp, `accepted-tip-latest-${grafted ? 'graft' : 'direct'}`),
+            (work) => fs.writeFileSync(path.join(work, 'notes', 'latest.md'), 'keep the latest accepted file\n'),
+            'Add another accepted file'
+        )
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({ state: 'up-to-date' })
+        expect(ownedPathRecords()[0]).toMatchObject({ latest: latestAccepted })
+        await sync.disconnect()
+
+        for (const earlier of [copied, firstAccepted]) {
+            const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+            execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', earlier], { env: cleanEnv() })
+            await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+                status: 409,
+                message: expect.stringContaining('not the history this server has')
+            })
+            expect(gitCalls.filter((call) => call.args[0] === 'push')).toHaveLength(pushes)
+            expect(bareMain(bare)).toBe(earlier)
+            expect((await sync.status()).connected).toBe(false)
+        }
+        expect(bareFile(bare, latestAccepted, 'notes/accepted.md')).toBe('keep this accepted file\n')
+        expect(bareFile(bare, latestAccepted, 'notes/latest.md')).toBe('keep the latest accepted file\n')
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', latestAccepted], { env: cleanEnv() })
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({ state: 'up-to-date' })
+        expect(bareMain(bare)).toBe(latestAccepted)
+    })
+
+    test('a duplicated repository scope cannot claim and replace existing version files', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await sync.disconnect()
+
+        const duplicate = makeBare(path.join(tmp, 'duplicate.git'))
+        execFileSync('git', ['--git-dir', bare, 'push', '-q', `file://${duplicate}`, 'refs/heads/main:refs/heads/main'], {
+            env: cleanEnv()
+        })
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/nodes/harnessChief_0.json`
+        const before = bareFile(duplicate, first, file)
+        await save('Two')
+
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+        await expect(sync.connect({ repo: `file://${duplicate}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining(file)
+        })
+        expect(gitCalls.filter((call) => call.args[0] === 'push')).toHaveLength(pushes)
+        expect(bareMain(duplicate)).toBe(first)
+        expect(bareFile(duplicate, first, file)).toBe(before)
+        expect((await sync.status()).connected).toBe(false)
+
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({ state: 'up-to-date' })
+        expect(bareMain(bare)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(bareGrep(bare, bareMain(bare)!, 'Two')).toContain('flows/')
+    })
+
+    test('a duplicated publish branch scope cannot claim and replace existing version files', async () => {
+        const onMain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const onPreview = [
+            { name: 'Dev', branch: 'preview', server: 'dev' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('dev', onMain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await sync.disconnect()
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/preview', first], { env: cleanEnv() })
+        const file = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}/nodes/harnessChief_0.json`
+        const before = bareFile(bare, first, file)
+        await save('Two')
+        await sync.setEnvironment('dev', onPreview)
+
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining(file)
+        })
+        expect(gitCalls.filter((call) => call.args[0] === 'push')).toHaveLength(pushes)
+        expect(bareRef(bare, 'refs/heads/preview')).toBe(first)
+        expect(bareFile(bare, first, file)).toBe(before)
+        expect((await sync.status()).connected).toBe(false)
+    })
+
     test('the latest-copy record for one repository does not block a different repository', async () => {
         await save('One')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
@@ -3817,6 +3929,58 @@ describe('durable GitHub tip records', () => {
         expect(bareMain(bare)).toBe(landed)
         expect(branchPushes()).toBe(1)
         expect(refOf(versionsDir(), 'refs/versions/github-remote')).toBe(landed)
+    })
+
+    test.each([
+        { copy: 'direct', grafted: false, retry: 'immediate', reconnect: false },
+        { copy: 'direct', grafted: false, retry: 'Disconnect and Connect', reconnect: true },
+        { copy: 'grafted', grafted: true, retry: 'immediate', reconnect: false },
+        { copy: 'grafted', grafted: true, retry: 'Disconnect and Connect', reconnect: true }
+    ])('a multi-version $copy copy reported failed keeps every owned path on $retry retry', async ({ grafted, reconnect }) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, `multi-failure-base-${reconnect ? 'reconnect' : 'immediate'}`))
+        const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
+        const firstFolder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}`
+        const secondFolder = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}`
+        await save('First version')
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('Second version')) },
+            { lookupCredentials }
+        )
+        await flushVersions()
+
+        const run = localNetworkCommand()
+        let reportedFailure = false
+        sync.stop()
+        sync = makeSync({
+            command: async (args, env) => {
+                const result = await run(args, env)
+                if (!reportedFailure && result.ok && args[0] === 'push' && args.some((arg) => arg.endsWith(':refs/heads/main'))) {
+                    reportedFailure = true
+                    return { ok: false, stdout: '', stderr: 'fatal: Could not resolve host: github.com', timedOut: false }
+                }
+                return result
+            }
+        })
+        setGithubForTests(sync)
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({ state: 'retrying' })
+        const landed = bareMain(bare)!
+        expect(reportedFailure).toBe(true)
+
+        if (reconnect) {
+            await sync.disconnect()
+            expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({ state: 'up-to-date' })
+        } else {
+            expect(await sync.tryNow()).toMatchObject({ state: 'up-to-date' })
+        }
+        const owned = ownedPathRecords()[0]
+        expect(owned.latest).toBe(landed)
+        expect(owned.paths.some((file) => file.startsWith(`${firstFolder}/`))).toBe(true)
+        expect(owned.paths.some((file) => file.startsWith(`${secondFolder}/`))).toBe(true)
+
+        await save('First version changed later')
+        await settle()
+        expect(await sync.status()).toMatchObject({ state: 'up-to-date' })
+        expect(bareGrep(bare, bareMain(bare)!, 'First version changed later')).toContain(`${firstFolder}/`)
     })
 
     test('local main rewind cannot replace files from a newer remote copy', async () => {

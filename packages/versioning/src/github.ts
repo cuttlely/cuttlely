@@ -210,6 +210,9 @@ const LATEST_COPY_REF_PREFIX = 'refs/versions/github-latest'
 // A blob paired with each latest-copy ref records the paths whose current remote entries this server wrote.
 // The two refs move in one transaction and both survive Disconnect.
 const OWNED_PATH_REF_PREFIX = 'refs/versions/github-owned'
+// An attempted copy is prepared before the network write. If the write lands but its answer is lost,
+// this scoped record lets a retry retain the exact intended ownership set. It survives Disconnect.
+const PENDING_COPY_REF_PREFIX = 'refs/versions/github-pending'
 // A fetched remote tip, dropped before the connection is saved.
 const ADOPT_REF = 'refs/versions/adopt'
 // Every history repo starts with this file. An existing one on GitHub is kept as it is, in any capitalization.
@@ -221,6 +224,7 @@ const VERSION_KINDS = new Set(['create', 'save', 'delete', 'restore', 'publish',
 type TreeEntry = { mode: string; sha: string }
 type IndexedTree = { files: Map<string, TreeEntry>; folded: Map<string, string> }
 type OwnedPathRecord = { version: 1; latest: string; paths: string[] }
+type PendingCopyRecord = { version: 1; base: string | null; latest: string; paths: string[] }
 type PathClash = { file: string; kind: 'different' | 'missing' }
 
 const sameTreeEntry = (left: TreeEntry, right: TreeEntry): boolean => left.mode === right.mode && left.sha === right.sha
@@ -1329,6 +1333,10 @@ export class GithubSync {
         return `${OWNED_PATH_REF_PREFIX}/${this.copyScope(repo, url, branch)}`
     }
 
+    private pendingCopyRef(repo: string, url: string, branch: string): string {
+        return `${PENDING_COPY_REF_PREFIX}/${this.copyScope(repo, url, branch)}`
+    }
+
     private async latestCopy(repo: string, url: string, branch: string): Promise<string | null> {
         return this.refSha(this.latestCopyRef(repo, url, branch))
     }
@@ -1400,6 +1408,94 @@ export class GithubSync {
         const latest = await this.latestCopy(repo, url, branch)
         if (!latest) return new Set()
         return (await this.readOwnedPaths(repo, url, branch, latest)) ?? this.inferredOwnedPaths(latest)
+    }
+
+    private validRecordedPaths(paths: unknown): Set<string> | null {
+        if (!Array.isArray(paths)) return null
+        const result = new Set<string>()
+        const folded = new Set<string>()
+        for (const file of paths) {
+            if (typeof file !== 'string' || !file || file.includes('\0')) return null
+            const key = file.toLowerCase()
+            if (folded.has(key)) return null
+            folded.add(key)
+            result.add(file)
+        }
+        return result
+    }
+
+    private async pendingCopy(repo: string, url: string, branch: string): Promise<(PendingCopyRecord & { owned: Set<string> }) | null> {
+        const object = await this.objectSha(this.pendingCopyRef(repo, url, branch))
+        if (!object) return null
+        try {
+            const parsed = JSON.parse(
+                (await runGit(this.deps.store().dir, ['cat-file', 'blob', object])).stdout
+            ) as Partial<PendingCopyRecord>
+            const owned = this.validRecordedPaths(parsed.paths)
+            const latest = typeof parsed.latest === 'string' ? parsed.latest : ''
+            const base = parsed.base === null || typeof parsed.base === 'string' ? parsed.base : undefined
+            if (
+                parsed.version !== 1 ||
+                !/^[0-9a-f]{40}$/.test(latest) ||
+                base === undefined ||
+                (base !== null && !/^[0-9a-f]{40}$/.test(base)) ||
+                !owned
+            )
+                return null
+            return { version: 1, base, latest, paths: [...owned], owned }
+        } catch {
+            return null
+        }
+    }
+
+    private async rememberPendingCopy(
+        repo: string,
+        url: string,
+        branch: string,
+        base: string | null,
+        latest: string,
+        owned: Set<string>
+    ): Promise<void> {
+        const body = `${JSON.stringify({ version: 1, base, latest, paths: [...owned].sort() } satisfies PendingCopyRecord)}\n`
+        const object = (await this.gitStdin(['hash-object', '-t', 'blob', '-w', '--stdin'], body)).trim()
+        await runGit(this.deps.store().dir, ['update-ref', this.pendingCopyRef(repo, url, branch), object])
+    }
+
+    private async clearPendingCopy(repo: string, url: string, branch: string): Promise<void> {
+        await runGit(this.deps.store().dir, ['update-ref', '-d', this.pendingCopyRef(repo, url, branch)]).catch(() => undefined)
+    }
+
+    // Advance an accepted tip without changing ownership for ordinary repository-side commits. A prepared
+    // landed copy supplies its complete intended set; otherwise only this server's graft commits change it.
+    private async ownershipAtAcceptedTip(repo: string, url: string, branch: string, tip: string): Promise<Set<string>> {
+        let start = await this.latestCopy(repo, url, branch)
+        let owned = start ? await this.ownedPaths(repo, url, branch) : new Set<string>()
+        const pending = await this.pendingCopy(repo, url, branch)
+        if (pending && (await this.isAncestor(pending.latest, tip)) && (!start || (await this.isAncestor(start, pending.latest)))) {
+            start = pending.latest
+            owned = pending.owned
+        }
+        if (!start || start === tip || !(await this.isAncestor(start, tip))) return owned
+        let listed = ''
+        try {
+            listed = (await runGit(this.deps.store().dir, ['rev-list', '--first-parent', '--reverse', `${start}..${tip}`])).stdout
+        } catch {
+            return owned
+        }
+        const trees = new Map<string, IndexedTree>()
+        let before = start
+        for (const sha of listed.split('\n').filter(Boolean)) {
+            if (await this.graftMarker(sha)) owned = await this.ownedAfterTreeChange(owned, before, sha, trees)
+            before = sha
+        }
+        return owned
+    }
+
+    private async scopeProvesDirectTip(repo: string, url: string, branch: string, tip: string): Promise<boolean> {
+        const latest = await this.latestCopy(repo, url, branch)
+        if (latest && (await this.isAncestor(tip, latest))) return true
+        const pending = await this.pendingCopy(repo, url, branch)
+        return Boolean(pending && (await this.isAncestor(pending.latest, tip)))
     }
 
     private async rememberLatestCopy(
@@ -1532,7 +1628,11 @@ export class GithubSync {
         }
         if (branch && remotePublish && !reading) {
             const head = await this.refSha('refs/heads/main')
-            if (head && (await this.isAncestor(remotePublish, head))) {
+            if (
+                head &&
+                (await this.isAncestor(remotePublish, head)) &&
+                (await this.scopeProvesDirectTip(repo, url, branch, remotePublish))
+            ) {
                 pushed = remotePublish
                 latest = remotePublish
             } else {
@@ -1636,17 +1736,17 @@ export class GithubSync {
                 await this.ensureTree(marker.remote)
                 const owned = await this.ownedPaths(repo, url, branch)
                 await this.assertNoOverwrite(repo, tip, marker.base, marker.base, head, owned, false)
-                return { pushed: marker.base, graft: tip, latest: marker.sha }
+                return { pushed: marker.base, graft: tip, latest: tip }
             }
             const direct = await this.directCopyBase(tip, head)
             if (direct) {
                 await this.ensureTree(EMPTY_TREE)
                 const owned = await this.ownedPaths(repo, url, branch)
                 await this.assertNoOverwrite(repo, tip, direct, direct, head, owned, false)
-                return { pushed: direct, graft: tip, latest: direct }
+                return { pushed: direct, graft: tip, latest: tip }
             }
             await this.assertNoOverwrite(repo, tip, null, null, head, new Set(), false)
-            return { pushed: null, graft: tip, latest: null }
+            return { pushed: null, graft: tip, latest: tip }
         } finally {
             await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
         }
@@ -2207,7 +2307,11 @@ export class GithubSync {
         else await runGit(store.dir, ['update-ref', '-d', PUSHED_REF]).catch(() => undefined)
         if (graft) await runGit(store.dir, ['update-ref', GRAFT_REF, graft])
         else await runGit(store.dir, ['update-ref', '-d', GRAFT_REF]).catch(() => undefined)
-        if (latest && plan.publishBranch) await this.rememberLatestCopy(repo, url, plan.publishBranch, latest)
+        if (latest && plan.publishBranch) {
+            const owned = await this.ownershipAtAcceptedTip(repo, url, plan.publishBranch, latest)
+            await this.rememberLatestCopy(repo, url, plan.publishBranch, latest, owned)
+            await this.clearPendingCopy(repo, url, plan.publishBranch)
+        }
         // A new connection starts from what this repository holds now.
         await runGit(store.dir, ['update-ref', '-d', INCOMING_REF]).catch(() => undefined)
         this.resetState()
@@ -2470,12 +2574,15 @@ export class GithubSync {
         }
 
         this.state = 'copying'
+        const intendedOwned = await this.directOwnedPaths(head)
+        await this.rememberPendingCopy(config.repo, config.url, branch, base, head, intendedOwned)
         const result = await this.git(
             ['push', '--porcelain', '--no-verify', config.url, `${head}:refs/heads/${branch}`],
             authEnv(config.url, config.token)
         )
         if (result.ok) {
-            const durable = await this.rememberLatestCopy(config.repo, config.url, branch, head, await this.directOwnedPaths(head))
+            const durable = await this.rememberLatestCopy(config.repo, config.url, branch, head, intendedOwned)
+            if (durable === head) await this.clearPendingCopy(config.repo, config.url, branch)
             if (generation !== this.generation) return
             if (durable !== head) {
                 this.again = true
@@ -2654,11 +2761,14 @@ export class GithubSync {
         if (generation !== this.generation) return
         if (created) {
             this.state = 'copying'
+            const acceptedBefore = await this.latestCopy(config.repo, config.url, branch)
+            await this.rememberPendingCopy(config.repo, config.url, branch, acceptedBefore, parent, owned)
             const result = await this.git(
                 ['push', '--porcelain', '--no-verify', config.url, `${parent}:refs/heads/${branch}`],
                 authEnv(config.url, config.token)
             )
             const durable = result.ok ? await this.rememberLatestCopy(config.repo, config.url, branch, parent, owned) : null
+            if (durable === parent) await this.clearPendingCopy(config.repo, config.url, branch)
             if (generation !== this.generation) return
             if (durable && durable !== parent) {
                 this.again = true
@@ -2678,11 +2788,17 @@ export class GithubSync {
         } else if (graft !== remoteTip && (await this.graftMarker(remoteTip))) {
             // The copy landed, and this process stopped before recording it. The tip is already ours.
             await runGit(dir, ['update-ref', GRAFT_REF, remoteTip])
-            await this.rememberLatestCopy(config.repo, config.url, branch, remoteTip)
+            const acceptedOwned = await this.ownershipAtAcceptedTip(config.repo, config.url, branch, remoteTip)
+            await this.rememberLatestCopy(config.repo, config.url, branch, remoteTip, acceptedOwned)
+            await this.clearPendingCopy(config.repo, config.url, branch)
         } else if (marker) {
-            await this.rememberLatestCopy(config.repo, config.url, branch, marker.sha)
+            const acceptedOwned = await this.ownershipAtAcceptedTip(config.repo, config.url, branch, remoteTip)
+            await this.rememberLatestCopy(config.repo, config.url, branch, remoteTip, acceptedOwned)
+            await this.clearPendingCopy(config.repo, config.url, branch)
         } else if (published) {
-            await this.rememberLatestCopy(config.repo, config.url, branch, published)
+            const acceptedOwned = await this.ownershipAtAcceptedTip(config.repo, config.url, branch, remoteTip)
+            await this.rememberLatestCopy(config.repo, config.url, branch, remoteTip, acceptedOwned)
+            await this.clearPendingCopy(config.repo, config.url, branch)
         }
         await runGit(dir, ['update-ref', PUSHED_REF, head])
         const notedOn = created ? parent : (await this.graftMarker(remoteTip)) ? remoteTip : null
