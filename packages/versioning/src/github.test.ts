@@ -107,7 +107,15 @@ function refOf(dir: string, ref: string): string | null {
 }
 
 function deleteLatestCopyRefs(dir = versionsDir()) {
-    const refs = plainGit(dir, 'for-each-ref', '--format=%(refname)', 'refs/versions/github-latest')
+    const refs = plainGit(dir, 'for-each-ref', '--format=%(refname)', 'refs/versions/github-latest', 'refs/versions/github-owned')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+    for (const ref of refs) plainGit(dir, 'update-ref', '-d', ref)
+}
+
+function deleteOwnedPathRefs(dir = versionsDir()) {
+    const refs = plainGit(dir, 'for-each-ref', '--format=%(refname)', 'refs/versions/github-owned')
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
@@ -119,6 +127,14 @@ function latestCopyTips(dir = versionsDir()): string[] {
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
+}
+
+function ownedPathRecords(dir = versionsDir()): { latest: string; paths: string[] }[] {
+    return plainGit(dir, 'for-each-ref', '--format=%(objectname)', 'refs/versions/github-owned')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((object) => JSON.parse(plainGit(dir, 'cat-file', 'blob', object)))
 }
 
 function localNetworkCommand(remote?: string) {
@@ -690,6 +706,86 @@ describe('copying history to a repository', () => {
         expect(read).toMatchObject({ role: 'read', state: 'up-to-date' })
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(tip)
         expect(bareMain(bare)).toBe(tip)
+    })
+
+    test('a GitHub-added exact-match path stays GitHub-owned when a later version changes it', async () => {
+        const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
+        const file = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}/nodes/harnessChief_0.json`
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+
+        sync.stop()
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('first quote')) },
+            { lookupCredentials }
+        )
+        await flushVersions()
+        const matching = plainGit(versionsDir(), 'show', `HEAD:${file}`)
+        foreignCommit(bare, path.join(tmp, 'exact-match-owned'), 'main', { [file]: matching })
+
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+        expect((await sync.status()).state).toBe('up-to-date')
+        const matched = bareMain(bare)!
+        expect(bareFile(bare, matched, file)).toBe(matching)
+        expect(ownedPathRecords()[0]).toMatchObject({ latest: matched })
+        expect(ownedPathRecords()[0].paths.map((entry) => entry.toLowerCase())).not.toContain(file.toLowerCase())
+
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('changed quote')) },
+            { lookupCredentials }
+        )
+        expect(plainGit(versionsDir(), 'show', `HEAD:${file}`)).not.toBe(matching)
+        await settle()
+
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain(file)
+        expect(stopped.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(matched)
+        expect(bareFile(bare, matched, file)).toBe(matching)
+    })
+
+    test('an exact-match GitHub path stays GitHub-owned across Disconnect and Connect', async () => {
+        const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
+        const file = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}/nodes/harnessChief_0.json`
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('first quote')) },
+            { lookupCredentials }
+        )
+        await flushVersions()
+        const matching = plainGit(versionsDir(), 'show', `HEAD:${file}`)
+        foreignCommit(bare, path.join(tmp, 'exact-match-reconnect'), 'main', { [file]: matching })
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const matched = bareMain(bare)!
+        expect(bareFile(bare, matched, file)).toBe(matching)
+        expect(ownedPathRecords()[0].paths).not.toContain(file)
+
+        await sync.disconnect()
+        deleteOwnedPathRefs()
+        expect(ownedPathRecords()).toEqual([])
+        const connected = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(connected.state).toBe('up-to-date')
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('changed quote')) },
+            { lookupCredentials }
+        )
+        expect(plainGit(versionsDir(), 'show', `HEAD:${file}`)).not.toBe(matching)
+        await settle()
+
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain(file)
+        expect(stopped.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(matched)
+        expect(bareFile(bare, matched, file)).toBe(matching)
     })
 
     test('a file added on GitHub after a copy stays, and the next version is added on top', async () => {
@@ -1866,6 +1962,41 @@ describe('Dev or Prod label', () => {
         staging.stop()
     })
 
+    test('a named reader refuses an absent notes ref on a later poll', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const accepted = bareMain(bare)!
+
+        const readerDir = path.join(tmp, 'named-reader-poll')
+        const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
+        await reader.setEnvironment('staging', chain)
+        const connected = await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(connected.state).toBe('up-to-date')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(accepted)
+
+        await save('Two')
+        await settle()
+        const next = bareMain(bare)!
+        expect(next).not.toBe(accepted)
+        execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+        await reader.sync()
+        await reader.idle()
+
+        const stopped = await reader.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('no environment list recorded')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(accepted)
+        reader.stop()
+    })
+
     test('a stale Prod list does not take new versions once any environment list is recorded', async () => {
         const chain = [
             { name: 'Dev', branch: 'main', server: 'dev' },
@@ -2713,6 +2844,51 @@ describe('custom GitHub host', () => {
 })
 
 describe('durable GitHub tip records', () => {
+    test('an empty Prod reader waits through non-version tips and accepts the first real version', async () => {
+        const readerDir = path.join(tmp, 'reader-empty-source')
+        const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
+        await reader.setEnvironment('prod')
+        const waiting = await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(waiting.state).toBe('up-to-date')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
+        expect(latestCopyTips(readerDir)).toEqual([])
+
+        foreignCommit(bare, path.join(tmp, 'reader-readme-only'))
+        const readme = bareMain(bare)
+        await reader.sync()
+        await reader.idle()
+        expect((await reader.status()).state).toBe('stopped')
+        expect((await reader.status()).message).toContain('no versions from a Dev server')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
+        expect(latestCopyTips(readerDir)).toEqual([])
+        expect(bareMain(bare)).toBe(readme)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/heads/main'], { env: cleanEnv() })
+        await getStore().ensure()
+        const start = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        seedRemote('refs/heads/main')
+        await reader.sync()
+        await reader.idle()
+        expect((await reader.status()).state).toBe('stopped')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
+        expect(latestCopyTips(readerDir)).toEqual([])
+        expect(bareMain(bare)).toBe(start)
+
+        setGithubForTests(sync)
+        await save('One')
+        const dev = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(dev.state).toBe('up-to-date')
+        const version = bareMain(bare)!
+        expect(version).not.toBe(start)
+
+        await reader.sync()
+        await reader.idle()
+        expect((await reader.status()).state).toBe('up-to-date')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(version)
+        expect(latestCopyTips(readerDir)).toEqual([version])
+        reader.stop()
+    })
+
     test('a standalone reader remembers its accepted tip and rejects a later reset', async () => {
         await save('One')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)

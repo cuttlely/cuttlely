@@ -206,6 +206,9 @@ const GRAFT_REF = 'refs/versions/github-remote'
 // The newest commit this server copied to each repository/branch. These scoped refs survive
 // Disconnect, unlike the active-connection refs above, so a reset cannot be adopted later.
 const LATEST_COPY_REF_PREFIX = 'refs/versions/github-latest'
+// A blob paired with each latest-copy ref records the paths whose current remote entries this server wrote.
+// The two refs move in one transaction and both survive Disconnect.
+const OWNED_PATH_REF_PREFIX = 'refs/versions/github-owned'
 // A fetched remote tip, dropped before the connection is saved.
 const ADOPT_REF = 'refs/versions/adopt'
 // Every history repo starts with this file. An existing one on GitHub is kept as it is, in any capitalization.
@@ -214,6 +217,7 @@ const KEPT_PATH = 'README.md'
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 type TreeEntry = { mode: string; sha: string }
 type IndexedTree = { files: Map<string, TreeEntry>; folded: Map<string, string> }
+type OwnedPathRecord = { version: 1; latest: string; paths: string[] }
 
 const sameTreeEntry = (left: TreeEntry, right: TreeEntry): boolean => left.mode === right.mode && left.sha === right.sha
 
@@ -1304,34 +1308,122 @@ export class GithubSync {
         return (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
     }
 
-    private latestCopyRef(repo: string, url: string, branch: string): string {
+    private copyScope(repo: string, url: string, branch: string): string {
         const fileRemote = url.toLowerCase().startsWith('file://')
         const scopedRepo = fileRemote ? repo : repo.toLowerCase()
         const scopedUrl = fileRemote ? url : url.toLowerCase()
-        const scope = createHash('sha256')
+        return createHash('sha256')
             .update(JSON.stringify([scopedRepo, scopedUrl, branch]))
             .digest('hex')
-        return `${LATEST_COPY_REF_PREFIX}/${scope}`
+    }
+
+    private latestCopyRef(repo: string, url: string, branch: string): string {
+        return `${LATEST_COPY_REF_PREFIX}/${this.copyScope(repo, url, branch)}`
+    }
+
+    private ownedPathRef(repo: string, url: string, branch: string): string {
+        return `${OWNED_PATH_REF_PREFIX}/${this.copyScope(repo, url, branch)}`
     }
 
     private async latestCopy(repo: string, url: string, branch: string): Promise<string | null> {
         return this.refSha(this.latestCopyRef(repo, url, branch))
     }
 
-    private async rememberLatestCopy(repo: string, url: string, branch: string, sha: string): Promise<string> {
+    private async objectSha(ref: string): Promise<string | null> {
+        try {
+            const out = await runGit(this.deps.store().dir, ['rev-parse', '--verify', '-q', ref])
+            return out.stdout.trim() || null
+        } catch {
+            return null
+        }
+    }
+
+    private async readOwnedPaths(repo: string, url: string, branch: string, latest: string): Promise<Set<string> | null> {
+        const object = await this.objectSha(this.ownedPathRef(repo, url, branch))
+        if (!object) return null
+        try {
+            const raw = (await runGit(this.deps.store().dir, ['cat-file', 'blob', object])).stdout
+            const parsed = JSON.parse(raw) as Partial<OwnedPathRecord>
+            if (parsed.version !== 1 || parsed.latest !== latest || !Array.isArray(parsed.paths)) return null
+            const paths = new Set<string>()
+            const folded = new Set<string>()
+            for (const file of parsed.paths) {
+                if (typeof file !== 'string' || !file || file.includes('\0') || this.keptName(file)) return null
+                const key = file.toLowerCase()
+                if (folded.has(key)) return null
+                folded.add(key)
+                paths.add(file)
+            }
+            return paths
+        } catch {
+            return null
+        }
+    }
+
+    private async inferredOwnedPaths(sha: string): Promise<Set<string>> {
+        const trees = new Map<string, IndexedTree>()
+        const marker = await this.graftMarker(sha)
+        const activeGraft = marker ? await this.refSha(GRAFT_REF) : null
+        if (marker && activeGraft === sha) {
+            try {
+                const parent = await this.refSha(`${sha}^`)
+                if (!parent) return new Set()
+                const before = await this.indexedTree(parent, trees)
+                const after = await this.indexedTree(sha, trees)
+                const owned = new Set<string>()
+                for (const [file, entry] of after.files) {
+                    if (this.keptName(file)) continue
+                    const priorName = before.folded.get(file.toLowerCase())
+                    const previous = priorName ? before.files.get(priorName) : undefined
+                    if (priorName !== file || !previous || !sameTreeEntry(previous, entry)) owned.add(file)
+                }
+                return owned
+            } catch {
+                return new Set()
+            }
+        }
+        try {
+            const head = await this.refSha('refs/heads/main')
+            if (!head || !(await this.isAncestor(sha, head)) || !(await this.carriesVersion(sha))) return new Set()
+            const tree = await this.indexedTree(sha, trees)
+            return new Set([...tree.files.keys()].filter((file) => !this.keptName(file)))
+        } catch {
+            return new Set()
+        }
+    }
+
+    private async ownedPaths(repo: string, url: string, branch: string): Promise<Set<string>> {
+        const latest = await this.latestCopy(repo, url, branch)
+        if (!latest) return new Set()
+        return (await this.readOwnedPaths(repo, url, branch, latest)) ?? this.inferredOwnedPaths(latest)
+    }
+
+    private async rememberLatestCopy(repo: string, url: string, branch: string, sha: string, owned?: Set<string>): Promise<string> {
         const ref = this.latestCopyRef(repo, url, branch)
+        const ownedRef = this.ownedPathRef(repo, url, branch)
         const zero = '0'.repeat(40)
         let lastError: unknown = null
         for (let attempt = 0; attempt < 8; attempt += 1) {
             const current = await this.refSha(ref)
-            if (current === sha) return current
             if (current && !(await this.isAncestor(current, sha))) return current
+            const currentOwnedObject = await this.objectSha(ownedRef)
+            const recorded = current ? await this.readOwnedPaths(repo, url, branch, current) : null
+            const nextOwned = owned ?? (current === sha && recorded ? recorded : await this.inferredOwnedPaths(sha))
+            const paths = [...nextOwned].sort()
+            const body = `${JSON.stringify({ version: 1, latest: sha, paths } satisfies OwnedPathRecord)}\n`
+            const ownedObject = (await this.gitStdin(['hash-object', '-t', 'blob', '-w', '--stdin'], body)).trim()
+            if (current === sha && currentOwnedObject === ownedObject) return current
             try {
-                await runGit(this.deps.store().dir, ['update-ref', ref, sha, current || zero])
+                await this.gitStdin(
+                    ['update-ref', '--stdin'],
+                    `start\nupdate ${ref} ${sha} ${current || zero}\nupdate ${ownedRef} ${ownedObject} ${
+                        currentOwnedObject || zero
+                    }\nprepare\ncommit\n`
+                )
                 return sha
             } catch (error) {
                 lastError = error
-                // Another completion may have advanced the same scope. Read it and compare again.
+                // Another completion may have advanced this scope. Read both records and compare again.
             }
         }
         throw lastError
@@ -1517,16 +1609,18 @@ export class GithubSync {
                     )
                 }
                 await this.ensureTree(marker.remote)
-                await this.assertNoOverwrite(repo, tip, marker.remote, marker.base, marker.base, head, false)
+                const owned = await this.ownedPaths(repo, url, branch)
+                await this.assertNoOverwrite(repo, tip, marker.base, marker.base, head, owned, false)
                 return { pushed: marker.base, graft: tip, latest: marker.sha }
             }
             const direct = await this.directCopyBase(tip, head)
             if (direct) {
                 await this.ensureTree(EMPTY_TREE)
-                await this.assertNoOverwrite(repo, tip, EMPTY_TREE, direct, direct, head, false)
+                const owned = await this.ownedPaths(repo, url, branch)
+                await this.assertNoOverwrite(repo, tip, direct, direct, head, owned, false)
                 return { pushed: direct, graft: tip, latest: direct }
             }
-            await this.assertNoOverwrite(repo, tip, tip, null, null, head, false)
+            await this.assertNoOverwrite(repo, tip, null, null, head, new Set(), false)
             return { pushed: null, graft: tip, latest: null }
         } finally {
             await runGit(dir, ['update-ref', '-d', ADOPT_REF]).catch(() => undefined)
@@ -1590,15 +1684,15 @@ export class GithubSync {
     }
 
     // Checks every local version that still has to be copied. `tip` is the remote tree that must stay.
-    // `origin` is the pre-existing tree (or the tip itself, the first time). `published` is the local version
-    // already copied, when there is one. A clash saves nothing.
+    // `published` is the local version already copied, when there is one. Only paths in the durable ownership
+    // record may be changed or removed. A clash saves nothing.
     private async assertNoOverwrite(
         repo: string,
         tip: string,
-        origin: string,
         published: string | null,
         replayFrom: string | null,
         head: string,
+        owned: Set<string>,
         saved: boolean
     ): Promise<void> {
         const range = replayFrom ? `${replayFrom}..${head}` : head
@@ -1613,7 +1707,7 @@ export class GithubSync {
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)) {
-            const clash = await this.clashPath(tip, origin, published, sha, trees)
+            const clash = await this.clashPath(tip, published, sha, owned, trees)
             if (clash) throw new GithubError(409, this.overwriteMessage(repo, clash, saved))
         }
     }
@@ -1628,20 +1722,24 @@ export class GithubSync {
         }
     }
 
-    private gitStdin(args: string[], input: string, env: Record<string, string> = {}): Promise<void> {
+    private gitStdin(args: string[], input: string, env: Record<string, string> = {}): Promise<string> {
         const cwd = this.deps.store().dir
         return new Promise((resolve, reject) => {
             const child = spawn('git', ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false', ...args], {
                 cwd,
                 env: gitEnv(cwd, env)
             })
+            let stdout = ''
             let stderr = ''
+            child.stdout.on('data', (chunk) => {
+                stdout += String(chunk)
+            })
             child.stderr.on('data', (chunk) => {
                 stderr += String(chunk)
             })
             child.on('error', reject)
             child.on('close', (code) => {
-                if (code === 0) resolve()
+                if (code === 0) resolve(stdout)
                 else reject(new Error(`git ${args[0]} failed: ${stderr.trim()}`))
             })
             child.stdin.end(input)
@@ -1680,15 +1778,15 @@ export class GithubSync {
     // A file and a directory that would occupy the same path, in any capitalization, is a clash.
     private async clashPath(
         tipSha: string,
-        originSha: string,
         publishedSha: string | null,
         localSha: string,
+        ownedPaths: Set<string>,
         trees: Map<string, IndexedTree>
     ): Promise<string | null> {
         const tip = await this.indexedTree(tipSha, trees)
-        const origin = await this.indexedTree(originSha, trees)
         const published = publishedSha ? await this.indexedTree(publishedSha, trees) : null
         const local = await this.indexedTree(localSha, trees)
+        const owned = new Set([...ownedPaths].map((file) => file.toLowerCase()))
         const tipPaths = [...tip.files.keys()]
         for (const file of [...local.files.keys()].sort()) {
             const entry = local.files.get(file)!
@@ -1702,7 +1800,7 @@ export class GithubSync {
                 const publishedEntry = publishedName ? published!.files.get(publishedName) : undefined
                 // A file this server wrote, still holding those bytes and mode, can take the next version.
                 // Any other different entry would replace what is already there.
-                if (!origin.folded.has(fold) && publishedEntry && tipName === file && sameTreeEntry(existing, publishedEntry)) continue
+                if (owned.has(fold) && publishedEntry && tipName === file && sameTreeEntry(existing, publishedEntry)) continue
                 return tipName
             }
             for (const other of tipPaths) {
@@ -1714,7 +1812,7 @@ export class GithubSync {
         if (published) {
             for (const file of published.files.keys()) {
                 const fold = file.toLowerCase()
-                if (origin.folded.has(fold) || local.folded.has(fold) || this.keptName(file)) continue
+                if (!owned.has(fold) || local.folded.has(fold) || this.keptName(file)) continue
                 const tipName = tip.folded.get(fold)
                 if (!tipName) continue
                 const existing = tip.files.get(tipName)!
@@ -1729,16 +1827,16 @@ export class GithubSync {
     // the version being copied when the remote still has the bytes this server wrote. The work tree is not touched.
     private async composeTree(
         tipSha: string,
-        originSha: string,
         publishedSha: string | null,
         localSha: string,
+        ownedPaths: Set<string>,
         trees: Map<string, IndexedTree>
     ): Promise<string> {
         const dir = this.deps.store().dir
         const tip = await this.indexedTree(tipSha, trees)
-        const origin = await this.indexedTree(originSha, trees)
         const published = publishedSha ? await this.indexedTree(publishedSha, trees) : null
         const local = await this.indexedTree(localSha, trees)
+        const owned = new Set([...ownedPaths].map((file) => file.toLowerCase()))
         const index = path.join(dir, '.git', `graft-index-${process.pid}`)
         const env = { GIT_INDEX_FILE: index }
         fs.rmSync(index, { force: true })
@@ -1750,7 +1848,7 @@ export class GithubSync {
                 const fold = file.toLowerCase()
                 const tipName = tip.folded.get(fold)
                 if (tipName) {
-                    if (this.keptName(tipName) || this.keptName(file) || origin.folded.has(fold)) continue
+                    if (this.keptName(tipName) || this.keptName(file) || !owned.has(fold)) continue
                     const existing = tip.files.get(tipName)!
                     if (tipName === file && sameTreeEntry(existing, entry)) continue
                     const publishedName = published?.folded.get(fold)
@@ -1765,7 +1863,7 @@ export class GithubSync {
             if (published) {
                 for (const file of [...published.files.keys()].sort()) {
                     const fold = file.toLowerCase()
-                    if (origin.folded.has(fold) || local.folded.has(fold) || this.keptName(file)) continue
+                    if (!owned.has(fold) || local.folded.has(fold) || this.keptName(file)) continue
                     const tipName = tip.folded.get(fold)
                     if (tipName !== file) continue
                     const existing = tip.files.get(tipName)!
@@ -1780,6 +1878,34 @@ export class GithubSync {
             fs.rmSync(index, { force: true })
             fs.rmSync(`${index}.lock`, { force: true })
         }
+    }
+
+    private async ownedAfterTreeChange(
+        ownedPaths: Set<string>,
+        beforeSha: string,
+        afterSha: string,
+        trees: Map<string, IndexedTree>
+    ): Promise<Set<string>> {
+        if (beforeSha === afterSha) return new Set(ownedPaths)
+        const before = await this.indexedTree(beforeSha, trees)
+        const after = await this.indexedTree(afterSha, trees)
+        const next = new Map([...ownedPaths].map((file) => [file.toLowerCase(), file]))
+        const folds = new Set([...before.folded.keys(), ...after.folded.keys()])
+        for (const fold of folds) {
+            const priorName = before.folded.get(fold)
+            const afterName = after.folded.get(fold)
+            const beforeEntry = priorName ? before.files.get(priorName) : undefined
+            const afterEntry = afterName ? after.files.get(afterName) : undefined
+            if (priorName === afterName && beforeEntry && afterEntry && sameTreeEntry(beforeEntry, afterEntry)) continue
+            next.delete(fold)
+            if (afterName && !this.keptName(afterName)) next.set(fold, afterName)
+        }
+        return new Set(next.values())
+    }
+
+    private async directOwnedPaths(sha: string): Promise<Set<string>> {
+        const tree = await this.indexedTree(sha, new Map())
+        return new Set([...tree.files.keys()].filter((file) => !this.keptName(file)))
     }
 
     // True when this commit is a saved version. The history's first commit is not.
@@ -2223,7 +2349,7 @@ export class GithubSync {
             authEnv(config.url, config.token)
         )
         if (result.ok) {
-            const durable = await this.rememberLatestCopy(config.repo, config.url, branch, head)
+            const durable = await this.rememberLatestCopy(config.repo, config.url, branch, head, await this.directOwnedPaths(head))
             if (generation !== this.generation) return
             if (durable !== head) {
                 this.again = true
@@ -2358,6 +2484,7 @@ export class GithubSync {
             return
         }
         const trees = new Map<string, IndexedTree>()
+        let owned = await this.ownedPaths(config.repo, config.url, branch)
         let created = false
         for (const sha of listed
             .split('\n')
@@ -2366,7 +2493,7 @@ export class GithubSync {
             if (generation !== this.generation) return
             let clash: string | null = null
             try {
-                clash = await this.clashPath(tip, origin, published, sha, trees)
+                clash = await this.clashPath(tip, published, sha, owned, trees)
             } catch {
                 this.holdCopy(this.notOurHistory(config.repo, true))
                 return
@@ -2375,7 +2502,7 @@ export class GithubSync {
                 this.holdCopy(this.overwriteMessage(config.repo, clash, true))
                 return
             }
-            const tree = await this.composeTree(tip, origin, published, sha, trees)
+            const tree = await this.composeTree(tip, published, sha, owned, trees)
             const version = await this.carriesVersion(sha)
             if (version && !(await this.carriesVersionFiles(tree, sha, trees))) {
                 this.holdCopy(this.notOurHistory(config.repo, true))
@@ -2385,6 +2512,7 @@ export class GithubSync {
             // A version commit still has to land: its message is what another server reads, even when
             // every file already matches the repository.
             if (tree === parentTree && !version) continue
+            owned = await this.ownedAfterTreeChange(owned, parentTree, tree, trees)
             parent = await this.commitGraft(tree, parent, sha, origin)
             parentTree = tree
             created = true
@@ -2396,7 +2524,7 @@ export class GithubSync {
                 ['push', '--porcelain', '--no-verify', config.url, `${parent}:refs/heads/${branch}`],
                 authEnv(config.url, config.token)
             )
-            const durable = result.ok ? await this.rememberLatestCopy(config.repo, config.url, branch, parent) : null
+            const durable = result.ok ? await this.rememberLatestCopy(config.repo, config.url, branch, parent, owned) : null
             if (generation !== this.generation) return
             if (durable && durable !== parent) {
                 this.again = true
@@ -2506,6 +2634,14 @@ export class GithubSync {
                     this.nextTryAt = null
                     return
                 }
+                if (!(await this.latestCopiedCommit(sha))) {
+                    await drop(INCOMING_NEXT_REF)
+                    this.state = 'stopped'
+                    this.message = this.noDevVersions(config.repo)
+                    this.nextTryAt = null
+                    this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
+                    return
+                }
                 const note = await this.environmentNoteCheck(config, sha, plan, generation)
                 if (generation !== this.generation) {
                     await drop(INCOMING_NEXT_REF)
@@ -2530,7 +2666,7 @@ export class GithubSync {
                     this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
                     return
                 }
-                const durable = await this.rememberLatestCopy(config.repo, config.url, branch, sha)
+                const durable = await this.rememberLatestCopy(config.repo, config.url, branch, sha, new Set())
                 if (generation !== this.generation) {
                     await drop(INCOMING_NEXT_REF)
                     return
