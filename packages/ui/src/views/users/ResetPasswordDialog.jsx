@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
-import userApi from '@/api/user'
 
-export default function ResetPasswordDialog({ userId, userEmail, onClose }) {
+export default function ResetPasswordDialog({ userId, userEmail, createLink, onClose }) {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
     const [result, setResult] = useState(null)
@@ -25,7 +24,7 @@ export default function ResetPasswordDialog({ userId, userEmail, onClose }) {
         setBusy(true)
         setError('')
         try {
-            const response = await userApi.createPasswordResetLink(userId)
+            const response = await createLink(userId)
             if (!response.data?.link) throw new Error('No reset link was returned. Refresh the user list and try again.')
             if (mounted.current) setResult(response.data)
         } catch (error) {
@@ -110,5 +109,6 @@ export default function ResetPasswordDialog({ userId, userEmail, onClose }) {
 ResetPasswordDialog.propTypes = {
     userId: PropTypes.string.isRequired,
     userEmail: PropTypes.string.isRequired,
+    createLink: PropTypes.func.isRequired,
     onClose: PropTypes.func.isRequired
 }

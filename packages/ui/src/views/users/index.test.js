@@ -42,6 +42,7 @@ jest.mock('@mui/material', () => ({ ...jest.requireActual('@mui/material'), Chip
 jest.mock('@/api/user', () => ({
     getAllUsersByOrganizationId: jest.fn(),
     getWorkspacesByOrganizationIdUserId: jest.fn(),
+    createPasswordResetLink: jest.fn(),
     deleteOrganizationUser: jest.fn()
 }))
 jest.mock(
@@ -116,6 +117,7 @@ describe('Users invitation cancellation flow', () => {
         act(() => actions[0].props.onClick())
         const dialog = view.root.findByType('reset-password-dialog')
         expect(dialog.props).toMatchObject({ userId: 'active', userEmail: 'active@example.com' })
+        expect(dialog.props.createLink).toBe(mockUserApi.createPasswordResetLink)
         act(() => dialog.props.onClose())
         expect(view.root.findAllByType('reset-password-dialog')).toHaveLength(0)
     })

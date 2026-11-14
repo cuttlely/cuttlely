@@ -693,6 +693,7 @@ const Users = () => {
                     key={`${currentUser.activeOrganizationId}:${currentUser.activeWorkspaceId}:${resetUser.userId}`}
                     userId={resetUser.userId}
                     userEmail={resetUser.user.email}
+                    createLink={userApi.createPasswordResetLink}
                     onClose={() => setResetUser(null)}
                 />
             )}
