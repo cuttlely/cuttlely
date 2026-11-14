@@ -1,8 +1,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import { HarnessError } from './errors.mjs'
-import { profileDir } from './paths.mjs'
+import { dataRoot, profileDir } from './paths.mjs'
+
+// Unpublished canvas sessions are not runtime profiles. The scope keeps equal
+// names in different canvases or teams from sharing draft conversation state.
+export function draftSessionScope({ workspaceId, chatflowId }) {
+    if (![workspaceId, chatflowId].every((value) => typeof value === 'string' && value.length > 0 && value.length <= 128))
+        throw new HarnessError('bad_session', 'A draft session needs its workspace and canvas identity.')
+    return createHash('sha256')
+        .update(JSON.stringify([workspaceId, chatflowId]))
+        .digest('hex')
+}
 
 export function sessionKey(harnessName, chatId) {
     if (!harnessName || !chatId) {
@@ -11,7 +22,38 @@ export function sessionKey(harnessName, chatId) {
     return `${harnessName}:${chatId}`
 }
 
-function dbPath(harnessName) {
+function dbPath(harnessName, scope, create) {
+    if (scope !== undefined) {
+        if (typeof scope !== 'string' || !/^[a-f0-9]{64}$/.test(scope))
+            throw new HarnessError('bad_session', 'The draft session scope is not valid.')
+        let dir = path.resolve(dataRoot())
+        if (create) fs.mkdirSync(dir, { recursive: true })
+        for (const part of ['harness-draft-sessions', scope]) {
+            dir = path.join(dir, part)
+            if (create && !fs.existsSync(dir)) fs.mkdirSync(dir, { mode: 0o700 })
+            let stat
+            try {
+                stat = fs.lstatSync(dir)
+            } catch (error) {
+                if (!create && error.code === 'ENOENT')
+                    return path.join(path.resolve(dataRoot()), 'harness-draft-sessions', scope, 'sessions.sqlite')
+                throw error
+            }
+            if (!stat.isDirectory() || stat.isSymbolicLink())
+                throw new HarnessError('bad_session', 'The draft session directory is not a plain directory.')
+        }
+        const file = path.join(dir, 'sessions.sqlite')
+        for (const suffix of ['', '-wal', '-shm', '-journal']) {
+            try {
+                const stat = fs.lstatSync(file + suffix)
+                if (!stat.isFile() || stat.isSymbolicLink())
+                    throw new HarnessError('bad_session', 'The draft session file is not a plain file.')
+            } catch (error) {
+                if (error.code !== 'ENOENT') throw error
+            }
+        }
+        return file
+    }
     return path.join(profileDir(harnessName), 'sessions.sqlite')
 }
 
@@ -19,8 +61,8 @@ function dbPath(harnessName) {
 // re-running the schema on every turn cost tens of milliseconds on a Windows-mounted drive.
 const connections = new Map()
 
-function connection(harnessName, { create }) {
-    const file = dbPath(harnessName)
+function connection(harnessName, { create, scope }) {
+    const file = dbPath(harnessName, scope, create)
     const cached = connections.get(file)
     if (cached) {
         if (fs.existsSync(file)) return cached
@@ -102,9 +144,17 @@ export function closeSessions() {
     for (const file of [...connections.keys()]) closeConnection(file)
 }
 
-function writeMessages(harnessName, chatId, messages, selections) {
+// Called only after the owning canvas delete commits. This state is never served by the runtime.
+export function removeDraftSessions(canvas) {
+    const scope = draftSessionScope(canvas)
+    const file = dbPath('', scope, false)
+    closeConnection(file)
+    fs.rmSync(path.dirname(file), { recursive: true, force: true })
+}
+
+function writeMessages(harnessName, chatId, messages, selections, scope) {
     const key = sessionKey(harnessName, chatId)
-    const entry = connection(harnessName, { create: true })
+    const entry = connection(harnessName, { create: true, scope })
     const now = new Date().toISOString()
     entry.db.exec('BEGIN')
     try {
@@ -190,18 +240,18 @@ function parsePins(raw) {
     }
 }
 
-export function readMemory(harnessName, chatId) {
+export function readMemory(harnessName, chatId, { scope } = {}) {
     const key = sessionKey(harnessName, chatId)
-    const entry = connection(harnessName, { create: false })
+    const entry = connection(harnessName, { create: false, scope })
     if (!entry) return { summary: '', pins: [] }
     const row = entry.memoryGet.get(key)
     if (!row) return { summary: '', pins: [] }
     return { summary: row.summary || '', pins: parsePins(row.pins) }
 }
 
-function refreshMemory(harnessName, chatId, pins) {
+function refreshMemory(harnessName, chatId, pins, scope) {
     const key = sessionKey(harnessName, chatId)
-    const entry = connection(harnessName, { create: true })
+    const entry = connection(harnessName, { create: true, scope })
     const all = entry.all.all(key)
     const older = all.length > RAW_MESSAGES ? all.slice(0, all.length - RAW_MESSAGES) : []
     const summary = summarizeOlder(older)
@@ -217,13 +267,13 @@ export function memoryBlock(memory) {
 }
 
 // Prompt context is the rolling summary, the pin list, and the last two turns. The sqlite transcript stays on disk.
-export function readPromptContext(harnessName, chatId) {
-    const all = readMessages(harnessName, chatId)
+export function readPromptContext(harnessName, chatId, { scope } = {}) {
+    const all = readMessages(harnessName, chatId, undefined, { scope })
     const older = all.length > RAW_MESSAGES ? all.slice(0, -RAW_MESSAGES) : []
-    const stored = readMemory(harnessName, chatId)
+    const stored = readMemory(harnessName, chatId, { scope })
     const summary = summarizeOlder(older)
     const memory = { summary, pins: stored.pins }
-    const raw = connection(harnessName, { create: false })?.selectionsGet.get(sessionKey(harnessName, chatId))?.selections
+    const raw = connection(harnessName, { create: false, scope })?.selectionsGet.get(sessionKey(harnessName, chatId))?.selections
     let selections = []
     try {
         if (raw && raw.length <= 16000) selections = JSON.parse(raw)
@@ -233,7 +283,7 @@ export function readPromptContext(harnessName, chatId) {
     return { messages: all.slice(-RAW_MESSAGES), summary, pins: stored.pins, block: memoryBlock(memory), selections }
 }
 
-export function appendTurn(harnessName, chatId, question, answer, pins = [], selections) {
+export function appendTurn(harnessName, chatId, question, answer, pins = [], selections, { scope } = {}) {
     const key = writeMessages(
         harnessName,
         chatId,
@@ -241,9 +291,10 @@ export function appendTurn(harnessName, chatId, question, answer, pins = [], sel
             ['user', question],
             ['assistant', answer]
         ],
-        selections
+        selections,
+        scope
     )
-    refreshMemory(harnessName, chatId, [...pinsFromText(question), ...pinsFromText(answer), ...pins])
+    refreshMemory(harnessName, chatId, [...pinsFromText(question), ...pinsFromText(answer), ...pins], scope)
     return key
 }
 
@@ -266,9 +317,9 @@ export function listUserTurns(harnessName, { limit = 2000 } = {}) {
     return entry.userTurns.all(harnessName, cap)
 }
 
-export function readMessages(harnessName, chatId, limit) {
+export function readMessages(harnessName, chatId, limit, { scope } = {}) {
     const key = sessionKey(harnessName, chatId)
-    const entry = connection(harnessName, { create: false })
+    const entry = connection(harnessName, { create: false, scope })
     if (!entry) return []
     if (limit === undefined) return entry.all.all(key)
     return entry.recent.all(key, limit).reverse()

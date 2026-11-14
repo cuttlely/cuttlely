@@ -1075,6 +1075,12 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
                     )
             }
             await purgeHarnessRuns(finished)
+            try {
+                const session = await loadHarness('session.mjs')
+                session.removeDraftSessions({ workspaceId, chatflowId })
+            } catch (error) {
+                logger.warn(`[harness] draft session cleanup for deleted canvas ${chatflowId} failed: ${getErrorMessage(error)}`)
+            }
         } finally {
             releaseAll()
         }

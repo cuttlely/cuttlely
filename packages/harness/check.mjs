@@ -314,6 +314,7 @@ const capacityWaitTests = spawnSync(
     [
         '--test',
         path.join(root, 'packages/harness/capacity-wait.test.mjs'),
+        path.join(root, 'packages/harness/draft-session.test.mjs'),
         path.join(root, 'packages/harness/client.test.mjs'),
         path.join(root, 'packages/harness/run-budget.test.mjs'),
         path.join(root, 'packages/harness/warmup.test.mjs')

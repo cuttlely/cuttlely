@@ -1,3 +1,9 @@
+## Fileless preview and publication regressions
+
+-   `packages/harness/session.mjs`: workspace/canvas-scoped draft sessions outside runtime profiles; published paths remain stable.
+-   `packages/harness/draft-session.test.mjs`: preview then save/compile, persistent draft context, isolation, published previews, linked paths and scoped deletion. Included by `packages/harness/check.mjs`.
+-   `packages/server/src/services/harnesses/delete.test.ts`: fileless session cleanup runs only after canvas deletion commits and is skipped on rollback.
+
 ## Import sample and fileless draft regressions
 
 -   `packages/server/src/services/import-verify/discover.ts`: ISO database dates, exclusive date bounds, required calendar/numeric samples, authored literal choices and bounded expression lookups on referenced selected tables.

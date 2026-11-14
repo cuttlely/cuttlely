@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **Import samples and unpublished draft chat (in progress).** `fix/import-verify-samples` adds destination date coercion, required-input generation and selected-relation expression sampling, and admits an owned fileless Harness canvas for signed-in draft chat. Final committed-head full verification and deployed import/chat QA remain required.
+-   **Unpublished Harness session storage (in progress).** `fix/fileless-draft-sessions` moves fileless preview context outside runtime profiles, scopes it to the owning workspace/canvas and removes it after canvas deletion commits. Focused runtime and service tests pass; final full verification, CI and deployed preview/publish QA remain required.
+
+-   **Import samples and unpublished draft admission (done).** Landed as `d8c7d095` ([#498](https://github.com/cuttlely/cuttlely/pull/498)). Its full gate and CI passed; deployed automatic import verification and draft report answers passed. The subsequent first-publication session collision is tracked by the follow-up above.
 
 -   **1.7.5 release (done).** Released as `ea05c456` ([#497](https://github.com/cuttlely/cuttlely/pull/497)), with GitHub release `v1.7.5` published on 2026-11-14. The existing 1.7.0 backup and operator-recovery requirements remain applicable; enforcement stays default Off.
 
