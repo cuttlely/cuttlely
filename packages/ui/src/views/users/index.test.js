@@ -61,6 +61,7 @@ jest.mock('@/ErrorBoundary', () => () => null)
 jest.mock('@/ui-component/dialog/ConfirmDialog', () => () => null)
 jest.mock('@/views/workspace/EditWorkspaceUserRoleDialog', () => () => null)
 jest.mock('@/views/users/UserSessionsDrawer', () => () => null)
+jest.mock('./ResetPasswordDialog', () => 'reset-password-dialog')
 jest.mock('@/ui-component/dialog/InviteUsersDialog', () => () => null)
 jest.mock('@/ui-component/dialog/CreateUserDialog', () => () => null)
 jest.mock('@/ui-component/button/RBACButtons', () => ({
@@ -76,7 +77,10 @@ describe('Users invitation cancellation flow', () => {
         mockNarrow = false
         mockUserApi.deleteOrganizationUser.mockResolvedValue({ data: { id: 'pending' } })
     })
-    afterEach(() => act(() => view?.unmount()))
+    afterEach(() => {
+        act(() => view?.unmount())
+        mockRows.splice(3)
+    })
     const button = () => view.root.findByProps({ title: 'Cancel invitation' })
     const mount = () =>
         act(() => {
@@ -89,8 +93,31 @@ describe('Users invitation cancellation flow', () => {
         expect(view.root.findAllByProps({ title: 'Cancel invitation' })).toHaveLength(1)
         expect(view.root.findAllByProps({ title: 'Delete' })).toHaveLength(0)
         expect(view.root.findAllByProps({ title: 'Change role' })).toHaveLength(0)
+        expect(view.root.findAllByProps({ title: 'Reset password' })).toHaveLength(0)
         const labels = view.root.findAll((node) => node.props.label === 'Owner invitation pending')
         expect(labels.length).toBeGreaterThan(0)
+    })
+
+    it.each([false, true])('opens reset only for the selected active non-owner at narrow=%s', (narrow) => {
+        mockNarrow = narrow
+        for (const status of ['active', 'invited', 'disabled']) {
+            mockRows.push({
+                organizationId: 'org-1',
+                userId: status,
+                status,
+                roleCount: 1,
+                user: { id: status, email: `${status}@example.com`, status }
+            })
+        }
+        mount()
+        const actions = view.root.findAllByProps({ title: 'Reset password' })
+        expect(actions).toHaveLength(1)
+        expect(actions[0].props.permissionId).toBe('users:manage')
+        act(() => actions[0].props.onClick())
+        const dialog = view.root.findByType('reset-password-dialog')
+        expect(dialog.props).toMatchObject({ userId: 'active', userEmail: 'active@example.com' })
+        act(() => dialog.props.onClose())
+        expect(view.root.findAllByType('reset-password-dialog')).toHaveLength(0)
     })
 
     it('does not call delete when the confirmation is canceled', async () => {

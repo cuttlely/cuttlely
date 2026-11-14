@@ -6,6 +6,7 @@ import { formatListDateTime } from '@/utils/formatDate'
 import { canChangeRole, roleLabel } from '@/utils/roleLabel'
 import {
     canRemoveOrganizationUser,
+    canOfferPasswordReset,
     isPendingOwnerInvite,
     organizationOwnerLabel,
     removalConfirmation,
@@ -39,6 +40,7 @@ import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import ErrorBoundary from '@/ErrorBoundary'
 import EditWorkspaceUserRoleDialog from '@/views/workspace/EditWorkspaceUserRoleDialog'
 import UserSessionsDrawer from '@/views/users/UserSessionsDrawer'
+import ResetPasswordDialog from './ResetPasswordDialog'
 import { StyledTableCell, StyledTableRow } from '@/ui-component/table/TableStyles'
 import InviteUsersDialog from '@/ui-component/dialog/InviteUsersDialog'
 import CreateUserDialog from '@/ui-component/dialog/CreateUserDialog'
@@ -55,7 +57,7 @@ import useConfirm from '@/hooks/useConfirm'
 import useNotifier from '@/utils/useNotifier'
 
 // Icons
-import { IconTrash, IconX, IconPlus, IconUser, IconEyeOff, IconEye, IconUserStar, IconUserCog } from '@tabler/icons-react'
+import { IconTrash, IconX, IconPlus, IconUser, IconEyeOff, IconEye, IconUserStar, IconUserCog, IconKey } from '@tabler/icons-react'
 import users_emptySVG from '@/assets/images/users_empty.svg'
 
 // store
@@ -218,6 +220,17 @@ function ShowUserRow(props) {
                     <IconUserCog />
                 </PermissionIconButton>
             )}
+            {canOfferPasswordReset(props.row) && (
+                <PermissionIconButton
+                    permissionId={'users:manage'}
+                    title='Reset password'
+                    aria-label='Reset password'
+                    color='primary'
+                    onClick={() => props.onResetPasswordClick(props.row)}
+                >
+                    <IconKey />
+                </PermissionIconButton>
+            )}
             <PermissionIconButton
                 permissionId={'users:manage'}
                 title='Sessions'
@@ -357,6 +370,7 @@ ShowUserRow.propTypes = {
     row: PropTypes.any,
     onDeleteClick: PropTypes.func,
     onSessionsClick: PropTypes.func,
+    onResetPasswordClick: PropTypes.func,
     open: PropTypes.bool,
     theme: PropTypes.any,
     deletingUserId: PropTypes.string,
@@ -386,6 +400,11 @@ const Users = () => {
     const [deletingUserId, setDeletingUserId] = useState(null)
     const deletionPending = useRef(false)
     const [sessionUser, setSessionUser] = useState(null)
+    const [resetUser, setResetUser] = useState(null)
+
+    useEffect(() => {
+        setResetUser(null)
+    }, [currentUser.activeOrganizationId, currentUser.activeWorkspaceId])
 
     const { confirm } = useConfirm()
 
@@ -554,6 +573,7 @@ const Users = () => {
                                                 row={item}
                                                 onDeleteClick={deleteUser}
                                                 onSessionsClick={setSessionUser}
+                                                onResetPasswordClick={setResetUser}
                                                 deletingUserId={deletingUserId}
                                             />
                                         ))
@@ -635,6 +655,7 @@ const Users = () => {
                                                                     row={item}
                                                                     onDeleteClick={deleteUser}
                                                                     onSessionsClick={setSessionUser}
+                                                                    onResetPasswordClick={setResetUser}
                                                                     deletingUserId={deletingUserId}
                                                                 />
                                                             ))}
@@ -667,6 +688,14 @@ const Users = () => {
                 userName={sessionUser?.user?.name || ''}
                 onClose={() => setSessionUser(null)}
             />
+            {resetUser && (
+                <ResetPasswordDialog
+                    key={`${currentUser.activeOrganizationId}:${currentUser.activeWorkspaceId}:${resetUser.userId}`}
+                    userId={resetUser.userId}
+                    userEmail={resetUser.user.email}
+                    onClose={() => setResetUser(null)}
+                />
+            )}
             <ConfirmDialog />
         </>
     )

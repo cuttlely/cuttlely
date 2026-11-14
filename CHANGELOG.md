@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   User Management now offers **Reset password** for active non-owner accounts to callers with `users:manage`. The dialog uses the existing one-time reset link service, reports email delivery, and supports copying the link without mail configuration. Team, identity-provider, owner, and permission restrictions remain enforced by the server; sessions end when the user saves their new password.
 -   Previewing a newly imported unpublished Harness keeps its conversation state outside runnable profiles, so preview chat no longer creates an unowned profile that blocks its first Publish. Draft state is isolated by canvas and workspace and is removed after its canvas is deleted. Existing published session paths and profile ownership guards are preserved.
 -   Import & verify now normalizes date samples, generates required calendar and numeric test inputs, and samples parameters used through SQL expressions from referenced columns on selected tables. Optional filters stay unset unless they have an authored default. Existing query validation, output contracts, and publication gates remain in force.
 -   Signed-in users can test a new unpublished Harness canvas before it has a Live roster. Admission checks the canvas workspace and name ownership; external and access-key runs still require the published harness.
