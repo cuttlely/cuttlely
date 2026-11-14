@@ -4313,6 +4313,14 @@
             "reason": "tests for inherited public config endpoints and template saving"
         },
         {
+            "path": "packages/server/src/controllers/import-verify/python.test.ts",
+            "reason": "Import verification uses the agent runtime Python for PDF checks."
+        },
+        {
+            "path": "packages/server/src/controllers/import-verify/python.ts",
+            "reason": "Import verification uses the agent runtime Python for PDF checks."
+        },
+        {
             "path": "packages/server/src/controllers/pinned-queries/index.test.ts",
             "reason": "Pinned query test route, dialog and their tests"
         },

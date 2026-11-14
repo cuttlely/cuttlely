@@ -77,7 +77,8 @@ import {
     setGatewayContext,
     offeredPinnedTools,
     invokeOfferedPinnedTool,
-    pinnedCallContext
+    pinnedCallContext,
+    profileDiagnosticEvents
 } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
@@ -1260,6 +1261,16 @@ function emitTool(context, data) {
     emit(context, 'tool', emitted)
 }
 
+function emitProfileDiagnostics(context, specialist) {
+    if (!context.profileDiagnosticsEmitted) context.profileDiagnosticsEmitted = new Set()
+    for (const event of profileDiagnosticEvents(specialist.profileName, specialist.name)) {
+        const key = `${specialist.profileName}\0${event.detail}`
+        if (context.profileDiagnosticsEmitted.has(key)) continue
+        context.profileDiagnosticsEmitted.add(key)
+        emitTool(context, event)
+    }
+}
+
 // Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
 // one, so parallel calls to the same tool keep their own SQL and hash. Only an end without a matching id falls back to
 // the newest running chip of that name that has no other call id.
@@ -2306,6 +2317,7 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
         return { text: renderPinError(rule, maskDetail(String(error.message || error))), pinFirstError: true }
     } finally {
         startCapture.flush()
+        emitProfileDiagnostics(context, specialist)
         endAnalystCalls(context.name, specialist.name, context.chatId)
     }
 }
@@ -3276,6 +3288,7 @@ async function runHermesSpecialist(context, specialist, task) {
     } finally {
         finishActivity()
         startCapture.flush()
+        emitProfileDiagnostics(context, specialist)
         // Capture source failures too; they must not fall back to conflicting model output.
         if (specialist.trustedOutputs?.length) attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         context.analystStarts.delete(specialist.name)
