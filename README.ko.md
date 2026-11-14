@@ -27,9 +27,9 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.7.4는 분석가 도구를 쓸 수 있게 유지하고, Analyst 저장소를 한 번도 설정하지 않은 호스트로 하네스를 가져오며, 게시 전에 가져온 쿼리를 다시 테스트합니다.** 설정하지 않은 Analyst 저장소는 Auto입니다. 가져오기는 이 서버에 이미 있는 자격 증명을 다시 연결하며, 빈 자격 증명 칸 옆의 중첩된 자격 증명 ID도 포함합니다. **Import & verify**는 저장된 쿼리를 이 서버에서 다시 테스트합니다. 새로 설치한 Try the demo는 준비된 팀을 저장합니다.
+**1.7.5는 후속 프롬프트가 지원되지 않는 temperature 값을 보내는 문제와, Import & verify가 테스트되지 않았거나 잘못된 출력 계약 불일치를 보고하던 문제를 수정합니다.** 저장된 값이 비어 있거나 유한한 숫자가 아니면 생략합니다. OpenAI 추론 모델이 temperature를 받지 않는 경우에도 생략합니다. Import & verify는 큰 플로우에서도 저장된 쿼리를 모두 테스트하고 각 출력 계약을 그 새로운 결과와 대조합니다. 건너뛰었거나 테스트되지 않은 계약은 테스트되지 않음으로 보고되며, PDF 확인에는 함께 제공되는 에이전트 런타임의 Python 라이브러리를 사용합니다.
 
-최신 안정 버전은 **1.7.4**입니다. 이미지 `1.7.4`를 지정하거나 `cuttlely@1.7.4`를 설치하세요. [1.7.4 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.4) · [변경 기록](./CHANGELOG.md).
+최신 안정 버전은 **1.7.5**입니다. 이미지 `1.7.5`를 지정하거나 `cuttlely@1.7.5`를 설치하세요. [1.7.5 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.5) · [변경 기록](./CHANGELOG.md).
 
 **1.7.0은 보안 예외 릴리스입니다. 이전 버전에서 업그레이드하는 경우 작업이 필요합니다.** 데이터베이스, 암호화 키, 설정을 백업한 다음, 브라우저 관리에서 잠기지 않도록 배포 전에 [운영자 지정 및 복구](./docs/how-to/instance-operator.md)를 읽으세요. 호스트 로그 일회용 코드로 하는 신청, `CUTTLELY_INSTANCE_OPERATOR`, 액세스 키 적용이 기본적으로 꺼져 있다는 점을 포함한 전체 체크리스트는 [업그레이드 주의사항](./docs/upgrading.md)("1.7.0 security-exception upgrade" 절)과 [변경 기록](./CHANGELOG.md)에 있습니다. 설정 코드는 첫 계정만 만들며, 호스트에서 로컬 로그인이 이미 켜져 있어야 합니다(Docker와 `npx cuttlely start`는 기본적으로 이를 켭니다). 이 코드로 서비스를 구성하거나 인스턴스 운영자를 지정할 수는 없습니다. [로그인](./docs/how-to/sign-in.md) · [처음 10분](#your-first-10-minutes).
 

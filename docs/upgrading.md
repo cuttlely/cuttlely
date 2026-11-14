@@ -4,6 +4,12 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.5
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.5 server and widget versions. This patch fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491). It also fixes Import & verify reporting false output contract mismatches (#494) and reporting untested contracts as mismatches (#495). Version History can now connect a GitHub repository that already has files or commits (#482); an existing connection keeps working, and the server takes ownership only of paths its own copied commits wrote. It adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains **Off** by default.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions.
+
 ## Upgrading to 1.7.4
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.4 server and widget versions. This patch adds one migration at startup: a nullable `importVerify` column on `flow_version_state`. Existing rows are unchanged and Publish behaves as before. It preserves the existing enforcement mode.

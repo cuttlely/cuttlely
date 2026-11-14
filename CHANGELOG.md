@@ -2,31 +2,23 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
-
-### Fixed
-
--   Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries.
-
--   A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead. Missing test stamps are named in server logs and the run trace.
-
--   Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
-
--   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
-
--   Version History now keeps monotonic local records of every GitHub branch tip it copies or accepts for promotion and every current path that server actually wrote. The paired records advance together and survive Disconnect. A GitHub-added path that merely matches a local version stays GitHub-owned, including after reconnect, and a later local change stops instead of replacing it. Existing connections backfill ownership only from this server's own copied commits; unknown paths stay GitHub-owned. Separate Prod and middle servers reject a reset after their first accepted read, and a push accepted while Disconnect is running is still remembered. Owner and repository spelling case no longer creates a second scope, and a local history rewind stops instead of replacing newer copied files.
-
--   Version History stops before writing when GitHub deleted or moved a path that this server published. A flow deletion produced by this server still removes that path and clears its ownership, so a later version can add it again. A root README supplied by a direct copy is not recreated after GitHub removes it. Prod now treats a commit as a version only when its Flow, Kind, and Name markers are valid and its matching flow path is present, or that commit removes the path as a flow deletion; message text alone cannot advance the accepted or incoming refs.
-
--   Version History readers now advance the accepted GitHub tip without changing that history store's path ownership. Switching one server from Dev to Prod and back can still update its own copied files, including after a later GitHub file or an accepted version from another Dev history store. A local deletion stops when GitHub already removed a server-owned path or still owns an exact-match version path. A reader with no real version yet keeps looking in a waiting state.
-
--   Version History now composes each pending commit on the tree produced by the preceding commit in the same copy. A deletion followed by a later version that adds the same flow path again therefore lands in order, while a GitHub change to a server-owned path still stops the whole copy before anything is written. Named Connect now requires a real version as well as a matching environment record, and a middle server that is still waiting for its source does not publish. Missing copied paths tell the operator to restore that path or connect another branch; paths with different content keep the existing move guidance. A waiting reader says it is waiting for the source's first version.
-
--   Version History now retains a later accepted GitHub tip across repeated Disconnect and Connect cycles, without changing the paired ownership set. A new repository or branch scope no longer claims existing version paths merely because their commit ids also occur in local history, so a duplicated repository is not replaced. When a multi-version copy lands but its network reply is lost, retry keeps the complete intended ownership set, including after Disconnect and Connect.
+## [1.7.5] - Unreleased
 
 ### Changed
 
--   Version History can connect a GitHub repository that already has files or commits. The first copy adds version files beside what is already there. Later versions update only paths this server actually wrote while their bytes and mode are unchanged; root README byte and mode changes are kept, while removal of one supplied by a direct copy stops. Files added in later GitHub commits stay, and the next copy adds new versions on top of them. Reconnecting after a direct copy resumes from that copy. Moving an original conflicting version path and selecting **Try again** writes the version file. A branch reset behind this server's latest accepted tip stops the copy or read, including across Disconnect and Connect. A different existing path or a changed copied path also stops it. On every poll, Prod requires a reachable real version commit; README-only and history-start-only tips are not recorded or installed. A named list also requires its notes ref, and reads the matching list from the newest copied version below any later GitHub commits.
+-   **#482 (`b22d9983`):** Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history and only fast-forwards, so files already on GitHub stay. The server records which paths it copied, and later versions update only those paths while GitHub still holds the bytes and mode it wrote. A version path that would replace a different existing file, or a GitHub change to a path this server copied, stops the copy with an error instead of overwriting it. Files added later on GitHub stay, and a branch reset behind the latest accepted tip stops the copy or read. One narrow case is a 1.7.6 follow-up: a GitHub edit to a copied path that exactly matches the next local version is not yet caught. [Version History](./docs/how-to/versioning.md).
+
+### Fixed
+
+-   **#495 (`04f95df5`):** Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead. Missing test stamps are named in server logs and the run trace.
+
+-   **#494 (`a22175c8`):** Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
+
+-   **#491 (`f4edfc8c`):** Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains Off by default.
 
 ## [1.7.4] - 2026-11-13
 
@@ -1046,6 +1038,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
 [Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...HEAD
+[1.7.5]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...HEAD
 [1.7.4]: https://github.com/cuttlely/cuttlely/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2

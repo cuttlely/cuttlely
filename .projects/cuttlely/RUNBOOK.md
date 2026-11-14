@@ -363,9 +363,13 @@ GET and HEAD retry by default. A non-GET call retries only with `retry: true` or
 
 Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
-## Local 1.7.4 release preparation
+## Local 1.7.5 release preparation
 
-This branch is `release/1.7.4-prep`, folded with `origin/main` at `c2e63f61` (#484), after #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. Keep the exact `## [1.7.4] - Unreleased` heading for the release tool. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
+This branch is `release/1.7.5-prep`, folded with a normal merge of `origin/main` at `b22d9983` (#482). The four product manifests and current docs pins are 1.7.5. Keep the exact `## [1.7.5] - Unreleased` heading for the release tool. The landed changelog items are #482 (`b22d9983`), #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.5`.
+
+## Historical local 1.7.4 release preparation
+
+That preparation shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). The four product manifests and docs pins were 1.7.4. The release included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
 
 ## Historical local 1.7.3 release preparation
 
