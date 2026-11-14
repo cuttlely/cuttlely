@@ -416,6 +416,8 @@ On a GitHub Enterprise host, create the token on that host, not on github.com. T
 
 Cuttlely adds the version files beside what is already in the repository. An existing README stays as it is, including when its name differs only by capitalization. The root README is always exempt from copied-path checks: if Cuttlely supplied it on the first copy, a later GitHub change to its bytes or mode stays. Files added on GitHub after the copy stay too: the next copy adds new versions on top of them. A normal later publish updates this server's earlier `flow.json` while GitHub still has the same bytes and file mode this server wrote. Cuttlely never force-pushes or rewrites history. It stops before replacing a different existing path, or any other copied path whose bytes or mode changed on GitHub, and leaves the repository unchanged. **Make a new private repository** still creates an empty private repository.
 
+Each server keeps a local record of the newest branch tip it copied or accepted. That record only moves forward and survives Disconnect. A Prod or middle server records a successfully checked source tip before offering it for promotion; it still never writes to GitHub. A later reset behind that tip stops and leaves the last accepted version available. Existing connections gain this record automatically from their earlier active copy refs. Owner and repository spelling case share one record on GitHub and GitHub Enterprise; local file remotes keep exact paths.
+
 ### What gets copied
 
 The same files as the history on the server: one folder per flow under `flows/` (see [Version files](../reference/version-files.md)). Credentials go by name only, never their values, and the secret fields described in [What is stored, and what is not](#what-is-stored-and-what-is-not) are never in history, so they are never copied. Each version is checked again for key-shaped text before it leaves the server.
@@ -443,6 +445,12 @@ If GitHub stops accepting the token, for example because it expired or was revok
 Copying stops with **Needs attention** when the branch no longer descends from this server's latest copy, a version would replace a different existing path, a copied path other than the root README has changed bytes or mode, a protection rule refuses the fast-forward, a version has key-shaped text, or the GitHub sign-in credential was deleted or has no token. A later GitHub commit that descends from this server's copy does not stop copying: its files stay, and the next copy adds versions on top. A normal publish can update this server's own unchanged version files. Fix the cause, then select **Try again**. If the credential was deleted, a new one is not picked up on its own: select **Disconnect**, then connect again with a new token or another saved sign-in.
 
 **Sync now** copies right away. **Disconnect** stops copying. It keeps the history on the server, the copy on GitHub, and the saved GitHub sign-in, so connecting again later needs no new token.
+
+### Troubleshooting a replaced repository
+
+If a connected repository is deleted and another repository is created at the same owner and name, Cuttlely keeps refusing it. The durable local tip cannot distinguish that event from a destructive branch reset, so it is not cleared automatically.
+
+Use a different repository name, or use a different publish branch in a named environment list. Disconnect first, save the new list and server identity, then connect again. Do not remove local Git refs by hand; that would discard the reset protection.
 
 ### Label this server Dev or Prod
 

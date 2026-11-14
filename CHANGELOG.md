@@ -10,9 +10,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
 
+-   Version History now keeps a monotonic local record of every GitHub branch tip it copies or accepts for promotion. Separate Prod and middle servers reject a reset after their first accepted read, existing connections migrate their earlier active copy refs automatically, and a push accepted while Disconnect is running is still remembered. Owner and repository spelling case no longer creates a second record, and a local history rewind stops instead of replacing newer copied files.
+
 ### Changed
 
--   Version History can connect a GitHub repository that already has files or commits. The first copy adds version files beside what is already there. Later versions update only this server's earlier version paths while their bytes and mode are unchanged; the root README is always kept. Files added in later GitHub commits stay, and the next copy adds new versions on top of them. Reconnecting after a direct copy resumes from that copy. Moving an original conflicting version path and selecting **Try again** writes the version file. A branch reset behind this server's latest copy stops the copy, including across Disconnect and Connect. A different existing path or a changed copied path also stops it. Prod reads the environment list from the newest copied version below any later GitHub commits. A repository with no real version commit from the previous environment is still refused.
+-   Version History can connect a GitHub repository that already has files or commits. The first copy adds version files beside what is already there. Later versions update only this server's earlier version paths while their bytes and mode are unchanged; the root README is always kept. Files added in later GitHub commits stay, and the next copy adds new versions on top of them. Reconnecting after a direct copy resumes from that copy. Moving an original conflicting version path and selecting **Try again** writes the version file. A branch reset behind this server's latest accepted tip stops the copy or read, including across Disconnect and Connect. A different existing path or a changed copied path also stops it. Prod reads the environment list from the newest copied version below any later GitHub commits. A repository with no real version commit from the previous environment is still refused.
 
 ## [1.7.4] - 2026-11-13
 
