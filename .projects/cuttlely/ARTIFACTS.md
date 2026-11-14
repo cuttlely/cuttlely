@@ -4,6 +4,7 @@
 -   `packages/ui/src/views/users/index.test.js`: wide/narrow Users row actions, owner/inactive exclusions and selected-user wiring.
 -   `packages/server/src/identity/actionLink.test.ts`: existing reset authorization, one-time/expired token checks and session revocation after password acceptance.
 -   `docs/how-to/users-without-authkit.md`: Users reset-link steps, current-team restrictions, SSO and owner recovery.
+-   `scripts/verify.mjs` and `.github/workflows/main.yml`: all Users UI tests run in the local gate and the Node CI build job.
 
 ## Fileless preview and publication regressions
 
