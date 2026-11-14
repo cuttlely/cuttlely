@@ -133,7 +133,7 @@ describe('promote helpers', () => {
         expect(readLine({ connected: true, role: 'read', state: 'up-to-date', lastCheckedAt: 'x' }, ago)).toBe(
             'Looked for new versions from Dev 2 minutes ago'
         )
-        expect(readLine({ connected: true, role: 'read', state: 'waiting' }, ago)).toBe('Looking for new versions from Dev')
+        expect(readLine({ connected: true, role: 'read', state: 'waiting' }, ago)).toBe('Waiting for the first version from Dev')
         expect(readLine({ connected: true, role: 'read', state: 'retrying' }, ago)).toBe('')
         expect(readLine({ connected: true, role: 'copy' }, ago)).toBe('')
         const prod = {
