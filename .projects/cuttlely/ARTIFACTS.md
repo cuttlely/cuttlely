@@ -1,3 +1,11 @@
+## Import sample and fileless draft regressions
+
+-   `packages/server/src/services/import-verify/discover.ts`: ISO database dates, exclusive date bounds, required calendar/numeric samples, authored literal choices and bounded expression lookups on referenced selected tables.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: Date coercion, bounds, optional-filter preservation, expression source limits and an imported expression query tested without manual values.
+-   `packages/server/src/services/harnesses/delete.test.ts`: owned fileless admission, foreign/missing canvas and name-conflict refusal, and preservation of the API-key saved-harness requirement.
+-   `scripts/harness-draft-usage.test.mjs`: existing published and draft execution still record usage once.
+-   `scripts/canvas-actions-e2e.mjs`: question history pagination still requires the additional row when automatic loading wins the race with the Load more click. Workflow edge deletion clicks the SVG line away from its hover toolbar and waits for the selected state.
+
 ## Try the demo save
 
 -   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed.

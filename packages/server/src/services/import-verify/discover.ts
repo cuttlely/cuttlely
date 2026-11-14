@@ -19,7 +19,7 @@ export interface JoinEdge {
 }
 
 interface Token {
-    kind: 'word' | 'param' | 'op' | 'dot'
+    kind: 'word' | 'param' | 'op' | 'dot' | 'string'
     text: string
     quoted?: boolean
 }
@@ -65,17 +65,20 @@ function tokenize(sql: string): Token[] {
         }
         if (c === "'") {
             i += 1
+            let text = ''
             while (i < sql.length) {
                 if (sql[i] === "'") {
                     if (sql[i + 1] === "'") {
+                        text += "'"
                         i += 2
                         continue
                     }
                     i += 1
                     break
                 }
-                i += 1
+                text += sql[i++]
             }
+            tokens.push({ kind: 'string', text })
             continue
         }
         if (c === '$' && sql[i + 1] === '$') {
@@ -390,7 +393,12 @@ function inRange(param: ParamSpec, value: string): boolean {
 }
 
 function coerce(param: ParamSpec, value: unknown): unknown {
-    const text = textOf(value)
+    let text = textOf(value)
+    if (['date', 'timestamp', 'timestamptz'].includes(param.type || '')) {
+        const date = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
+        if (!date || !Number.isFinite(date.getTime())) return undefined
+        text = param.type === 'date' ? date.toISOString().slice(0, 10) : date.toISOString()
+    }
     if (!text) return undefined
     if (param.type === 'bool') {
         if (text === 'true' || text === 't') return true
@@ -423,12 +431,23 @@ export function valuesFromDiscovery(
         const upper = list.find((item) => item.op === '<=' || item.op === '<')
         if (!lower || !upper || !rows.length) continue
         const column = lower.param
-        const numbers = rows.map((row) => textOf(row[column] ?? row[lower.column])).filter(Boolean)
+        const spec = params.find((item) => item.name === lower.param)
+        if (!spec) continue
+        const numbers = rows
+            .map((row) => coerce(spec, row[column] ?? row[lower.column]))
+            .filter((v) => v !== undefined)
+            .map(String)
         const numeric = numbers.every((item) => /^-?\d+(\.\d+)?$/.test(item))
         numbers.sort((left, right) => (numeric ? decimalCompare(left, right) : left < right ? -1 : left > right ? 1 : 0))
         if (!numbers.length) continue
         const low = coerce(params.find((item) => item.name === lower.param) || { name: lower.param }, numbers[0])
-        const high = coerce(params.find((item) => item.name === upper.param) || { name: upper.param }, numbers[numbers.length - 1])
+        let last = numbers[numbers.length - 1]
+        if (upper.op === '<' && ['date', 'timestamp', 'timestamptz'].includes(spec.type || '')) {
+            const end = new Date(last)
+            end.setTime(end.getTime() + (spec.type === 'date' ? 86400000 : 1))
+            last = spec.type === 'date' ? end.toISOString().slice(0, 10) : end.toISOString()
+        }
+        const high = coerce(params.find((item) => item.name === upper.param) || { name: upper.param }, last)
         if (low !== undefined) values[lower.param] = low
         if (high !== undefined) values[upper.param] = high
     }
@@ -439,7 +458,7 @@ export function valuesFromDiscovery(
         for (const binding of bindings) {
             if (binding.op !== '=') continue
             const param = params.find((item) => item.name === binding.param)
-            if (param?.secure) continue
+            if (!param || param.secure) continue
             const raw = row[binding.param] ?? row[binding.column]
             const value = coerce(param || { name: binding.param }, raw)
             if (value === undefined) {
@@ -472,6 +491,30 @@ export function valuesFromDiscovery(
         }
         if (values[param.name] === undefined && byParam.has(param.name)) continue
     }
+    // Calendar parameters have useful bounded samples even when the statement builds
+    // its bounds in a CTE instead of comparing a base column directly.
+    const today = new Date()
+    for (const param of params) {
+        if (param.secure || param.required === false || values[param.name] !== undefined) continue
+        if (byParam.has(param.name)) continue
+        let candidate: unknown
+        if (['numeric', 'int8'].includes(param.type || '') && !['year', 'month'].includes(param.name)) candidate = param.min ?? 0
+        if (param.type === 'bool') candidate = false
+        if (param.type === 'int8' && param.name === 'year') candidate = today.getUTCFullYear()
+        if (param.type === 'int8' && param.name === 'quarter') candidate = Math.floor(today.getUTCMonth() / 3) + 1
+        if (param.type === 'int8' && param.name === 'month') candidate = today.getUTCMonth() + 1
+        if (param.type === 'date' && ['start_date', 'quarter_start'].includes(param.name)) {
+            candidate = new Date(
+                Date.UTC(today.getUTCFullYear(), param.name === 'quarter_start' ? Math.floor(today.getUTCMonth() / 3) * 3 : 0, 1)
+            )
+        }
+        if (param.type === 'date' && param.name === 'end_date')
+            candidate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 1))
+        if (candidate !== undefined) {
+            const coerced = coerce(param, candidate)
+            if (coerced !== undefined) values[param.name] = coerced
+        }
+    }
     return values
 }
 
@@ -482,4 +525,97 @@ export function missingRequired(params: ParamSpec[], values: Record<string, unkn
                 param.required !== false && (values[param.name] === undefined || values[param.name] === null || values[param.name] === '')
         )
         .map((param) => param.name)
+}
+
+// Expression parameters cannot always be traced through CTEs. Offer bounded candidate
+// lookups using only columns explicitly referenced on selected base tables. The normal
+// query test still validates the candidate; this never changes the saved statement.
+export function expressionLookups(sql: string, relations: string[], params: ParamSpec[]): DiscoveryPlan[] {
+    const tokens = tokenize(sql)
+    const aliases = new Map<string, string>()
+    for (let i = 0; i < tokens.length - 1; i++) {
+        if (!/^(from|join)$/i.test(tokens[i].text) || tokens[i].kind !== 'word') continue
+        let table = ident(tokens[i + 1])
+        let end = i + 2
+        if (tokens[end]?.kind === 'dot') {
+            table += '.' + ident(tokens[end + 1])
+            end += 2
+        }
+        if (!table || !allowedTable(table, relations)) continue
+        if (tokens[end]?.text.toLowerCase() === 'as') end++
+        const alias = ident(tokens[end])
+        aliases.set(table.split('.').pop()!.toLowerCase(), table)
+        if (alias && !/^(where|on|join|left|right|group|order|limit|union)$/i.test(alias)) aliases.set(alias.toLowerCase(), table)
+    }
+    const columns: Array<{ table: string; column: string }> = []
+    for (let i = 0; i < tokens.length - 2; i++) {
+        if (tokens[i + 1].kind !== 'dot') continue
+        const table = aliases.get(ident(tokens[i]).toLowerCase())
+        const column = ident(tokens[i + 2])
+        if (table && column && !SENSITIVE.test(column) && !columns.some((x) => x.table === table && x.column === column))
+            columns.push({ table, column })
+    }
+    const plans: DiscoveryPlan[] = []
+    for (const param of params) {
+        if (param.secure || SENSITIVE.test(param.name)) continue
+        const name = param.name.toLowerCase()
+        const stem = name.replace(/_(query|ids|id|name)$/, '')
+        const score = (c: { table: string; column: string }) => {
+            const col = c.column.toLowerCase()
+            if (col === name) return 100
+            if (/_ids$/.test(name) && col === name.slice(0, -1)) return 95
+            if (/_query$/.test(name) && col === stem + '_name') return 90
+            if (col === 'name' && /_(name|query)$/.test(name) && c.table.toLowerCase().includes(stem)) return 85
+            if (col === 'id' && /_ids?$/.test(name) && c.table.toLowerCase().includes(stem)) return 85
+            if (col === name + '_label') return 80
+            if (['date', 'timestamp', 'timestamptz'].includes(param.type || '') && /date|timestamp|_ts$|_at$/.test(col)) return 50
+            return 0
+        }
+        for (const column of columns
+            .filter((c) => score(c) > 0)
+            .sort((a, b) => score(b) - score(a))
+            .slice(0, 3)) {
+            const ref = `${quoteQualified(column.table)}.${quoteIdent(column.column)}`
+            plans.push({
+                text: `SELECT DISTINCT ${ref} AS ${quoteIdent(param.name)} FROM ${quoteQualified(
+                    column.table
+                )} WHERE ${ref} IS NOT NULL LIMIT 20`,
+                bindings: [{ param: param.name, ...column, op: '=' }]
+            })
+        }
+    }
+    return plans
+}
+
+// Literal alternatives explicitly compared with a parameter (or its same-named CTE
+// column) are authored choices, not invented sample identities.
+export function literalSamples(sql: string, params: ParamSpec[]): Record<string, unknown> {
+    const tokens = tokenize(sql)
+    const values: Record<string, unknown> = {}
+    for (const param of params) {
+        if (param.required === false || param.secure || SENSITIVE.test(param.name)) continue
+        const candidates: Array<{ value: unknown; priority: number }> = []
+        for (let i = 0; i < tokens.length - 2; i++) {
+            const t = tokens[i]
+            if (t.text !== param.name || !['param', 'word'].includes(t.kind)) continue
+            // Parentheses have already been removed by the tokenizer. Look through
+            // a short normalization/cast expression, stopping at another parameter
+            // or a clause boundary. Prefer explicit IN alternatives over sentinels.
+            for (let j = i + 1; j < Math.min(i + 12, tokens.length - 1); j++) {
+                const op = tokens[j]
+                if (op.kind === 'param' || /^(select|from|where|and|or|then|else)$/i.test(op.text)) break
+                if (op.text !== '=' && op.text.toLowerCase() !== 'in') continue
+                if (tokens[j - 1]?.text.toLowerCase() === 'not') break
+                const value = tokens[j + 1]
+                if (value.kind === 'string') {
+                    const converted = coerce(param, value.text)
+                    if (converted !== undefined) candidates.push({ value: converted, priority: op.text.toLowerCase() === 'in' ? 1 : 0 })
+                }
+                break
+            }
+        }
+        const chosen = candidates.sort((a, b) => b.priority - a.priority)[0]
+        if (chosen) values[param.name] = chosen.value
+    }
+    return values
 }

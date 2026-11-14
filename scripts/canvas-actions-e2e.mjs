@@ -369,10 +369,16 @@ async function checkConnectedBackspace(page, nodeId, flowName) {
 async function deleteWorkflowEdge(page, sourceId) {
     const edge = sourceId ? page.locator(`[data-testid^="rf__edge-${sourceId}-"]`).first() : page.locator('.agent-flow-edge').first()
     await edge.waitFor({ timeout: 10000 })
-    await edge.click()
-    if ((await page.locator('.react-flow__edge.selected').count()) < 1) {
-        throw new Error('workflow edge click did not select the line')
-    }
+    // Click the actual SVG line away from its central hover toolbar, then wait for React's selection update.
+    const point = await edge.evaluate((element) => {
+        const line = element.matches('path') ? element : element.querySelector('.agent-flow-edge-selector')
+        if (!line) throw new Error('workflow edge has no selection path')
+        const point = line.getPointAtLength(line.getTotalLength() / 4)
+        const screen = new DOMPoint(point.x, point.y).matrixTransform(line.getScreenCTM())
+        return { x: screen.x, y: screen.y }
+    })
+    await page.mouse.click(point.x, point.y)
+    await page.locator('.react-flow__edge.selected').first().waitFor({ state: 'attached', timeout: 10000 })
     const before = await page.locator('.agent-flow-edge').count()
     await page.keyboard.press('Delete')
     await page.waitForTimeout(400)
@@ -844,8 +850,14 @@ async function exerciseQuestionPicker(page, base, cookie, dataDir) {
     const choose = page.getByTestId('choose-questions')
     await choose.click()
     await page.getByTestId('question-history-row').first().waitFor({ timeout: 20000 })
-    await page.getByTestId('question-history-more').click()
-    await page.getByText('Filler loaf question 00').waitFor({ timeout: 20000 })
+    const lastQuestion = page.getByText('Filler loaf question 00')
+    try {
+        await page.getByTestId('question-history-more').click({ timeout: 5000 })
+    } catch (error) {
+        // Scrolling toward the button can trigger automatic pagination and remove it before the click.
+        if (!(await lastQuestion.isVisible())) throw error
+    }
+    await lastQuestion.waitFor({ timeout: 20000 })
 
     await replaceHistoryFilter(page, () => page.getByLabel('Search questions').fill('rye'))
     await page.getByText('Do you have rye loaves today?').waitFor()

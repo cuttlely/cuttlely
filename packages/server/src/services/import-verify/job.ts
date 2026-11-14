@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { applyCredential, connectionSlots, resolveSlot, type ConnectionResolution, type CredentialRow } from './connections'
-import { missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
+import { expressionLookups, literalSamples, missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
 import { inspectFlow, nodeById, nodeIdProblems, relationsOf, type Blocker, type SmokeNeed } from './inspect'
 import {
     clearImportHold,
@@ -687,12 +687,19 @@ async function verifyBody(options: {
                 }
                 const params = paramsOf(pin)
                 const relations = relationsOf(node)
-                let sample: Record<string, unknown> = {}
+                let sample: Record<string, unknown> = literalSamples(String(pin.sql || ''), params)
                 const planned = planDiscovery(String(pin.sql || ''), relations)
                 if ('text' in planned) {
                     try {
                         const found = await withTimeout(deps.discover({ node, sql: planned.text }), timeoutMs, deps.signal)
-                        sample = valuesFromDiscovery(params, found.rows || [], planned.bindings)
+                        sample = {
+                            ...sample,
+                            ...valuesFromDiscovery(
+                                params.filter((p) => p.required !== false),
+                                found.rows || [],
+                                planned.bindings
+                            )
+                        }
                     } catch (error) {
                         const err = error as { cancelled?: boolean; message?: string }
                         if (err.cancelled || deps.signal?.aborted) {
@@ -703,6 +710,31 @@ async function verifyBody(options: {
                     }
                 }
                 sample = { ...valuesFromDiscovery(params, [], []), ...sample }
+                for (const lookup of expressionLookups(
+                    String(pin.sql || ''),
+                    relations,
+                    params.filter((p) => p.required !== false && sample[p.name] === undefined)
+                )) {
+                    const name = lookup.bindings[0].param
+                    if (sample[name] !== undefined) continue
+                    try {
+                        const found = await withTimeout(deps.discover({ node, sql: lookup.text }), timeoutMs, deps.signal)
+                        Object.assign(
+                            sample,
+                            valuesFromDiscovery(
+                                params.filter((p) => p.name === name),
+                                found.rows || [],
+                                lookup.bindings
+                            )
+                        )
+                    } catch (error) {
+                        if (deps.signal?.aborted || (error as { cancelled?: boolean }).cancelled) {
+                            query.state = 'pending'
+                            query.message = 'Verification was stopped.'
+                            return
+                        }
+                    }
+                }
                 const missing = missingRequired(params, sample)
                 if (missing.length) {
                     query.state = 'failed'

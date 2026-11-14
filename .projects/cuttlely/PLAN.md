@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **1.7.5 release (in progress).** Current work on `release/1.7.5-prep`, folded with a normal merge of `origin/main` at `b22d9983` ([#482](https://github.com/cuttlely/cuttlely/pull/482)). The four product manifests and current install pins are 1.7.5. `CHANGELOG.md` uses `## [1.7.5] - Unreleased` and names #482 (`b22d9983`), #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). Publication, tagging and activation remain later steps. Backups and 1.7.0 operator onboarding/recovery still apply; enforcement stays default Off.
+-   **Import samples and unpublished draft chat (in progress).** `fix/import-verify-samples` adds destination date coercion, required-input generation and selected-relation expression sampling, and admits an owned fileless Harness canvas for signed-in draft chat. Final committed-head full verification and deployed import/chat QA remain required.
+
+-   **1.7.5 release (done).** Released as `ea05c456` ([#497](https://github.com/cuttlely/cuttlely/pull/497)), with GitHub release `v1.7.5` published on 2026-11-14. The existing 1.7.0 backup and operator-recovery requirements remain applicable; enforcement stays default Off.
 
 -   **1.7.4 release (done).** The preparation shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). It included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
 
