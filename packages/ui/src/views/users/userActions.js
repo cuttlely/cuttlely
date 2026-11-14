@@ -3,6 +3,13 @@ export const isPendingOwnerInvite = (row) => Boolean(row?.isOrgOwner) && String(
 export const canRemoveOrganizationUser = (row, currentUserId) =>
     Boolean(row?.userId) && row.userId !== currentUserId && (!row.isOrgOwner || isPendingOwnerInvite(row))
 
+// The server additionally checks team scope, identity provider, and grantable permissions.
+export const canOfferPasswordReset = (row) =>
+    Boolean(row?.userId) &&
+    !row.isOrgOwner &&
+    String(row.status).toLowerCase() === 'active' &&
+    String(row.user?.status).toLowerCase() === 'active'
+
 export const organizationOwnerLabel = (row, isOpenSource) => {
     if (isPendingOwnerInvite(row)) return 'Owner invitation pending'
     const active = String(row.status).toUpperCase() === 'ACTIVE' && String(row.user?.status).toUpperCase() === 'ACTIVE'

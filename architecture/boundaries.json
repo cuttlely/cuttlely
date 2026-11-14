@@ -471,6 +471,7 @@
             "packages/ui/src/api/apikey.js",
             "packages/ui/src/views/chatflows/APICodeDialog.test.js",
             "packages/ui/src/views/users/index.test.js",
+            "packages/ui/src/views/users/ResetPasswordDialog*",
             "packages/ui/src/views/users/userActions.js",
             "packages/ui/src/views/users/userActions.test.js",
             "packages/components/src/streaming.ts",
@@ -801,11 +802,13 @@
                 "packages/ui/src/views/apikey/index.test.js",
                 "packages/ui/src/views/apikey/ownerNotice.js",
                 "packages/ui/src/views/users/index.test.js",
+                "packages/ui/src/views/users/ResetPasswordDialog*",
                 "packages/ui/src/views/users/userActions.js",
                 "packages/ui/src/views/users/userActions.test.js"
             ],
             "entryPoints": [
                 "packages/server/src/database/entities/identity/IdentitySetupCode.ts",
+                "packages/ui/src/views/users/ResetPasswordDialog.jsx",
                 "packages/server/src/database/entities/identity/LoginActivity.ts",
                 "packages/server/src/database/entities/identity/LoginMethod.ts",
                 "packages/server/src/database/entities/identity/Organization.ts",

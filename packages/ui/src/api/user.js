@@ -39,6 +39,7 @@ const endSession = (userId, sessionId) => client.delete(`/users/${userId}/sessio
 const endSessions = (userId) => client.delete(`/users/${userId}/sessions`)
 const disableUser = (userId) => client.post(`/users/${userId}/disable`)
 const enableUser = (userId) => client.post(`/users/${userId}/enable`)
+const createPasswordResetLink = (userId) => client.post(`/users/${encodeURIComponent(userId)}/reset-link`, { link: true })
 
 export default {
     getUserById,
@@ -65,5 +66,6 @@ export default {
     endSession,
     endSessions,
     disableUser,
-    enableUser
+    enableUser,
+    createPasswordResetLink
 }
