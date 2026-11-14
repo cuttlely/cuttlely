@@ -1,5 +1,7 @@
 # Memory
 
+A conversation database in an otherwise empty runtime profile directory is still an unowned profile to the publication cleanup guard. Fileless preview state must use its own canvas/workspace scope outside executable profiles; deleting that canvas must clear the new state after commit. Do not make leftover directory presence count as ownership.
+
 Database date samples may arrive as JavaScript Date objects. Normalize them to ISO values before parameter validation, and extend exclusive upper bounds to include the final sampled day. Generate only required missing inputs; activating every optional date/year/month filter can violate a query’s mutually exclusive scopes. A fileless imported Harness needs canvas-backed admission for signed-in draft chat, while saved-harness and API-key admission must retain their existing identity checks.
 
 Express `send(string)` defaults to HTML. A configured origin-refusal message intended as text needs an explicit plain-text content type, including exception handlers and controller fallbacks. Production-shaped authorization fixtures should retain real attempt-limiting middleware independently of mocked accepted-operation quota accounting.

@@ -1,3 +1,7 @@
+## Fileless preview and first publication
+
+Run `node --test packages/harness/draft-session.test.mjs` and the server's `src/services/harnesses/delete.test.ts`, then the final committed-head full gate. Deployed QA must preview a newly imported unpublished Harness, verify its saved queries and publish that same draft. The preview session belongs under `harness-draft-sessions`, never the future Live profile directory. Existing unowned profiles remain a publication blocker; inspect them as the instance operator or choose an unused name rather than weakening the ownership check.
+
 ## Import sample regressions
 
 Run `pnpm --filter @cuttlely/server test --runInBand --runTestsByPath src/services/import-verify/import-verify.test.ts src/services/harnesses/delete.test.ts src/services/harnesses/caller.test.ts` and `node --test --test-concurrency=1 scripts/harness-draft-usage.test.mjs scripts/harness-queue-trace.test.mjs scripts/harness-schedule-tick.test.mjs`, then the final committed-head full gate. Import a separate test copy and confirm automatic samples, Retry reuse, publication holds and draft chat before calling deployed behavior verified. Existing Live content must stay on its own published roster.
