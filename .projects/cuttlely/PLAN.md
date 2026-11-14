@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **Unpublished Harness session storage (in progress).** `fix/fileless-draft-sessions` moves fileless preview context outside runtime profiles, scopes it to the owning workspace/canvas and removes it after canvas deletion commits. Focused runtime and service tests pass; final full verification, CI and deployed preview/publish QA remain required.
+-   **User Management password reset (in progress).** The Users row now exposes the existing one-time reset-link service with explicit generation, copy/email status and server-enforced restrictions. Focused UI and identity tests pass; exact-head full verification, CI and deployed UI inspection remain required.
+
+-   **Unpublished Harness session storage (done).** Landed as `a4588106` ([#499](https://github.com/cuttlely/cuttlely/pull/499)). Final committed-head full verification and CI passed. Deployed draft preview, first publication and a saved-Harness query passed on a disposable QA canvas.
 
 -   **Import samples and unpublished draft admission (done).** Landed as `d8c7d095` ([#498](https://github.com/cuttlely/cuttlely/pull/498)). Its full gate and CI passed; deployed automatic import verification and draft report answers passed. The subsequent first-publication session collision is tracked by the follow-up above.
 
