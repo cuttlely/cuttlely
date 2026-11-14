@@ -59,6 +59,7 @@ let reopened: string[] = []
 let duringCleanup: ((name: string) => Promise<void>) | null = null
 let keptProfiles: string[] = []
 let expectedProfiles: string[][] = []
+let removedDraftSessions: Array<{ workspaceId: string; chatflowId: string }> = []
 
 let takenProfiles: string[] = []
 let claimedNames: string[] = []
@@ -118,6 +119,10 @@ const fakeModules = (file: string) => {
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
+    if (file === 'session.mjs')
+        return Promise.resolve({
+            removeDraftSessions: (canvas: { workspaceId: string; chatflowId: string }) => removedDraftSessions.push(canvas)
+        })
     if (file === 'paths.mjs') return Promise.resolve({ harnessStoreDir: () => storeDir })
     if (file === 'lock.mjs') {
         return Promise.resolve({
@@ -150,6 +155,7 @@ beforeEach(() => {
     duringCleanup = null
     keptProfiles = []
     expectedProfiles = []
+    removedDraftSessions = []
     takenProfiles = []
     claimedNames = []
     harnessCanvases.length = 0
@@ -186,6 +192,17 @@ afterEach(() => {
 })
 
 describe('card delete', () => {
+    it('removes fileless draft sessions only after its canvas deletion commits', async () => {
+        const cascade = await removeHarnessesForCanvas('33333333-3333-4333-8333-333333333333', TEAM)
+        expect(cascade.names).toEqual([])
+        expect(removedDraftSessions).toEqual([])
+        await cascade.commit()
+        expect(removedDraftSessions).toEqual([{ workspaceId: TEAM, chatflowId: '33333333-3333-4333-8333-333333333333' }])
+        removedDraftSessions = []
+        const rollback = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
+        await rollback.restore()
+        expect(removedDraftSessions).toEqual([])
+    })
     it('removes the canvas, the record, its schedule, key grants and runs', async () => {
         await expect(harnessesService.deleteHarness('navi', TEAM)).resolves.toEqual({ name: 'navi', deleted: true })
         expect(harnessDeleteHooks.deleteCanvas).toHaveBeenCalledWith(CANVAS_NAVI, TEAM)

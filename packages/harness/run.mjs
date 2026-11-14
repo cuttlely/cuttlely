@@ -118,7 +118,7 @@ import {
 } from './images.mjs'
 import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, releaseTurn } from './lock.mjs'
-import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
+import { appendTurn, draftSessionScope, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
@@ -450,6 +450,13 @@ async function runTurn(
     }
 }
 
+function canvasSessionScope(harness) {
+    if (!harness.tryId || !harness.chatflowId || !harness.workspaceId) return undefined
+    const saved = getHarness(harness.name)
+    if (saved?.workspaceId === harness.workspaceId && saved?.chatflowId === harness.chatflowId) return undefined
+    return draftSessionScope(harness)
+}
+
 async function runTurnBody(
     harness,
     {
@@ -496,6 +503,7 @@ async function runTurnBody(
     const context = {
         name,
         chatId,
+        sessionScope: canvasSessionScope(harness),
         roster,
         baseUrl,
         fetchImpl,
@@ -630,7 +638,7 @@ function loadPrompt(context) {
         context.answerInputs = []
         return []
     }
-    const prompt = readPromptContext(context.name, context.chatId)
+    const prompt = readPromptContext(context.name, context.chatId, { scope: context.sessionScope })
     // Preserve the exact displayed text before analyst-page compaction or model
     // context fitting. Only file-capable runs receive full copies, on disk.
     context.answerInputs = context.roster?.specialists?.some(writesFiles) ? priorAnswerInputs(prompt.messages) : []
@@ -773,7 +781,8 @@ async function runRoster(context, input) {
             question,
             text,
             sourceNames(maskWorkspacePaths([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])),
-            answerSelections(text, selectionSources(context, results), question)
+            answerSelections(text, selectionSources(context, results), question),
+            { scope: context.sessionScope }
         )
     }
     const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
@@ -3906,7 +3915,10 @@ async function runDirectTool(context, specialist, input) {
             context
         )}, ${reportNote(context)}`
     )
-    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)))
+    if (!context.replay)
+        appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)), undefined, {
+            scope: context.sessionScope
+        })
     const filledInput = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const agent = publicAgent(context, specialist, {
         name: specialist.name,
