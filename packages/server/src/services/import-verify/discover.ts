@@ -495,7 +495,7 @@ export function valuesFromDiscovery(
     // its bounds in a CTE instead of comparing a base column directly.
     const today = new Date()
     for (const param of params) {
-        if (param.secure || !param.required || values[param.name] !== undefined) continue
+        if (param.secure || param.required === false || values[param.name] !== undefined) continue
         if (byParam.has(param.name)) continue
         let candidate: unknown
         if (['numeric', 'int8'].includes(param.type || '') && !['year', 'month'].includes(param.name)) candidate = param.min ?? 0
@@ -593,7 +593,7 @@ export function literalSamples(sql: string, params: ParamSpec[]): Record<string,
     const tokens = tokenize(sql)
     const values: Record<string, unknown> = {}
     for (const param of params) {
-        if (!param.required || param.secure || SENSITIVE.test(param.name)) continue
+        if (param.required === false || param.secure || SENSITIVE.test(param.name)) continue
         const candidates: Array<{ value: unknown; priority: number }> = []
         for (let i = 0; i < tokens.length - 2; i++) {
             const t = tokens[i]

@@ -1303,8 +1303,8 @@ describe('expression sampling', () => {
             sql: 'WITH args AS (SELECT lower(:account_name) AS phrase) SELECT a.name FROM account a WHERE lower(a.name) = (SELECT phrase FROM args) LIMIT 10',
             params: [
                 { name: 'account_name', type: 'text', required: true },
-                { name: 'year', type: 'int8' },
-                { name: 'start_date', type: 'date' }
+                { name: 'year', type: 'int8', required: false },
+                { name: 'start_date', type: 'date', required: false }
             ]
         })
         const canvas = flow([entry], 'cred-pg')
@@ -1322,6 +1322,7 @@ describe('expression sampling', () => {
             }
         })
         const result = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(result.queries[0].state).toBe('passed')
         expect(calls).toEqual([{ account_name: 'Example Company' }])
         expect(result.status).toBe('ready')
     })
@@ -1357,10 +1358,10 @@ SELECT CASE WHEN p.family = 'inventory' THEN 1 END FROM packet p`,
         expect(
             valuesFromDiscovery(
                 [
-                    { name: 'year', type: 'int8' },
-                    { name: 'month', type: 'int8' },
-                    { name: 'start_date', type: 'date' },
-                    { name: 'end_date', type: 'date' }
+                    { name: 'year', type: 'int8', required: false },
+                    { name: 'month', type: 'int8', required: false },
+                    { name: 'start_date', type: 'date', required: false },
+                    { name: 'end_date', type: 'date', required: false }
                 ],
                 [],
                 []

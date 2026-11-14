@@ -695,7 +695,7 @@ async function verifyBody(options: {
                         sample = {
                             ...sample,
                             ...valuesFromDiscovery(
-                                params.filter((p) => p.required),
+                                params.filter((p) => p.required !== false),
                                 found.rows || [],
                                 planned.bindings
                             )
@@ -713,7 +713,7 @@ async function verifyBody(options: {
                 for (const lookup of expressionLookups(
                     String(pin.sql || ''),
                     relations,
-                    params.filter((p) => p.required && sample[p.name] === undefined)
+                    params.filter((p) => p.required !== false && sample[p.name] === undefined)
                 )) {
                     const name = lookup.bindings[0].param
                     if (sample[name] !== undefined) continue
