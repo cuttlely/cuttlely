@@ -60,6 +60,21 @@ describe('GithubCard environment names', () => {
         expect(html).not.toContain('from Dev')
     })
 
+    test('a reader waiting for its first real version shows a waiting state', () => {
+        const html = wrap(
+            status({
+                state: 'waiting',
+                lastCheckedAt: null,
+                incomingVersion: null,
+                message: 'Looking for new versions from Dev soon.'
+            })
+        )
+        expect(html).toContain('Syncing soon')
+        expect(html).toContain('Looking for new versions from Dev')
+        expect(html).not.toContain('Needs attention')
+        expect(html).not.toContain('Connect the repository your Dev server copies to')
+    })
+
     test('before connect, a three-environment Prod server names the previous environment', () => {
         const html = wrap(
             status({

@@ -1401,7 +1401,14 @@ export class GithubSync {
         return (await this.readOwnedPaths(repo, url, branch, latest)) ?? this.inferredOwnedPaths(latest)
     }
 
-    private async rememberLatestCopy(repo: string, url: string, branch: string, sha: string, owned?: Set<string>): Promise<string> {
+    private async rememberLatestCopy(
+        repo: string,
+        url: string,
+        branch: string,
+        sha: string,
+        owned?: Set<string>,
+        preserveOwned = false
+    ): Promise<string> {
         const ref = this.latestCopyRef(repo, url, branch)
         const ownedRef = this.ownedPathRef(repo, url, branch)
         const zero = '0'.repeat(40)
@@ -1411,7 +1418,9 @@ export class GithubSync {
             if (current && !(await this.isAncestor(current, sha))) return current
             const currentOwnedObject = await this.objectSha(ownedRef)
             const recorded = current ? await this.readOwnedPaths(repo, url, branch, current) : null
-            const nextOwned = owned ?? (current === sha && recorded ? recorded : await this.inferredOwnedPaths(sha))
+            const nextOwned = preserveOwned
+                ? recorded ?? new Set<string>()
+                : owned ?? (current === sha && recorded ? recorded : await this.inferredOwnedPaths(sha))
             const paths = [...nextOwned].sort()
             const body = `${JSON.stringify({ version: 1, latest: sha, paths } satisfies OwnedPathRecord)}\n`
             const ownedObject = (await this.gitStdin(['hash-object', '-t', 'blob', '-w', '--stdin'], body)).trim()
@@ -1788,6 +1797,12 @@ export class GithubSync {
         const tip = await this.indexedTree(tipSha, trees)
         const published = publishedSha ? await this.indexedTree(publishedSha, trees) : null
         const local = await this.indexedTree(localSha, trees)
+        let localBefore: IndexedTree | null = null
+        try {
+            localBefore = await this.indexedTree(`${localSha}^`, trees)
+        } catch {
+            // The history-start commit has no parent and therefore no version paths to remove.
+        }
         const owned = new Set([...ownedPaths].map((file) => file.toLowerCase()))
         const tipPaths = [...tip.files.keys()]
         for (const file of [...local.files.keys()].sort()) {
@@ -1813,12 +1828,20 @@ export class GithubSync {
                 if (right.startsWith(`${left}/`) || left.startsWith(`${right}/`)) return other
             }
         }
+        if (localBefore) {
+            for (const file of localBefore.files.keys()) {
+                const fold = file.toLowerCase()
+                if (!fold.startsWith('flows/') || local.folded.has(fold) || owned.has(fold) || this.keptName(file)) continue
+                const tipName = tip.folded.get(fold)
+                if (tipName) return tipName
+            }
+        }
         if (published) {
             for (const file of published.files.keys()) {
                 const fold = file.toLowerCase()
                 if (!owned.has(fold) || local.folded.has(fold) || this.keptName(file)) continue
                 const tipName = tip.folded.get(fold)
-                if (!tipName) continue
+                if (!tipName) return file
                 const existing = tip.files.get(tipName)!
                 const previous = published.files.get(file)!
                 if (tipName !== file || !sameTreeEntry(existing, previous)) return tipName
@@ -1913,6 +1936,20 @@ export class GithubSync {
         return new Set(tree.files.keys())
     }
 
+    private async ownedEntriesMatch(leftSha: string, rightSha: string, ownedPaths: Set<string>): Promise<boolean> {
+        const trees = new Map<string, IndexedTree>()
+        const left = await this.indexedTree(leftSha, trees)
+        const right = await this.indexedTree(rightSha, trees)
+        for (const file of ownedPaths) {
+            const fold = file.toLowerCase()
+            const leftName = left.folded.get(fold)
+            const rightName = right.folded.get(fold)
+            if (!leftName || !rightName || leftName !== rightName) return false
+            if (!sameTreeEntry(left.files.get(leftName)!, right.files.get(rightName)!)) return false
+        }
+        return true
+    }
+
     private async flowIdAt(revision: string, file: string): Promise<string> {
         try {
             const text = (await runGit(this.deps.store().dir, ['show', `${revision}:${file}`])).stdout
@@ -1920,6 +1957,15 @@ export class GithubSync {
             return typeof id === 'string' ? id : ''
         } catch {
             return ''
+        }
+    }
+
+    private async hasFlowTrailer(sha: string): Promise<boolean> {
+        try {
+            const body = (await runGit(this.deps.store().dir, ['log', '-1', '--format=%B', sha])).stdout
+            return Boolean(readTrailer(body, 'Flow'))
+        } catch {
+            return false
         }
     }
 
@@ -1975,6 +2021,15 @@ export class GithubSync {
             if (this.keptName(file)) continue
             const copied = tree.files.get(file)
             if (!copied || !sameTreeEntry(copied, entry)) return false
+        }
+        try {
+            const before = await this.indexedTree(`${localSha}^`, trees)
+            for (const file of before.files.keys()) {
+                const fold = file.toLowerCase()
+                if (fold.startsWith('flows/') && !local.folded.has(fold) && tree.folded.has(fold)) return false
+            }
+        } catch {
+            // A root commit has no earlier version paths to verify as absent.
         }
         return true
     }
@@ -2510,7 +2565,11 @@ export class GithubSync {
             replayFrom = marker.base
         } else if (base && (await this.isAncestor(base, tip)) && !(await this.isAncestor(tip, head))) {
             origin = EMPTY_TREE
-            published = base
+            const accepted = await this.latestCopy(config.repo, config.url, branch)
+            const owned = await this.ownedPaths(config.repo, config.url, branch)
+            const acceptedVersion = accepted === tip && (await this.isRealVersionCommit(tip))
+            const acceptedUnchanged = accepted === tip && (await this.ownedEntriesMatch(base, tip, owned))
+            published = acceptedVersion || acceptedUnchanged ? tip : base
             replayFrom = base
         } else if (base && graft !== tip) {
             // The recorded copy is not under this tip. A first copy still in progress keeps that tip.
@@ -2688,8 +2747,9 @@ export class GithubSync {
                 }
                 if (!(await this.latestCopiedCommit(sha))) {
                     await drop(INCOMING_NEXT_REF)
-                    this.state = 'stopped'
-                    this.message = this.noDevVersions(config.repo)
+                    const forged = await this.hasFlowTrailer(sha)
+                    this.state = forged ? 'stopped' : 'waiting'
+                    this.message = forged ? this.noDevVersions(config.repo) : ''
                     this.nextTryAt = null
                     this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
                     return
@@ -2718,7 +2778,7 @@ export class GithubSync {
                     this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
                     return
                 }
-                const durable = await this.rememberLatestCopy(config.repo, config.url, branch, sha, new Set())
+                const durable = await this.rememberLatestCopy(config.repo, config.url, branch, sha, undefined, true)
                 if (generation !== this.generation) {
                     await drop(INCOMING_NEXT_REF)
                     return
@@ -2749,8 +2809,15 @@ export class GithubSync {
             // A first read may see an empty repository before the previous environment has copied.
             await drop(INCOMING_REF)
             if (generation !== this.generation) return
+            this.state = 'waiting'
+            this.message = ''
+            this.failures = 0
+            this.nextTryAt = null
+            this.lastCheckedAt = new Date(this.now()).toISOString()
+            this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
+            return
         }
-        if (!failure || failure.kind === 'empty') {
+        if (!failure) {
             this.state = 'up-to-date'
             this.message = ''
             this.failures = 0

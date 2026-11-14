@@ -804,6 +804,56 @@ describe('copying history to a repository', () => {
         expect(bareFile(bare, matched, file)).toBe(matching)
     })
 
+    test.each([
+        ['direct', false],
+        ['grafted', true]
+    ])('deleting an exact-match GitHub-owned flow stops a %s-origin copy', async (_copy, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'exact-delete-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+
+        const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
+        const folder = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}`
+        sync.stop()
+        await recordFlowVersion(
+            { id: other, name: 'Catering quotes', type: 'CHATFLOW', flowData: JSON.stringify(flow('first quote')) },
+            { lookupCredentials }
+        )
+        await flushVersions()
+        const matching = Object.fromEntries(Object.entries(versionFiles(versionsDir())).filter(([file]) => file.startsWith(`${folder}/`)))
+        const matched = commitGithubChange(
+            bare,
+            path.join(tmp, 'exact-delete-match'),
+            (work) => {
+                for (const [file, content] of Object.entries(matching)) {
+                    const full = path.join(work, ...file.split('/'))
+                    fs.mkdirSync(path.dirname(full), { recursive: true })
+                    fs.writeFileSync(full, content)
+                }
+            },
+            'Add matching flow files'
+        )
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(ownedPathRecords()[0].paths.some((file) => file.startsWith(`${folder}/`))).toBe(false)
+        const beforeDeletion = bareMain(bare)!
+        expect(bareRef(bare, `${beforeDeletion}^`)).toBe(matched)
+
+        await recordFlowDeletion({ id: other, name: 'Catering quotes' })
+        await settle()
+
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain(`${folder}/`)
+        expect(stopped.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(beforeDeletion)
+        expect(bareFile(bare, beforeDeletion, `${folder}/flow.json`)).toContain(other)
+    })
+
     test('a file added on GitHub after a copy stays, and the next version is added on top', async () => {
         await save('One')
         foreignCommit(bare, path.join(tmp, 'base-readme'))
@@ -998,6 +1048,32 @@ describe('copying history to a repository', () => {
         expect(
             execFileSync('git', ['--git-dir', bare, 'ls-tree', '-r', '--name-only', changed], { encoding: 'utf8', env: cleanEnv() })
         ).not.toContain(file)
+    })
+
+    test.each([
+        ['direct', false],
+        ['grafted', true]
+    ])('a local flow deletion cannot accept a GitHub deletion from a %s copy', async (_copy, grafted) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'delete-both-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const folder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}`
+        const changed = commitGithubChange(
+            bare,
+            path.join(tmp, 'delete-both'),
+            (work) => fs.rmSync(path.join(work, ...folder.split('/')), { recursive: true }),
+            'Delete copied flow files'
+        )
+
+        await recordFlowDeletion({ id: ID, name: 'Bakery helper' })
+        await settle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain(`${folder}/`)
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(changed)
+        expect(ownedPathRecords()[0].paths.some((entry) => entry.startsWith(`${folder}/`))).toBe(true)
     })
 
     test.each([
@@ -2997,12 +3073,142 @@ describe('custom GitHub host', () => {
 })
 
 describe('durable GitHub tip records', () => {
+    test.each([
+        ['direct', 'the same tip', false, false],
+        ['direct', 'a later GitHub tip', false, true],
+        ['grafted', 'the same tip', true, false],
+        ['grafted', 'a later GitHub tip', true, true]
+    ])('a %s copy keeps ownership when the same store reads %s', async (_copy, _tip, grafted, changed) => {
+        if (grafted) foreignCommit(bare, path.join(tmp, 'role-switch-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const folder = `flows/${flowFolderName({ id: ID, name: 'Bakery helper' })}`
+        const before = ownedPathRecords()[0].paths
+        expect(before.some((file) => file.startsWith(`${folder}/`))).toBe(true)
+        await sync.disconnect()
+
+        if (changed) {
+            commitGithubChange(
+                bare,
+                path.join(tmp, `role-switch-change-${grafted ? 'graft' : 'direct'}`),
+                (work) => fs.writeFileSync(path.join(work, 'github-note.txt'), 'keep this file\n'),
+                'Add a GitHub file'
+            )
+        }
+        await sync.setEnvironment('prod')
+        const read = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(read).toMatchObject({ role: 'read', state: 'up-to-date' })
+        expect(ownedPathRecords()[0].paths).toEqual(before)
+
+        await sync.disconnect()
+        await sync.setEnvironment('dev')
+        const copying = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(copying).toMatchObject({ role: 'copy', state: 'up-to-date' })
+        await save('Two')
+        await settle()
+
+        const tip = bareMain(bare)!
+        expect((await sync.status()).state).toBe('up-to-date')
+        expect(bareGrep(bare, tip, 'Two')).toContain(`${folder}/`)
+        if (changed) expect(bareFile(bare, tip, 'github-note.txt')).toBe('keep this file\n')
+    })
+
+    test('a reader keeps ownership when another Dev history store advances the tip', async () => {
+        await save('One')
+        await flushVersions()
+        const firstDir = versionsDir()
+        const otherDir = path.join(tmp, 'other-dev-versions')
+        fs.cpSync(firstDir, otherDir, { recursive: true })
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const before = ownedPathRecords(firstDir)[0].paths
+        await sync.disconnect()
+        sync.stop()
+
+        process.env.CUTTLELY_VERSIONS_DIR = otherDir
+        resetForTests()
+        sync = makeSync()
+        setGithubForTests(sync)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await save('Two')
+        await settle()
+        const otherTip = bareMain(bare)!
+        await sync.disconnect()
+        sync.stop()
+
+        process.env.CUTTLELY_VERSIONS_DIR = firstDir
+        resetForTests()
+        sync = makeSync()
+        setGithubForTests(sync)
+        await sync.setEnvironment('prod')
+        const read = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(read).toMatchObject({ role: 'read', state: 'up-to-date' })
+        expect(refOf(firstDir, 'refs/versions/incoming')).toBe(otherTip)
+        expect(ownedPathRecords(firstDir)[0].paths).toEqual(before)
+
+        await sync.disconnect()
+        await sync.setEnvironment('dev')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(ownedPathRecords(firstDir)[0].paths).toEqual(before)
+        await save('Three')
+        await settle()
+        const updated = await sync.status()
+        expect(updated).toMatchObject({ state: 'up-to-date', message: expect.stringContaining('Up to date') })
+        expect(bareGrep(bare, bareMain(bare)!, 'Three')).toContain('flows/')
+    })
+
+    test.each([
+        ['the same tip', false],
+        ['a later GitHub tip', true]
+    ])('a Prod-first store stops as a second copier and can return to reading %s', async (_tip, changed) => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+        sync.stop()
+
+        const readerDir = path.join(tmp, `prod-first-${changed ? 'changed' : 'same'}`)
+        process.env.CUTTLELY_VERSIONS_DIR = readerDir
+        resetForTests()
+        sync = makeSync()
+        setGithubForTests(sync)
+        await sync.setEnvironment('prod')
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({
+            role: 'read',
+            state: 'up-to-date'
+        })
+        await sync.disconnect()
+
+        if (changed) {
+            commitGithubChange(
+                bare,
+                path.join(tmp, 'prod-first-change'),
+                (work) => fs.writeFileSync(path.join(work, 'github-note.txt'), 'keep this file\n'),
+                'Add a GitHub file'
+            )
+        }
+
+        await sync.setEnvironment('dev')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await save('Two')
+        await settle()
+        expect((await sync.status()).state).toBe('stopped')
+        const stoppedTip = bareMain(bare)!
+
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        expect(await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).toMatchObject({
+            role: 'read',
+            state: 'up-to-date'
+        })
+        expect(bareMain(bare)).toBe(stoppedTip)
+        if (changed) expect(bareFile(bare, stoppedTip, 'github-note.txt')).toBe('keep this file\n')
+    })
+
     test('a background reader refuses a foreign commit with only a forged Flow trailer', async () => {
         const readerDir = path.join(tmp, 'reader-forged-source')
         const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
         await reader.setEnvironment('prod')
         const waiting = await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
-        expect(waiting.state).toBe('up-to-date')
+        expect(waiting.state).toBe('waiting')
         expect(latestCopyTips(readerDir)).toEqual([])
         expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
 
@@ -3025,7 +3231,8 @@ describe('durable GitHub tip records', () => {
         const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
         await reader.setEnvironment('prod')
         const waiting = await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
-        expect(waiting.state).toBe('up-to-date')
+        expect(waiting.state).toBe('waiting')
+        expect(waiting.message).toContain('Looking for new versions from Dev')
         expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
         expect(latestCopyTips(readerDir)).toEqual([])
 
@@ -3033,8 +3240,8 @@ describe('durable GitHub tip records', () => {
         const readme = bareMain(bare)
         await reader.sync()
         await reader.idle()
-        expect((await reader.status()).state).toBe('stopped')
-        expect((await reader.status()).message).toContain('no versions from a Dev server')
+        expect((await reader.status()).state).toBe('waiting')
+        expect((await reader.status()).message).toContain('Looking for new versions from Dev')
         expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
         expect(latestCopyTips(readerDir)).toEqual([])
         expect(bareMain(bare)).toBe(readme)
@@ -3045,7 +3252,8 @@ describe('durable GitHub tip records', () => {
         seedRemote('refs/heads/main')
         await reader.sync()
         await reader.idle()
-        expect((await reader.status()).state).toBe('stopped')
+        expect((await reader.status()).state).toBe('waiting')
+        expect((await reader.status()).message).toContain('Looking for new versions from Dev')
         expect(refOf(readerDir, 'refs/versions/incoming')).toBeNull()
         expect(latestCopyTips(readerDir)).toEqual([])
         expect(bareMain(bare)).toBe(start)

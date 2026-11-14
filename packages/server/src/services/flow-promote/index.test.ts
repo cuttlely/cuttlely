@@ -233,8 +233,8 @@ describe('Prod reads the shared repository and never writes to it', () => {
         const empty = path.join(tmp, 'empty.git')
         execFileSync('git', ['init', '-q', '--bare', empty], { env: cleanEnv() })
         const status = await prodSync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
-        expect(status).toMatchObject({ connected: true, role: 'read', state: 'up-to-date', incomingVersion: null, waiting: null })
-        expect(status.message).toBe('Nothing from Dev yet. Cuttlely looks again every few minutes.')
+        expect(status).toMatchObject({ connected: true, role: 'read', state: 'waiting', incomingVersion: null, waiting: null })
+        expect(status.message).toBe('Looking for new versions from Dev soon.')
         expect((await listIncoming(WS, deps)).flows).toEqual([])
     })
 
