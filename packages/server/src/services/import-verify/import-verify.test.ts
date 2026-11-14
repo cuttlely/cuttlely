@@ -132,7 +132,7 @@ process.stdout.write(JSON.stringify(compilePinned(input.entry, input.args)))`
 }
 
 async function verifyExportedContract(
-    options: { importedSql?: string; omitRequired?: boolean; pinCount?: number; verifiedHere?: boolean } = {}
+    options: { importedSql?: string; omitRequired?: boolean; pinCount?: number; verifiedHere?: boolean; withoutSample?: boolean } = {}
 ): Promise<VerifyRecord> {
     const { generateExportFlowData } = require('../../../../ui/src/utils/genericHelper.js') as {
         generateExportFlowData: (
@@ -149,7 +149,12 @@ async function verifyExportedContract(
             params: [
                 options.omitRequired
                     ? { name: 'region', type: 'text', default: 'north' }
-                    : { name: 'region', type: 'text', required: true, default: 'north' }
+                    : {
+                          name: 'region',
+                          type: 'text',
+                          required: true,
+                          ...(options.withoutSample ? {} : { default: 'north' })
+                      }
             ],
             ...(options.verifiedHere ? { verifiedHere: true } : {})
         })
@@ -270,6 +275,20 @@ describe('imported verification', () => {
                     id: 'contract:specialist:pq_region_1:hash',
                     message:
                         'The output contract for pq_region_1 does not match the query that was just tested. Review the contract before publishing.'
+                })
+            ])
+        )
+    })
+
+    test('an output contract says not tested when its saved query could not run', async () => {
+        const record = await verifyExportedContract({ withoutSample: true })
+        expect(record.status).toBe('attention')
+        expect(record.blockers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'contract:specialist:pq_region_1:hash',
+                    message:
+                        'The output contract for pq_region_1 was not checked because its saved query was not tested: Cuttlely could not choose test values for region. The query was not run, and no sample values were requested. Review the contract before publishing.'
                 })
             ])
         )

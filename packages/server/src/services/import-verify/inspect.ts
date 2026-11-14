@@ -10,6 +10,7 @@ export interface InspectInput {
     pdfAvailable?: boolean
     resolutions: ConnectionResolution[]
     statementHashes?: Record<string, string>
+    queryTests?: Record<string, { tested: boolean; message: string }>
 }
 
 export interface Blocker {
@@ -218,15 +219,41 @@ export function inspectFlow(input: InspectInput): { blockers: Blocker[]; smoke: 
                 continue
             }
             const provided = matches[0]
-            const fresh = input.statementHashes?.[`${provided.nodeId}\0${String(provided.pin.id || '')}`] || ''
+            const queryKey = `${provided.nodeId}\0${String(provided.pin.id || '')}`
+            const fresh = input.statementHashes?.[queryKey] || ''
             const expected = String(contract.hash || contract.statementHash || '').trim()
-            if (!expected || !fresh || fresh !== expected) {
+            if (!expected) {
                 blockers.push({
                     id: `contract:${nodeId}:${contract.pin}:hash`,
                     severity: 'attention',
-                    message: expected
-                        ? `The output contract for ${contract.pin} does not match the query that was just tested. Review the contract before publishing.`
-                        : `The output contract for ${contract.pin} has no tested statement hash, so row count alone is not proof. Review the contract before publishing.`,
+                    message: `The output contract for ${contract.pin} has no tested statement hash, so row count alone is not proof. Review the contract before publishing.`,
+                    action: 'review-contract',
+                    nodeId: provided.nodeId,
+                    pinId: String(provided.pin.id || '')
+                })
+                continue
+            }
+            if (!fresh) {
+                const result = input.queryTests?.[queryKey]
+                const rawReason = result?.tested
+                    ? 'The saved query ran, but this test did not return a statement hash.'
+                    : result?.message || 'The saved query did not finish testing.'
+                const reason = /[.!?]$/.test(rawReason.trim()) ? rawReason.trim() : `${rawReason.trim()}.`
+                blockers.push({
+                    id: `contract:${nodeId}:${contract.pin}:hash`,
+                    severity: 'attention',
+                    message: `The output contract for ${contract.pin} was not checked because its saved query was not tested: ${reason} Review the contract before publishing.`,
+                    action: 'review-contract',
+                    nodeId: provided.nodeId,
+                    pinId: String(provided.pin.id || '')
+                })
+                continue
+            }
+            if (fresh !== expected) {
+                blockers.push({
+                    id: `contract:${nodeId}:${contract.pin}:hash`,
+                    severity: 'attention',
+                    message: `The output contract for ${contract.pin} does not match the query that was just tested. Review the contract before publishing.`,
                     action: 'review-contract',
                     nodeId: provided.nodeId,
                     pinId: String(provided.pin.id || '')
