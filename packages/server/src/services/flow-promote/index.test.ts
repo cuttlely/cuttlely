@@ -257,16 +257,17 @@ describe('Prod reads the shared repository and never writes to it', () => {
         expect(gitCalls.some((args) => args.includes('push') && args.join(' ').includes(prodDir))).toBe(false)
     })
 
-    test("when Dev's versions are gone from the repository, Prod offers nothing any more", async () => {
+    test("when Dev's branch disappears, Prod stops and keeps its last accepted versions", async () => {
         await devPublishes(FLOW, 'Support bot', canvas('ALPHA', DEV_KEY))
         asProd()
         await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect((await listIncoming(WS, deps)).flows).toHaveLength(1)
+        const accepted = rev(prodDir, INCOMING_REF)
         execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/heads/main'], { env: cleanEnv() })
         await prodReads()
-        expect(rev(prodDir, INCOMING_REF)).toBeNull()
-        expect((await listIncoming(WS, deps)).flows).toEqual([])
-        expect((await prodSync.status()).state).toBe('up-to-date')
+        expect(rev(prodDir, INCOMING_REF)).toBe(accepted)
+        expect((await listIncoming(WS, deps)).flows).toHaveLength(1)
+        expect((await prodSync.status()).state).toBe('stopped')
     })
 
     test('a read still running when the owner disconnects leaves nothing behind to promote', async () => {

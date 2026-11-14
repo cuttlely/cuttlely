@@ -163,6 +163,8 @@ export interface GithubDeps {
     checkEveryMs?: number
     // Test hook: replaces git for network commands. Production uses git on PATH.
     command?: (args: string[], env: Record<string, string>, timeoutMs: number) => Promise<NetResult>
+    // Test hook: pauses after a network command has completed and before its result is handled.
+    afterGit?: (args: string[], result: NetResult) => Promise<void>
     // Test hook: resolves a custom GitHub host. Production uses DNS.
     lookup?: (hostname: string) => Promise<ResolvedAddress[]>
 }
@@ -684,9 +686,13 @@ export class GithubSync {
             await this.pinDestination(arg, endpoint)
         }
         if (this.deps.onGit) this.deps.onGit(args, env)
-        if (this.deps.command) return this.deps.command(args, env, timeoutMs)
+        if (this.deps.command) {
+            const result = await this.deps.command(args, env, timeoutMs)
+            if (this.deps.afterGit) await this.deps.afterGit(args, result)
+            return result
+        }
         const cwd = this.deps.store().dir
-        return new Promise((resolve) => {
+        const result = await new Promise<NetResult>((resolve) => {
             execFile(
                 'git',
                 ['-c', 'core.autocrlf=false', '-c', 'credential.helper=', '-c', 'protocol.ext.allow=never', ...args],
@@ -702,6 +708,8 @@ export class GithubSync {
                 }
             )
         })
+        if (this.deps.afterGit) await this.deps.afterGit(args, result)
+        return result
     }
 
     private async refSha(ref: string): Promise<string | null> {
@@ -1297,8 +1305,11 @@ export class GithubSync {
     }
 
     private latestCopyRef(repo: string, url: string, branch: string): string {
+        const fileRemote = url.toLowerCase().startsWith('file://')
+        const scopedRepo = fileRemote ? repo : repo.toLowerCase()
+        const scopedUrl = fileRemote ? url : url.toLowerCase()
         const scope = createHash('sha256')
-            .update(JSON.stringify([repo, url, branch]))
+            .update(JSON.stringify([scopedRepo, scopedUrl, branch]))
             .digest('hex')
         return `${LATEST_COPY_REF_PREFIX}/${scope}`
     }
@@ -1307,8 +1318,60 @@ export class GithubSync {
         return this.refSha(this.latestCopyRef(repo, url, branch))
     }
 
-    private async rememberLatestCopy(repo: string, url: string, branch: string, sha: string): Promise<void> {
-        await runGit(this.deps.store().dir, ['update-ref', this.latestCopyRef(repo, url, branch), sha])
+    private async rememberLatestCopy(repo: string, url: string, branch: string, sha: string): Promise<string> {
+        const ref = this.latestCopyRef(repo, url, branch)
+        const zero = '0'.repeat(40)
+        let lastError: unknown = null
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            const current = await this.refSha(ref)
+            if (current === sha) return current
+            if (current && !(await this.isAncestor(current, sha))) return current
+            try {
+                await runGit(this.deps.store().dir, ['update-ref', ref, sha, current || zero])
+                return sha
+            } catch (error) {
+                lastError = error
+                // Another completion may have advanced the same scope. Read it and compare again.
+            }
+        }
+        throw lastError
+    }
+
+    private async activeCopyCandidate(): Promise<string | null> {
+        const graft = await this.refSha(GRAFT_REF)
+        if (graft) {
+            try {
+                const marker = await this.graftMarker(graft)
+                if (marker && (await this.carriesVersion(marker.base))) return graft
+            } catch {
+                // An incomplete active graft is not migration evidence.
+            }
+        }
+        const pushed = await this.refSha(PUSHED_REF)
+        if (pushed) {
+            try {
+                if (await this.carriesVersion(pushed)) return pushed
+            } catch {
+                // An incomplete active direct copy is not migration evidence.
+            }
+        }
+        return null
+    }
+
+    private async backfillLatestCopy(repo: string, url: string, branch: string | null): Promise<void> {
+        if (!branch) return
+        const candidate = await this.activeCopyCandidate()
+        if (candidate) await this.rememberLatestCopy(repo, url, branch, candidate)
+    }
+
+    private async backfillActiveLatestCopy(plan: ActivePlan): Promise<void> {
+        if (!plan.publishBranch) return
+        const saved = this.readSaved()
+        if (!saved) return
+        const endpoint = this.savedEndpoint(saved)
+        const parsed = parseRepo(saved.repo, endpoint)
+        if (saved.remote && saved.remote !== parsed.url) return
+        await this.backfillLatestCopy(parsed.repo, parsed.url, plan.publishBranch)
     }
 
     private async remoteDescendsLatestCopy(repo: string, url: string, branch: string, tip: string): Promise<boolean> {
@@ -1825,6 +1888,8 @@ export class GithubSync {
         if (opened.invalid) throw new GithubError(409, LIST_UNREADABLE)
         if (!opened.reads && !opened.copies) throw new GithubError(409, PICK_ENVIRONMENT)
         const reading = opened.reads && !opened.copies
+        if (this.readSaved()) await this.backfillActiveLatestCopy(opened)
+        else await this.backfillLatestCopy(repo, url, opened.publishBranch)
 
         // Every ref, not just main: a repository with only master, trunk or a tag is not empty.
         const check = await this.git(['ls-remote', url], authEnv(url, token), CHECK_TIMEOUT_MS)
@@ -1906,6 +1971,12 @@ export class GithubSync {
         this.clearTimer()
         const store = this.deps.store()
         if (fs.existsSync(path.join(store.dir, '.git'))) {
+            try {
+                await this.backfillActiveLatestCopy(this.capturedPlan())
+            } catch (error) {
+                // An unreadable connection has no validated scope, but it must remain removable.
+                if (!(error instanceof GithubError) || error.message !== CONNECTION_UNREADABLE) throw error
+            }
             fs.rmSync(this.configPath(), { force: true })
             await runGit(store.dir, ['update-ref', '-d', PUSHED_REF]).catch(() => undefined)
             await runGit(store.dir, ['update-ref', '-d', GRAFT_REF]).catch(() => undefined)
@@ -2018,6 +2089,7 @@ export class GithubSync {
                         this.nextTryAt = null
                         return
                     }
+                    await this.backfillActiveLatestCopy(plan)
                     if (plan.reads) await this.readOnce(plan)
                     // A read that just failed must not be followed by a copy in the same pass.
                     // A copy that already stopped for a reason the operator has to fix is not retried by the next read.
@@ -2081,6 +2153,7 @@ export class GithubSync {
         }
         const store = this.deps.store()
         await store.ensure()
+        await this.backfillLatestCopy(config.repo, config.url, branch)
         const head = await this.refSha('refs/heads/main')
         const base = await this.refSha(PUSHED_REF)
         const graft = await this.refSha(GRAFT_REF)
@@ -2093,6 +2166,10 @@ export class GithubSync {
         }
         const remoteTip = looked.kind === 'tip' ? looked.sha : ''
         if (!(await this.remoteDescendsLatestCopy(config.repo, config.url, branch, remoteTip))) {
+            this.holdCopy(this.notOurHistory(config.repo, true))
+            return
+        }
+        if (base && head && !(await this.isAncestor(base, head))) {
             this.holdCopy(this.notOurHistory(config.repo, true))
             return
         }
@@ -2145,10 +2222,14 @@ export class GithubSync {
             ['push', '--porcelain', '--no-verify', config.url, `${head}:refs/heads/${branch}`],
             authEnv(config.url, config.token)
         )
-        if (generation !== this.generation) return
         if (result.ok) {
+            const durable = await this.rememberLatestCopy(config.repo, config.url, branch, head)
+            if (generation !== this.generation) return
+            if (durable !== head) {
+                this.again = true
+                return
+            }
             await runGit(store.dir, ['update-ref', PUSHED_REF, head])
-            await this.rememberLatestCopy(config.repo, config.url, branch, head)
             const noted = await this.publishEnvironmentNote(config, head, plan, generation)
             if (generation !== this.generation) return
             if (!noted) {
@@ -2315,7 +2396,12 @@ export class GithubSync {
                 ['push', '--porcelain', '--no-verify', config.url, `${parent}:refs/heads/${branch}`],
                 authEnv(config.url, config.token)
             )
+            const durable = result.ok ? await this.rememberLatestCopy(config.repo, config.url, branch, parent) : null
             if (generation !== this.generation) return
+            if (durable && durable !== parent) {
+                this.again = true
+                return
+            }
             if (!result.ok) {
                 const failure = classifyFailure(`${result.stderr}\n${result.stdout}`, config.repo, result.timedOut)
                 this.log(`[versions] Copy to GitHub ${config.repo} failed (${failure.kind}): ${scrub(result.stderr, config.token)}`)
@@ -2327,7 +2413,6 @@ export class GithubSync {
                 return
             }
             await runGit(dir, ['update-ref', GRAFT_REF, parent])
-            await this.rememberLatestCopy(config.repo, config.url, branch, parent)
         } else if (graft !== tip && (await this.graftMarker(tip))) {
             // The copy landed, and this process stopped before recording it. The tip is already ours.
             await runGit(dir, ['update-ref', GRAFT_REF, tip])
@@ -2445,6 +2530,18 @@ export class GithubSync {
                     this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
                     return
                 }
+                const durable = await this.rememberLatestCopy(config.repo, config.url, branch, sha)
+                if (generation !== this.generation) {
+                    await drop(INCOMING_NEXT_REF)
+                    return
+                }
+                if (durable !== sha) {
+                    await drop(INCOMING_NEXT_REF)
+                    this.state = 'stopped'
+                    this.message = this.notOurHistory(config.repo, true)
+                    this.nextTryAt = null
+                    return
+                }
                 await runGit(dir, ['update-ref', INCOMING_REF, sha])
             }
             await drop(INCOMING_NEXT_REF)
@@ -2454,8 +2551,14 @@ export class GithubSync {
                 return
             }
         } else if (failure.kind === 'empty') {
-            // No versions from Dev any more (for example the repository was emptied): nothing is offered.
             await drop(INCOMING_NEXT_REF)
+            if (await this.latestCopy(config.repo, config.url, branch)) {
+                this.state = 'stopped'
+                this.message = this.notOurHistory(config.repo, true)
+                this.nextTryAt = null
+                return
+            }
+            // A first read may see an empty repository before the previous environment has copied.
             await drop(INCOMING_REF)
             if (generation !== this.generation) return
         }

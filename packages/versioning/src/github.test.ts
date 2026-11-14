@@ -106,6 +106,43 @@ function refOf(dir: string, ref: string): string | null {
     }
 }
 
+function deleteLatestCopyRefs(dir = versionsDir()) {
+    const refs = plainGit(dir, 'for-each-ref', '--format=%(refname)', 'refs/versions/github-latest')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+    for (const ref of refs) plainGit(dir, 'update-ref', '-d', ref)
+}
+
+function latestCopyTips(dir = versionsDir()): string[] {
+    return plainGit(dir, 'for-each-ref', '--format=%(objectname)', 'refs/versions/github-latest')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+function localNetworkCommand(remote?: string) {
+    return async (args: string[], env: Record<string, string>) => {
+        const mapped = args.map((arg) => (/^https:\/\//i.test(arg) && remote ? `file://${remote}` : arg))
+        try {
+            const stdout = execFileSync(
+                'git',
+                ['-c', 'core.autocrlf=false', '-c', 'credential.helper=', '-c', 'protocol.ext.allow=never', ...mapped],
+                { cwd: versionsDir(), env: gitEnv(versionsDir(), env), encoding: 'utf8' }
+            )
+            return { ok: true, stdout, stderr: '', timedOut: false }
+        } catch (error) {
+            const failure = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
+            return {
+                ok: false,
+                stdout: String(failure.stdout || ''),
+                stderr: String(failure.stderr || failure.message || ''),
+                timedOut: false
+            }
+        }
+    }
+}
+
 function remoteNote(bare: string, sha: string, work: string): string {
     fs.rmSync(work, { recursive: true, force: true })
     fs.mkdirSync(work, { recursive: true })
@@ -2672,5 +2709,341 @@ describe('custom GitHub host', () => {
         expect(status.state).toBe('stopped')
         expect(status.message).toContain('Disconnect and connect again')
         expect(calls.length).toBe(before)
+    })
+})
+
+describe('durable GitHub tip records', () => {
+    test('a standalone reader remembers its accepted tip and rejects a later reset', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const accepted = bareMain(bare)!
+        expect(accepted).not.toBe(first)
+
+        const readerDir = path.join(tmp, 'reader-versions')
+        const readerStore = new VersionStore(readerDir)
+        const reader = makeSync({ store: () => readerStore, checkEveryMs: 60_000, retryMs: [60_000] })
+        expect(readerStore.dir).not.toBe(getStore().dir)
+        await reader.setEnvironment('prod')
+        const connected = await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(connected.state).toBe('up-to-date')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(accepted)
+
+        const calls = gitCalls.length
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await reader.sync()
+        await reader.idle()
+        const stopped = await reader.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('not the history this server has')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(accepted)
+        expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
+        expect(bareMain(bare)).toBe(first)
+        reader.stop()
+    })
+
+    test('a standalone reader keeps its accepted tip when the source branch disappears', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const accepted = bareMain(bare)!
+        const readerDir = path.join(tmp, 'reader-missing-source')
+        const reader = makeSync({ store: () => new VersionStore(readerDir), checkEveryMs: 60_000, retryMs: [60_000] })
+        await reader.setEnvironment('prod')
+        await reader.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(accepted)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/heads/main'], { env: cleanEnv() })
+        await reader.sync()
+        await reader.idle()
+        const stopped = await reader.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('not the history this server has')
+        expect(refOf(readerDir, 'refs/versions/incoming')).toBe(accepted)
+        reader.stop()
+    })
+
+    test('startup migrates an old direct-copy ref before checking a connected reset', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const latest = bareMain(bare)!
+        deleteLatestCopyRefs()
+        expect(latestCopyTips()).toEqual([])
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        sync.stop()
+        sync = makeSync()
+        setGithubForTests(sync)
+        sync.start()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await sync.idle()
+
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('not the history this server has')
+        expect(bareMain(bare)).toBe(first)
+        expect(latestCopyTips()).toEqual([latest])
+    })
+
+    test('Connect migrates an old direct-copy ref before listing the remote', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const latest = bareMain(bare)!
+        deleteLatestCopyRefs()
+        fs.rmSync(path.join(versionsDir(), '.git', 'versions-github.json'))
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+        expect(latestCopyTips()).toEqual([latest])
+        expect(bareMain(bare)).toBe(first)
+    })
+
+    test('Disconnect migrates an old graft ref before active refs are removed', async () => {
+        foreignCommit(bare, path.join(tmp, 'upgrade-graft-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const latest = bareMain(bare)!
+        deleteLatestCopyRefs()
+        expect(latestCopyTips()).toEqual([])
+
+        await sync.disconnect()
+        expect(latestCopyTips()).toEqual([latest])
+        expect(refOf(versionsDir(), 'refs/versions/github')).toBeNull()
+        expect(refOf(versionsDir(), 'refs/versions/github-remote')).toBeNull()
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+        expect(bareMain(bare)).toBe(first)
+    })
+
+    test('direct reconnect after local rewind never regresses the durable tip', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const latest = bareMain(bare)!
+        await sync.disconnect()
+
+        plainGit(versionsDir(), 'reset', '--hard', first)
+        const reconnected = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(reconnected.state).toBe('up-to-date')
+        expect(latestCopyTips()).toEqual([latest])
+        await sync.disconnect()
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+    })
+
+    test.each(['direct', 'graft'] as const)(
+        'disconnect after remote accepts a %s push still records the landed durable tip',
+        async (kind) => {
+            if (kind === 'graft') foreignCommit(bare, path.join(tmp, 'disconnect-after-push-base'))
+            await save('One')
+            await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+            const first = bareMain(bare)!
+
+            sync.stop()
+            let disconnected = false
+            const racing = makeSync({
+                afterGit: async (args, result) => {
+                    if (!disconnected && result.ok && args[0] === 'push' && args.some((arg) => arg.endsWith(':refs/heads/main'))) {
+                        disconnected = true
+                        await racing.disconnect()
+                    }
+                }
+            })
+            sync = racing
+            setGithubForTests(sync)
+            await save('Two')
+            await settle()
+            const landed = bareMain(bare)!
+            expect(disconnected).toBe(true)
+            expect(landed).not.toBe(first)
+            expect((await sync.status()).connected).toBe(false)
+            expect(latestCopyTips()).toEqual([landed])
+            expect(refOf(versionsDir(), 'refs/versions/github')).toBeNull()
+            expect(refOf(versionsDir(), 'refs/versions/github-remote')).toBeNull()
+
+            execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+            await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+                status: 409,
+                message: expect.stringContaining('not the history this server has')
+            })
+        }
+    )
+
+    test('repository case aliases share one latest-copy record', async () => {
+        sync.stop()
+        sync = makeSync({ command: localNetworkCommand(bare) })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: 'Acme/Repo', token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        expect(bareMain(bare)).not.toBe(first)
+        await sync.disconnect()
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await expect(sync.connect({ repo: 'acme/repo', token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+        expect(latestCopyTips()).toHaveLength(1)
+        expect(bareMain(bare)).toBe(first)
+    })
+
+    test('same-name repository recreation stays blocked until the scope changes', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+        fs.rmSync(bare, { recursive: true, force: true })
+        makeBare(bare)
+
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+        expect(bareMain(bare)).toBeNull()
+    })
+
+    test('latest-copy refs are isolated by branch and restored when switching back', async () => {
+        const onMain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const onPreview = [
+            { name: 'Dev', branch: 'preview', server: 'dev' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('dev', onMain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        await sync.disconnect()
+
+        await sync.setEnvironment('dev', onPreview)
+        const preview = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(preview.state).toBe('up-to-date')
+        expect(bareRef(bare, 'refs/heads/preview')).toBeTruthy()
+        await sync.disconnect()
+        expect(latestCopyTips()).toHaveLength(2)
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await sync.setEnvironment('dev', onMain)
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining('not the history this server has')
+        })
+    })
+
+    test('graft push reported failed after landing is recognized on retry', async () => {
+        foreignCommit(bare, path.join(tmp, 'ambiguous-graft-base'))
+        const run = localNetworkCommand()
+        let reportedFailure = false
+        sync.stop()
+        sync = makeSync({
+            command: async (args, env) => {
+                const result = await run(args, env)
+                if (!reportedFailure && result.ok && args[0] === 'push' && args.some((arg) => arg.endsWith(':refs/heads/main'))) {
+                    reportedFailure = true
+                    return { ok: false, stdout: '', stderr: 'fatal: Could not resolve host: github.com', timedOut: false }
+                }
+                return result
+            }
+        })
+        setGithubForTests(sync)
+        await save('One')
+        const first = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(first.state).toBe('retrying')
+        const landed = bareMain(bare)!
+        expect(reportedFailure).toBe(true)
+        const branchPushes = () =>
+            gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.endsWith(':refs/heads/main'))).length
+        expect(branchPushes()).toBe(1)
+
+        const recovered = await sync.tryNow()
+        expect(recovered.state).toBe('up-to-date')
+        expect(bareMain(bare)).toBe(landed)
+        expect(branchPushes()).toBe(1)
+        expect(refOf(versionsDir(), 'refs/versions/github-remote')).toBe(landed)
+    })
+
+    test('local main rewind cannot replace files from a newer remote copy', async () => {
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        const remote = bareMain(bare)!
+        plainGit(versionsDir(), 'reset', '--hard', first)
+
+        await save('Three')
+        await settle()
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('never overwrites GitHub')
+        expect(bareMain(bare)).toBe(remote)
+        expect(bareGrep(bare, remote, 'Two')).toContain('flows/')
+        expectFastForwardOnly()
+    })
+
+    test('missing active graft ref cannot bypass durable descent check', async () => {
+        foreignCommit(bare, path.join(tmp, 'missing-graft-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const first = bareMain(bare)!
+        await save('Two')
+        await settle()
+        expect(bareMain(bare)).not.toBe(first)
+        plainGit(versionsDir(), 'update-ref', '-d', 'refs/versions/github-remote')
+
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/main', first], { env: cleanEnv() })
+        await save('Three')
+        await settle()
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('not the history this server has')
+        expect(bareMain(bare)).toBe(first)
+    })
+
+    test('a grafted scope remains grafted after reconnect', async () => {
+        foreignCommit(bare, path.join(tmp, 'grafted-reconnect-base'))
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const firstGraft = bareMain(bare)!
+        const localFirst = refOf(versionsDir(), 'refs/heads/main')
+        expect(firstGraft).not.toBe(localFirst)
+        await sync.disconnect()
+        const connected = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(connected.state).toBe('up-to-date')
+
+        await save('Two')
+        await settle()
+        const nextGraft = bareMain(bare)!
+        const localNext = refOf(versionsDir(), 'refs/heads/main')
+        expect(nextGraft).not.toBe(localNext)
+        expect(bareRef(bare, `${nextGraft}^`)).toBe(firstGraft)
+        expect(refOf(versionsDir(), 'refs/versions/github-remote')).toBe(nextGraft)
     })
 })
