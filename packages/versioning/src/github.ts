@@ -1553,7 +1553,7 @@ export class GithubSync {
         if (clash.kind === 'missing') {
             return `${repo} no longer has ${
                 clash.file
-            } at the path this server copied. Cuttlely never overwrites GitHub. Restore it at that path on GitHub, or connect a different branch. ${
+            } at the path this server copied. Cuttlely never overwrites GitHub. Restore it at that path on GitHub, or connect a different repository. ${
                 saved ? 'Nothing was changed on GitHub.' : 'Nothing was saved.'
             }`
         }
