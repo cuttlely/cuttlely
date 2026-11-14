@@ -3,10 +3,10 @@
 
 const TRAILER_PREFIX = 'Version-'
 
-export type TrailerKey = 'Flow' | 'Kind' | 'Name' | 'Hidden' | 'From'
+export type TrailerKey = 'Flow' | 'Kind' | 'Name' | 'Hidden' | 'From' | 'Base' | 'Remote'
 
 /** A line that is one of the version trailers, whatever its prefix. */
-export const TRAILER_LINE = /^[A-Za-z]+-(Flow|Kind|Name|Hidden|From): /
+export const TRAILER_LINE = /^[A-Za-z]+-(Flow|Kind|Name|Hidden|From|Base|Remote): /
 
 /** The trailer line written for a new version. */
 export function trailerLine(key: TrailerKey, value: string | number): string {

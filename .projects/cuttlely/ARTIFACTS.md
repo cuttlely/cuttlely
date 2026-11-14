@@ -79,7 +79,7 @@
 
 # Artifacts
 
-1.7.5 release preparation: branch `release/1.7.5-prep` is folded with a normal merge of `origin/main` at `04f95df5` ([#495](https://github.com/cuttlely/cuttlely/pull/495)). The four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.5. `CHANGELOG.md` uses `## [1.7.5] - Unreleased` and names #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). #482 is still in progress; its changelog line will be added after it merges. The import guide pins `v1.7.5`. Generated website pages are not hand-edited. Publication is a later step.
+1.7.5 release preparation: branch `release/1.7.5-prep` is folded with a normal merge of `origin/main` at `b22d9983` ([#482](https://github.com/cuttlely/cuttlely/pull/482)). The four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.5. `CHANGELOG.md` uses `## [1.7.5] - Unreleased` and names #482 (`b22d9983`), #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). The import guide pins `v1.7.5`. Generated website pages are not hand-edited. Publication is a later step.
 
 1.7.4 release preparation is historical. It shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). It included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
 

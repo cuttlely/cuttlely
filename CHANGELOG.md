@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [1.7.5] - Unreleased
 
+### Changed
+
+-   **#482 (`b22d9983`):** Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history and only fast-forwards, so files already on GitHub stay. The server records which paths it copied, and later versions update only those paths while GitHub still holds the bytes and mode it wrote. A version path that would replace a different existing file, or a GitHub change to a path this server copied, stops the copy with an error instead of overwriting it. Files added later on GitHub stay, and a branch reset behind the latest accepted tip stops the copy or read. One narrow case is a 1.7.6 follow-up: a GitHub edit to a copied path that exactly matches the next local version is not yet caught. [Version History](./docs/how-to/versioning.md).
+
 ### Fixed
 
 -   **#495 (`04f95df5`):** Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead. Missing test stamps are named in server logs and the run trace.
