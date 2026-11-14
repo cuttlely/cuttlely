@@ -3,6 +3,7 @@
 Run `pnpm --filter @cuttlely/server test --runInBand --runTestsByPath src/services/import-verify/import-verify.test.ts src/services/harnesses/delete.test.ts src/services/harnesses/caller.test.ts` and `node --test --test-concurrency=1 scripts/harness-draft-usage.test.mjs scripts/harness-queue-trace.test.mjs scripts/harness-schedule-tick.test.mjs`, then the final committed-head full gate. Import a separate test copy and confirm automatic samples, Retry reuse, publication holds and draft chat before calling deployed behavior verified. Existing Live content must stay on its own published roster.
 
 The canvas question picker can automatically load the next page when the browser scrolls toward Load more. Its browser test accepts a detached button only if the additional expected question is already visible; it still fails if that row never loads.
+Workflow edge selection uses an actual point on the SVG path away from the hover toolbar, then waits for React to apply the selected state before checking Delete.
 
 Warm-up modes: `CUTTLELY_WARM_HERMES=false` disables background warm-up, `probe` or unset uses conditional probes, and `true` selects full roster warm-up. The interval defaults to five minutes; save and restart to apply. Both active modes keep bounded concurrency and prioritize user work.
 

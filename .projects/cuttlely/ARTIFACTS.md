@@ -4,7 +4,7 @@
 -   `packages/server/src/services/import-verify/import-verify.test.ts`: Date coercion, bounds, optional-filter preservation, expression source limits and an imported expression query tested without manual values.
 -   `packages/server/src/services/harnesses/delete.test.ts`: owned fileless admission, foreign/missing canvas and name-conflict refusal, and preservation of the API-key saved-harness requirement.
 -   `scripts/harness-draft-usage.test.mjs`: existing published and draft execution still record usage once.
--   `scripts/canvas-actions-e2e.mjs`: question history pagination still requires the additional row when automatic loading wins the race with the Load more click.
+-   `scripts/canvas-actions-e2e.mjs`: question history pagination still requires the additional row when automatic loading wins the race with the Load more click. Workflow edge deletion clicks the SVG line away from its hover toolbar and waits for the selected state.
 
 ## Try the demo save
 

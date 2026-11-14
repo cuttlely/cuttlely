@@ -369,10 +369,16 @@ async function checkConnectedBackspace(page, nodeId, flowName) {
 async function deleteWorkflowEdge(page, sourceId) {
     const edge = sourceId ? page.locator(`[data-testid^="rf__edge-${sourceId}-"]`).first() : page.locator('.agent-flow-edge').first()
     await edge.waitFor({ timeout: 10000 })
-    await edge.click()
-    if ((await page.locator('.react-flow__edge.selected').count()) < 1) {
-        throw new Error('workflow edge click did not select the line')
-    }
+    // Click the actual SVG line away from its central hover toolbar, then wait for React's selection update.
+    const point = await edge.evaluate((element) => {
+        const line = element.matches('path') ? element : element.querySelector('.agent-flow-edge-selector')
+        if (!line) throw new Error('workflow edge has no selection path')
+        const point = line.getPointAtLength(line.getTotalLength() / 4)
+        const screen = new DOMPoint(point.x, point.y).matrixTransform(line.getScreenCTM())
+        return { x: screen.x, y: screen.y }
+    })
+    await page.mouse.click(point.x, point.y)
+    await page.locator('.react-flow__edge.selected').first().waitFor({ state: 'attached', timeout: 10000 })
     const before = await page.locator('.agent-flow-edge').count()
     await page.keyboard.press('Delete')
     await page.waitForTimeout(400)
