@@ -1163,6 +1163,23 @@ describe('copying history to a repository', () => {
         expect(bareFile(bare, bareMain(bare)!, `${folder}/flow.json`)).toContain(ID)
     })
 
+    test('copy completeness rejects a tree that retains a locally deleted flow', async () => {
+        await save('One')
+        await flushVersions()
+        const before = refOf(versionsDir(), 'refs/heads/main')!
+        await recordFlowDeletion({ id: ID, name: 'Bakery helper' })
+        await flushVersions()
+        const deletion = refOf(versionsDir(), 'refs/heads/main')!
+        const carriesVersionFiles = Reflect.get(sync, 'carriesVersionFiles').bind(sync) as (
+            treeSha: string,
+            localSha: string,
+            trees: Map<string, unknown>
+        ) => Promise<boolean>
+
+        expect(await carriesVersionFiles(before, deletion, new Map())).toBe(false)
+        expect(await carriesVersionFiles(deletion, deletion, new Map())).toBe(true)
+    })
+
     test('a later version that would replace an existing path stops and leaves GitHub unchanged', async () => {
         const other = '8e2a1b3c-bbbb-cccc-dddd-eeeeffff0000'
         const blocked = `flows/${flowFolderName({ id: other, name: 'Catering quotes' })}/flow.json`
