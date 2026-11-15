@@ -18,7 +18,7 @@ Cuttlely is open-source, context-aware agent orchestration (Apache-2.0). It give
 
 ## How to resume
 
-For 1.7.6 publication, start with STATUS's release-preparation section, `docs/releases.md` and `scripts/release.mjs`. User/team lifecycle landed in #501; its fresh CI and deployed checks are recorded in STATUS. Keep preparation, tag/image/GitHub publication and npm availability separate.
+1.7.6 is published; start with STATUS's release section for the verified tag, image, npm and website results. `docs/releases.md` and `scripts/release.mjs` describe the next release, including the protected-main PR path. User/team lifecycle landed in #501; its fresh CI and deployed checks are recorded in STATUS. Keep preparation, publication and deployment checks separate.
 
 1. Read [STATUS.md](./STATUS.md), then [OPEN.md](./OPEN.md), then the open issues: `gh issue list -R cuttlely/cuttlely`. Also check open pull requests (`gh pr list -R cuttlely/cuttlely`) so you do not redo work that is already in review.
 2. Read [DECISIONS.md](./DECISIONS.md) before changing architecture. Those decisions are settled. To change one, add a new entry with the reason; do not quietly redo it.
