@@ -4,7 +4,7 @@ The release scope is the work merged after 1.7.5: automatic import samples and u
 
 The manual Release preparation workflow provides exact-head full verification and, on main, the standard local release command with a start-and-ping image check. It exports a validated Git bundle and full report with read-only repository permissions; it performs no remote publication. Its own changes receive full-gate pull-request verification.
 
-The verification integration batch runs files serially because individual files launch database and UI test processes. The PostgreSQL access-key fixture explicitly maps its selected fixture user to TypeORM's `username` field.
+The verification integration batch runs files serially because individual files launch database and UI test processes. The PostgreSQL access-key fixture explicitly maps its selected fixture user to TypeORM's `username` field. Schema comparison fixtures contain one entry per column. PostgreSQL index names use a stable comparison order while uniqueness and ordered index columns remain part of the comparison.
 
 Release checks remain distinct: run the full gate on a clean, synchronized main, then verify the tag's image workflow and versioned registry image, publish the GitHub release, and publish the matching npm packages from the tag. Check the deployed website and package READMEs. Do not infer publication from prepared documentation. The existing GitHub-copy same-content conflict limitation remains documented; no fix is claimed. Existing backup/operator requirements and default-Off enforcement are unchanged.
 
