@@ -2944,6 +2944,16 @@
             "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."
         },
         {
+            "from": "packages/ui/src/views/users/TeamMemberships.test.js",
+            "to": "packages/ui/src/api/user.js",
+            "reason": "Identity UI regression tests exercise the existing team membership screen and its user API"
+        },
+        {
+            "from": "packages/ui/src/views/users/TeamMemberships.test.js",
+            "to": "packages/ui/src/views/workspace/WorkspaceUsers.jsx",
+            "reason": "Identity UI regression tests exercise the existing team membership screen and its user API"
+        },
+        {
             "from": "packages/ui/src/views/users/userActions.test.js",
             "to": "packages/ui/src/api/client.js",
             "reason": "Pending-owner cancellation UI tests exercise the existing Users view and API adapter from the Identity and RBAC subsystem."

@@ -601,7 +601,7 @@ const Roles = () => {
                                                         <StyledTableCell>Name</StyledTableCell>
                                                         <StyledTableCell>Description</StyledTableCell>
                                                         <StyledTableCell>Permissions</StyledTableCell>
-                                                        <StyledTableCell>Assigned Users</StyledTableCell>
+                                                        <StyledTableCell>Assigned users (current team)</StyledTableCell>
                                                         <StyledTableCell> </StyledTableCell>
                                                     </TableRow>
                                                 </TableHead>

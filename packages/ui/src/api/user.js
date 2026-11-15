@@ -1,6 +1,7 @@
 import client from './client'
 
 // users
+const getSignInOptions = () => client.get('/auth/signin-options')
 const getUserById = (id) => client.get(`/user?id=${id}`)
 const updateUser = (body) => client.put(`/user`, body)
 
@@ -42,6 +43,7 @@ const enableUser = (userId) => client.post(`/users/${userId}/enable`)
 const createPasswordResetLink = (userId) => client.post(`/users/${encodeURIComponent(userId)}/reset-link`, { link: true })
 
 export default {
+    getSignInOptions,
     getUserById,
     updateUser,
     getAllUsersByOrganizationId,
