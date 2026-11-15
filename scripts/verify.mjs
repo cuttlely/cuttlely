@@ -60,6 +60,9 @@ const STEPS = [
         command: process.execPath,
         args: [
             '--test',
+            // Integration files start their own database and UI test processes.
+            // Keep those files serial so they do not compete for a small runner's CPU.
+            '--test-concurrency=1',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'dashflows.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
