@@ -109,7 +109,7 @@ For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or star
 
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
-The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
+The release command pushes the commit and tag atomically. When `main` requires pull requests, prepare with `--local`, land the generated version commit through the normal PR checks, and publish the tag afterward. The protected-branch path below preserves that process.
 
 ## Prepare on a fresh CI runner
 
@@ -138,11 +138,18 @@ release_artifacts=$(mktemp -d)
 gh run download RUN_ID --name release-preparation-1.7.6 --dir "$release_artifacts"
 git bundle verify "$release_artifacts/release.bundle"
 git fetch "$release_artifacts/release.bundle" refs/tags/v1.7.6:refs/tags/v1.7.6
-git merge --ff-only 'v1.7.6^{commit}'
-pnpm release 1.7.6 --publish
+git switch -c release/1.7.6 'v1.7.6^{commit}'
+node scripts/scan-secrets.mjs
+CUTTLELY_SKIP_VERIFY=1 CUTTLELY_SKIP_HANDOFF_CHECK=1 git -c push.followTags=false push -u origin release/1.7.6
+gh pr create --base main --head release/1.7.6 --title 'Release v1.7.6' --fill
+gh pr checks --watch
 ```
 
-The last command uses the release tool's existing resume path for the verified local commit and tag, then performs the normal atomic push, image-workflow wait and GitHub publication. Repository protection still applies; do not force main or move a published tag. npm publication remains the separate [tag-based step](#publish-the-npm-packages).
+These local hook exemptions match the release command and apply only to its five generated files after the full gate and image check passed. The separate secret scan and normal remote PR checks still run. `push.followTags=false` keeps the candidate tag local while the PR is checked.
+
+Merge the PR through the repository's required checks and reviews. Fetch `origin/main`, switch back to `main`, and fast-forward it. Compare its Git tree with the prepared tag's tree; they must be identical. Confirm that `git ls-remote --tags origin refs/tags/v1.7.6` succeeds with no result. Then recreate only the unpublished local annotated tag at the merged release commit, preserving its message. Stop if the trees differ or the remote tag already exists. A published tag stays fixed.
+
+On that clean main, run `pnpm release 1.7.6 --publish`. The existing resume path performs the normal atomic push, image-workflow wait and GitHub publication. npm publication remains the separate [tag-based step](#publish-the-npm-packages).
 
 ## Docs and site sync
 
@@ -192,4 +199,4 @@ It then builds the widget, runs `npm pack --dry-run` for both packages, and publ
 -   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` at version `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`, because the default image tag is that package's own version.
 -   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
 
-The server itself is not an npm package. The image carries the Python agent runtime. `NPM_TOKEN` is an npm access token for the cuttlely org. It is not stored in this repository. Both packages set `publishConfig.access` to `public`. There is no publish workflow.
+The server itself is not an npm package. The image carries the Python agent runtime. For unattended publication, use a granular `NPM_TOKEN` scoped to `cuttlely` and `@cuttlely/chat`, with **Read and write (publish and stage)** and **Bypass 2FA**. Organization-management access is unnecessary. Choose a short expiry and keep the token outside this repository. An email-verified login session has separate publishing requirements. Tokens can be created through the [npm website](https://docs.npmjs.com/creating-and-viewing-access-tokens/) or its [documented token API](https://github.com/npm/api-documentation/blob/main/api/registry.npmjs.com/token.yaml); token creation requires a fresh verification code. Both packages set `publishConfig.access` to `public`. There is no npm publish workflow.

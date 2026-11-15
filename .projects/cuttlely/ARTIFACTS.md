@@ -1,8 +1,9 @@
 ## 1.7.6 release documentation
 
+-   [Published release v1.7.6](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6), `45223733` (#503), and the [verified preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43685066892). STATUS records the image, npm, tarball README and website checks.
 -   `.github/workflows/release-prepare.yml`: exact-head full verification and a read-only, validated local release bundle. `docs/releases.md#prepare-on-a-fresh-ci-runner` covers resuming publication from its artifact.
 -   `packages/components/models.json` and `docs/reference/model-list.md`: reviewed Together AI Kimi K3 standard price estimates and the primary source.
--   `CHANGELOG.md`: planned release scope, merged change references, upgrade effects and the remaining GitHub-copy limitation.
+-   `CHANGELOG.md`: dated release scope, merged change references, upgrade effects and the remaining GitHub-copy limitation.
 -   `README.md`, `README.ja.md`, `README.ko.md`, `FAQ.md`, `docs/README.md` and `docs/how-to/README.md`: current release and task entry points.
 -   `docs/how-to/import-verify.md`: automatic samples, unpublished preview steps, verification limits and actionable failure cases.
 -   `docs/how-to/users-without-authkit.md`: team access, Disable/Reactivate, invitation roles and one-time reset links.

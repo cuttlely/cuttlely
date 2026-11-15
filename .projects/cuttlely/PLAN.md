@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
--   **1.7.6 release.** Documentation and examples cover #498–#501. Complete the clean-main release command, image and GitHub checks, npm publication from the annotated tag, and live-site/package README checks. Publication is separate from preparation.
+-   **1.7.6 release (done).** Published as `45223733` ([#503](https://github.com/cuttlely/cuttlely/pull/503)). Documentation and examples cover #498–#501. Full preparation verification, the local image check, exact-tag image workflow, GitHub release, both npm versions, deployed website and tagged package README checks passed. See STATUS for the separate evidence.
 
 -   **Local user and team lifecycle (done).** Landed as `0f7b89a1` ([#501](https://github.com/cuttlely/cuttlely/pull/501)). Effective invite/disabled state, guarded Disable/Reactivate, per-person team access, current-team capability metadata and pending-role editing passed fresh PR CI and deployed fixture/read-only QA. No real account or role changes were made during those checks.
 
