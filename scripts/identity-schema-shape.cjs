@@ -222,7 +222,17 @@ function assemble(columns, fks, indexes, typeOf) {
             columns: cols
         })
     }
-    return shape
+    return orderPostgresIndexes(shape)
+}
+
+// Database collation can order index names differently; index order is not schema.
+function orderPostgresIndexes(shape) {
+    return Object.fromEntries(
+        Object.entries(shape).map(([name, table]) => [
+            name,
+            { ...table, indexes: [...table.indexes].sort((a, b) => a.name.localeCompare(b.name)) }
+        ])
+    )
 }
 
 function diffShape(actual, expected, label, defaults = {}) {
@@ -232,6 +242,9 @@ function diffShape(actual, expected, label, defaults = {}) {
     if (label === 'mysql') {
         actual = stripMysqlIntegerWidths(pair.actual)
         expected = stripMysqlIntegerWidths(pair.expected)
+    } else if (label === 'postgres') {
+        actual = orderPostgresIndexes(pair.actual)
+        expected = orderPostgresIndexes(pair.expected)
     } else {
         actual = pair.actual
         expected = pair.expected
