@@ -10,7 +10,7 @@ The owner-only password form also requires `CUTTLELY_LOCAL_ADMIN`, but `/signin`
 
 **Admin** > **Users** lists the people on this server. Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.
 
-**View team access** on a person's row shows their teams, role in each team, effective account status and last login. The current team is marked. An organization owner can view all teams in the organization; other administrators see the current team for another person. **Change role** applies only to the selected team. The Roles page's assignment counts refer to the current team.
+**View team access** on a person's row shows their teams, role in each team, effective account status and last login. The current team is marked. An organization owner can view all teams in the organization; other administrators see the current team for another person. **Change role** applies only to the selected team. The Roles page's assignment counts refer to the current team. Password, session and disable/reactivate controls require membership in the current team; if the person belongs to a different team, switch with the team selector first.
 
 With local user login enabled, **Disable user** suspends an account without deleting its flows, team assignments or roles. Confirming ends its local sessions, revokes invite/reset links and disables its owned access keys; automations using those keys may stop. **Reactivate user** allows sign-in again but does not restore sessions, links or keys. A pending invitation still needs acceptance. These actions require `users:manage`, and the server checks team scope and owner protections. The UI keeps owners and your own account protected from these actions.
 

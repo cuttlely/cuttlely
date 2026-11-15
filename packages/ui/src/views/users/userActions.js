@@ -7,6 +7,7 @@ export const canRemoveOrganizationUser = (row, currentUserId) =>
 // The server additionally checks team scope, identity provider, and grantable permissions.
 export const canOfferPasswordReset = (row) =>
     Boolean(row?.userId) &&
+    row.inCurrentTeam !== false &&
     !row.isOrgOwner &&
     String(row.status).toLowerCase() === 'active' &&
     String(row.user?.status).toLowerCase() === 'active'
@@ -16,6 +17,7 @@ export const isUserDisabled = (row) =>
 
 export const canChangeUserAccess = (row, currentUserId) =>
     Boolean(row?.userId) &&
+    row.inCurrentTeam !== false &&
     row.userId !== currentUserId &&
     !row.isOrgOwner &&
     (isUserDisabled(row) || (String(row.status).toLowerCase() === 'active' && String(row.user?.status).toLowerCase() === 'active'))

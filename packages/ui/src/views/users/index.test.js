@@ -109,6 +109,16 @@ describe('Users invitation cancellation flow', () => {
             user: { id: 'member-1', email: 'member@example.com', status }
         })
 
+    it('keeps the access view but hides current-team-only controls for another team member', () => {
+        addMember()
+        mockRows[mockRows.length - 1].inCurrentTeam = false
+        mount()
+        expect(view.root.findAllByProps({ title: 'Disable user' })).toHaveLength(0)
+        expect(view.root.findAllByProps({ title: 'Reset password' })).toHaveLength(0)
+        expect(view.root.findAllByProps({ title: 'Sessions' })).toHaveLength(3)
+        expect(view.root.findAllByType('button').filter((node) => node.children.includes('View team access'))).toHaveLength(4)
+    })
+
     it('does not submit a confirmed access change after the current team changes', async () => {
         addMember()
         let confirm
@@ -228,6 +238,7 @@ describe('Users invitation cancellation flow', () => {
         })
         await act(async () => click())
         expect(mockUserApi.disableUser).toHaveBeenCalledTimes(1)
+        expect(view.root.findByProps({ title: 'Reset password' }).props.disabled).toBe(true)
         await act(async () => {
             complete({ data: { disabled: true } })
             await pending

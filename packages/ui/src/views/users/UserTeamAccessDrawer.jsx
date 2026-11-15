@@ -70,6 +70,11 @@ export default function UserTeamAccessDrawer({
                         : 'Current team only. An organization owner can view all teams.'}{' '}
                     Role changes apply to the selected team.
                 </Typography>
+                {!loading && !error && allTeams && rows.length > 0 && !rows.some((row) => row.workspaceId === currentTeamId) && (
+                    <Alert severity='info' sx={{ mb: 2 }}>
+                        To manage sign-in, passwords or sessions for this account, switch to one of their teams using the team selector.
+                    </Alert>
+                )}
                 {loading ? (
                     <Typography role='status'>Loading team access…</Typography>
                 ) : error ? (

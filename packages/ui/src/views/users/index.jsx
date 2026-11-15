@@ -185,6 +185,7 @@ function ShowUserRow(props) {
                     permissionId={'workspace:update'}
                     title='Change role'
                     aria-label='Change role'
+                    disabled={Boolean(props.changingAccessUserId || props.deletingUserId)}
                     color='primary'
                     onClick={() => handleViewUserRoles(true)}
                 >
@@ -196,20 +197,24 @@ function ShowUserRow(props) {
                     permissionId={'users:manage'}
                     title='Reset password'
                     aria-label='Reset password'
+                    disabled={Boolean(props.changingAccessUserId || props.deletingUserId)}
                     color='primary'
                     onClick={() => props.onResetPasswordClick(props.row)}
                 >
                     <IconKey />
                 </PermissionIconButton>
             )}
-            <PermissionIconButton
-                permissionId={'users:manage'}
-                title='Sessions'
-                color='primary'
-                onClick={() => props.onSessionsClick(props.row)}
-            >
-                <IconUser />
-            </PermissionIconButton>
+            {props.row.inCurrentTeam !== false && (
+                <PermissionIconButton
+                    permissionId={'users:manage'}
+                    title='Sessions'
+                    disabled={Boolean(props.changingAccessUserId || props.deletingUserId)}
+                    color='primary'
+                    onClick={() => props.onSessionsClick(props.row)}
+                >
+                    <IconUser />
+                </PermissionIconButton>
+            )}
         </>
     )
 

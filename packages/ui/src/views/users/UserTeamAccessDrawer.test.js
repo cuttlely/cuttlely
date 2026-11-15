@@ -26,6 +26,13 @@ it('shows each team, role, effective status, last login and current-team marker'
     expect(screen.getByText(/All of this person/)).toBeTruthy()
 })
 
+it('guides an owner to switch teams when the target is outside the current team', async () => {
+    const load = jest.fn().mockResolvedValue({ data: memberships })
+    render(<UserTeamAccessDrawer {...props(load)} currentTeamId='team-c' />)
+    await screen.findByText(/switch to one of their teams/)
+    expect(screen.queryByText('Current team')).toBeNull()
+})
+
 it('discards late results after the viewed user changes', async () => {
     let first
     const load = jest

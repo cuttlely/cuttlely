@@ -792,6 +792,7 @@ export interface OrganizationUserJson {
     userId: string
     status: string
     roleCount: number
+    inCurrentTeam: boolean
     isOrgOwner: boolean
     lastLogin: string | null
     user: { id: string; name: string; email: string; status: string }
@@ -805,7 +806,9 @@ export async function listOrganizationUsers(sql: Sql, actor: DirectoryActor, org
     const people = await sql.query(
         `SELECT u.${q(sql, 'id')} AS userId, u.${q(sql, 'name')} AS userName, u.${q(sql, 'email')} AS email,
                 u.${q(sql, 'status')} AS userStatus, ou.${q(sql, 'status')} AS orgStatus,
-                r.${q(sql, 'id')} AS roleId, r.${q(sql, 'name')} AS roleName
+                r.${q(sql, 'id')} AS roleId, r.${q(sql, 'name')} AS roleName,
+                EXISTS (SELECT 1 FROM ${q(sql, 'workspace_user')} wuCurrent
+                        WHERE wuCurrent.${q(sql, 'userId')} = u.${q(sql, 'id')} AND wuCurrent.${q(sql, 'workspaceId')} = ?) AS inCurrentTeam
          FROM ${q(sql, 'organization_user')} ou
          INNER JOIN ${q(sql, 'user')} u ON u.${q(sql, 'id')} = ou.${q(sql, 'userId')}
          LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = ou.${q(sql, 'roleId')}
@@ -814,7 +817,7 @@ export async function listOrganizationUsers(sql: Sql, actor: DirectoryActor, org
              SELECT 1 FROM ${q(sql, 'workspace_user')} wuScope
              WHERE wuScope.${q(sql, 'userId')} = u.${q(sql, 'id')} AND wuScope.${q(sql, 'workspaceId')} = ?
            ))`,
-        [organizationId, owner ? 1 : 0, actor.workspaceId || '']
+        [actor.workspaceId || '', organizationId, owner ? 1 : 0, actor.workspaceId || '']
     )
     const ids = people.map((row) => text(cell(row, 'userId'))).filter(Boolean)
     const counts = new Map<string, { roleCount: number; lastLogin: string | null }>()
@@ -851,6 +854,7 @@ export async function listOrganizationUsers(sql: Sql, actor: DirectoryActor, org
             userId,
             status: orgStatus === 'disable' ? 'disable' : userStatus,
             roleCount: summary?.roleCount || 0,
+            inCurrentTeam: num(cell(row, 'inCurrentTeam')) === 1,
             isOrgOwner: text(cell(row, 'roleName')).toLowerCase() === OWNER_ROLE,
             lastLogin: summary?.lastLogin || null,
             user: { id: userId, name: text(cell(row, 'userName')), email: text(cell(row, 'email')), status: userStatus },

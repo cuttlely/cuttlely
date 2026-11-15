@@ -127,6 +127,24 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
 const actor = { id: OWNER, organizationId: ORG, workspaceId: TEAM }
 
 describe('effective membership display status', () => {
+    it('labels current-team membership without hiding other teams from an organization owner', async () => {
+        const { sql, db } = memorySql()
+        const created = await createEmailUser(sql, actor, {
+            user: { email: 'other-team@example.com' },
+            workspace: { id: TEAM },
+            role: { id: ROLE }
+        })
+        db.exec(`INSERT INTO workspace (id, name, organizationId) VALUES ('team-b', 'Other team', '${ORG}')`)
+        db.prepare('UPDATE workspace_user SET workspaceId = ? WHERE userId = ?').run('team-b', created.id)
+        const first = await listOrganizationUsers(sql, actor, ORG)
+        expect(first.find((row) => row.userId === OWNER)?.inCurrentTeam).toBe(true)
+        expect(first.find((row) => row.userId === created.id)).toMatchObject({ inCurrentTeam: false, roleCount: 1 })
+        expect(
+            (await listOrganizationUsers(sql, { ...actor, workspaceId: 'team-b' }, ORG)).find((row) => row.userId === created.id)
+                ?.inCurrentTeam
+        ).toBe(true)
+    })
+
     it('disables and reactivates through the UI service without restoring revoked sessions, links or keys', async () => {
         const { sql, db } = memorySql()
         const created = await createEmailUser(sql, actor, {
