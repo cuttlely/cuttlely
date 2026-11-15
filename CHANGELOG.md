@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [1.7.6] - Unreleased
 
+### Changed
+
+-   Maintainers can run full verification and local release preparation on a fresh CI runner. The read-only workflow returns a checked Git bundle and report; publication still uses the release tool's normal resume path. [Release preparation](./docs/releases.md#prepare-on-a-fresh-ci-runner).
+
 ### Fixed
 
 -   Together AI Kimi K3 standard token-price estimates now use $3 input and $15 output per million tokens in both chat and completion lists, matching the provider's published rates. Existing price overrides still take precedence. [Model prices](./docs/reference/model-list.md#176-price-review).
