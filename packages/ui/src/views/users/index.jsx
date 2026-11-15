@@ -3,11 +3,14 @@ import { useDispatch, useSelector } from 'react-redux'
 import { Link } from 'react-router-dom'
 import * as PropTypes from 'prop-types'
 import { formatListDateTime } from '@/utils/formatDate'
-import { canChangeRole, roleLabel } from '@/utils/roleLabel'
+import { canChangeRole } from '@/utils/roleLabel'
 import {
     canRemoveOrganizationUser,
     canOfferPasswordReset,
-    isPendingOwnerInvite,
+    canChangeUserAccess,
+    isUserDisabled,
+    accessConfirmation,
+    isPendingInvite,
     organizationOwnerLabel,
     removalConfirmation,
     removeOrganizationUser
@@ -28,7 +31,6 @@ import {
     Paper,
     useTheme,
     Chip,
-    Drawer,
     Typography,
     CircularProgress
 } from '@mui/material'
@@ -41,6 +43,7 @@ import ErrorBoundary from '@/ErrorBoundary'
 import EditWorkspaceUserRoleDialog from '@/views/workspace/EditWorkspaceUserRoleDialog'
 import UserSessionsDrawer from '@/views/users/UserSessionsDrawer'
 import ResetPasswordDialog from './ResetPasswordDialog'
+import UserTeamAccessDrawer from './UserTeamAccessDrawer'
 import { StyledTableCell, StyledTableRow } from '@/ui-component/table/TableStyles'
 import InviteUsersDialog from '@/ui-component/dialog/InviteUsersDialog'
 import CreateUserDialog from '@/ui-component/dialog/CreateUserDialog'
@@ -57,7 +60,7 @@ import useConfirm from '@/hooks/useConfirm'
 import useNotifier from '@/utils/useNotifier'
 
 // Icons
-import { IconTrash, IconX, IconPlus, IconUser, IconEyeOff, IconEye, IconUserStar, IconUserCog, IconKey } from '@tabler/icons-react'
+import { IconTrash, IconX, IconPlus, IconUser, IconUserStar, IconUserCog, IconKey, IconUserOff, IconUserCheck } from '@tabler/icons-react'
 import users_emptySVG from '@/assets/images/users_empty.svg'
 
 // store
@@ -66,22 +69,16 @@ import { useConfig } from '@/store/context/ConfigContext'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 
 function ShowUserRow(props) {
-    const customization = useSelector((state) => state.customization)
-
     const [open, setOpen] = useState(false)
     const [editable, setEditable] = useState(false)
-    const [userRoles, setUserRoles] = useState([])
+    const [accessRevision, setAccessRevision] = useState(0)
     const [roleDialogProps, setRoleDialogProps] = useState(null)
 
-    const theme = useTheme()
     const { isOpenSource } = useConfig()
 
-    const getWorkspacesByUserId = useApi(userApi.getWorkspacesByOrganizationIdUserId)
-
-    const handleViewUserRoles = (userId, organizationId, edit = false) => {
+    const handleViewUserRoles = (edit = false) => {
         setEditable(edit)
         setOpen(edit || !open)
-        getWorkspacesByUserId.request(organizationId, userId)
     }
 
     const openRoleDialog = (membership) => {
@@ -95,102 +92,58 @@ function ShowUserRow(props) {
 
     const onRoleChanged = () => {
         setRoleDialogProps(null)
-        getWorkspacesByUserId.request(props.row.organizationId, props.row.userId)
+        setAccessRevision((value) => value + 1)
     }
-
-    useEffect(() => {
-        if (getWorkspacesByUserId.data) {
-            setUserRoles(getWorkspacesByUserId.data)
-        }
-    }, [getWorkspacesByUserId.data])
-
-    useEffect(() => {
-        if (!open) {
-            setOpen(false)
-            setUserRoles([])
-        }
-    }, [open])
 
     const currentUser = useSelector((state) => state.auth.user)
     const showChangeRole = canChangeRole(props.row, currentUser.id)
+    useEffect(() => {
+        setOpen(false)
+        setRoleDialogProps(null)
+    }, [currentUser.activeOrganizationId, currentUser.activeWorkspaceId])
 
-    const assignedRolesDrawer = (
-        <Drawer anchor='right' open={open} onClose={() => setOpen(false)}>
-            <Box sx={{ p: { xs: 2, sm: 4 }, height: 'auto', width: 'min(650px, 100vw)' }}>
-                <Typography sx={{ textAlign: 'left', mb: 2 }} variant='h2'>
-                    {editable ? 'Change role' : 'Assigned Roles'}
-                </Typography>
-                {editable && (
-                    <Typography sx={{ textAlign: 'left', mb: 2 }} variant='body2'>
-                        Pick a team to give {props.row.user?.name || props.row.user?.email} a different role there.
-                    </Typography>
-                )}
-                <TableContainer
-                    sx={{ border: 1, borderColor: theme.palette.grey[900] + 25, borderRadius: 2, overflowX: 'auto' }}
-                    component={Paper}
-                >
-                    <Table aria-label='assigned roles table'>
-                        <TableHead
-                            sx={{
-                                backgroundColor: customization.isDarkMode ? theme.palette.common.black : theme.palette.grey[100],
-                                height: 56
-                            }}
-                        >
-                            <TableRow>
-                                <StyledTableCell sx={{ width: '50%' }}>Role</StyledTableCell>
-                                <StyledTableCell sx={{ width: '50%' }}>Workspace</StyledTableCell>
-                                {editable && <StyledTableCell>&nbsp;</StyledTableCell>}
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {userRoles.map((item, index) => (
-                                <TableRow key={index}>
-                                    <StyledTableCell>
-                                        {roleLabel(item.role)}
-                                        {String(item.role?.name || '').toLowerCase() === 'owner' ? ' (read-only)' : ''}
-                                    </StyledTableCell>
-                                    <StyledTableCell>{item.workspace.name}</StyledTableCell>
-                                    {editable && (
-                                        <StyledTableCell>
-                                            {showChangeRole && (
-                                                <PermissionButton
-                                                    permissionId={'workspace:update'}
-                                                    size='small'
-                                                    variant='outlined'
-                                                    onClick={() => openRoleDialog(item)}
-                                                >
-                                                    Change
-                                                </PermissionButton>
-                                            )}
-                                        </StyledTableCell>
-                                    )}
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
-            </Box>
-            {roleDialogProps && (
-                <EditWorkspaceUserRoleDialog
-                    show={Boolean(roleDialogProps)}
-                    dialogProps={roleDialogProps}
-                    onCancel={() => setRoleDialogProps(null)}
-                    onConfirm={onRoleChanged}
-                />
-            )}
-        </Drawer>
+    const assignedRolesDrawer = open && (
+        <UserTeamAccessDrawer
+            key={`${props.row.userId}:${currentUser.activeWorkspaceId}`}
+            userId={props.row.userId}
+            userName={props.row.user.name || props.row.user.email}
+            organizationId={props.row.organizationId}
+            currentTeamId={currentUser.activeWorkspaceId}
+            allTeams={currentUser.isOrganizationAdmin || props.row.userId === currentUser.id}
+            loadAccess={userApi.getWorkspacesByOrganizationIdUserId}
+            refreshKey={accessRevision}
+            renderRoleAction={
+                editable && showChangeRole
+                    ? (membership) => (
+                          <PermissionButton
+                              permissionId='workspace:update'
+                              size='small'
+                              variant='outlined'
+                              onClick={() => openRoleDialog(membership)}
+                          >
+                              Change role
+                          </PermissionButton>
+                      )
+                    : undefined
+            }
+            onClose={() => {
+                setOpen(false)
+                setRoleDialogProps(null)
+            }}
+        />
     )
-
     const roleToggle = (
-        <PermissionIconButton
-            permissionId={'users:manage'}
-            aria-label='expand row'
-            size='small'
-            color='inherit'
-            onClick={() => handleViewUserRoles(props.row.userId, props.row.organizationId)}
-        >
-            {props.row.roleCount > 0 && open ? <IconEyeOff /> : <IconEye />}
-        </PermissionIconButton>
+        <PermissionButton permissionId='users:manage' size='small' onClick={() => handleViewUserRoles()}>
+            View team access
+        </PermissionButton>
+    )
+    const roleDialog = roleDialogProps && (
+        <EditWorkspaceUserRoleDialog
+            show
+            dialogProps={roleDialogProps}
+            onCancel={() => setRoleDialogProps(null)}
+            onConfirm={onRoleChanged}
+        />
     )
 
     const rowActions = (
@@ -201,21 +154,39 @@ function ShowUserRow(props) {
                 ) : (
                     <PermissionIconButton
                         permissionId={'workspace:unlink-user,users:manage'}
-                        title={isPendingOwnerInvite(props.row) ? 'Cancel invitation' : 'Delete'}
+                        title={isPendingInvite(props.row) ? 'Cancel invitation' : 'Delete'}
                         color='error'
-                        disabled={Boolean(props.deletingUserId)}
+                        disabled={Boolean(props.deletingUserId || props.changingAccessUserId)}
                         onClick={() => props.onDeleteClick(props.row)}
                     >
                         <IconTrash />
                     </PermissionIconButton>
                 ))}
+            {props.localUsers && canChangeUserAccess(props.row, currentUser.id) && (
+                <PermissionIconButton
+                    permissionId='users:manage'
+                    title={isUserDisabled(props.row) ? 'Reactivate user' : 'Disable user'}
+                    aria-label={isUserDisabled(props.row) ? 'Reactivate user' : 'Disable user'}
+                    color={isUserDisabled(props.row) ? 'primary' : 'warning'}
+                    disabled={Boolean(props.changingAccessUserId || props.deletingUserId)}
+                    onClick={() => props.onAccessClick(props.row)}
+                >
+                    {props.changingAccessUserId === props.row.userId ? (
+                        <CircularProgress size={20} />
+                    ) : isUserDisabled(props.row) ? (
+                        <IconUserCheck />
+                    ) : (
+                        <IconUserOff />
+                    )}
+                </PermissionIconButton>
+            )}
             {showChangeRole && (
                 <PermissionIconButton
                     permissionId={'workspace:update'}
                     title='Change role'
                     aria-label='Change role'
                     color='primary'
-                    onClick={() => handleViewUserRoles(props.row.userId, props.row.organizationId, true)}
+                    onClick={() => handleViewUserRoles(true)}
                 >
                     <IconUserCog />
                 </PermissionIconButton>
@@ -265,7 +236,7 @@ function ShowUserRow(props) {
                                 <Chip size='small' sx={{ mt: 0.5 }} label={organizationOwnerLabel(props.row, isOpenSource)} />
                             )}
                             <Stack direction='row' alignItems='center' flexWrap='wrap' sx={{ gap: 1, mt: 1 }}>
-                                <Typography variant='body2'>Assigned roles: {props.row.roleCount}</Typography>
+                                <Typography variant='body2'>Teams: {props.row.roleCount}</Typography>
                                 {roleToggle}
                                 {'ACTIVE' === props.row.status.toUpperCase() && (
                                     <Chip color={'success'} label={props.row.status.toUpperCase()} />
@@ -274,7 +245,7 @@ function ShowUserRow(props) {
                                     <Chip color={'warning'} label={props.row.status.toUpperCase()} />
                                 )}
                                 {['INACTIVE', 'DISABLE', 'DISABLED'].includes(props.row.status.toUpperCase()) && (
-                                    <Chip color={'error'} label='INACTIVE' />
+                                    <Chip color={'error'} label='DISABLED' />
                                 )}
                             </Stack>
                             <Typography variant='body2' sx={{ mt: 0.5 }}>
@@ -285,6 +256,7 @@ function ShowUserRow(props) {
                     </Stack>
                 </Paper>
                 {assignedRolesDrawer}
+                {roleDialog}
             </React.Fragment>
         )
     }
@@ -355,13 +327,14 @@ function ShowUserRow(props) {
                     {'ACTIVE' === props.row.status.toUpperCase() && <Chip color={'success'} label={props.row.status.toUpperCase()} />}
                     {'INVITED' === props.row.status.toUpperCase() && <Chip color={'warning'} label={props.row.status.toUpperCase()} />}
                     {['INACTIVE', 'DISABLE', 'DISABLED'].includes(props.row.status.toUpperCase()) && (
-                        <Chip color={'error'} label='INACTIVE' />
+                        <Chip color={'error'} label='DISABLED' />
                     )}
                 </StyledTableCell>
                 <StyledTableCell>{!props.row.lastLogin ? 'Never' : formatListDateTime(props.row.lastLogin)}</StyledTableCell>
                 <StyledTableCell>{rowActions}</StyledTableCell>
             </StyledTableRow>
             {assignedRolesDrawer}
+            {roleDialog}
         </React.Fragment>
     )
 }
@@ -370,6 +343,9 @@ ShowUserRow.propTypes = {
     row: PropTypes.any,
     onDeleteClick: PropTypes.func,
     onSessionsClick: PropTypes.func,
+    onAccessClick: PropTypes.func,
+    changingAccessUserId: PropTypes.string,
+    localUsers: PropTypes.bool,
     onResetPasswordClick: PropTypes.func,
     open: PropTypes.bool,
     theme: PropTypes.any,
@@ -399,16 +375,31 @@ const Users = () => {
     const [search, setSearch] = useState('')
     const [deletingUserId, setDeletingUserId] = useState(null)
     const deletionPending = useRef(false)
+    const accessPending = useRef(false)
+    const [changingAccessUserId, setChangingAccessUserId] = useState(null)
+    const activeScope = `${currentUser.activeOrganizationId}:${currentUser.activeWorkspaceId}`
+    const mounted = useRef(true)
+    useEffect(() => {
+        mounted.current = true
+        return () => {
+            mounted.current = false
+        }
+    }, [])
+    const scopeRef = useRef(activeScope)
+    scopeRef.current = activeScope
     const [sessionUser, setSessionUser] = useState(null)
     const [resetUser, setResetUser] = useState(null)
 
     useEffect(() => {
         setResetUser(null)
+        setSessionUser(null)
+        setChangingAccessUserId(null)
     }, [currentUser.activeOrganizationId, currentUser.activeWorkspaceId])
 
     const { confirm } = useConfirm()
 
-    const getAllUsersByOrganizationIdApi = useApi(userApi.getAllUsersByOrganizationId)
+    const getAllUsersByOrganizationIdApi = useApi(userApi.getAllUsersByOrganizationId, { currentOnly: true })
+    const signInOptionsApi = useApi(userApi.getSignInOptions, { localUnavailable: true })
 
     const onSearchChange = (event) => {
         setSearch(event.target.value)
@@ -433,9 +424,9 @@ const Users = () => {
     }
 
     const deleteUser = async (row) => {
-        if (deletionPending.current || !canRemoveOrganizationUser(row, currentUser.id)) return
+        if (deletionPending.current || accessPending.current || !canRemoveOrganizationUser(row, currentUser.id)) return
         deletionPending.current = true
-        const pendingOwner = isPendingOwnerInvite(row)
+        const pendingInvite = isPendingInvite(row)
         const confirmPayload = removalConfirmation(row)
         try {
             const isConfirmed = await confirm(confirmPayload)
@@ -444,8 +435,8 @@ const Users = () => {
                 const deleteResp = await removeOrganizationUser(row, onConfirm, userApi.deleteOrganizationUser)
                 if (deleteResp.data) {
                     enqueueSnackbar({
-                        message: pendingOwner
-                            ? 'Pending owner invitation canceled and invite links revoked'
+                        message: pendingInvite
+                            ? 'Invitation canceled and invite links revoked'
                             : 'User removed from organization successfully',
                         options: {
                             key: new Date().getTime() + Math.random(),
@@ -480,15 +471,59 @@ const Users = () => {
         }
     }
 
+    const changeUserAccess = async (row) => {
+        if (accessPending.current || deletionPending.current || !canChangeUserAccess(row, currentUser.id)) return
+        accessPending.current = true
+        const scope = activeScope
+        const enabling = isUserDisabled(row)
+        let attempted = false
+        try {
+            const accepted = await confirm(accessConfirmation(row))
+            if (!accepted || !mounted.current || scopeRef.current !== scope) return
+            setChangingAccessUserId(row.userId)
+            attempted = true
+            const response = await (enabling ? userApi.enableUser : userApi.disableUser)(row.userId)
+            if (!mounted.current || scopeRef.current !== scope) return
+            if (response.data?.disabled !== !enabling) throw new Error('Unconfirmed access change')
+            enqueueSnackbar({
+                message: enabling
+                    ? 'User reactivated. Existing roles and team assignments are kept.'
+                    : 'User disabled. Sessions, links and owned access keys have been revoked.',
+                options: { variant: 'success' }
+            })
+        } catch (error) {
+            if (mounted.current && scopeRef.current === scope)
+                enqueueSnackbar({
+                    message:
+                        error.response?.data?.message ||
+                        'The access change could not be confirmed. Refresh the user list before trying again.',
+                    options: { variant: 'error', persist: true }
+                })
+        } finally {
+            try {
+                if (attempted && mounted.current && scopeRef.current === scope)
+                    await getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
+            } finally {
+                accessPending.current = false
+                if (mounted.current) setChangingAccessUserId(null)
+            }
+        }
+    }
+
     const onConfirm = () => {
         setShowInviteDialog(false)
         return getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
     }
 
     useEffect(() => {
-        getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
+        signInOptionsApi.request()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+        getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser.activeOrganizationId, currentUser.activeWorkspaceId])
 
     useEffect(() => {
         setLoading(getAllUsersByOrganizationIdApi.loading)
@@ -566,13 +601,16 @@ const Users = () => {
                                 ) : (
                                     users
                                         .filter(filterUsers)
-                                        .map((item, index) => (
+                                        .map((item) => (
                                             <ShowUserRow
-                                                key={index}
+                                                key={item.userId}
                                                 narrow
                                                 row={item}
                                                 onDeleteClick={deleteUser}
                                                 onSessionsClick={setSessionUser}
+                                                onAccessClick={changeUserAccess}
+                                                changingAccessUserId={changingAccessUserId}
+                                                localUsers={signInOptionsApi.data?.localUsers === true}
                                                 onResetPasswordClick={setResetUser}
                                                 deletingUserId={deletingUserId}
                                             />
@@ -600,7 +638,7 @@ const Users = () => {
                                                     <TableRow>
                                                         <StyledTableCell>&nbsp;</StyledTableCell>
                                                         <StyledTableCell>Email/Name</StyledTableCell>
-                                                        <StyledTableCell>Assigned Roles</StyledTableCell>
+                                                        <StyledTableCell>Teams</StyledTableCell>
                                                         <StyledTableCell>Status</StyledTableCell>
                                                         <StyledTableCell>Last Login</StyledTableCell>
                                                         <StyledTableCell> </StyledTableCell>
@@ -649,12 +687,15 @@ const Users = () => {
                                                         </>
                                                     ) : (
                                                         <>
-                                                            {users.filter(filterUsers).map((item, index) => (
+                                                            {users.filter(filterUsers).map((item) => (
                                                                 <ShowUserRow
-                                                                    key={index}
+                                                                    key={item.userId}
                                                                     row={item}
                                                                     onDeleteClick={deleteUser}
                                                                     onSessionsClick={setSessionUser}
+                                                                    onAccessClick={changeUserAccess}
+                                                                    changingAccessUserId={changingAccessUserId}
+                                                                    localUsers={signInOptionsApi.data?.localUsers === true}
                                                                     onResetPasswordClick={setResetUser}
                                                                     deletingUserId={deletingUserId}
                                                                 />

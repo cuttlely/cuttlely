@@ -1166,6 +1166,7 @@ async function membershipRows(sql: Sql, where: string, params: unknown[]): Promi
     const rows = await sql.query(
         `SELECT wu.${q(sql, 'workspaceId')} AS workspaceId, wu.${q(sql, 'userId')} AS userId, wu.${q(sql, 'status')} AS status,
                 wu.${q(sql, 'lastLogin')} AS lastLogin, u.${q(sql, 'name')} AS userName, u.${q(sql, 'email')} AS email,
+                u.${q(sql, 'status')} AS userStatus, ou.${q(sql, 'status')} AS orgStatus,
                 r.${q(sql, 'id')} AS roleId, r.${q(sql, 'name')} AS roleName,
                 w.${q(sql, 'id')} AS teamId, w.${q(sql, 'name')} AS teamName, w.${q(sql, 'organizationId')} AS organizationId,
                 orgRole.${q(sql, 'name')} AS orgRoleName
@@ -1184,13 +1185,22 @@ async function membershipRows(sql: Sql, where: string, params: unknown[]): Promi
         .map((row) => ({
             workspaceId: text(cell(row, 'workspaceId')),
             userId: text(cell(row, 'userId')),
-            status: text(cell(row, 'status')),
+            status: membershipDisplayStatus(cell(row, 'userStatus'), cell(row, 'orgStatus'), cell(row, 'status')),
             lastLogin: iso(cell(row, 'lastLogin')),
             isOrgOwner: text(cell(row, 'orgRoleName')).toLowerCase() === OWNER_ROLE,
             user: { id: text(cell(row, 'userId')), name: text(cell(row, 'userName')), email: text(cell(row, 'email')) },
             role: { id: text(cell(row, 'roleId')), name: text(cell(row, 'roleName')) },
             workspace: { id: text(cell(row, 'teamId')), name: text(cell(row, 'teamName')) }
         }))
+}
+
+/** Account and organization state take precedence over an otherwise active team assignment. */
+function membershipDisplayStatus(user: unknown, organization: unknown, team: unknown): string {
+    const statuses = [user, organization, team].map((value) => text(value).toLowerCase())
+    if (statuses[0] === 'deleted') return 'deleted'
+    if (statuses.some((status) => ['disable', 'disabled', 'inactive'].includes(status))) return 'disable'
+    if (statuses.includes('invited')) return 'invited'
+    return statuses.every((status) => status === 'active') ? 'active' : 'inactive'
 }
 
 export async function listWorkspaceMemberships(

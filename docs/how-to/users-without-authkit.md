@@ -10,6 +10,12 @@ The owner-only password form also requires `CUTTLELY_LOCAL_ADMIN`, but `/signin`
 
 **Admin** > **Users** lists the people on this server. Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.
 
+**View team access** on a person's row shows their teams, role in each team, effective account status and last login. The current team is marked. An organization owner can view all teams in the organization; other administrators see the current team for another person. **Change role** applies only to the selected team. The Roles page's assignment counts refer to the current team.
+
+With local user login enabled, **Disable user** suspends an account without deleting its flows, team assignments or roles. Confirming ends its local sessions, revokes invite/reset links and disables its owned access keys; automations using those keys may stop. **Reactivate user** allows sign-in again but does not restore sessions, links or keys. A pending invitation still needs acceptance. These actions require `users:manage`, and the server checks team scope and owner protections. The UI keeps owners and your own account protected from these actions.
+
+An invited or disabled account is shown that way inside its teams even if its stored team assignment is active. **Change invitation role** changes a pending person's team role without adding another membership or accepting their invitation. **Cancel invitation** in Users revokes its links; cancellation is refused if the person has already accepted.
+
 ![User Management. The note says Owner, Admin, Builder, and Viewer are built-in. Rosa Diaz is Super User, read-only. Ada Baker's Assigned Roles drawer shows Admin on Default Workspace. Cam Diaz and Bea Chen are in the list. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/users/users-list.png)
 
 **Sessions** on a row lists that person's open sign-ins. The list shows when the sign-in started and when it goes idle. It does not include cookies or tokens.
