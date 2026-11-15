@@ -1,5 +1,6 @@
 ## 1.7.6 release documentation
 
+-   `.github/workflows/release-prepare.yml`: exact-head full verification and a read-only, validated local release bundle. `docs/releases.md#prepare-on-a-fresh-ci-runner` covers resuming publication from its artifact.
 -   `packages/components/models.json` and `docs/reference/model-list.md`: reviewed Together AI Kimi K3 standard price estimates and the primary source.
 -   `CHANGELOG.md`: planned release scope, merged change references, upgrade effects and the remaining GitHub-copy limitation.
 -   `README.md`, `README.ja.md`, `README.ko.md`, `FAQ.md`, `docs/README.md` and `docs/how-to/README.md`: current release and task entry points.

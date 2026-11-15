@@ -2,6 +2,8 @@
 
 The release scope is the work merged after 1.7.5: automatic import samples and unpublished harness chat ([#498](https://github.com/cuttlely/cuttlely/pull/498)), preview conversation state outside runnable profiles ([#499](https://github.com/cuttlely/cuttlely/pull/499)), password reset links ([#500](https://github.com/cuttlely/cuttlely/pull/500)), and local user/team lifecycle ([#501](https://github.com/cuttlely/cuttlely/pull/501)). README translations, install examples, FAQ, release and upgrade guides, import and user how-tos, and the website hero describe that scope. `CHANGELOG.md` has a planned 1.7.6 section. The release command owns the four product-version bumps, date and annotated tag. The model-list review also aligns both Together AI Kimi K3 entries with the provider's published standard token rates; provider integrations and default models are unchanged.
 
+The manual Release preparation workflow provides exact-head full verification and, on main, the standard local release command with a start-and-ping image check. It exports a validated Git bundle and full report with read-only repository permissions; it performs no remote publication. Its own changes receive full-gate pull-request verification.
+
 Release checks remain distinct: run the full gate on a clean, synchronized main, then verify the tag's image workflow and versioned registry image, publish the GitHub release, and publish the matching npm packages from the tag. Check the deployed website and package READMEs. Do not infer publication from prepared documentation. The existing GitHub-copy same-content conflict limitation remains documented; no fix is claimed. Existing backup/operator requirements and default-Off enforcement are unchanged.
 
 ## Local user and team lifecycle
