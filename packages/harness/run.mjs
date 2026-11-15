@@ -71,7 +71,6 @@ import {
     takeAnalystResults
 } from './analyst-capture.mjs'
 import {
-    abortGatewayProfile,
     clearCallerWorkspace,
     noteCallerFlowOptions,
     setGatewayContext,
@@ -3222,10 +3221,9 @@ async function runHermesSpecialist(context, specialist, task) {
                 .catch(() => {})
         )
     }
-    const cancel = () => {
-        abortGatewayProfile(specialist.profileName)
-        stopCurrentRun()
-    }
+    // Stop this exact runtime run. Its request socket closing cancels its gateway
+    // model call; aborting by profile would also cancel other chats on this specialist.
+    const cancel = () => stopCurrentRun()
     if (context.workSignal?.aborted) cancel()
     const onAbort = () => cancel()
     context.workSignal?.addEventListener('abort', onAbort, { once: true })

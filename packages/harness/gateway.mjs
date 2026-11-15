@@ -45,7 +45,6 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
 const tokens = new Map()
 const servers = []
-const inflight = new Set()
 const callerContexts = new Map()
 let tokensLoaded = false
 let contextFor = null
@@ -256,21 +255,8 @@ export function startGateway(options = {}) {
     })
 }
 
-export function trackGatewayCall(profileName, controller) {
-    const entry = { profileName, controller }
-    inflight.add(entry)
-    return () => inflight.delete(entry)
-}
-
-export function abortGatewayProfile(profileName) {
-    for (const entry of inflight) {
-        if (!profileName || entry.profileName === profileName) entry.controller.abort()
-    }
-}
-
-function bindRequest(req, res, profileName) {
+function bindRequest(req, res) {
     const controller = new AbortController()
-    const release = trackGatewayCall(profileName, controller)
     // `req` `close` also fires after a normal body read. Abort only when the client leaves early.
     const abort = () => {
         if (!res.writableEnded) controller.abort()
@@ -280,7 +266,6 @@ function bindRequest(req, res, profileName) {
     return {
         signal: controller.signal,
         release() {
-            release()
             res.off('close', abort)
             req.off('aborted', abort)
         }
@@ -805,7 +790,7 @@ async function completeChat(req, res, meta) {
     assertStillValid(meta)
     const primary = modelBinding(record, meta.specialistName)
     const fallback = fallbackBinding(record, meta.specialistName)
-    const bound = bindRequest(req, res, meta.profileName)
+    const bound = bindRequest(req, res)
     let result
     try {
         result = await withModelFallback({
