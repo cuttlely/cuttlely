@@ -1,3 +1,13 @@
+## 1.7.6 release documentation
+
+-   `packages/components/models.json` and `docs/reference/model-list.md`: reviewed Together AI Kimi K3 standard price estimates and the primary source.
+-   `CHANGELOG.md`: planned release scope, merged change references, upgrade effects and the remaining GitHub-copy limitation.
+-   `README.md`, `README.ja.md`, `README.ko.md`, `FAQ.md`, `docs/README.md` and `docs/how-to/README.md`: current release and task entry points.
+-   `docs/how-to/import-verify.md`: automatic samples, unpublished preview steps, verification limits and actionable failure cases.
+-   `docs/how-to/users-without-authkit.md`: team access, Disable/Reactivate, invitation roles and one-time reset links.
+-   `docs/releases.md`, `docs/upgrading.md`, package READMEs and Docker/embed examples: matching release pins and upgrade guidance.
+-   `website/src/components/Hero.astro` and `website/src/guides/flowise-import/guide.md`: release summary and pinned guide links. Generated site documentation comes from its sync script.
+
 ## Local user and team lifecycle
 
 -   `packages/server/src/identity/directory.ts` and `.test.ts`: effective membership display state, current-team capability metadata, disable/reactivate preservation and revoked access remaining revoked.
