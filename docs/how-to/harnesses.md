@@ -189,6 +189,8 @@ An orange triangle on a card means that node was saved with an older version of 
 
 ## Test it in the canvas chat
 
+You can try a new unpublished team from its signed-in canvas before the first Publish. Draft conversations stay separate from runnable profiles. Imported teams should complete [Import & verify](./import-verify.md) and be tried with representative questions before publishing. External API and access-key runs continue to use a published harness.
+
 The chat button at the top right of a saved harness canvas runs the draft when one exists, and Live otherwise. Save the draft before you chat. Unsaved changes are not used. `POST /api/v1/harnesses/<name>/runs` is the external route and stays on Live until you **Publish**.
 
 1. Select the chat button (**Chat**).

@@ -2,7 +2,9 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
-Version **1.7.5** is a patch that fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491), Import & verify reporting false output contract mismatches (#494), and Import & verify reporting untested contracts as mismatches (#495). It also lets Version History connect a GitHub repository that already has files or commits (#482). It adds no schema migration and changes no configuration. Version **1.7.4** covered analyst tool readiness, Auto for Analyst storage that was never set, credential rebind on harness import (including a nested credential id and an empty credential slot), **Import & verify** for imported flows and harnesses, and a fresh-install Try the demo save. It added one startup migration (a nullable `importVerify` column on `flow_version_state`). The four product manifests are prepared together; publication and availability are separate maintainer checks. Version **1.7.3** covered the no-answer canvas message, import of flows whose edge target handles carry type segments, quiet retries while editing, a save queue for existing draft and Live saves without new file data, and 65-second keep-alive defaults behind a reverse proxy. Version **1.7.0** uses the security exception below. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default, including for 1.7.5. The support row describes the 1.7.x release line. Tag, image and npm availability are checked separately by the release procedure below. The release tool dates the changelog when cutting the release.
+Version **1.7.6** improves automatic test inputs in **Import & verify**, lets signed-in people try an unpublished harness before its first Publish, and keeps draft conversation state separate from runnable profiles. **User Management** offers one-time password reset links, Disable/Reactivate and **View team access**. Team lists show pending and disabled accounts correctly, and pending invitation role edits update the existing membership. It adds no schema migration and does not change sign-in configuration, stored role assignments or the enforcement mode. [Import and verify](./how-to/import-verify.md) · [Users and teams](./how-to/users-without-authkit.md).
+
+Version **1.7.5** is a patch that fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491), Import & verify reporting false output contract mismatches (#494), and Import & verify reporting untested contracts as mismatches (#495). It also lets Version History connect a GitHub repository that already has files or commits (#482). It adds no schema migration and changes no configuration. Version **1.7.4** covered analyst tool readiness, Auto for Analyst storage that was never set, credential rebind on harness import (including a nested credential id and an empty credential slot), **Import & verify** for imported flows and harnesses, and a fresh-install Try the demo save. It added one startup migration (a nullable `importVerify` column on `flow_version_state`). The four product manifests are prepared together; publication and availability are separate maintainer checks. Version **1.7.3** covered the no-answer canvas message, import of flows whose edge target handles carry type segments, quiet retries while editing, a save queue for existing draft and Live saves without new file data, and 65-second keep-alive defaults behind a reverse proxy. Version **1.7.0** uses the security exception below. Back up first and plan the explicit legacy-install panel claim with host-log proof described in [Upgrading](./upgrading.md); only actual verified host CLI bindings grandfather as the default operator; the CLI is emergency recovery. Access-key enforcement remains off by default, including for 1.7.6. The support row describes the 1.7.x release line. Tag, image and npm availability are checked separately by the release procedure below. The release tool dates the changelog when cutting the release.
 
 ## Versions
 
@@ -108,6 +110,39 @@ For workflow checks that do not move `:latest`, push a `ci-dryrun-*` tag or star
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --publish` after a draft run. If the image wait times out, inspect `.github/workflows/release-image.yml` and run the same command again after the image is available.
 
 The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
+
+## Prepare on a fresh CI runner
+
+When a maintainer machine cannot run the full gate, **Release preparation** (`.github/workflows/release-prepare.yml`) provides a fresh-runner fallback. It has read-only repository permissions. It does not push commits or tags, publish a GitHub release or image, or publish npm packages.
+
+To verify a pushed branch without preparing a release:
+
+```bash
+gh workflow run release-prepare.yml --ref your-branch -F prepare=false -f version=1.7.6
+```
+
+The workflow also runs the full gate when its own file or the release tool changes in a pull request. Its verification artifact records the exact checked-out commit, mode and result.
+
+After the documentation is merged and `main` is ready, prepare the release:
+
+```bash
+gh workflow run release-prepare.yml --ref main -F prepare=true -f version=1.7.6
+```
+
+This runs the normal `pnpm release 1.7.6 --local` command: full verification, the four version bumps, changelog date, release commit, annotated tag, local image build and start-and-ping check. It validates the passing full report against the source commit, checks the release commit's parent, tag and version files, and exports a small Git bundle plus metadata. The release commit may change only the four manifests and changelog. Artifacts are kept for seven days.
+
+Download `release-preparation-1.7.6` from that successful run. Read `metadata.json` and `verify-report.json`: `source` must equal the current `origin/main`, and the report must have that head, `mode: full` and `ok: true`. If main changed, prepare again. From a clean main synchronized with origin:
+
+```bash
+release_artifacts=$(mktemp -d)
+gh run download RUN_ID --name release-preparation-1.7.6 --dir "$release_artifacts"
+git bundle verify "$release_artifacts/release.bundle"
+git fetch "$release_artifacts/release.bundle" refs/tags/v1.7.6:refs/tags/v1.7.6
+git merge --ff-only 'v1.7.6^{commit}'
+pnpm release 1.7.6 --publish
+```
+
+The last command uses the release tool's existing resume path for the verified local commit and tag, then performs the normal atomic push, image-workflow wait and GitHub publication. Repository protection still applies; do not force main or move a published tag. npm publication remains the separate [tag-based step](#publish-the-npm-packages).
 
 ## Docs and site sync
 

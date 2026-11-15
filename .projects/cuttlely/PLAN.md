@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **Local user and team lifecycle (in progress).** Effective invite/disabled state, guarded Disable/Reactivate controls, a scoped per-person Team access view and correct pending-role editing are implemented. Focused tests and fixture browser QA pass; exact-head full verification, remote CI and deployed checks remain required.
+-   **1.7.6 release.** Documentation and examples cover #498–#501. Complete the clean-main release command, image and GitHub checks, npm publication from the annotated tag, and live-site/package README checks. Publication is separate from preparation.
+
+-   **Local user and team lifecycle (done).** Landed as `0f7b89a1` ([#501](https://github.com/cuttlely/cuttlely/pull/501)). Effective invite/disabled state, guarded Disable/Reactivate, per-person team access, current-team capability metadata and pending-role editing passed fresh PR CI and deployed fixture/read-only QA. No real account or role changes were made during those checks.
 
 -   **User Management password reset (done).** Landed as `17d41830` ([#500](https://github.com/cuttlely/cuttlely/pull/500)). Full final-head verification, CI and deployed desktop/mobile UI checks passed.
 

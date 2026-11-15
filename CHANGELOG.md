@@ -2,15 +2,27 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.6] - Unreleased
+
+### Changed
+
+-   Maintainers can run full verification and local release preparation on a fresh CI runner. The read-only workflow returns a checked Git bundle and report; publication still uses the release tool's normal resume path. [Release preparation](./docs/releases.md#prepare-on-a-fresh-ci-runner).
 
 ### Fixed
 
--   Local user administration now shows pending and disabled account states consistently inside teams. Users offers guarded Disable/Reactivate actions and a labeled team-access view with per-team role, status, last login and current-team scope. Pending invitation role edits update the existing assignment, and invitation cancellation keeps the acceptance-race guard. The Roles page labels assignment counts as current-team counts. Stored role assignments are preserved.
--   User Management now offers **Reset password** for active non-owner accounts to callers with `users:manage`. The dialog uses the existing one-time reset link service, reports email delivery, and supports copying the link without mail configuration. Team, identity-provider, owner, and permission restrictions remain enforced by the server; sessions end when the user saves their new password.
--   Previewing a newly imported unpublished Harness keeps its conversation state outside runnable profiles, so preview chat no longer creates an unowned profile that blocks its first Publish. Draft state is isolated by canvas and workspace and is removed after its canvas is deleted. Existing published session paths and profile ownership guards are preserved.
--   Import & verify now normalizes date samples, generates required calendar and numeric test inputs, and samples parameters used through SQL expressions from referenced columns on selected tables. Optional filters stay unset unless they have an authored default. Existing query validation, output contracts, and publication gates remain in force.
--   Signed-in users can test a new unpublished Harness canvas before it has a Live roster. Admission checks the canvas workspace and name ownership; external and access-key runs still require the published harness.
+-   Together AI Kimi K3 standard token-price estimates now use $3 input and $15 output per million tokens in both chat and completion lists, matching the provider's published rates. Existing price overrides still take precedence. [Model prices](./docs/reference/model-list.md#176-price-review).
+-   **#501 (`0f7b89a1`):** Local user administration now shows pending and disabled account states consistently inside teams. Users offers guarded Disable/Reactivate actions and a labeled team-access view with per-team role, status, last login and current-team scope. Pending invitation role edits update the existing assignment, and invitation cancellation keeps the acceptance-race guard. The Roles page labels assignment counts as current-team counts. Stored role assignments are preserved.
+-   **#500 (`17d41830`):** User Management now offers **Reset password** for active non-owner accounts to callers with `users:manage`. The dialog uses the existing one-time reset link service, reports email delivery, and supports copying the link without mail configuration. Team, identity-provider, owner, and permission restrictions remain enforced by the server; sessions end when the user saves their new password.
+-   **#499 (`a4588106`):** Previewing a newly imported unpublished Harness keeps its conversation state outside runnable profiles, so preview chat no longer creates an unowned profile that blocks its first Publish. Draft state is isolated by canvas and workspace and is removed after its canvas is deleted. Existing published session paths and profile ownership guards are preserved.
+-   **#498 (`d8c7d095`):** Import & verify now normalizes date samples, generates required calendar and numeric test inputs, and samples parameters used through SQL expressions from referenced columns on selected tables. Optional filters stay unset unless they have an authored default. Existing query validation, output contracts, and publication gates remain in force.
+-   **#498 (`d8c7d095`):** Signed-in users can test a new unpublished Harness canvas before it has a Live roster. Admission checks the canvas workspace and name ownership; external and access-key runs still require the published harness.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and does not change the selected sign-in method, stored role assignments or access-key enforcement. Enforcement remains Off by default. Use matching 1.7.6 server and widget versions.
+-   New unpublished previews no longer leave runnable-profile blockers. Unowned files left by an earlier build are not removed automatically; use a new unused harness name or ask the instance operator to inspect them. [Upgrade guide](./docs/upgrading.md#upgrading-to-176).
+-   Disabling a local account ends its sessions, revokes invite/reset links and disables its owned access keys. Reactivation preserves roles but does not restore those sessions, links or keys. [Users and teams](./docs/how-to/users-without-authkit.md).
+-   The narrow Version History GitHub-copy limitation documented in 1.7.5 remains: a remote edit to a copied path that exactly matches the next local version is not yet detected. This release does not claim that follow-up is fixed.
 
 ## [1.7.5] - 2026-11-14
 

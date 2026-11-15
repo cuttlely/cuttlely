@@ -2,7 +2,7 @@
 
 Use this when several people sign in with email and password on a server you run, and you are not using WorkOS AuthKit. It is off until you turn it on. The first owner is still created with the setup code. There is no default password.
 
-Inviting someone in the app creates a pending (`invited`) user with no password. Only that person's one-time invite link makes them active: here it lets them choose a password, and with AuthKit on it lets them sign in with WorkOS. With Local active, **Add User** requests that link and shows it once. It is as strong as a password: do not share it, and do not paste it into a chat. If it is lost, issue a new one. The old one stops working.
+Inviting someone in the app creates a pending (`invited`) user with no password. Only that person's one-time invite link makes them active: here it lets them choose a password, and with AuthKit on it lets them sign in with WorkOS. With Local active, **Add User** requests that link and shows it once. It is as strong as a password: send it only to the invited person, do not share it publicly, and do not paste it into a chat. If it is lost, issue a new one. The old one stops working.
 
 In **User Management**, an active organization owner, or an Admin (the built-in Admin role or a role with `users:manage`), can cancel a pending invitation, including another person's pending owner invitation, using its trash action. The confirmation names the email and revokes the invitation's links across the organization's teams. The server rechecks the actor and pending status under its removal lock. Removing an active or disabled person from every team stays limited to an active organization owner. If the invitation was already accepted, cancellation is refused; refresh the list. Self-removal and removal of the last active owner are refused too. Active owners remain **Super User, read-only**, without trash or **Change role** actions.
 
@@ -10,9 +10,25 @@ The owner-only password form also requires `CUTTLELY_LOCAL_ADMIN`, but `/signin`
 
 **Admin** > **Users** lists the people on this server. Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.
 
+## Review a person's team access
+
+1. Open **Admin > Users** and find the person.
+2. Select **View team access**. Check the team, role, status and last login; the current team is marked.
+3. To change a role, close that view, select **Change role** on the person's row, and choose the team to change. Owner assignments stay read-only.
+
 **View team access** on a person's row shows their teams, role in each team, effective account status and last login. The current team is marked. An organization owner can view all teams in the organization; other administrators see the current team for another person. **Change role** applies only to the selected team. The Roles page's assignment counts refer to the current team. Password, session and disable/reactivate controls require membership in the current team; if the person belongs to a different team, switch with the team selector first.
 
+## Disable or reactivate a local user
+
+1. In **Admin > Users**, select **Disable user** on an eligible person's row. Your own account and owners are protected.
+2. Read the confirmation, including the effect on access keys and automations, then confirm. The directory refreshes to show **DISABLED**.
+3. When access is needed again, select **Reactivate user** and confirm. Restore any required access keys separately; reactivation does not revive them.
+
 With local user login enabled, **Disable user** suspends an account without deleting its flows, team assignments or roles. Confirming ends its local sessions, revokes invite/reset links and disables its owned access keys; automations using those keys may stop. **Reactivate user** allows sign-in again but does not restore sessions, links or keys. A pending invitation still needs acceptance. These actions require `users:manage`, and the server checks team scope and owner protections. The UI keeps owners and your own account protected from these actions.
+
+## Change or cancel a pending invitation
+
+Open **Teams**, choose the team and its people, then select **Change invitation role** for the pending person. This updates their existing assignment. To cancel the invitation instead, open **Admin > Users** and use **Cancel invitation** on that person's row. Refresh if they accepted while you were reviewing it.
 
 An invited or disabled account is shown that way inside its teams even if its stored team assignment is active. **Change invitation role** changes a pending person's team role without adding another membership or accepting their invitation. **Cancel invitation** in Users revokes its links; cancellation is refused if the person has already accepted.
 
@@ -55,6 +71,8 @@ AuthKit links an existing active user when the email AuthKit sends is verified a
 `GET /api/v1/auth/options` reports the switch. After it completes, `status.localSessions` is `ended` and `status.localPasswordSignIn` is false. `status.sessionsEnded` is how many sessions the method change ended. The field names are in the [Auth API](../reference/auth-api.md#turning-authkit-on).
 
 ## Invite and reset links
+
+### Reset a local user's password
 
 To reset an existing local user's password, open **Admin > Users**, choose the key action (**Reset password**) on their row, then **Generate reset link**. Copy the link and send it privately to that person. If mail delivery is configured, Cuttlely also emails the link and the dialog reports whether it was sent. The user opens the link and chooses a new password; their existing sessions end only after that password is saved. Closing the dialog discards its copy. Generate a new link if needed; the previous link for that team stops working.
 
