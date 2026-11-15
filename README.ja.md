@@ -27,9 +27,9 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.7.5 は、フォローアッププロンプトがサポートされていない temperature 値を送信する問題と、Import & verify が未テストまたは誤った出力契約の不一致を報告する問題を修正します。** 保存値が空または有限数値でない場合は省略します。OpenAI の推論モデルが temperature を受け付けない場合も省略します。Import & verify は大きなフローでも保存済みクエリをすべてテストし、各出力契約をその新しい結果と照合します。スキップまたは未テストの契約は未テストとして報告され、PDF の確認には同梱のエージェントランタイムの Python ライブラリを使います。
+**1.7.6 では、インポートしたエージェントチームの検証とローカルユーザーの管理を改善しました。** **Import & verify** は保存済みクエリの日付・期間・数値のテスト値を安全に選び、未公開の harness は最初の Publish 前に試せます。**User Management** にはパスワード再設定リンク、Disable/Reactivate、**View team access** が加わりました。保留中の招待は正しい状態で表示され、再招待せずにチームのロールを変更できます。[インポートと検証](./docs/how-to/import-verify.md) · [ユーザーとチームの管理](./docs/how-to/users-without-authkit.md)。
 
-最新の安定版は **1.7.5** です。イメージ `1.7.5` を指定するか、`cuttlely@1.7.5` をインストールしてください。[1.7.5 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.5) · [変更履歴](./CHANGELOG.md)。
+最新の安定版は **1.7.6** です。イメージ `1.7.6` を指定するか、`cuttlely@1.7.6` をインストールしてください。[1.7.6 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6) · [変更履歴](./CHANGELOG.md)。
 
 **1.7.0 はセキュリティ例外リリースです。以前のバージョンからアップグレードする場合は、作業が必要です。** データベース、暗号化キー、設定をバックアップし、ブラウザー管理から締め出されないように、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を読んでください。ホストログのワンタイムコードによる申請、`CUTTLELY_INSTANCE_OPERATOR`、アクセスキーの適用が既定でオフのままであることなど、チェックリストの全体は[アップグレード時の注意](./docs/upgrading.md)（「1.7.0 security-exception upgrade」の節）と[変更履歴](./CHANGELOG.md)にあります。セットアップコードが作成するのは最初のアカウントだけで、ホスト側のローカルサインインがあらかじめオンになっている必要があります（Docker と `npx cuttlely start` は既定でオンにします）。このコードでサービスを設定したり、インスタンスオペレーターを指定したりはできません。[サインイン](./docs/how-to/sign-in.md) · [最初の 10 分](#your-first-10-minutes)。
 

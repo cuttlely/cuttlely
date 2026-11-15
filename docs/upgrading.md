@@ -4,6 +4,16 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.6
+
+Back up the application database, encryption key and settings first. Use matching 1.7.6 server and widget packages. This patch adds no schema migration, keeps stored roles and memberships, and does not change your selected sign-in method or enforcement mode. Enforcement remains **Off** by default.
+
+-   **Imported queries.** Import & verify chooses required date, calendar and numeric test inputs automatically. Optional filters without defaults stay unset. Imported test stamps are still untrusted: run [Import & verify](./how-to/import-verify.md) on the target server and resolve every required check before Publish.
+-   **Unpublished harness previews.** New draft previews keep their conversation state outside runnable profiles. Files left by previews on an older build are not deleted automatically. If Publish reports an unowned leftover profile, use a new unused harness name or ask the instance operator to inspect it; do not delete unattributed files blindly.
+-   **User administration.** Password reset links and account controls retain the existing server permissions and owner protections. **Disable user** ends local sessions, revokes invite/reset links and disables the user's access keys. Automations using those keys may stop. **Reactivate user** preserves roles but does not restore those sessions, links or keys. Review [Users without AuthKit](./how-to/users-without-authkit.md) before using these actions.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from earlier versions. Installing this patch does not enable local users, mail delivery or access-key enforcement.
+
 ## Upgrading to 1.7.5
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.5 server and widget versions. This patch fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491). It also fixes Import & verify reporting false output contract mismatches (#494) and reporting untested contracts as mismatches (#495). Version History can now connect a GitHub repository that already has files or commits (#482); an existing connection keeps working, and the server takes ownership only of paths its own copied commits wrote. It adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains **Off** by default.

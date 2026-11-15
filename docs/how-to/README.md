@@ -2,6 +2,13 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.6
+
+-   **Import and verify with automatic inputs.** Required dates, calendar periods and numeric inputs are selected from defaults, the query and bounded samples of selected tables. Optional filters without defaults stay unset. A query that cannot be tested safely stays unverified. [Import and verify](./import-verify.md).
+-   **Try an imported team before Publish.** Signed-in canvas chat can run an unpublished harness. Its draft conversation state stays separate from runnable profiles, so a preview does not block the first Publish. External runs still need a published team. [Harnesses](./harnesses.md).
+-   **Reset local passwords.** Generate a one-time reset link in User Management, copy it privately, or have configured mail deliver it. The server still checks team, permission, identity-provider and owner restrictions. [Users without AuthKit](./users-without-authkit.md#reset-a-local-users-password).
+-   **Manage people across teams.** View each person's teams, roles, status and last login; disable or reactivate a local account; and change or cancel a pending invitation. Role assignments are preserved, and disabled sessions, links and keys are not restored on reactivation. [Manage users and teams](./users-without-authkit.md).
+
 ## New in 1.7.5
 
 -   Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history, and a GitHub change to a path this server copied stops the copy instead of overwriting it. [Version History](./versioning.md).
