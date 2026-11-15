@@ -1,3 +1,11 @@
+## Local user and team lifecycle
+
+-   `packages/server/src/identity/directory.ts` and `.test.ts`: effective membership display state, disable/reactivate preservation and revoked access remaining revoked.
+-   `packages/ui/src/views/users/UserTeamAccessDrawer.jsx` and `.test.js`: scoped team/role/status/last-login view with late-response guards and retry.
+-   `packages/ui/src/views/users/TeamMemberships.test.js`: pending and disabled badges, pending owner display and role editing without duplicate membership creation.
+-   `packages/ui/src/views/users/index.test.js` and `userActions.test.js`: confirmation, duplicate prevention, scope changes, refusals, local-mode availability and conditional invitation cancellation.
+-   `docs/how-to/users-without-authkit.md`: team access and disable/reactivate effects.
+
 ## User Management password reset
 
 -   `packages/ui/src/views/users/ResetPasswordDialog.jsx` and `.test.js`: explicit generation, copy/email status, pending guard, refusals and link lifetime in the UI.

@@ -28,7 +28,9 @@
 
 ## Next concrete tasks
 
--   **User Management password reset (in progress).** The Users row now exposes the existing one-time reset-link service with explicit generation, copy/email status and server-enforced restrictions. Focused UI and identity tests pass; exact-head full verification, CI and deployed UI inspection remain required.
+-   **Local user and team lifecycle (in progress).** Effective invite/disabled state, guarded Disable/Reactivate controls, a scoped per-person Team access view and correct pending-role editing are implemented. Focused tests and fixture browser QA pass; exact-head full verification, remote CI and deployed checks remain required.
+
+-   **User Management password reset (done).** Landed as `17d41830` ([#500](https://github.com/cuttlely/cuttlely/pull/500)). Full final-head verification, CI and deployed desktop/mobile UI checks passed.
 
 -   **Unpublished Harness session storage (done).** Landed as `a4588106` ([#499](https://github.com/cuttlely/cuttlely/pull/499)). Final committed-head full verification and CI passed. Deployed draft preview, first publication and a saved-Harness query passed on a disposable QA canvas.
 

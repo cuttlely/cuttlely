@@ -118,7 +118,9 @@ For historical 1.7.0 release preparation, start with STATUS's facts before/after
 
 For historical 1.7.1 maintenance preparation, start with STATUS's Access-key scopes and beginner setup section. The four product manifests and release docs are prepared together, while publication and activation remain separate. `management.ts` owns the prerequisite preview and save recheck; the actual UI fixture and real migrated-Postgres delete regression are listed in ARTIFACTS. Use the final committed-head report, preserve hooks and leave service settings unchanged.
 
-For User Management password reset, start with STATUS's password-reset section and `packages/ui/src/views/users/ResetPasswordDialog.jsx`. The UI calls the existing `identity/actionLink.ts` service; preserve its team, owner, identity-provider and permission checks.
+For local user/team lifecycle work, start with STATUS's lifecycle section, `identity/directory.ts`, the Users view and `UserTeamAccessDrawer.jsx`. Membership display state must not activate accounts or rewrite assignments. Disable/reactivate calls retain existing server authorization and revocation rules.
+
+For User Management password reset (landed in #500), start with STATUS's password-reset section and `packages/ui/src/views/users/ResetPasswordDialog.jsx`. The UI calls the existing `identity/actionLink.ts` service; preserve its team, owner, identity-provider and permission checks.
 
 Fileless-preview session work landed as `a4588106` (#499); start with STATUS's session-storage section. Draft session state stays outside executable profiles and is scoped by workspace/canvas; existing published session paths and profile ownership guards stay in place. Preserve the destination query guard, output contracts and publication gates. Final committed-head verification and deployed preview/publish QA remain separate checks.
 
