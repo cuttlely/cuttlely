@@ -27,7 +27,7 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.7.6 improves imported agent teams and local user administration.** **Import & verify** chooses safe date, calendar and numeric samples for saved queries, and you can test an unpublished harness before its first Publish. **User Management** adds password reset links, Disable/Reactivate controls and **View team access**. Pending invitations show their real status and their team role can be changed without inviting the person again. [Import and verify](./docs/how-to/import-verify.md) · [Manage users and teams](./docs/how-to/users-without-authkit.md).
+**1.7.6 improves imported agent teams and local user administration.** **Import & verify** chooses safe date, calendar and numeric samples for saved queries, and you can test an unpublished harness before its first Publish. **User Management** adds password reset links, Disable/Reactivate controls and **View team access**. Pending invitations show their real status and their team role can be changed without inviting the person again. [Import and verify](./docs/how-to/import-verify.md) · [Manage users and teams](./docs/how-to/users-without-authkit.md). [Model cost estimates](./docs/reference/model-list.md) include the current Together AI Kimi K3 standard rates.
 
 Latest stable is **1.7.6**. Pin image `1.7.6` or install `cuttlely@1.7.6`. [1.7.6 release notes](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6) · [Changelog](./CHANGELOG.md).
 

@@ -27,7 +27,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.7.6은 가져온 에이전트 팀 검증과 로컬 사용자 관리를 개선합니다.** **Import & verify**가 저장된 쿼리의 날짜·기간·숫자 테스트 값을 안전하게 선택하며, 아직 게시하지 않은 harness도 첫 Publish 전에 시험할 수 있습니다. **User Management**에 비밀번호 재설정 링크, Disable/Reactivate, **View team access**가 추가되었습니다. 대기 중인 초대는 실제 상태로 표시되고, 다시 초대하지 않고 팀 역할을 바꿀 수 있습니다. [가져오기와 검증](./docs/how-to/import-verify.md) · [사용자와 팀 관리](./docs/how-to/users-without-authkit.md).
+**1.7.6은 가져온 에이전트 팀 검증과 로컬 사용자 관리를 개선합니다.** **Import & verify**가 저장된 쿼리의 날짜·기간·숫자 테스트 값을 안전하게 선택하며, 아직 게시하지 않은 harness도 첫 Publish 전에 시험할 수 있습니다. **User Management**에 비밀번호 재설정 링크, Disable/Reactivate, **View team access**가 추가되었습니다. 대기 중인 초대는 실제 상태로 표시되고, 다시 초대하지 않고 팀 역할을 바꿀 수 있습니다. [가져오기와 검증](./docs/how-to/import-verify.md) · [사용자와 팀 관리](./docs/how-to/users-without-authkit.md). [모델 비용 추정치](./docs/reference/model-list.md)에는 Together AI Kimi K3의 현재 표준 요금을 반영했습니다.
 
 최신 안정 버전은 **1.7.6**입니다. 이미지 `1.7.6`를 지정하거나 `cuttlely@1.7.6`를 설치하세요. [1.7.6 릴리스 노트](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6) · [변경 기록](./CHANGELOG.md).
 

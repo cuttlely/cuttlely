@@ -27,7 +27,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.7.6 では、インポートしたエージェントチームの検証とローカルユーザーの管理を改善しました。** **Import & verify** は保存済みクエリの日付・期間・数値のテスト値を安全に選び、未公開の harness は最初の Publish 前に試せます。**User Management** にはパスワード再設定リンク、Disable/Reactivate、**View team access** が加わりました。保留中の招待は正しい状態で表示され、再招待せずにチームのロールを変更できます。[インポートと検証](./docs/how-to/import-verify.md) · [ユーザーとチームの管理](./docs/how-to/users-without-authkit.md)。
+**1.7.6 では、インポートしたエージェントチームの検証とローカルユーザーの管理を改善しました。** **Import & verify** は保存済みクエリの日付・期間・数値のテスト値を安全に選び、未公開の harness は最初の Publish 前に試せます。**User Management** にはパスワード再設定リンク、Disable/Reactivate、**View team access** が加わりました。保留中の招待は正しい状態で表示され、再招待せずにチームのロールを変更できます。[インポートと検証](./docs/how-to/import-verify.md) · [ユーザーとチームの管理](./docs/how-to/users-without-authkit.md)。 [モデルの費用見積もり](./docs/reference/model-list.md)には Together AI Kimi K3 の現在の標準料金を反映しました。
 
 最新の安定版は **1.7.6** です。イメージ `1.7.6` を指定するか、`cuttlely@1.7.6` をインストールしてください。[1.7.6 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6) · [変更履歴](./CHANGELOG.md)。
 
