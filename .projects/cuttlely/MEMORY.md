@@ -1,3 +1,7 @@
+## Cancel the admitted run, not its shared profile
+
+A specialist profile can serve different chats concurrently. Cancelling one Harness turn must stop only its admitted runtime run; closing that run's model connection aborts only the matching provider request. A profile-wide abort registry can cancel unrelated chats. The regression in `packages/harness/client.test.mjs` holds two real gateway HTTP requests for the same specialist, cancels one and lets the other finish; its runtime transport is simulated ([#505](https://github.com/cuttlely/cuttlely/pull/505)). Preserve that isolation when changing cancellation or gateway connection cleanup.
+
 # Memory
 
 A conversation database in an otherwise empty runtime profile directory is still an unowned profile to the publication cleanup guard. Fileless preview state must use its own canvas/workspace scope outside executable profiles; deleting that canvas must clear the new state after commit. Do not make leftover directory presence count as ownership.

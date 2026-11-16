@@ -1,3 +1,5 @@
+-   1.7.7 preparation: cancellation regression in `packages/harness/client.test.mjs` ([#505](https://github.com/cuttlely/cuttlely/pull/505)), `docs/how-to/harnesses.md`, release/upgrade guides and the matching README/package examples. STATUS distinguishes prepared documentation from publication.
+
 ## 1.7.6 release documentation
 
 -   [Published release v1.7.6](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6), `45223733` (#503), and the [verified preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43685066892). STATUS records the image, npm, tarball README and website checks.
