@@ -1,3 +1,8 @@
+## 1.7.7 release
+
+-   [Published release v1.7.7](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7), canonical `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)). The generated candidate `4d9210b7` has the same tree.
+-   [Preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43785736865): 27 passing full-gate steps and a local image startup check. [Exact-tag image run](https://github.com/cuttlely/cuttlely/actions/runs/43791722638): startup check and public image publication. STATUS records package, site and live QA results. Existing media and provider-review dates are unchanged for this runtime fix.
+
 ## 1.7.6 release documentation
 
 -   [Published release v1.7.6](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6), `45223733` (#503), and the [verified preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43685066892). STATUS records the image, npm, tarball README and website checks.
