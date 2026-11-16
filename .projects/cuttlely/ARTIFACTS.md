@@ -1,3 +1,10 @@
+## 1.7.7 release verification
+
+-   [Published release v1.7.7](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7), canonical `4bf478de` (#508), and documentation #506. The prepared and merged trees match.
+-   [Verified preparation](https://github.com/cuttlely/cuttlely/actions/runs/43785736865): all 27 full-gate steps on `54fda755`, plus the local image start-and-ping check. The downloaded artifact digest and generated five-file change were checked.
+-   [Canonical image workflow](https://github.com/cuttlely/cuttlely/actions/runs/43791722638): startup, push and image inspection passed. Anonymous verification found matching 1.7.7/latest digest `sha256:ccc0ab4f320a52d71bb9de83facea94512ded1a0d1d6a1784ff27b84b00b581f`, linux/amd64 and revision `4bf478de`.
+-   STATUS records deployed version/health, public-chat saved-query delivery and concurrent cancellation checks, their metadata limit, website content checks and the remaining npm publication/tarball checks.
+
 ## 1.7.6 release documentation
 
 -   [Published release v1.7.6](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6), `45223733` (#503), and the [verified preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43685066892). STATUS records the image, npm, tarball README and website checks.

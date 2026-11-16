@@ -1,5 +1,7 @@
 # Memory
 
+A published agent that calls a Harness tool can return `text` and `usedTools` while Harness status arrives through `harness.*` stream events. Check the actual response shape before asserting direct Harness metadata. Verbatim tool-output comparison and stream traces can verify public delivery and concurrent cancellation. An internal completeness flag that the wrapper does not expose remains unverified; use authenticated run/result metadata when that flag is required.
+
 A conversation database in an otherwise empty runtime profile directory is still an unowned profile to the publication cleanup guard. Fileless preview state must use its own canvas/workspace scope outside executable profiles; deleting that canvas must clear the new state after commit. Do not make leftover directory presence count as ownership.
 
 Database date samples may arrive as JavaScript Date objects. Normalize them to ISO values before parameter validation, and extend exclusive upper bounds to include the final sampled day. Generate only required missing inputs; activating every optional date/year/month filter can violate a query’s mutually exclusive scopes. A fileless imported Harness needs canvas-backed admission for signed-in draft chat, while saved-harness and API-key admission must retain their existing identity checks.
