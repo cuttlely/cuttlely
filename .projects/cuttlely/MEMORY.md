@@ -276,3 +276,7 @@ Release-tool dating changes a changelog heading's fragment. User-facing release 
 
 -   A TypeORM entity can declare varchar while the shipped Postgres migration retains UUID. Test cross-table comparisons against actual migrated Postgres, not only SQLite or entity synchronization. Cast only the mismatched query value when no schema change is needed, and exercise cleanup rollback through the real route.
 -   A selector initialized from props can keep Public after the server reports Private. Use a controlled value for saved access and assert the actual browser control after reload; a mocked controlled dropdown can hide the shared widget's stale internal state.
+
+## Verify runtime admission after a rollout
+
+The supervisor marks its child up when launching it, before that process first answers health. An up ping header therefore does not prove that a specialist can accept work. Pair version/database/runtime checks with an isolated real saved-query run before calling a release deployment verified. During 1.7.7 QA, initial admission returned `ECONNREFUSED`; a later independent query and repeated concurrent cancellation check succeeded. Preserve that distinction rather than claiming a proven startup root cause or hiding the initial failure.
