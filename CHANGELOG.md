@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   Shortened the website homepage release blurb to the latest fix and a linked upgrade reminder.
+
 ## [1.7.7] - 2026-11-16
 
 ### Fixed
