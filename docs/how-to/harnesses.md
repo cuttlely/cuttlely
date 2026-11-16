@@ -327,7 +327,7 @@ Select the card or the team's name in List View. The harness page is `/harnesses
 1. Type a prompt under **Try it**, for example `Use the analyst database. How many tasks are open, and what are their titles?`
 2. Select **Run**.
 
-While it runs, the button reads **Running** and **Stop** cancels the run. The run card fills in as each step starts, and the answer box says `Waiting for the first token.` until text arrives.
+While it runs, the button reads **Running** and **Stop** cancels the run. Starting with 1.7.7, stopping one chat cancels only its runtime run and model connection; other chats using the same specialist keep running. The run card fills in as each step starts, and the answer box says `Waiting for the first token.` until text arrives.
 
 ![Try it while the run is going. The Run button reads Running, a Stop button is next to it, the Run card says Harness Prime sent work to analyst with the analyst running, and the answer box says Waiting for the first token.](../images/harnesses/harness-try-it-running.png)
 

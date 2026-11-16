@@ -1,5 +1,9 @@
 # Frequently asked questions
 
+## Does stopping one agent-team chat stop another chat?
+
+In 1.7.7, Stop cancels only that chat's runtime run and model connection. Other chats using the same specialist continue running. Upgrade an earlier server to get this fix. [Harnesses](./how-to/harnesses.md).
+
 ## Are stdio MCP servers enabled by default?
 
 No. Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly set the protocol to stdio.
