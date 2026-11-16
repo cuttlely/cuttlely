@@ -1,3 +1,7 @@
+## Homepage release summary
+
+The homepage hero shows the latest 1.7.7 cancellation fix in one sentence, followed by a short backup reminder. The changelog and upgrade/recovery guide remain linked; earlier release details and operator instructions stay in those full guides. The website build passes, including 78 pages and 11,115 internal links. This copy change does not change product versions or application behavior.
+
 ## 1.7.7 release
 
 [1.7.7 is published](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7) at `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)). The patch scope is the cancellation isolation fix in [#505](https://github.com/cuttlely/cuttlely/pull/505); documentation and current install pins landed in #506. All four product manifests are 1.7.7 and the changelog is dated 2026-11-16. No schema migration or configuration change is added. Backup/operator requirements and default-Off access-key enforcement remain in effect. Existing screenshots, recordings, brand assets, architecture figures, samples and provider models need no change for this runtime fix; the price review remains dated to 1.7.6.
