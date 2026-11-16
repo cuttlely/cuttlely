@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.7
+
+-   **Cancellation stays within one chat.** Stopping an agent-team chat leaves other chats using the same specialist running. [Harnesses](./harnesses.md).
+
 ## New in 1.7.6
 
 -   **Import and verify with automatic inputs.** Required dates, calendar periods and numeric inputs are selected from defaults, the query and bounded samples of selected tables. Optional filters without defaults stay unset. A query that cannot be tested safely stays unverified. [Import and verify](./import-verify.md).

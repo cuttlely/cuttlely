@@ -2,11 +2,15 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [Unreleased]
+## [1.7.7] - Unreleased
 
 ### Fixed
 
 -   Cancelling an agent-team chat no longer cancels another chat using the same specialist. The stop targets only the cancelled runtime run and its model connection.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration or configuration change. Back up the database, encryption key and settings before upgrading. Existing operator onboarding requirements and default-Off access-key enforcement remain in effect.
 
 ## [1.7.6] - 2026-11-15
 
