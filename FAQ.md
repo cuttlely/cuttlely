@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.6)
+# Cuttlely FAQ (1.7.7)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.6?
+### What's new in 1.7.7?
+
+Cancelling an agent-team chat now stops only that turn's runtime run and model connection. Other chats using the same specialist keep running. This patch adds no schema migration and changes no configuration or enforcement mode. Use matching 1.7.7 server and widget packages. [Agent-team chat](./docs/how-to/harnesses.md).
+
+### What changed in 1.7.6?
 
 -   **Import and verify with automatic inputs.** Required dates, calendar periods and numeric inputs are selected from defaults, the query and bounded samples of selected tables. Optional filters without defaults stay unset. A query that cannot be tested safely stays unverified. [Import and verify](./docs/how-to/import-verify.md).
 -   **Try an imported team before Publish.** Signed-in canvas chat can run an unpublished harness. Its draft conversation state stays separate from runnable profiles, so a preview does not block the first Publish. External runs still need a published team. [Harnesses](./docs/how-to/harnesses.md).

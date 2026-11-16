@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Cancelling an agent-team chat no longer cancels another chat using the same specialist. The stop targets only the cancelled runtime run and its model connection.
+-   Cancelling an agent-team chat no longer cancels another chat using the same specialist. The stop targets only the cancelled runtime run and its model connection ([#505](https://github.com/cuttlely/cuttlely/pull/505)).
 
 ## [1.7.6] - 2026-11-15
 
