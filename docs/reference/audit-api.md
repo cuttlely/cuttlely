@@ -31,9 +31,11 @@ The response sends `Cache-Control: no-store`.
 | `user`   | User id. At most 255 characters. A longer value is **400** `{ "code": "INVALID_USER" }`.                                                                       |
 | `limit`  | Page size. Default 50. Maximum 100. `0` or a non-number is **400** `{ "code": "INVALID_LIMIT" }`.                                                              |
 
-Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `api_key_change`, `api_key_use`, `harness_schedule`, `pinned_query_change`, `auth_method_change`, `auth_config_warning_ack`, `auth_config_change`, `owner_recovery`, `scim_token`, `scim_user`, `scim_group`, `scim_mapping`, `scim_auth_failure`.
+Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `api_key_change`, `api_key_use`, `harness_schedule`, `pinned_query_change`, `auth_method_change`, `auth_config_warning_ack`, `auth_config_change`, `owner_recovery`, `owner_created`, `scim_token`, `scim_user`, `scim_group`, `scim_mapping`, `scim_auth_failure`.
 
 `user_disable` includes an enable. `detail.disabled` is true or false.
+
+`owner_created` is the first owner of an install, written in the same transaction that creates it. `detail.source` is `setup_code` (browser setup), `cli` (`pnpm user`) or `host_config` (`CUTTLELY_INITIAL_OWNER_*`). The email is not stored on it.
 
 `scim_token` records SCIM credential creation, rotation, overlap end, and revocation. `scim_user` uses `detail.operation` values `created`, `updated`, `replaced`, `deactivated`, `reactivated`, and `deleted`, including refused last-owner changes. `scim_group` records group create, restore, update, membership change, and delete operations using only the group id and member count. `scim_mapping` records confirmed mapping creation and removal, including removal caused by group deletion, with mapping ids and assignment/conflict counts. `scim_auth_failure` is one fixed five-minute authentication-failure window per organization; its detail has the complete count, first and last occurrence times, and `credential_missing` or `credential_refused` categories and is updated after every request in that window. Mapping-reference refusals and ordinary last-owner refusals use the existing `role_change` or `user_disable` type with `detail.outcome` set to `refused`.
 

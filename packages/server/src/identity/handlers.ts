@@ -796,7 +796,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
                 credential: await hashPassword(credential),
                 externalId: null
             },
-            { consumeSetupHmac: hmac, now: ctx.now, activateLocalAuthentication: true }
+            { consumeSetupHmac: hmac, now: ctx.now, activateLocalAuthentication: true, auditSource: 'setup_code' }
         )
         if (ctx.dataSource) {
             const { refreshAuthenticationState } = require('./authenticationState') as typeof import('./authenticationState')

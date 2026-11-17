@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Create the first owner from host configuration, without the setup link or a shell. On an empty database with local password sign-in on and no AuthKit, `CUTTLELY_INITIAL_OWNER_EMAIL` and one password source (a hash or password in a secret file, or in an environment variable) create the owner before the server listens, so no setup code is printed. It is create-only: once any account exists the variables are ignored with a warning. On an empty database an invalid configuration stops the start with exit code 1 instead of offering the setup link. The password and hash variables are removed from the server's environment once read and are not passed to the agent runtime. [From host configuration](./docs/how-to/sign-in.md#from-host-configuration) ([#479](https://github.com/cuttlely/cuttlely/issues/479)).
+-   `pnpm hash-password` prints the password hash Cuttlely stores, or writes it to a new `0600` file, for `CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE`.
+-   The audit log has a **First owner created** event (`owner_created`) whose `detail.source` says whether browser setup (`setup_code`), `pnpm user` (`cli`) or host configuration (`host_config`) created the first owner. It does not store the email.
+
 ### Changed
 
 -   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags in versions through 5.11.2).
@@ -20,6 +26,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Upgrade notes / breaking changes
 
 -   This patch adds no schema migration or required configuration change. Enable LangSmith in the standalone Harness chatflow’s Analytics settings to trace it. Review dropped-edge import reports before reconnecting ports. Back up the database, encryption key and settings before upgrading; operator onboarding and default-Off access-key enforcement remain in effect. [Upgrade guide](./docs/upgrading.md#upgrading-to-179).
+-   No schema migration. `owner_created` fits the existing audit type column. Existing installs are not affected: the new variables are unset by default and are ignored once any account exists.
 
 ## [1.7.8] - 2026-11-17
 

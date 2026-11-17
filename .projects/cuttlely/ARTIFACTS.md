@@ -12,6 +12,13 @@
 -   `website/src/components/Hero.astro`: one-sentence tracing headline and the existing linked backup reminder.
 -   [Standalone tracing full verification](https://github.com/cuttlely/cuttlely/actions/runs/44048907366): all 28 full steps on `5224da37`, with the same tree merged as `964bbded` (#517). [Release preparation](https://github.com/cuttlely/cuttlely/actions/runs/44111606709) passed all 28 full steps on `f4b6c990` and checked candidate `b1107a6b`; version PR #519 is held unmerged and publication remains pending. Later code changes require a new preparation.
 
+## First owner from host configuration
+
+-   `packages/server/src/identity/initialOwner.ts` and `initialOwner.test.ts`: reads and validates the `CUTTLELY_INITIAL_OWNER_*` variables, captures and scrubs them at startup (`commands/base.ts`), and creates the first owner on an empty database before the server listens (`index.ts`). Create-only.
+-   `packages/server/src/commands/hash-password.ts` and `hash-password.test.ts`: `pnpm hash-password [file]` prints the `scrypt$<salt>$<key>` hash or writes it to a new 0600 file. `packages/server/src/utils/readPassword.ts` is the masked prompt and stdin reader it shares with `pnpm user`.
+-   `owner_created` audit type: written for every first owner, with `detail.source` set to `setup_code`, `cli` or `host_config` and no email (`identity/sqlStore.ts`, `identity/auditLog.ts`). The Audit log filter option is in `packages/ui/src/views/audit/query.js`; the type is documented in `docs/reference/audit-api.md`.
+-   User guidance: "From host configuration" in `docs/how-to/sign-in.md`, with pointers from `docs/how-to/docker.md` and `docs/how-to/instance-operator.md`, plus `SECURITY.md` and `## [Unreleased]` in `CHANGELOG.md`. The "First owner from host configuration (host only)" section of `docs/reference/startup-options.md` is rendered from `packages/server/src/settings/startupOptions.ts` and checked by `startup-options.test.ts`. `.env.example`, `docker-compose.yml` and `docker/docker-compose.yml` name the variables, blank by default.
+
 ## 1.7.8 release
 
 -   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
