@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
+
+## [1.7.9] - 2026-11-17
+
 ### Added
 
 -   Create the first owner from host configuration, without the setup link or a shell. On an empty database with local password sign-in on and no AuthKit, `CUTTLELY_INITIAL_OWNER_EMAIL` and one password source (a hash or password in a secret file, or in an environment variable) create the owner before the server listens, so no setup code is printed. It is create-only: once any account exists the variables are ignored with a warning. On an empty database an invalid configuration stops the start with exit code 1 instead of offering the setup link. The password and hash variables are removed from the server's environment once read and are not passed to the agent runtime. [From host configuration](./docs/how-to/sign-in.md#from-host-configuration) ([#521](https://github.com/cuttlely/cuttlely/pull/521), fixes [#479](https://github.com/cuttlely/cuttlely/issues/479)).
@@ -20,7 +26,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A chatflow containing only a Harness node now uses its LangSmith Analytics settings, with a parent run for the question and answer and child traces for in-process model calls. A Tool Agent wrapper is no longer required for this tracing path. [#517](https://github.com/cuttlely/cuttlely/pull/517).
 -   **[#488](https://github.com/cuttlely/cuttlely/pull/488), fixes #457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
 -   **Instance operator** shows refused code requests and confirmations as errors. Your own active-code message explains how to use it; shared limits use neutral wording. Proof, expiry and rate-limit safeguards remain enforced. [Instance operator](./docs/how-to/instance-operator.md) · [#490](https://github.com/cuttlely/cuttlely/pull/490).
--   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
 
 ### Upgrade notes / breaking changes
 
@@ -1105,7 +1110,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...HEAD
+[1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/cuttlely/cuttlely/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/cuttlely/cuttlely/compare/v1.7.5...v1.7.6
