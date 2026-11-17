@@ -1876,6 +1876,11 @@
             "to": "packages/server/src/utils/createAttachment.ts"
         },
         {
+            "from": "packages/server/src/utils/credentialSource.ts",
+            "to": "packages/server/src/database/entities/Credential.ts",
+            "reason": "The harness credential source reads credential rows through the app DataSource Credential entity."
+        },
+        {
             "from": "packages/server/src/utils/domainValidation.test.ts",
             "to": "packages/server/src/utils/domainValidation.ts"
         },
