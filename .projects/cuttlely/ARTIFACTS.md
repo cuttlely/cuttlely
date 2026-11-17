@@ -1,3 +1,11 @@
+## 1.7.9 release preparation
+
+-   `CHANGELOG.md`, `docs/releases.md`, `docs/upgrading.md`: patch scope, upgrade notes and the protected release procedure.
+-   Root/translated READMEs, FAQ and docs indexes: standalone Harness tracing and the import/operator fixes.
+-   `packages/cli/README.md`, `packages/chat-widget/README.md`, Docker/Compose and embed examples: matching 1.7.9 pins.
+-   `website/src/components/Hero.astro`: one-sentence tracing headline and the existing linked backup reminder.
+-   [Standalone tracing full verification](https://github.com/cuttlely/cuttlely/actions/runs/44048907366): all 28 full steps on `5224da37`, with the same tree merged as `964bbded` (#517). Release-specific preparation and publication receipts remain pending.
+
 ## 1.7.8 release
 
 -   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
