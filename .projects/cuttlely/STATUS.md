@@ -1,3 +1,7 @@
+## Repository branch selection (local work)
+
+The GitHub connection picker loads a repository's branches, marks protected branches, and starts with its default branch. A standard Dev/Prod connection saves the chosen branch for both copying and reading; older connections retain main. Named environment chains retain their configured branch mappings and accept slash names. Branch listing uses the existing operator, workspace credential and host checks. Selecting another repository clears the old selection, and listing failures prevent Connect until retried. Versioning, UI selection and route-permission tests pass, as do type checks, the UI build, lint, architecture boundaries, the secret scan and the website build/link check. The complete verification gate has not been run for this local change. This work is local and has not been deployed.
+
 ## Homepage release summary
 
 The homepage hero shows the latest 1.7.7 cancellation fix in one sentence, followed by a short backup reminder. The changelog and upgrade/recovery guide remain linked; earlier release details and operator instructions stay in those full guides. The website build passes, including 78 pages and 11,115 internal links. This copy change does not change product versions or application behavior.
