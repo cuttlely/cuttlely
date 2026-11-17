@@ -65,9 +65,20 @@ export function credentialStamp(credentialIds) {
     }
 }
 
+function warnCredentialSourceFailed(ids, error) {
+    const listed = Array.isArray(ids) ? ids.join(',') : String(ids || '')
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[harness] credential source failed for ${listed}: ${message}`)
+}
+
 export async function readCredentialRowAsync(id) {
-    if (credentialSource) return credentialSource.readRow(id)
-    return readCredentialRow(id)
+    if (!credentialSource) return readCredentialRow(id)
+    try {
+        return await credentialSource.readRow(id)
+    } catch (error) {
+        warnCredentialSourceFailed(id, error)
+        throw error
+    }
 }
 
 export async function credentialStampAsync(ids) {
@@ -77,7 +88,8 @@ export async function credentialStampAsync(ids) {
     try {
         const rows = await credentialSource.rows(normalized)
         return formatStamp(normalized, rows || [])
-    } catch {
+    } catch (error) {
+        warnCredentialSourceFailed(normalized, error)
         return normalized.map((id) => `${id}@error`).join(',')
     }
 }

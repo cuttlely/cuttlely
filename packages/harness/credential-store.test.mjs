@@ -170,3 +170,29 @@ test('split DATABASE_PATH and SECRETKEY_PATH: the registered source stamps the a
         else process.env.SECRETKEY_PATH = previousSecret
     }
 })
+
+test('a failed credential source warns with the error and ids, not row contents', async (t) => {
+    const secret = 'enc-row-secret-value'
+    const warned = []
+    t.mock.method(console, 'warn', (...args) => {
+        warned.push(args.map(String).join(' '))
+    })
+    const failure = () => {
+        const error = new Error('db down')
+        error.encryptedData = secret
+        error.row = { id: 'cred-a', encryptedData: secret }
+        throw error
+    }
+    setCredentialSource({
+        dialect: 'postgres',
+        readRow: async () => failure(),
+        rows: async () => failure()
+    })
+    assert.equal(await credentialStampAsync(['cred-b', 'cred-a']), 'cred-a@error,cred-b@error')
+    await assert.rejects(() => readCredentialRowAsync('cred-a'), { message: 'db down' })
+    const joined = warned.join('\n')
+    assert.equal(warned.length, 2)
+    assert.match(warned[0], /\[harness\] credential source failed for cred-a,cred-b: db down/)
+    assert.match(warned[1], /\[harness\] credential source failed for cred-a: db down/)
+    assert.equal(joined.includes(secret), false)
+})
