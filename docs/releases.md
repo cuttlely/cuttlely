@@ -2,7 +2,7 @@
 
 This page covers how Cuttlely is versioned, what counts as a breaking change, and which versions get fixes. The [changelog](../CHANGELOG.md) lists what changed in each release.
 
-Version **1.7.9** adds LangSmith tracing to standalone Harness chatflows, drops imported edges whose endpoints are gone, clarifies instance-operator request errors, and updates the XML parser dependency for a CPU-exhaustion security fix. No schema migration or configuration change is required. [LangSmith tracing](./reference/langsmith-tracing.md) · [Upgrade guide](./upgrading.md).
+Version **1.7.9** adds LangSmith tracing to standalone Harness chatflows, drops imported edges whose endpoints are gone, clarifies instance-operator request errors, and updates the XML parser dependency for a CPU-exhaustion security fix. ETL scans and bookkeeping yield to the server loop, interrupted repository files resume without false duplicate errors, and error-limit failures retain their first cause. No schema migration or configuration change is required. [LangSmith tracing](./reference/langsmith-tracing.md) · [Upgrade guide](./upgrading.md).
 
 Version **1.7.8** lets Version History select a GitHub repository branch, including names with slashes. The picker shows protected branches, and an existing connection keeps its current behavior until reconnected. Named environment chains retain their configured branch mappings. The homepage release notice is shorter. No schema migration is added. [Version History](./how-to/versioning.md).
 

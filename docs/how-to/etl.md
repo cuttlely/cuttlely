@@ -190,6 +190,10 @@ After you publish, a run of that version fails with the same message.
 
 ![A failed run of version 2 over the dark canvas, with a red failed chip. The panel reads v2 · serving v1 · 33 chunks indexed, and every count is 0. A red box with an error icon says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message in red. Try retrieval says it searches version 1.](../images/etl/etl-run-failed.png)
 
+A run stopped by the document-error limit includes its first document error in the failure message, even when that record was still in an uncommitted batch. Read that cause before retrying. Validation and error limits still apply.
+
+After an interruption, a repository file that spans batches is replayed from its last checkpoint; its already-written chunks do not make it a duplicate document.
+
 This run failed before it wrote anything, so the served data is as it was. The panel still reads `serving v1`, and **Try retrieval** still searches version 1. A run can also fail partway, for example when the embeddings provider stops answering. The batches it wrote before it stopped are already in the store, and search can return them. Retry the run, or start a new one, so the store matches a finished run again.
 
 -   **Retry From Checkpoint** starts the same run again from where it stopped, on the same version, as attempt 2. Use it when the cause was outside the pipeline, such as a provider outage or a rate limit.
