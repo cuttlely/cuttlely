@@ -27,7 +27,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.7.9 では、Harness ノードだけのチャットフローを LangSmith でトレースできます。** チャットフローの Analytics で LangSmith を有効にしてください。Tool Agent でラップする必要はありません。[LangSmith トレーシング](./docs/reference/langsmith-tracing.md)。
+**1.7.9 では、Harness ノードだけのチャットフローを LangSmith でトレースできます。** チャットフローの Analytics で LangSmith を有効にしてください。Tool Agent でラップする必要はありません。[LangSmith トレーシング](./docs/reference/langsmith-tracing.md)。 ETL はスキャン中もリクエストに応答し、中断したリポジトリファイルを再開できます。ローカルパスワード認証を使う新規環境では、ホスト設定から最初の所有者を作成できます。[ETL](./docs/how-to/etl.md) · [最初の所有者](./docs/how-to/sign-in.md#from-host-configuration)。
 
 **1.7.7 では、エージェントチームのチャット間でキャンセルが影響する問題を修正しました。** あるチャットを停止しても、同じ専門エージェントを使う他のチャットは実行を続けます。[Harnesses](./docs/how-to/harnesses.md)。
 

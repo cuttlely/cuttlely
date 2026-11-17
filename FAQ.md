@@ -40,7 +40,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.7.9?
 
-A standalone Harness chatflow now uses its LangSmith Analytics settings without a Tool Agent wrapper. Imports drop edges whose inputs or outputs are gone, operator request failures show clear error messages, and the XML parser dependency includes a security fix. Use matching 1.7.9 server and widget packages. No schema migration is added. [LangSmith tracing](./docs/reference/langsmith-tracing.md) · [Upgrade guide](./docs/upgrading.md).
+A standalone Harness chatflow now uses its LangSmith Analytics settings without a Tool Agent wrapper. Imports drop edges whose inputs or outputs are gone, operator request failures show clear error messages, and the XML parser dependency includes a security fix. ETL scans yield to requests and interrupted repository files resume correctly. Empty local-password installations can create their first owner from host configuration; existing accounts remain unchanged. [ETL](./docs/how-to/etl.md) · [First owner](./docs/how-to/sign-in.md#from-host-configuration). Use matching 1.7.9 server and widget packages. No schema migration is added. [LangSmith tracing](./docs/reference/langsmith-tracing.md) · [Upgrade guide](./docs/upgrading.md).
 
 ### What changed in 1.7.8?
 
