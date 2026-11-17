@@ -1,4 +1,7 @@
-## 1.7.8 release preparation
+## 1.7.8 release
+
+-   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
+-   [Preparation run](https://github.com/cuttlely/cuttlely/actions/runs/44009237317): all 27 full-gate steps and versioned local-image startup passed. [Exact-tag image run](https://github.com/cuttlely/cuttlely/actions/runs/44016869465): startup check and public publication passed. STATUS records anonymous image/revision checks, website content/assets, hosted health and the isolated database-tool run. Both npm packages are public at 1.7.8 and tagged latest; public tarball integrity and packaged README bytes were verified against the annotated tag.
 
 -   `CHANGELOG.md`, `docs/releases.md` and `docs/upgrading.md`: release scope, protected preparation procedure and upgrade behavior.
 -   Root/translated READMEs, FAQ, docs indexes and package READMEs: branch-selection guidance and current install pins.
