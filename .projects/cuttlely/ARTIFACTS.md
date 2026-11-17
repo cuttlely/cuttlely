@@ -1,3 +1,10 @@
+## 1.7.8 release preparation
+
+-   `CHANGELOG.md`, `docs/releases.md` and `docs/upgrading.md`: release scope, protected preparation procedure and upgrade behavior.
+-   Root/translated READMEs, FAQ, docs indexes and package READMEs: branch-selection guidance and current install pins.
+-   `docs/images/versioning/github-branch.png`: current Branch menu from the real GitHub card, rendered with isolated fixture responses; no external account or live model call. The guide records its example repository, protected branch and slash branch choices.
+-   `website/src/components/Hero.astro`: one-sentence 1.7.8 release notice with the existing linked backup reminder.
+
 ## 1.7.7 release
 
 -   [Published release v1.7.7](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7), canonical `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)). The generated candidate `4d9210b7` has the same tree.
