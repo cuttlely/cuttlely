@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.9] - 2026-11-17
+
 ### Added
 
 -   Create the first owner from host configuration, without the setup link or a shell. On an empty database with local password sign-in on and no AuthKit, `CUTTLELY_INITIAL_OWNER_EMAIL` and one password source (a hash or password in a secret file, or in an environment variable) create the owner before the server listens, so no setup code is printed. It is create-only: once any account exists the variables are ignored with a warning. On an empty database an invalid configuration stops the start with exit code 1 instead of offering the setup link. The password and hash variables are removed from the server's environment once read and are not passed to the agent runtime. [From host configuration](./docs/how-to/sign-in.md#from-host-configuration) ([#521](https://github.com/cuttlely/cuttlely/pull/521), fixes [#479](https://github.com/cuttlely/cuttlely/issues/479)).
@@ -1104,7 +1106,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...HEAD
+[1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/cuttlely/cuttlely/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/cuttlely/cuttlely/compare/v1.7.5...v1.7.6
