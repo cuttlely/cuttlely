@@ -10314,7 +10314,9 @@ check(
     )
     const limited = turnImages(imageDir, since, { limits: { ...TURN_IMAGE_LIMITS, count: 1 } })
     const tooBig = turnImages(imageDir, since, { limits: { ...TURN_IMAGE_LIMITS, bytes: 4 } })
-    const merged = mergeTurnImages([found, found, [{ ...found[0], specialist: 'writer' }]], 2)
+    // Keep this third image older: the limit selects by write time, independent of filesystem timestamp precision.
+    const olderWriterImage = { ...found[0], specialist: 'writer', mtime: Math.min(...found.map((image) => image.mtime)) - 1 }
+    const merged = mergeTurnImages([found, found, [olderWriterImage]], 2)
     check(
         'the image count and size limits hold, and the same file is returned once',
         limited.length === 1 && tooBig.length === 0 && merged.length === 2 && merged[1].name !== merged[0].name,
