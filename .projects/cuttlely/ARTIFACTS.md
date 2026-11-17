@@ -1,3 +1,10 @@
+## Standalone Harness LangSmith tracing
+
+-   `packages/components/nodes/harness/Harness/Harness.ts`: authorized standalone parent lifecycle and child callbacks; existing tool tracing retains its caller's parent.
+-   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
+-   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
+-   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
+
 ## 1.7.8 release
 
 -   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
