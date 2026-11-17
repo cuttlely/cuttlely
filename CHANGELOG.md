@@ -16,6 +16,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   ETL source scans and unchanged-source bookkeeping yield to the server loop so health and cancellation requests can proceed. Resuming a partially written repository file no longer rejects that file as a duplicate. Document-error-limit failures retain the first underlying error even when its batch never committed. Validation, error limits and publication guards remain enforced. [ETL](./docs/how-to/etl.md).
+
 -   A chatflow containing only a Harness node now uses its LangSmith Analytics settings, with a parent run for the question and answer and child traces for in-process model calls. A Tool Agent wrapper is no longer required for this tracing path.
 -   **#457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
 -   **Instance operator** shows refused code requests and confirmations as errors. Your own active-code message explains how to use it; shared limits use neutral wording. Proof, expiry and rate-limit safeguards remain enforced. [Instance operator](./docs/how-to/instance-operator.md).
