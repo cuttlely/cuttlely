@@ -862,7 +862,10 @@ describe('authentication provider foundation', () => {
                 expect(await applyAuthKitSwitchOnBoot(db)).toBeNull()
                 expect(await readAuthenticationState(db)).toEqual(afterCommand)
                 expect(await db.query('SELECT "id" FROM "identity_local_session"')).toEqual([{ id: 'later-session' }])
-                expect(await db.query('SELECT "id" FROM "audit_event"')).toHaveLength(1)
+                expect(await db.query('SELECT "type", "detail" FROM "audit_event" ORDER BY "type"')).toEqual([
+                    expect.objectContaining({ type: 'auth_method_change' }),
+                    { type: 'owner_created', detail: JSON.stringify({ source: 'cli' }) }
+                ])
                 await db.destroy()
             }
         )
@@ -884,7 +887,10 @@ describe('authentication provider foundation', () => {
             )
             expect(result.ok).toBe(true)
             expect(await readAuthenticationState(db)).toEqual(before)
-            expect(await db.query('SELECT "id" FROM "audit_event"')).toEqual([])
+            // The method row is untouched; only the owner_created row for the CLI is written.
+            expect(await db.query('SELECT "type", "detail" FROM "audit_event"')).toEqual([
+                { type: 'owner_created', detail: JSON.stringify({ source: 'cli' }) }
+            ])
             await db.destroy()
         })
     }, 20000)

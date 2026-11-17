@@ -121,7 +121,14 @@ export interface CreateOwnerOptions {
     }
     /** Select Local login in the same transaction as first-owner setup. */
     activateLocalAuthentication?: boolean
+    /**
+     * Writes an owner_created audit row in the same transaction, with only this source in its detail: the setup
+     * code (browser), the user CLI, or host configuration. The email is never stored on it.
+     */
+    auditSource?: OwnerCreatedSource
 }
+
+export type OwnerCreatedSource = 'setup_code' | 'cli' | 'host_config'
 
 export interface WorkosIdentity {
     id: string
