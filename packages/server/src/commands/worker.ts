@@ -4,6 +4,7 @@ import logger from '../utils/logger'
 import { QueueManager } from '../queue/QueueManager'
 import { BaseCommand } from './base'
 import { getDataSource } from '../DataSource'
+import { registerAppCredentialSource } from '../utils/credentialSource'
 import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { Telemetry } from '../utils/telemetry'
 import { NodesPool } from '../NodesPool'
@@ -77,6 +78,7 @@ export default class Worker extends BaseCommand {
         const appDataSource = getDataSource()
         await appDataSource.initialize()
         await runSupportedMigrations(appDataSource)
+        await registerAppCredentialSource(appDataSource)
 
         // Initialize abortcontroller pool
         const abortControllerPool = new AbortControllerPool()

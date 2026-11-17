@@ -10,6 +10,7 @@ import { AbortControllerPool } from './AbortControllerPool'
 import { CachePool } from './CachePool'
 import { ChatFlow } from './database/entities/ChatFlow'
 import { getDataSource } from './DataSource'
+import { registerAppCredentialSource } from './utils/credentialSource'
 import { initAuthSecrets } from './identity/authSecrets'
 import { applyAuthKitSwitchOnBoot } from './identity/production'
 import { localAdminEnabled } from './identity/constants'
@@ -118,6 +119,7 @@ export class App {
             setBootStep('Updating the database')
             await runSupportedMigrations(this.AppDataSource)
             logger.info('🔄 [server]: Database migrations completed successfully')
+            await registerAppCredentialSource(this.AppDataSource)
             const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
             if (authKitSwitch) {
                 logger.info(
