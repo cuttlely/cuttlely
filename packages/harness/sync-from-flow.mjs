@@ -4,7 +4,8 @@ import { trustedOutputContracts } from './trusted-output.mjs'
 import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
-import { compileProfileCached, profileDestinationConflicts } from './profile.mjs'
+import { credentialStampAsync } from './credential-store.mjs'
+import { compileProfileCached, credentialIdsFor, profileDestinationConflicts } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 
@@ -310,6 +311,8 @@ export async function syncHarnessFromFlow(args) {
     assertHarnessCaller(args?.name, args?.caller, { allow: SAVE_CALLERS })
     const roster = rosterFromFlow(args)
     assertPinnedQueryRoster(roster)
+    // Stamp first, then the existing no-await window through the conflict check, save and compile.
+    const stamp = await credentialStampAsync(credentialIdsFor(roster))
     // Checked with no await before the save and compile: a roster that would compile into another harness's profile
     // is refused before the record is written, so a refused update leaves the saved harness as it was.
     const taken = profileDestinationConflicts(roster)
@@ -322,7 +325,7 @@ export async function syncHarnessFromFlow(args) {
         )
     }
     const saved = saveHarness(roster, { overwrite: true })
-    compileProfileCached(saved)
+    compileProfileCached(saved, { credentialStamp: stamp })
     if (!args?.componentNodes && !args?.loadNode && !args?.flowOptions) return saved
     let warnings = []
     try {

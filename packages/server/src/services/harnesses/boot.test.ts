@@ -124,6 +124,9 @@ describe('harness runtime start', () => {
                     }
                 }
             }
+            if (file === 'credential-store.mjs') {
+                return { credentialStampAsync: async () => '', setCredentialSource() {}, readCredentialRowAsync: async () => null }
+            }
             throw new Error(`unexpected ${file}`)
         })
     })

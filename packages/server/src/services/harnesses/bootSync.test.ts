@@ -30,9 +30,13 @@ describe('boot failure cleared by canvas sync', () => {
                 return {
                     profileDestinationConflicts: () => [],
                     compileProfileCached: () => undefined,
+                    credentialIdsFor: () => [],
                     recompileOutdatedProfiles: (list: Array<{ name: string }>) =>
                         list.map((record) => ({ name: record.name, status: 'failed', error: 'boom' }))
                 }
+            }
+            if (file === 'credential-store.mjs') {
+                return { credentialStampAsync: async () => '', setCredentialSource() {}, readCredentialRowAsync: async () => null }
             }
             throw new Error(`unexpected ${file}`)
         })
