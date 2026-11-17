@@ -101,6 +101,21 @@ describe('server settings registry', () => {
         expect(isReadOnly('LANGSMITH_SOMETHING_ELSE')).toBe(false)
     })
 
+    it('keeps the first-owner host configuration out of the panel', () => {
+        for (const key of [
+            'CUTTLELY_INITIAL_OWNER_EMAIL',
+            'CUTTLELY_INITIAL_OWNER_NAME',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_FILE',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_HASH',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD'
+        ]) {
+            expect(settingFor(key)).toBeUndefined()
+            expect(isKeptOut(key)).toBe(true)
+            expect(isReadOnly(key)).toBe(false)
+        }
+    })
+
     it('keeps the Current Date Time default timezone on the host', () => {
         expect(settingFor('CUTTLELY_DEFAULT_TIMEZONE')).toBeUndefined()
         expect(isKeptOut('CUTTLELY_DEFAULT_TIMEZONE')).toBe(true)

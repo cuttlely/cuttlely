@@ -184,7 +184,7 @@ Copy `.env.example` to `.env` only to change a default. `.env` is gitignored.
 
 Queue files under `docker/` are not this install. They build this repository and do not pull an image. See [docker/README.md](../../docker/README.md).
 
-Create the first account with [sign-in.md](./sign-in.md). SQLite is the default above. A Postgres server you already run uses the variables in [from-source.md](./from-source.md). A hosted Postgres install is [render.md](./render.md). Analyst mode, including QUERY and a read-only URL, is [analyst.md](./analyst.md).
+Create the first account with [sign-in.md](./sign-in.md). A deploy that cannot open the setup link can create it from host configuration with a Compose secret: [From host configuration](./sign-in.md#from-host-configuration). SQLite is the default above. A Postgres server you already run uses the variables in [from-source.md](./from-source.md). A hosted Postgres install is [render.md](./render.md). Analyst mode, including QUERY and a read-only URL, is [analyst.md](./analyst.md).
 
 ## Custom MCP servers (stdio)
 

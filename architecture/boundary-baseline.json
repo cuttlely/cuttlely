@@ -434,6 +434,11 @@
             "to": "packages/server/src/commands/base.ts"
         },
         {
+            "from": "packages/server/src/commands/hash-password.ts",
+            "to": "packages/server/src/commands/base.ts",
+            "reason": "The hash-password oclif command extends the inherited BaseCommand, like the settings and user commands."
+        },
+        {
             "from": "packages/server/src/commands/settings.ts",
             "to": "packages/server/src/commands/base.ts"
         },

@@ -2008,6 +2008,18 @@ export const KEPT_OUT: KeptOutGroup[] = [
         why: 'Host-only designation for service administration. Never loaded from saved settings.'
     },
     {
+        group: 'First owner from host configuration',
+        keys: [
+            'CUTTLELY_INITIAL_OWNER_EMAIL',
+            'CUTTLELY_INITIAL_OWNER_NAME',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_HASH_FILE',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_FILE',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD_HASH',
+            'CUTTLELY_INITIAL_OWNER_PASSWORD'
+        ],
+        why: 'Creates the first owner on an empty database at start. A browser must never set an account password or the email that receives one.'
+    },
+    {
         group: 'Inbound access rollout',
         keys: ['CUTTLELY_API_KEY_INSTANCES'],
         why: 'Replica admission must be configured by the deployment operator, outside browser settings.'
