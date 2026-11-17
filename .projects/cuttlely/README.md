@@ -18,9 +18,9 @@ Cuttlely is open-source, context-aware agent orchestration (Apache-2.0). It give
 
 ## How to resume
 
-1.7.9 documentation is being prepared; publication and deployed-version checks remain pending. The standalone Harness LangSmith fix merged in #517 with all 28 full-gate steps passing. STATUS records its checked tree, source deployment, isolated query verification and external-dashboard limitation.
+1.7.9 is published at `0beeb62a` (#524) on GitHub, as a container image and in both npm packages. STATUS records the fresh 28-step preparation, protected merge, image/package integrity, deployed site and standalone Harness query checks, including the initial post-rollout connection refusal and external-dashboard limitation. The complete merge/documentation audit landed in #523.
 
-1.7.8 is published on GitHub, as a container image and in both npm packages; its hosted upgrade is verified. Start with STATUS for the tag, preparation, publication, package integrity and deployed checks. The 1.7.7 release section retains its historical package and website results. `docs/releases.md` and `scripts/release.mjs` describe the next release, including the protected-main PR path. User/team lifecycle landed in #501; its fresh CI and deployed checks are recorded in STATUS. Keep preparation, publication and deployment checks separate.
+Historical 1.7.8 and 1.7.7 publication and hosted-upgrade receipts remain in STATUS. `docs/releases.md` and `scripts/release.mjs` describe the protected-main release procedure. User/team lifecycle landed in #501; its CI and deployed checks are also recorded in STATUS. Keep preparation, publication and deployment checks separate.
 
 1. Read [STATUS.md](./STATUS.md), then [OPEN.md](./OPEN.md), then the open issues: `gh issue list -R cuttlely/cuttlely`. Also check open pull requests (`gh pr list -R cuttlely/cuttlely`) so you do not redo work that is already in review.
 2. Read [DECISIONS.md](./DECISIONS.md) before changing architecture. Those decisions are settled. To change one, add a new entry with the reason; do not quietly redo it.
