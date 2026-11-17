@@ -252,6 +252,11 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Standalone Harness LangSmith tracing reuses shared analytics credential and environment selection; its regressions verify that keyless flow credentials never inherit host authentication."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/Interface.ts"
         },
         {
@@ -262,6 +267,11 @@
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/storageUtils.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/tracingEnv.ts",
+            "reason": "Standalone Harness LangSmith tracing reuses shared analytics credential and environment selection; its regressions verify that keyless flow credentials never inherit host authentication."
         },
         {
             "from": "packages/components/nodes/harness/HarnessChief/HarnessChief.ts",
@@ -349,6 +359,11 @@
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
             "to": "packages/components/src/handler.ts",
             "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
+        },
+        {
+            "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
+            "to": "packages/components/src/tracingEnv.ts",
+            "reason": "Standalone Harness LangSmith tracing reuses shared analytics credential and environment selection; its regressions verify that keyless flow credentials never inherit host authentication."
         },
         {
             "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",

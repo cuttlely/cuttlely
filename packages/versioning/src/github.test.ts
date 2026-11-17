@@ -351,7 +351,10 @@ beforeEach(() => {
     setGithubForTests(sync)
 })
 
-afterEach(() => {
+afterEach(async () => {
+    sync.stop()
+    await sync.idle()
+    // A finishing worker can schedule its next poll. Retire it before changing the shared store/env.
     sync.stop()
     setGithubForTests(null)
     process.env = { ...savedEnv }
@@ -1842,8 +1845,13 @@ describe('selected repository branch', () => {
         expect(first).not.toBeNull()
         expect(await sync.status()).toMatchObject({ branch: 'teams/versions', state: 'up-to-date' })
         sync.stop()
+        // This test replaces an instance in-process; a real restart cannot leave its old worker alive.
+        await sync.idle()
+        sync.stop()
         sync = makeSync()
         setGithubForTests(sync)
+        // Match server startup: without start(), status() can launch a late first poll during reconnect.
+        sync.start()
         await save('Second')
         await sync.tryNow()
         expect(bareRef(bare, 'refs/heads/teams/versions')).not.toBe(first)

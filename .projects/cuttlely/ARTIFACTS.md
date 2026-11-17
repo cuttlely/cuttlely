@@ -8,6 +8,15 @@
 -   `docs/images/versioning/github-branch.png`: current Branch menu from the real GitHub card, rendered with isolated fixture responses; no external account or live model call. The guide records its example repository, protected branch and slash branch choices.
 -   `website/src/components/Hero.astro`: one-sentence 1.7.8 release notice with the existing linked backup reminder.
 
+## Standalone Harness LangSmith tracing
+
+-   `packages/components/nodes/harness/Harness/Harness.ts`: authorized standalone parent lifecycle and child callbacks; existing tool tracing retains its caller's parent.
+-   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
+-   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
+-   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
+-   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
+-   `packages/versioning/src/github.test.ts`: restart and teardown wait for active sync work before swapping instances or removing fixture repositories, and restart invokes server-equivalent sync startup; all 434 versioning tests and 15 repeated restart runs pass.
+
 ## 1.7.7 release
 
 -   [Published release v1.7.7](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7), canonical `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)). The generated candidate `4d9210b7` has the same tree.

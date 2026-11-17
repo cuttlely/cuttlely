@@ -13,3 +13,11 @@ What this means:
 -   A failed upload, or tracing turned off for a credential with no key, logs the flow id and the credential id, its field names, the key length, the endpoint origin and the project; a failed upload also logs a fixed operation name (such as `/runs/multipart`). The key value, anything derived from it, and the endpoint path, query and user info are never logged.
 
 See also [Startup options](./startup-options.md) for `LANGSMITH_API_KEY`, `LANGCHAIN_API_KEY` and `LANGSMITH_PROJECT`.
+
+## Harness chatflows
+
+A chatflow whose only node is **Harness** uses the chatflow's **Configuration → Advanced → Analytics → LangSmith** settings. Select the credential and project, turn LangSmith on, and save the chatflow. A Tool Agent wrapper is not required. Host-wide tracing uses the same settings and credential precedence described above.
+
+Each message gets a parent run named `Harness: <name>` with the question and delivered answer. In-process model calls appear beneath that parent. A failed or cancelled turn closes the parent with an error; a tracing upload failure does not replace the chat response. Workspace and caller authorization happen before tracing starts. Publish-check replays export no traces.
+
+A Harness used as an agent tool keeps the agent's existing trace parent. Tracer callbacks stay in the process that queued the Harness turn: they are not serialized into jobs or sent to another worker. This integration does not claim a trace for every step executed by a separate agent-runtime process.

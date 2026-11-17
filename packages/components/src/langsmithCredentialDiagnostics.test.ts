@@ -3,6 +3,7 @@ import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
 import { Client } from 'langsmith'
 import { AnalyticHandler, additionalCallbacks } from './handler'
 import * as utils from './utils'
+import { resetTracingEnvCache } from './tracingEnv'
 import {
     describeLangSmithCredential,
     keepConfiguredLangSmithTarget,
@@ -219,6 +220,64 @@ describe('LangSmith tracer inside runWithAbortSignal', () => {
             expect(tracer.client).toBeInstanceOf(Client)
             expect((tracer.client as any).apiKey).toBe('lsv2_pt_test_only_value')
         })
+    })
+
+    it('a LangSmith-only selection reads only its credential and excludes other providers and the usage counter', async () => {
+        const credentials = jest.spyOn(utils, 'getCredentialData').mockResolvedValue({ langSmithApiKey: 'lsv2_pt_test_only_value' })
+        const counter = { name: 'fixture_counter' }
+        const options = {
+            tokenUsageCallback: counter,
+            analytic: JSON.stringify({
+                langFuse: { status: true, credentialId: 'other-credential' },
+                langSmith: { status: true, credentialId: 'trace-credential', projectName: 'fixture-project' }
+            })
+        }
+        const callbacks = await additionalCallbacks({ inputs: {} } as any, options, ['langSmith'])
+        expect(credentials).toHaveBeenCalledTimes(1)
+        expect(credentials).toHaveBeenCalledWith('trace-credential', options)
+        expect(callbacks).toHaveLength(1)
+        expect(callbacks[0].name).toBe('langchain_tracer')
+        expect(callbacks[0].projectName).toBe('fixture-project')
+        expect(callbacks[0].client.apiKey).toBe('lsv2_pt_test_only_value')
+        expect(callbacks).not.toContain(counter)
+    })
+
+    it('a LangSmith-only selection supports host tracing without replacing an explicit keyless flow credential', async () => {
+        const names = [
+            'LANGSMITH_TRACING',
+            'LANGSMITH_API_KEY',
+            'LANGSMITH_PROJECT',
+            'LANGCHAIN_TRACING_V2',
+            'LANGSMITH_TRACING_V2',
+            'LANGCHAIN_TRACING'
+        ]
+        const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+        const credentials = jest.spyOn(utils, 'getCredentialData').mockResolvedValue({})
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            process.env.LANGSMITH_TRACING = 'true'
+            process.env.LANGSMITH_API_KEY = 'lsv2_pt_host_fixture_value'
+            process.env.LANGSMITH_PROJECT = 'host-fixture-project'
+            resetTracingEnvCache()
+            const callbacks = await additionalCallbacks({ inputs: {} } as any, {}, ['langSmith'])
+            expect(callbacks).toHaveLength(1)
+            expect(callbacks[0].projectName).toBe('host-fixture-project')
+            expect(callbacks[0].client.apiKey).toBe('lsv2_pt_host_fixture_value')
+            expect(credentials).not.toHaveBeenCalled()
+            const keyless = await additionalCallbacks(
+                { inputs: {} } as any,
+                { analytic: JSON.stringify({ langSmith: { status: true, credentialId: 'empty-credential' } }) },
+                ['langSmith']
+            )
+            expect(keyless).toEqual([])
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name]
+                else process.env[name] = value
+            }
+            resetTracingEnvCache()
+            warn.mockRestore()
+        }
     })
 
     const KEYLESS = [

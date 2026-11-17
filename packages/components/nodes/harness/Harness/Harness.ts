@@ -160,42 +160,64 @@ class Harness_Harness implements INode {
     async run(nodeData: INodeData, input: string, options: ICommonObject): Promise<any> {
         const harnessName = selectedHarness(nodeData)
         const images = allowsImages(nodeData) ? await uploadedImages(options) : []
-        const payload = await runNamedHarness(harnessName, input, options, !options.agentflowRuntime, undefined, undefined, images)
-        const stored = await storeHarnessImages(payload.artifacts, options, isTrustedOutput(payload), payload.trustedOutputDeadlineAt)
-        payload.artifacts = stored
-        if (isTrustedOutput(payload)) assertDeliveryActive(options, payload.trustedOutputDeadlineAt)
-        if (!options.agentflowRuntime && !(isTrustedOutput(payload) && isHarnessReplay(options))) streamStoredImages(options, stored)
-        deliverTrustedOutput(payload, options)
-        if (options.agentflowRuntime) {
-            return {
-                id: nodeData.id,
-                name: this.name,
-                input: { question: input },
-                output: {
-                    content: payload.text,
-                    text: payload.text,
-                    harness: payload.harness,
-                    agents: payload.agents,
-                    sources: payload.sources,
-                    artifacts: payload.artifacts,
-                    timings: payload.timings,
-                    report: payload.report,
-                    sourceDocuments: payload.sources,
-                    harnessPayload: payload
-                },
-                state: options.agentflowRuntime.state
+        let trace: StandaloneHarnessTrace | undefined
+        try {
+            const payload = await runNamedHarness(
+                harnessName,
+                input,
+                options,
+                !options.agentflowRuntime,
+                undefined,
+                undefined,
+                images,
+                undefined,
+                options.agentflowRuntime
+                    ? undefined
+                    : async () => {
+                          trace = await openStandaloneHarnessTrace(nodeData, harnessName, input, options)
+                          return trace?.callbacks
+                      }
+            )
+            const stored = await storeHarnessImages(payload.artifacts, options, isTrustedOutput(payload), payload.trustedOutputDeadlineAt)
+            payload.artifacts = stored
+            if (isTrustedOutput(payload)) assertDeliveryActive(options, payload.trustedOutputDeadlineAt)
+            if (!options.agentflowRuntime && !(isTrustedOutput(payload) && isHarnessReplay(options))) streamStoredImages(options, stored)
+            deliverTrustedOutput(payload, options)
+            if (options.agentflowRuntime) {
+                return {
+                    id: nodeData.id,
+                    name: this.name,
+                    input: { question: input },
+                    output: {
+                        content: payload.text,
+                        text: payload.text,
+                        harness: payload.harness,
+                        agents: payload.agents,
+                        sources: payload.sources,
+                        artifacts: payload.artifacts,
+                        timings: payload.timings,
+                        report: payload.report,
+                        sourceDocuments: payload.sources,
+                        harnessPayload: payload
+                    },
+                    state: options.agentflowRuntime.state
+                }
             }
-        }
-        return {
-            text: payload.text,
-            harness: payload.harness,
-            agents: payload.agents,
-            sources: payload.sources,
-            artifacts: payload.artifacts,
-            timings: payload.timings,
-            report: payload.report,
-            sourceDocuments: payload.sources,
-            harnessPayload: payload
+            await trace?.end(payload.text)
+            return {
+                text: payload.text,
+                harness: payload.harness,
+                agents: payload.agents,
+                sources: payload.sources,
+                artifacts: payload.artifacts,
+                timings: payload.timings,
+                report: payload.report,
+                sourceDocuments: payload.sources,
+                harnessPayload: payload
+            }
+        } catch (error) {
+            await trace?.fail(error)
+            throw error
         }
     }
 }
@@ -933,6 +955,55 @@ function harnessTraceCallbacks(runManager?: ToolRunManager, toolName = 'harness'
     return manager
 }
 
+type StandaloneHarnessTrace = {
+    callbacks?: CallbackManager
+    end: (text: string | undefined) => Promise<void>
+    fail: (error: unknown) => Promise<void>
+}
+
+// A standalone chatflow has no agent to create its tracing parent. Provider selection and credential
+// checks stay shared with other chatflows. Load the tracer only for an authorized, traced turn.
+async function openStandaloneHarnessTrace(
+    nodeData: INodeData,
+    harnessName: string,
+    input: string,
+    options: ICommonObject
+): Promise<StandaloneHarnessTrace | undefined> {
+    if (isHarnessReplay(options)) return undefined
+    try {
+        const { tracingEnvEnabled } = await import('../../../src/tracingEnv')
+        if (!options.analytic && !tracingEnvEnabled()) return undefined
+        const { additionalCallbacks } = await import('../../../src/handler')
+        const callbacks = await additionalCallbacks(nodeData, options, ['langSmith'])
+        const tracers = callbacks.filter((handler) => handler?.name === 'langchain_tracer')
+        if (!tracers.length) return undefined
+        const manager = new CallbackManager()
+        for (const tracer of tracers) manager.addHandler(tracer, true)
+        const parent = await manager.handleChainStart(
+            { lc: 1, type: 'not_implemented', id: ['cuttlely', 'Harness'] },
+            { input },
+            undefined,
+            'chain',
+            undefined,
+            undefined,
+            `Harness: ${harnessName}`
+        )
+        const reportFailure = () => console.warn('[langsmith] Harness trace callback failed')
+        return {
+            callbacks: harnessTraceCallbacks(parent),
+            end: async (text) => {
+                await parent.handleChainEnd({ output: text ?? '' }).catch(reportFailure)
+            },
+            fail: async (error) => {
+                await parent.handleChainError(error).catch(reportFailure)
+            }
+        }
+    } catch {
+        console.warn('[langsmith] Harness trace could not be started')
+        return undefined
+    }
+}
+
 async function runNamedHarness(
     harnessName: string,
     input: string,
@@ -942,7 +1013,7 @@ async function runNamedHarness(
     streamed?: { answer: boolean },
     images: string[] = [],
     metadata?: Record<string, unknown>,
-    callbacks?: CallbackManager
+    callbacks?: CallbackManager | (() => Promise<CallbackManager | undefined>)
 ) {
     const engine = await loadHarnessEngine()
     const chatId = (options.chatId as string) || (options.sessionId as string)
@@ -964,6 +1035,8 @@ async function runNamedHarness(
             throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
         }
     }
+    // The standalone parent is opened only after workspace and caller authorization above.
+    const traceCallbacks = typeof callbacks === 'function' ? await callbacks() : callbacks
     const harnessTrace = await openNodeHarnessTrace(harnessName, input, options)
     const forward = harnessOnEvent(options, streamAnswer, runManager, streamed)
     const deferred: Array<{ type: string }> = []
@@ -995,7 +1068,7 @@ async function runNamedHarness(
             },
             ...(images.length ? { images } : {}),
             ...(metadata ? { metadata } : {}),
-            ...(callbacks ? { callbacks } : {})
+            ...(traceCallbacks ? { callbacks: traceCallbacks } : {})
         })
         if (isTrustedOutput(payload) && !isHarnessReplay(options) && deferred.length)
             trustedDelivery.set(payload, () => deferred.forEach((event) => forward?.(event)))
