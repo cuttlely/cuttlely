@@ -1,10 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { createRequire } from 'node:module'
 import { api, check, root, WS } from './lib.mjs'
 import { LocalVectorStore } from '../stores.mjs'
-const require = createRequire(new URL('../../components/package.json', import.meta.url))
-const { MarkdownTextSplitter } = require('@langchain/textsplitters')
 const repo = path.join(root, 'resume-markdown-repo')
 fs.mkdirSync(repo)
 fs.writeFileSync(
@@ -39,8 +36,7 @@ api.configureRunner({
                 entered()
                 await hold
             }
-        },
-        componentNodes: { markdownTextSplitter: { init: async () => new MarkdownTextSplitter({ chunkSize: 1200, chunkOverlap: 100 }) } }
+        }
     })
 })
 try {
