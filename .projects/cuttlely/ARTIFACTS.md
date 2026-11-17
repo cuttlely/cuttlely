@@ -2,6 +2,7 @@
 
 -   `packages/components/nodes/harness/Harness/Harness.ts`: authorized standalone parent lifecycle and child callbacks; existing tool tracing retains its caller's parent.
 -   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
+-   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
 -   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
 -   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
 
