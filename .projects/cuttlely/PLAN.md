@@ -2,7 +2,7 @@
 
 ## Current release work
 
-Prepare a fresh 1.7.9 candidate including #520 and #521, then publish through a new protected version PR, the exact-tag image workflow and both tag-based npm publications. The earlier candidate and closed PR #519 are superseded. Verify the hosted version and isolated query behavior, then record final receipts in STATUS. No release artifact is claimed published during documentation preparation.
+1.7.9 is published at `0beeb62a` (#524): GitHub release, image and both npm packages. Full preparation, protected version checks, tagged image startup, package integrity, hosted health and an isolated standalone query were verified. The initial post-rollout specialist connection refusal and later recovery are recorded in STATUS; no startup root cause is claimed.
 
 ## Milestones
 
@@ -31,6 +31,8 @@ Prepare a fresh 1.7.9 candidate including #520 and #521, then publish through a 
 | 21  | Project website with the docs (`website/`)                                                       | Built. Publishing it is a maintainer step                                                                                                                                                       |
 
 ## Next concrete tasks
+
+-   **1.7.9 release (published).** Published as `0beeb62a` ([#524](https://github.com/cuttlely/cuttlely/pull/524)). The merge audit and complete documentation landed in #523. All 28 fresh preparation steps, image checks, normal version-PR checks, both npm artifacts, website content/media and hosted runtime checks are recorded in STATUS. New release notes go under `## [Unreleased]`.
 
 -   **1.7.8 release (published).** Published as `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)). 1.7.8 is on GitHub, as a container image and in both npm packages; its hosted upgrade is verified. See STATUS for the tag, preparation, publication, package integrity and deployed checks. `CHANGELOG.md` dates it `## [1.7.8] - 2026-11-17`. New notes go under `## [Unreleased]`.
 

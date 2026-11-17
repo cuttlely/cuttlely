@@ -2,23 +2,24 @@
 
 -   `packages/etl/cooperate.mjs`, `sources.mjs`, `execute.mjs`: cooperative source/run bookkeeping, checkpoint-bounded duplicate seeding and first-error retention.
 -   `packages/etl/check/{responsiveness,resume-markdown,health-bookkeeping}.mjs`: source-scan liveness, error-limit diagnostics, interrupted Markdown content parity and a real HTTP probe during slow bookkeeping. Included in `pnpm etl:check`.
--   `docs/how-to/etl.md` and the unreleased changelog: failure diagnosis and restart recovery.
+-   `docs/how-to/etl.md` and the 1.7.9 changelog: failure diagnosis and restart recovery.
 
-## 1.7.9 release preparation
+## 1.7.9 release
 
 -   `CHANGELOG.md`, `docs/releases.md`, `docs/upgrading.md`: patch scope, upgrade notes and the protected release procedure.
 -   Root/translated READMEs, FAQ and docs indexes: standalone Harness tracing, ETL recovery, first-owner configuration and import/operator fixes.
 -   `docs/reference/release-1-7-9-audit.md`: every merge from v1.7.8 through `d1c72763`, source verification receipts and documentation/asset coverage.
 -   `packages/cli/README.md`, `packages/chat-widget/README.md`, Docker/Compose and embed examples: matching 1.7.9 pins.
 -   `website/src/components/Hero.astro`: one-sentence tracing headline and the existing linked backup reminder.
--   [Standalone tracing full verification](https://github.com/cuttlely/cuttlely/actions/runs/44048907366): all 28 full steps on `5224da37`, with the same tree merged as `964bbded` (#517). [Release preparation](https://github.com/cuttlely/cuttlely/actions/runs/44111606709) passed all 28 full steps on `f4b6c990` and checked candidate `b1107a6b`; version PR #519 is closed as superseded. A fresh candidate must include #520 and #521 before authorized publication.
+-   [Published v1.7.9](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.9), canonical `0beeb62a` ([#524](https://github.com/cuttlely/cuttlely/pull/524)); candidate `a9c8cc76` has the same tree. [Preparation](https://github.com/cuttlely/cuttlely/actions/runs/44178462004) passed all 28 full steps and the versioned local-image startup check on `e398452f`. Artifact digest and exact five-file diff were verified. The older #519 candidate is superseded.
+-   [Exact-tag image publication](https://github.com/cuttlely/cuttlely/actions/runs/44187949325) passed startup and public push. Both npm packages are public at 1.7.9 and tagged latest; anonymous tarball integrity and packaged README bytes match the annotated tag. STATUS records the image digest, hosted health, the initial specialist refusal and successful independent standalone-query check, plus 20 deployed routes, 178 assets and nine narrated-video playback checks.
 
 ## First owner from host configuration
 
 -   `packages/server/src/identity/initialOwner.ts` and `initialOwner.test.ts`: reads and validates the `CUTTLELY_INITIAL_OWNER_*` variables, captures and scrubs them at startup (`commands/base.ts`), and creates the first owner on an empty database before the server listens (`index.ts`). Create-only.
 -   `packages/server/src/commands/hash-password.ts` and `hash-password.test.ts`: `pnpm hash-password [file]` prints the `scrypt$<salt>$<key>` hash or writes it to a new 0600 file. `packages/server/src/utils/readPassword.ts` is the masked prompt and stdin reader it shares with `pnpm user`.
 -   `owner_created` audit type: written for every first owner, with `detail.source` set to `setup_code`, `cli` or `host_config` and no email (`identity/sqlStore.ts`, `identity/auditLog.ts`). The Audit log filter option is in `packages/ui/src/views/audit/query.js`; the type is documented in `docs/reference/audit-api.md`.
--   User guidance: "From host configuration" in `docs/how-to/sign-in.md`, with pointers from `docs/how-to/docker.md` and `docs/how-to/instance-operator.md`, plus `SECURITY.md` and `## [Unreleased]` in `CHANGELOG.md`. The "First owner from host configuration (host only)" section of `docs/reference/startup-options.md` is rendered from `packages/server/src/settings/startupOptions.ts` and checked by `startup-options.test.ts`. `.env.example`, `docker-compose.yml` and `docker/docker-compose.yml` name the variables, blank by default.
+-   User guidance: "From host configuration" in `docs/how-to/sign-in.md`, with pointers from `docs/how-to/docker.md` and `docs/how-to/instance-operator.md`, plus `SECURITY.md` and the 1.7.9 entry in `CHANGELOG.md`. The "First owner from host configuration (host only)" section of `docs/reference/startup-options.md` is rendered from `packages/server/src/settings/startupOptions.ts` and checked by `startup-options.test.ts`. `.env.example`, `docker-compose.yml` and `docker/docker-compose.yml` name the variables, blank by default.
 
 ## 1.7.8 release
 
@@ -36,7 +37,7 @@
 -   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
 -   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
 -   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
--   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
+-   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the 1.7.9 changelog: setup and in-process worker limits.
 -   `packages/versioning/src/github.test.ts`: restart and teardown wait for active sync work before swapping instances or removing fixture repositories, and restart invokes server-equivalent sync startup; all 434 versioning tests and 15 repeated restart runs pass.
 
 ## 1.7.7 release
