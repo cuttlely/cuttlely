@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
--   **1.7.8 release (cut).** Cut on main as `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)) with the `v1.7.8` tag, after documentation and assets in #513, branch selection in #512 and the shorter homepage notice in #511. `CHANGELOG.md` dates it `## [1.7.8] - 2026-11-17`. The GitHub release [Cuttlely 1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8) was published on 2026-11-16. Image, npm and deployment availability were not checked here.
+-   **1.7.8 release (published).** Published as `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)). 1.7.8 is on GitHub, as a container image and in both npm packages; its hosted upgrade is verified. See STATUS for the tag, preparation, publication, package integrity and deployed checks. `CHANGELOG.md` dates it `## [1.7.8] - 2026-11-17`. New notes go under `## [Unreleased]`.
 
 -   **1.7.7 release (done).** Published as `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)) with the cancellation isolation fix from #505. All 27 preparation verification steps, image startup checks, normal version-PR checks, exact-tag image publication, both npm packages and packaged README checks passed. Live saved-query and concurrent cancellation checks passed after runtime startup; see STATUS for the initial admission failure and recovery.
 
