@@ -27,7 +27,7 @@ Node 20+ and Docker
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.7.9 traces standalone Harness chatflows in LangSmith.** Enable LangSmith in the chatflow’s Analytics settings; a Tool Agent wrapper is no longer required. [LangSmith tracing](./docs/reference/langsmith-tracing.md).
+**1.7.9 traces standalone Harness chatflows in LangSmith.** Enable LangSmith in the chatflow’s Analytics settings; a Tool Agent wrapper is no longer required. [LangSmith tracing](./docs/reference/langsmith-tracing.md). ETL stays responsive during scans and resumes interrupted repository files. New local-password installations can create their first owner from host configuration. [ETL](./docs/how-to/etl.md) · [First owner](./docs/how-to/sign-in.md#from-host-configuration).
 
 **1.7.7 fixes cancellation across agent-team chats.** Stopping one chat leaves other chats using the same specialist running. [Harnesses](./docs/how-to/harnesses.md).
 

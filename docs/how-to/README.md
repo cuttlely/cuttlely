@@ -5,6 +5,8 @@ Step-by-step guides for building, installing, signing in and running Cuttlely. E
 ## New in 1.7.9
 
 -   **Trace a single Harness node.** Use LangSmith Analytics without a Tool Agent wrapper. [LangSmith tracing](../reference/langsmith-tracing.md#harness-chatflows).
+-   **Resume ETL work.** Scans yield to requests, interrupted repository files resume correctly and error-limit failures retain their first cause. [ETL](./etl.md).
+-   **Create the first owner from host configuration.** Bootstrap an empty local-password installation without the setup link. Existing accounts are preserved. [Sign in](./sign-in.md#from-host-configuration).
 -   **Review dropped import edges.** Missing source outputs and target inputs are reported instead of reassigned. [Bring your flows](../bring-your-flows.md).
 -   **Read operator request errors.** Active-code guidance and neutral limit messages appear as errors when a request is refused. [Instance operator](./instance-operator.md).
 
