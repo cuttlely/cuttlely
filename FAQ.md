@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.7)
+# Cuttlely FAQ (1.7.8)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.7?
+### What's new in 1.7.8?
+
+Version History lets you select the GitHub branch for copies and reads, including branch names with slashes. Existing connections keep working, and repository protection still applies. The homepage release notice is shorter. Use matching 1.7.8 server and widget packages. No schema migration is added. [Version History](./docs/how-to/versioning.md) · [Upgrade guide](./docs/upgrading.md).
+
+### What changed in 1.7.7?
 
 Stopping an agent-team chat cancels only that chat. Other chats using the same specialist keep running. Use matching 1.7.7 server and widget packages. This patch adds no schema migration or configuration change. [Harnesses](./docs/how-to/harnesses.md) · [Upgrade guide](./docs/upgrading.md).
 

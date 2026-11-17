@@ -1,5 +1,9 @@
 # Frequently asked questions
 
+## Can I keep version history on a GitHub branch other than main?
+
+Yes. In Version History, select a repository and choose its **Branch** before connecting. Existing connections keep their branch; disconnect and reconnect to change it. The token must be able to write to that branch, and repository protection rules still apply. Named environment chains keep their configured mappings. [Version History](./how-to/versioning.md).
+
 ## Does stopping one agent-team chat stop another chat?
 
 In 1.7.7, Stop cancels only that chat's runtime run and model connection. Other chats using the same specialist continue running. Upgrade an earlier server to get this fix. [Harnesses](./how-to/harnesses.md).

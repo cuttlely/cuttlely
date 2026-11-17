@@ -4,6 +4,14 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.8
+
+Back up the application database, encryption key and settings first. Use matching 1.7.8 server and widget packages. This patch adds no schema migration and preserves stored roles, memberships and the selected sign-in method. Access-key enforcement remains **Off** by default.
+
+Existing Version History GitHub connections keep their current branch. To select another branch, disconnect and reconnect using the new **Branch** dropdown. On a standard Dev/Prod pair, choose the same branch on both servers. Named environment chains keep the branch mappings in their environment list. Repository protection rules still apply; choose a branch the token can write to. [Version History](./how-to/versioning.md).
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from earlier versions.
+
 ## Upgrading to 1.7.7
 
 Back up the application database, encryption key and settings first. Use matching 1.7.7 server and widget packages. Stopping an agent-team chat now cancels only that chat's runtime run and model connection; other chats using the same specialist keep running. This patch adds no schema migration or configuration change and preserves stored roles and memberships. Access-key enforcement remains **Off** by default.

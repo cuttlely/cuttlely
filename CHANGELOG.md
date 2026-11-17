@@ -4,11 +4,16 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.8] - Unreleased
+
 ### Changed
 
 -   Version History GitHub setup lists repository branches and saves the selected branch for copying and reading versions, including branch names with slashes.
-
 -   Shortened the website homepage release blurb to the latest fix and a linked upgrade reminder.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration. Existing GitHub connections keep their current branch; disconnect and reconnect to choose another branch. Named environment chains retain their configured mappings. Back up the database, encryption key and settings before upgrading. Operator onboarding requirements and default-Off access-key enforcement remain in effect.
 
 ## [1.7.7] - 2026-11-16
 

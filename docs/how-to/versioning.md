@@ -406,6 +406,8 @@ On a GitHub Enterprise host, create the token on that host, not on github.com. T
 
 4. Pick a repository, or select **Make a new private repository** and give it a name (`cuttlely-flows` is filled in for you). An empty repository still works. A repository that already has files works too. Files added there later stay, and the next copy adds new versions on top of them. Choose a branch from the **Branch** dropdown. It lists the repository's branches, marks protected ones, and starts with the default branch. Choose one the token can write to; protection rules still apply. An empty repository starts on its default branch. The connected card shows the saved branch. To change it, disconnect and connect again. On a Dev/Prod pair, select the same branch on both servers. Named environment chains keep the branch mappings from their environment list; the dropdown shows that configured branch.
 
+    ![Version History Branch menu for an example repository. The choices are main (protected), versions/dev and versions/production, with versions/dev selected.](../images/versioning/github-branch.png)
+
     ![Make a new private repository is selected, with a name box that reads rosas-bakery/ cuttlely-flows.](../images/versioning/github-new-repo.png)
 
     A token made for one repository cannot create repositories (see [Which GitHub token to use](#which-github-token-to-use)). If Cuttlely says so, create a private repository on GitHub, give the token access to it, and pick it from the list.
