@@ -194,6 +194,24 @@ const STEPS = [
         args: ['--dir', 'packages/versioning', 'test']
     },
     {
+        // Standalone Harness tracing, tool-parent compatibility, and credential/endpoint isolation.
+        name: 'harness-langsmith',
+        fast: true,
+        command: 'pnpm',
+        args: [
+            '--dir',
+            'packages/components',
+            'exec',
+            'jest',
+            '--runInBand',
+            '--forceExit',
+            '--coverage=false',
+            'nodes/harness/Harness/Harness.langsmith.test.ts',
+            'nodes/harness/Harness/Harness.test.ts',
+            'src/langsmithCredentialDiagnostics.test.ts'
+        ]
+    },
+    {
         name: 'hermes-vendor',
         fast: true,
         command: process.execPath,
@@ -394,7 +412,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, harness-langsmith, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(

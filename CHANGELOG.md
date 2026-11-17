@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   A chatflow containing only a Harness node now uses its LangSmith Analytics settings, with a parent run for the question and answer and child traces for in-process model calls. A Tool Agent wrapper is no longer required for this tracing path.
+
 ## [1.7.8] - 2026-11-17
 
 ### Changed

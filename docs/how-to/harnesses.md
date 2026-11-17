@@ -416,6 +416,8 @@ Deleting the harness deletes its schedule. The API calls are in [Schedule a harn
 
 A chatflow runs a harness with the **Harness** node. A chatflow whose only node is **Harness** sends every message to that harness.
 
+For LangSmith tracing, open the chatflow's **Configuration → Advanced → Analytics**, select the LangSmith credential and project, and turn it on. A single Harness node records a parent run and its in-process model calls without adding a Tool Agent. See [LangSmith tracing](../reference/langsmith-tracing.md#harness-chatflows) for credential rules and worker limits.
+
 1. Open **Chatflows** and select **Add New**.
 2. Select **+** (**Add Node**), type `Harness`, and drag **Harness** onto the canvas.
 3. Under **Harness**, select `chief-of-staff`.

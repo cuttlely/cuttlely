@@ -148,6 +148,12 @@ jobs:
               env:
                   NODE_OPTIONS: '--max_old_space_size=4096'
             - run: pnpm harness:check
+            - name: Harness LangSmith tracing regressions
+              run: >-
+                  pnpm --dir packages/components exec jest --runInBand --forceExit --coverage=false
+                  nodes/harness/Harness/Harness.langsmith.test.ts
+                  nodes/harness/Harness/Harness.test.ts
+                  src/langsmithCredentialDiagnostics.test.ts
             - run: pnpm etl:check
             - name: User Management UI regressions
               run: pnpm --filter @cuttlely/ui test --runInBand src/views/users
