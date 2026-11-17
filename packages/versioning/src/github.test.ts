@@ -1850,6 +1850,8 @@ describe('selected repository branch', () => {
         sync.stop()
         sync = makeSync()
         setGithubForTests(sync)
+        // Match server startup: without start(), status() can launch a late first poll during reconnect.
+        sync.start()
         await save('Second')
         await sync.tryNow()
         expect(bareRef(bare, 'refs/heads/teams/versions')).not.toBe(first)
