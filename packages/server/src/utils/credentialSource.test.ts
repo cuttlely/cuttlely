@@ -1,3 +1,5 @@
+import { spawnSync } from 'child_process'
+import path from 'path'
 import { In } from 'typeorm'
 import { makeSource, shouldRegisterCredentialSource } from './credentialSource'
 
@@ -54,5 +56,22 @@ describe('credential source registration', () => {
     it('mysql hosts do not register a source', () => {
         expect(shouldRegisterCredentialSource('mysql')).toBe(false)
         expect(shouldRegisterCredentialSource('mariadb')).toBe(false)
+    })
+})
+
+describe('split-path SQLite credential rotation', () => {
+    it('rotation on a split-path SQLite host updates the stamp and row from the app database, not the secret-path file', () => {
+        // Jest maps `typeorm` to a decorator stub and cannot `import()` the ESM
+        // harness store without --experimental-vm-modules. The assertions run in a
+        // child Node process with the real TypeORM sqlite driver and a real DataSource.
+        const child = path.join(__dirname, 'credentialSource.split-path.child.mjs')
+        const result = spawnSync(process.execPath, [child], {
+            encoding: 'utf8',
+            env: process.env
+        })
+        if (result.status !== 0) {
+            throw new Error(`split-path child exited ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+        }
+        expect(result.stdout).toContain('split-path SQLite rotation assertions passed')
     })
 })
