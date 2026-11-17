@@ -1,7 +1,7 @@
 // Optional copy of version history to a GitHub repository.
 //
 // History stays a local Git repo. When an owner connects a repository in Settings, every new
-// version is copied to that repository's main branch in the background. Copying never blocks or fails a save, a Publish or a Roll back:
+// version is copied to the selected repository branch in the background. Copying never blocks or fails a save, a Publish or a Roll back:
 // it runs after the version is committed, one copy at a time, and retries on its own when GitHub
 // cannot be reached.
 //
@@ -26,6 +26,7 @@ import readline from 'readline'
 import fs from 'fs'
 import path from 'path'
 import {
+    validGithubBranch,
     isLegacyChain,
     legacyEnvironments,
     parseEnvironmentFile,
@@ -53,6 +54,8 @@ import {
     safeApiRoute,
     type ResolvedAddress
 } from './githubHost'
+
+export { validGithubBranch } from './environments'
 
 export type ServerRole = 'dev' | 'prod' | null
 export type { NamedEnvironment }
@@ -95,6 +98,7 @@ export interface GithubStatus {
     incomingVersion: string | null
     // The GitHub host this connection uses. Null when nothing is connected. Absent on older files means github.com.
     host: string | null
+    branch?: string | null
 }
 
 // A repository the token can write to, for the picker.
@@ -118,6 +122,8 @@ export type { GithubEndpoint }
 interface SavedConfig {
     version: 1
     repo: string
+    // Optional for older connections, which continue using main.
+    branch?: string
     // A Github API credential in this workspace. The token stays in Credentials.
     credential: { id: string; name: string; workspaceId: string }
     connectedAt: string
@@ -580,6 +586,7 @@ export class GithubSync {
         try {
             const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
             if (typeof saved?.repo !== 'string' || typeof saved?.credential?.id !== 'string') throw new Error('bad file')
+            if (saved.branch !== undefined && !validGithubBranch(saved.branch)) throw new Error('bad branch')
             if (saved.host !== undefined && typeof saved.host !== 'string') throw new Error('bad file')
             if (typeof saved.host === 'string') githubEndpoint(saved.host)
             return saved
@@ -823,6 +830,7 @@ export class GithubSync {
             return { ...blank, state: 'off', message: 'Version history is off on this server, so there is nothing to copy.' }
         }
         const plan = this.plan()
+        blank.branch = plan.publishBranch || plan.sourceBranch
         const saved = this.readEnvironment()
         blank.environment = saved.environment
         blank.environments = saved.invalid ? [] : saved.environments
@@ -988,7 +996,7 @@ export class GithubSync {
     }
 
     // One read of the environment file for a sync pass. Callers must not read it again to choose a branch.
-    private capturedPlan(): ActivePlan {
+    private capturedPlan(branch?: string): ActivePlan {
         const saved = this.readEnvironment()
         if (saved.invalid) {
             return {
@@ -1002,8 +1010,22 @@ export class GithubSync {
                 verifiedSource: null
             }
         }
+        const plan = syncPlan(saved.environments, saved.environment)
+        // The standard pair shares a selected branch. Named chains retain their explicit mappings.
+        let selected = branch
+        if (selected === undefined) {
+            try {
+                selected = this.readSaved()?.branch
+            } catch {
+                /* config() reports an unreadable connection before network use */
+            }
+        }
+        if (selected && isLegacyChain(saved.environments)) {
+            if (plan.reads) plan.sourceBranch = selected
+            if (plan.copies) plan.publishBranch = selected
+        }
         return {
-            ...syncPlan(saved.environments, saved.environment),
+            ...plan,
             invalid: false,
             environments: saved.environments,
             environment: saved.environment,
@@ -1073,10 +1095,18 @@ export class GithubSync {
         else {
             throw new GithubError(400, isLegacyChain(nextChain) ? 'Pick Dev or Prod.' : 'Pick an environment from the list.')
         }
-        const before = current.invalid
-            ? { reads: false, copies: false, sourceBranch: null, publishBranch: null }
-            : syncPlan(current.environments, current.environment)
+        const before = current.invalid ? { reads: false, copies: false, sourceBranch: null, publishBranch: null } : this.capturedPlan()
         const after = syncPlan(nextChain, nextEnv)
+        let connectionBranch: string | undefined
+        try {
+            connectionBranch = this.readSaved()?.branch
+        } catch {
+            /* Keep the disconnect guard below. */
+        }
+        if (connectionBranch && isLegacyChain(nextChain)) {
+            if (after.reads) after.sourceBranch = connectionBranch
+            if (after.copies) after.publishBranch = connectionBranch
+        }
         let connected = false
         try {
             connected = Boolean(this.readSaved())
@@ -1244,6 +1274,26 @@ export class GithubSync {
                 pushedAt: typeof item.pushed_at === 'string' ? item.pushed_at : null
             }))
         return { account: String(user.data.login), repos }
+    }
+
+    // Uses the same credential, host pin and redirect policy as repository listing.
+    async listBranches(input: { repo?: string; token?: string; credentialId?: string; host?: string }, workspaceId?: string) {
+        const endpoint = githubEndpoint(input?.host ?? '')
+        const { repo } = parseRepo(String(input?.repo ?? ''), endpoint)
+        const { token } = await this.tokenFrom(input, workspaceId, endpoint)
+        const metadata = await this.api(token, 'GET', `/repos/${repo}`, endpoint)
+        if (metadata.status !== 200) throw new GithubError(400, 'Could not read this repository. Check the token access and try again.')
+        const defaultBranch = validGithubBranch(metadata.data?.default_branch) ? metadata.data.default_branch : 'main'
+        const branches: { name: string; protected: boolean }[] = []
+        for (let page = 1; page <= REPO_PAGES; page++) {
+            const list = await this.api(token, 'GET', `/repos/${repo}/branches?per_page=100&page=${page}`, endpoint)
+            if (list.status !== 200 || !Array.isArray(list.data)) throw new GithubError(400, 'GitHub did not list the branches. Try again.')
+            for (const item of list.data) {
+                if (validGithubBranch(item?.name)) branches.push({ name: item.name, protected: Boolean(item.protected) })
+            }
+            if (list.data.length < 100) return { defaultBranch, branches }
+        }
+        throw new GithubError(400, 'This repository has too many branches to list. Use a repository with fewer than 1,000 branches.')
     }
 
     // Makes a new private, empty repository for this history. Then connect it.
@@ -2218,7 +2268,7 @@ export class GithubSync {
     // Checks the repository and token, then saves the connection and starts the first copy.
     // A pasted token is saved as a new Github API credential in this workspace, after the check passes.
     async connect(
-        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string; host?: string },
+        input: { repo?: string; branch?: string; token?: string; credentialId?: string; credentialName?: string; host?: string },
         workspaceId?: string
     ): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
@@ -2227,20 +2277,24 @@ export class GithubSync {
     }
 
     private async connectBody(
-        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string; host?: string },
+        input: { repo?: string; branch?: string; token?: string; credentialId?: string; credentialName?: string; host?: string },
         workspaceId: string
     ): Promise<GithubStatus> {
+        if (input.branch !== undefined && !validGithubBranch(input.branch)) throw new GithubError(400, 'Choose a valid branch name.')
         const endpoint = githubEndpoint(input?.host ?? '')
         const { repo, url } = parseRepo(String(input?.repo ?? ''), endpoint)
         const picked = await this.tokenFrom(input, workspaceId, endpoint)
         const token = picked.token
         const store = this.deps.store()
         await store.ensure()
-        const opened = this.capturedPlan()
+        const opened = this.capturedPlan(input.branch)
+        if (input.branch && !isLegacyChain(opened.environments) && input.branch !== (opened.publishBranch || opened.sourceBranch)) {
+            throw new GithubError(409, 'This branch is set by the environment list. Disconnect and update that list to change it.')
+        }
         if (opened.invalid) throw new GithubError(409, LIST_UNREADABLE)
         if (!opened.reads && !opened.copies) throw new GithubError(409, PICK_ENVIRONMENT)
         const reading = opened.reads && !opened.copies
-        if (this.readSaved()) await this.backfillActiveLatestCopy(opened)
+        if (this.readSaved()) await this.backfillActiveLatestCopy(this.capturedPlan())
         else await this.backfillLatestCopy(repo, url, opened.publishBranch)
 
         // Every ref, not just main: a repository with only master, trunk or a tag is not empty.
@@ -2264,12 +2318,15 @@ export class GithubSync {
             .split('\n')
             .map((line) => line.trim())
             .filter((line) => /\srefs\//.test(line))
+        if (input.branch && isLegacyChain(opened.environments) && refs.length && !this.listedSha(refs, `refs/heads/${input.branch}`)) {
+            throw new GithubError(409, 'The selected branch is no longer available. Reload the branches and choose again.')
+        }
         // The list can be saved while the listing is in flight. Check the list that is on disk now.
-        let accepted = await this.acceptConnection(this.capturedPlan(), refs, repo, url, token)
+        let accepted = await this.acceptConnection(this.capturedPlan(input.branch), refs, repo, url, token)
         // And again immediately before the connection file is written, so a later list is not saved under the earlier check.
-        const fresh = this.capturedPlan()
+        const fresh = this.capturedPlan(input.branch)
         if (!this.sameConnectPlan(fresh, accepted.plan)) accepted = await this.acceptConnection(fresh, refs, repo, url, token)
-        const confirm = this.capturedPlan()
+        const confirm = this.capturedPlan(input.branch)
         if (!this.sameConnectPlan(confirm, accepted.plan)) throw new GithubError(409, LIST_UNREADABLE)
         const plan = accepted.plan
         const pushed = accepted.pushed
@@ -2289,6 +2346,7 @@ export class GithubSync {
         const saved: SavedConfig = {
             version: 1,
             repo,
+            branch: isLegacyChain(plan.environments) ? plan.publishBranch || plan.sourceBranch || undefined : undefined,
             credential: { id: credential.id, name: credential.name, workspaceId },
             connectedAt: new Date(this.now()).toISOString(),
             remote: url,

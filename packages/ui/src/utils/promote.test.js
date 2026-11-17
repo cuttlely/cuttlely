@@ -155,8 +155,7 @@ describe('promote helpers', () => {
     })
 })
 
-// Every message the promote screens and the GitHub card can show: no Git words such as main, branch, commit,
-// push, pull or merge. The scanner is in utils/plainWords.
+// Promotion screens avoid Git jargon. GitHub settings may explicitly name the branch (D122).
 describe('plain words on screen', () => {
     const files = [
         path.join(__dirname, 'promote.js'),
@@ -172,7 +171,13 @@ describe('plain words on screen', () => {
     test.each(files.map((file) => [path.basename(path.dirname(file)) + '/' + path.basename(file), file]))('%s', (_name, file) => {
         const source = fs.readFileSync(file, 'utf8')
         expect(messagesInSource(source).length).toBeGreaterThan(0)
-        expect(gitWordsIn(source)).toEqual([])
+        if (path.basename(file) === 'GithubCard.jsx') {
+            const messages = messagesInSource(source)
+            expect(messages.some((text) => /\bbranch(?:es)?\b/i.test(text))).toBe(true)
+            expect(messages.filter((text) => GIT_WORDS.test(text.replace(/\bbranch(?:es)?\b/gi, 'destination')))).toEqual([])
+        } else {
+            expect(gitWordsIn(source)).toEqual([])
+        }
     })
 
     test('the scan reads one-word labels, JSX text and strings joined with +', () => {

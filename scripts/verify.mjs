@@ -220,6 +220,7 @@ const STEPS = [
             'exec',
             'jest',
             '--watchAll=false',
+            'src/views/versionsettings',
             'src/views/serversettings',
             'src/views/serversetup',
             'src/views/apikey',
