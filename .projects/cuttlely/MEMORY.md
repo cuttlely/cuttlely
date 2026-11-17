@@ -291,3 +291,11 @@ A restarted sync instance also needs the server's `start()` call. Omitting it le
 ## Control artifact timestamps in count-limit fixtures
 
 Artifact merges order all specialists by write time and identify a file by specialist plus name. Back-to-back writes need not share a filesystem timestamp. A count-limit fixture expecting two filenames must give its third specialist image an explicit older time; otherwise a newer same-name image from that other specialist can correctly displace the older filename. Preserve the count, size and deduplication assertions instead of relying on timestamp ties.
+
+## Bound ETL bookkeeping and replay only checkpointed identities
+
+An awaited async generator can still starve HTTP when each item uses synchronous filesystem/SQLite work and resolved promises. Yield to the actual event loop by elapsed time, including source estimation and skipped-source paths; batch-size-only yielding can exceed the health budget on slow storage. Test a real HTTP probe under controlled commit latency.
+
+Chunk rows can be written ahead of the saved record checkpoint. Seeding duplicate keys from all rows marked seen in the current run wrongly rejects the first record being replayed. Bound seed identities by source order and the completed-record boundary; compare interrupted Markdown content with a clean run. Keep the existing true-duplicate regressions.
+
+A rejection diagnostic staged only with a batch can disappear when the error limit aborts that batch. Retain a bounded first cause separately and include it in the failure without committing rejected work or changing the threshold.
