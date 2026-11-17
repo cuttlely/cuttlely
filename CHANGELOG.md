@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.7.9] - 2026-11-17
+
 ### Changed
 
 -   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags in versions through 5.11.2).
@@ -1096,7 +1098,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.9...HEAD
+[1.7.9]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/cuttlely/cuttlely/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/cuttlely/cuttlely/compare/v1.7.5...v1.7.6
