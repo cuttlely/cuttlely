@@ -60,6 +60,9 @@ const STEPS = [
         command: process.execPath,
         args: [
             '--test',
+            // Integration files start their own database and UI test processes.
+            // Keep those files serial so they do not compete for a small runner's CPU.
+            '--test-concurrency=1',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
             path.join(ROOT, 'packages', 'harness', 'dashflows.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
@@ -217,9 +220,11 @@ const STEPS = [
             'exec',
             'jest',
             '--watchAll=false',
+            'src/views/versionsettings',
             'src/views/serversettings',
             'src/views/serversetup',
             'src/views/apikey',
+            'src/views/users',
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/canvas/cardActions.test.js',

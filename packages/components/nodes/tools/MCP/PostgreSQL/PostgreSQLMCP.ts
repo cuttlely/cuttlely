@@ -114,6 +114,34 @@ const PINNED_AUTO_ERROR = 'Pinned queries need a Postgres URL on this node. Isol
 const PIN_DEFINITION_SQL_BYTES = 128 * 1024
 const PIN_DEFINITION_BYTES = 256 * 1024
 const PINNED_COLUMN_WARNING = 'The columns from this pinned query differ from the columns recorded when it was tested.'
+const RETEST_DIAGNOSTIC = 'postgres_saved_queries_need_retest'
+
+function diagnosticText(value: unknown, fallback: string): string {
+    const text = String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 200)
+    return text || fallback
+}
+
+function reportUnstampedPins(nodeData: INodeData, options: ICommonObject, entries: PinnedEntry[]): void {
+    const names = entries.map((entry) => String(entry.name))
+    if (!names.length) return
+    const nodeId = diagnosticText(nodeData.id, 'unknown')
+    const nodeLabel = diagnosticText(nodeData.label, 'PostgreSQL MCP')
+    const message = `PostgreSQL MCP node ${nodeId} (${nodeLabel}) dropped ${names.length} saved quer${
+        names.length === 1 ? 'y' : 'ies'
+    } without a tested stamp: ${names.join(', ')}. Retest ${names.length === 1 ? 'it' : 'them'} before running this card.`
+    if (typeof options?.logger?.warn === 'function') options.logger.warn(message)
+    else console.warn(message)
+    if (typeof options?.onNodeDiagnostic === 'function') {
+        try {
+            options.onNodeDiagnostic({ code: RETEST_DIAGNOSTIC, nodeId, nodeLabel, count: names.length, names, message })
+        } catch {
+            // A trace diagnostic must not change which tools the node offers.
+        }
+    }
+}
 
 type PinnedEntry = {
     id?: unknown
@@ -690,6 +718,11 @@ class PostgreSQL_MCP implements INode {
     async pinnedTools(nodeData: INodeData, options: ICommonObject): Promise<Tool[]> {
         if (!pinnedQueriesEnabled()) return []
         const { entries } = readPinnedEntries(nodeData.inputs?.pinnedQueries)
+        reportUnstampedPins(
+            nodeData,
+            options,
+            entries.filter((entry) => validPinnedQueryName(entry?.name) && !String(entry?.testedStamp || '').trim())
+        )
         const named = entries.filter((entry) => validPinnedQueryName(entry?.name) && String(entry?.testedStamp || '').trim())
         if (!named.length) return []
         const nameCount = new Map<string, number>()

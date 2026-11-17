@@ -1,3 +1,60 @@
+## 1.7.8 release
+
+-   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
+-   [Preparation run](https://github.com/cuttlely/cuttlely/actions/runs/44009237317): all 27 full-gate steps and versioned local-image startup passed. [Exact-tag image run](https://github.com/cuttlely/cuttlely/actions/runs/44016869465): startup check and public publication passed. STATUS records anonymous image/revision checks, website content/assets, hosted health and the isolated database-tool run. Both npm packages are public at 1.7.8 and tagged latest; public tarball integrity and packaged README bytes were verified against the annotated tag.
+
+-   `CHANGELOG.md`, `docs/releases.md` and `docs/upgrading.md`: release scope, protected preparation procedure and upgrade behavior.
+-   Root/translated READMEs, FAQ, docs indexes and package READMEs: branch-selection guidance and current install pins.
+-   `docs/images/versioning/github-branch.png`: current Branch menu from the real GitHub card, rendered with isolated fixture responses; no external account or live model call. The guide records its example repository, protected branch and slash branch choices.
+-   `website/src/components/Hero.astro`: one-sentence 1.7.8 release notice with the existing linked backup reminder.
+
+## 1.7.7 release
+
+-   [Published release v1.7.7](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.7), canonical `4bf478de` ([#508](https://github.com/cuttlely/cuttlely/pull/508)). The generated candidate `4d9210b7` has the same tree.
+-   [Preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43785736865): 27 passing full-gate steps and a local image startup check. [Exact-tag image run](https://github.com/cuttlely/cuttlely/actions/runs/43791722638): startup check and public image publication. STATUS records package, site and live QA results. Existing media and provider-review dates are unchanged for this runtime fix.
+
+## 1.7.6 release documentation
+
+-   [Published release v1.7.6](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.6), `45223733` (#503), and the [verified preparation run](https://github.com/cuttlely/cuttlely/actions/runs/43685066892). STATUS records the image, npm, tarball README and website checks.
+-   `.github/workflows/release-prepare.yml`: exact-head full verification and a read-only, validated local release bundle. `docs/releases.md#prepare-on-a-fresh-ci-runner` covers resuming publication from its artifact.
+-   `packages/components/models.json` and `docs/reference/model-list.md`: reviewed Together AI Kimi K3 standard price estimates and the primary source.
+-   `CHANGELOG.md`: dated release scope, merged change references, upgrade effects and the remaining GitHub-copy limitation.
+-   `README.md`, `README.ja.md`, `README.ko.md`, `FAQ.md`, `docs/README.md` and `docs/how-to/README.md`: current release and task entry points.
+-   `docs/how-to/import-verify.md`: automatic samples, unpublished preview steps, verification limits and actionable failure cases.
+-   `docs/how-to/users-without-authkit.md`: team access, Disable/Reactivate, invitation roles and one-time reset links.
+-   `docs/releases.md`, `docs/upgrading.md`, package READMEs and Docker/embed examples: matching release pins and upgrade guidance.
+-   `website/src/components/Hero.astro` and `website/src/guides/flowise-import/guide.md`: release summary and pinned guide links. Generated site documentation comes from its sync script.
+
+## Local user and team lifecycle
+
+-   `packages/server/src/identity/directory.ts` and `.test.ts`: effective membership display state, current-team capability metadata, disable/reactivate preservation and revoked access remaining revoked.
+-   `packages/ui/src/views/users/UserTeamAccessDrawer.jsx` and `.test.js`: scoped team/role/status/last-login view with late-response guards and retry.
+-   `packages/ui/src/views/users/TeamMemberships.test.js`: pending and disabled badges, pending owner display and role editing without duplicate membership creation.
+-   `packages/ui/src/views/users/index.test.js` and `userActions.test.js`: confirmation, duplicate prevention, scope changes, refusals, local-mode availability and conditional invitation cancellation.
+-   `docs/how-to/users-without-authkit.md`: team access and disable/reactivate effects.
+
+## User Management password reset
+
+-   `packages/ui/src/views/users/ResetPasswordDialog.jsx` and `.test.js`: explicit generation, copy/email status, pending guard, refusals and link lifetime in the UI.
+-   `packages/ui/src/views/users/index.test.js`: wide/narrow Users row actions, owner/inactive exclusions and selected-user wiring.
+-   `packages/server/src/identity/actionLink.test.ts`: existing reset authorization, one-time/expired token checks and session revocation after password acceptance.
+-   `docs/how-to/users-without-authkit.md`: Users reset-link steps, current-team restrictions, SSO and owner recovery.
+-   `scripts/verify.mjs` and `.github/workflows/main.yml`: all Users UI tests run in the local gate and the Node CI build job.
+
+## Fileless preview and publication regressions
+
+-   `packages/harness/session.mjs`: workspace/canvas-scoped draft sessions outside runtime profiles; published paths remain stable.
+-   `packages/harness/draft-session.test.mjs`: preview then save/compile, persistent draft context, isolation, published previews, linked paths and scoped deletion. Included by `packages/harness/check.mjs`.
+-   `packages/server/src/services/harnesses/delete.test.ts`: fileless session cleanup runs only after canvas deletion commits and is skipped on rollback.
+
+## Import sample and fileless draft regressions
+
+-   `packages/server/src/services/import-verify/discover.ts`: ISO database dates, exclusive date bounds, required calendar/numeric samples, authored literal choices and bounded expression lookups on referenced selected tables.
+-   `packages/server/src/services/import-verify/import-verify.test.ts`: Date coercion, bounds, optional-filter preservation, expression source limits and an imported expression query tested without manual values.
+-   `packages/server/src/services/harnesses/delete.test.ts`: owned fileless admission, foreign/missing canvas and name-conflict refusal, and preservation of the API-key saved-harness requirement.
+-   `scripts/harness-draft-usage.test.mjs`: existing published and draft execution still record usage once.
+-   `scripts/canvas-actions-e2e.mjs`: question history pagination still requires the additional row when automatic loading wins the race with the Load more click. Workflow edge deletion clicks the SVG line away from its hover toolbar and waits for the selected state.
+
 ## Try the demo save
 
 -   `packages/server/src/services/demo/index.ts` stages specialist files after the harness save. A pre-save removal runs only when every name-reuse blocker is a directory holding only that specialist's bundled file names (plus this demo's marker or temp sqlite). A folder with this demo's stage marker qualifies with any of those files. An unmarked folder (what 1.7.3 left) qualifies only when every bundled file is present and each non-sqlite file matches the shipped bytes; a leftover missing one, such as only `support.sqlite`, stays and the save is refused. Any other blocker means nothing is removed.
@@ -80,7 +137,9 @@
 
 # Artifacts
 
-1.7.4 release preparation: the four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.4. `CHANGELOG.md` dates it `## [1.7.4] - 2026-11-13`. #483 is `9b4d8c90`, #484 is `c2e63f61`, and #486 is `f9cb1123`. The preparation landed on main as `774eed4e` (#487), and the release was cut as `986f64c5` (#489) with the `v1.7.4` tag. The import guide pins `v1.7.4`. Generated website pages are not hand-edited. The GitHub release was not listed when checked on 2026-11-13.
+1.7.5 release preparation: branch `release/1.7.5-prep` is folded with a normal merge of `origin/main` at `b22d9983` ([#482](https://github.com/cuttlely/cuttlely/pull/482)). The four product manifests, install examples, README translations, FAQ, release/upgrade guides and `website/src/components/Hero.astro` carry 1.7.5. `CHANGELOG.md` uses `## [1.7.5] - Unreleased` and names #482 (`b22d9983`), #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). The import guide pins `v1.7.5`. Generated website pages are not hand-edited. Publication is a later step.
+
+1.7.4 release preparation is historical. It shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). It included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
 
 1.7.3 release: the same surfaces carried 1.7.3 and landed as `d52b83e5` ([#481](https://github.com/cuttlely/cuttlely/pull/481)) after preparation `33a158c7` ([#459](https://github.com/cuttlely/cuttlely/pull/459)). `CHANGELOG.md` dates it `## [1.7.3] - 2026-11-12`. The PR-1, PR-2 and PR-3 placeholders were finalized as #460 `21e832e7`, #458 `4588a835` and #462 `52e29426`, with #469 `3c981e82`.
 

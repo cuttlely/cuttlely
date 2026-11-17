@@ -27,9 +27,13 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.7.4 は、アナリストのツールを使える状態に保ち、Analyst ストレージを一度も設定していないホストへハーネスを取り込み、公開前に取り込んだクエリを再テストします。** 未設定の Analyst ストレージは Auto です。取り込みは、このサーバーにすでにある資格情報を結び直し、空の資格情報スロットの隣にある入れ子の資格情報 ID も含みます。**Import & verify** は、保存済みのクエリをこのサーバーで再テストします。新規インストールの Try the demo は、用意したチームを保存します。
+**1.7.8 では、バージョン履歴を保存する GitHub ブランチを選べます。** リポジトリを選択してからブランチを選びます。既存の接続はそのまま使えます。[バージョン履歴](./docs/how-to/versioning.md)。
 
-最新の安定版は **1.7.4** です。イメージ `1.7.4` を指定するか、`cuttlely@1.7.4` をインストールしてください。[1.7.4 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.4) · [変更履歴](./CHANGELOG.md)。
+**1.7.7 では、エージェントチームのチャット間でキャンセルが影響する問題を修正しました。** あるチャットを停止しても、同じ専門エージェントを使う他のチャットは実行を続けます。[Harnesses](./docs/how-to/harnesses.md)。
+
+**1.7.6 では、インポートしたエージェントチームの検証とローカルユーザーの管理を改善しました。** **Import & verify** は保存済みクエリの日付・期間・数値のテスト値を安全に選び、未公開の harness は最初の Publish 前に試せます。**User Management** にはパスワード再設定リンク、Disable/Reactivate、**View team access** が加わりました。保留中の招待は正しい状態で表示され、再招待せずにチームのロールを変更できます。[インポートと検証](./docs/how-to/import-verify.md) · [ユーザーとチームの管理](./docs/how-to/users-without-authkit.md)。 [モデルの費用見積もり](./docs/reference/model-list.md)には Together AI Kimi K3 の現在の標準料金を反映しました。
+
+最新の安定版は **1.7.8** です。イメージ `1.7.8` を指定するか、`cuttlely@1.7.8` をインストールしてください。[1.7.8 のリリースノート](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8) · [変更履歴](./CHANGELOG.md)。
 
 **1.7.0 はセキュリティ例外リリースです。以前のバージョンからアップグレードする場合は、作業が必要です。** データベース、暗号化キー、設定をバックアップし、ブラウザー管理から締め出されないように、デプロイ前に[オペレーターの指定と復旧](./docs/how-to/instance-operator.md)を読んでください。ホストログのワンタイムコードによる申請、`CUTTLELY_INSTANCE_OPERATOR`、アクセスキーの適用が既定でオフのままであることなど、チェックリストの全体は[アップグレード時の注意](./docs/upgrading.md)（「1.7.0 security-exception upgrade」の節）と[変更履歴](./CHANGELOG.md)にあります。セットアップコードが作成するのは最初のアカウントだけで、ホスト側のローカルサインインがあらかじめオンになっている必要があります（Docker と `npx cuttlely start` は既定でオンにします）。このコードでサービスを設定したり、インスタンスオペレーターを指定したりはできません。[サインイン](./docs/how-to/sign-in.md) · [最初の 10 分](#your-first-10-minutes)。
 

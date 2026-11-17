@@ -42,6 +42,12 @@ describe('environment list', () => {
         expect(parseEnvironments(legacyEnvironments()).ok).toBe(false)
     })
 
+    test('environment branches accept slash names and reject invalid ref names', () => {
+        const branches = THREE.map((item) => ({ ...item, branch: `versions/${item.server}` }))
+        expect(parseEnvironments(branches)).toEqual({ ok: true, environments: branches })
+        expect(parseEnvironments(branches.map((item, index) => (index ? item : { ...item, branch: 'versions/../dev' }))).ok).toBe(false)
+    })
+
     test('a list that skips or repeats a hop is refused', () => {
         expect(parseEnvironments(THREE).ok).toBe(true)
         expect(parseEnvironments([{ name: 'Only', branch: 'main', server: 'only' }]).ok).toBe(false)

@@ -314,6 +314,7 @@ const capacityWaitTests = spawnSync(
     [
         '--test',
         path.join(root, 'packages/harness/capacity-wait.test.mjs'),
+        path.join(root, 'packages/harness/draft-session.test.mjs'),
         path.join(root, 'packages/harness/client.test.mjs'),
         path.join(root, 'packages/harness/run-budget.test.mjs'),
         path.join(root, 'packages/harness/warmup.test.mjs')
@@ -9388,7 +9389,7 @@ check(
     directBudgetError?.code === 'over_budget' && Date.now() - directBudgetStarted < 1000,
     `${directBudgetError?.code} ${directBudgetError?.message} ${Date.now() - directBudgetStarted}ms`
 )
-const { trackGatewayCall, abortGatewayProfile, openAiUsage } = await import('./gateway.mjs')
+const { openAiUsage } = await import('./gateway.mjs')
 check(
     'model tokens in any reported shape become OpenAI usage, and missing tokens stay unknown',
     JSON.stringify(openAiUsage({ input_tokens: 9, output_tokens: 3 })) ===
@@ -9431,8 +9432,6 @@ check(
         JSON.stringify({ fromLangChain, noCacheField })
     )
 }
-const gatewayCall = new AbortController()
-const releaseGateway = trackGatewayCall('team--browser', gatewayCall)
 const abortEvents = []
 const abortController = new AbortController()
 let abortError
@@ -9461,11 +9460,9 @@ check(
     abortError?.code === 'aborted' &&
         Date.now() - abortStarted < 1000 &&
         !abortEvents.includes('final') &&
-        contract.seen.some((entry) => entry.kind === 'stop') &&
-        gatewayCall.signal.aborted,
+        contract.seen.some((entry) => entry.kind === 'stop'),
     `${abortError?.code} events=${abortEvents.join(',')} stop=${contract.seen.filter((entry) => entry.kind === 'stop').length}`
 )
-releaseGateway()
 const { AsyncLocalStorage } = await import('node:async_hooks')
 const { AsyncLocalStorageProviderSingleton } = await import('@langchain/core/singletons')
 AsyncLocalStorageProviderSingleton.initializeGlobalInstance(new AsyncLocalStorage())

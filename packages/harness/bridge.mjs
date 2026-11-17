@@ -8,6 +8,10 @@ import { repoRoot } from './paths.mjs'
 import { getHarness } from './store.mjs'
 import { isPinnedToolName, pinnedOnlyRefusal, pinnedToolHint, pinnedToolRefusal } from './pinned-names.mjs'
 
+const POSTGRES_RETEST_DIAGNOSTIC = 'postgres_saved_queries_need_retest'
+const POSTGRES_RETEST_ERROR = "This PostgreSQL card's saved queries need a retest before they can run."
+const POSTGRES_EMPTY_ERROR = 'This PostgreSQL card has no actions or saved queries available to run.'
+
 export async function executeModule(binding, input, options = {}) {
     const prepared = await prepareModule(binding, input, options)
     if (options.toolName) prepared.toolName = options.toolName
@@ -49,13 +53,24 @@ export async function prepareModule(binding, input, options = {}) {
         throw new HarnessError('bad_binding', 'A harness module binding needs a Cuttlely node name.')
     }
     const cache = options.nodeCache instanceof Map ? options.nodeCache : new Map()
-    const flowOptions = options.flowOptions || {}
+    const baseFlowOptions = options.flowOptions || {}
+    let postgresSavedQueriesNeedRetest = false
+    const flowOptions =
+        binding.nodeName === 'postgreSQLMCP'
+            ? {
+                  ...baseFlowOptions,
+                  onNodeDiagnostic(value) {
+                      if (value?.code === POSTGRES_RETEST_DIAGNOSTIC) postgresSavedQueriesNeedRetest = true
+                      if (typeof baseFlowOptions.onNodeDiagnostic === 'function') baseFlowOptions.onNodeDiagnostic(value)
+                  }
+              }
+            : baseFlowOptions
     assertServerContext(flowOptions)
     const ctx = { ...options, flowOptions }
     const { instance, nodeData, ready } = await startNode(binding, ctx, cache, input)
     const runs = typeof instance.run === 'function'
     const tool = runs ? null : firstTool(ready)
-    return { binding, instance, nodeData, flowOptions, ready, runs, tool }
+    return { binding, instance, nodeData, flowOptions, ready, runs, tool, postgresSavedQueriesNeedRetest }
 }
 
 // Initializes upstream bindings first and injects each init result over inputs.
@@ -123,6 +138,12 @@ async function initBinding(binding, ctx, cache, input) {
 // nothing awaited in between, so a revocation during an attempt stops the retries.
 export async function callPrepared(prepared, input, assertCall) {
     if (prepared.runs) return prepared.instance.run(prepared.nodeData, textInput(input), prepared.flowOptions)
+    if (prepared.binding?.nodeName === 'postgreSQLMCP' && Array.isArray(prepared.ready) && toolsOf(prepared.ready).length === 0) {
+        return JSON.stringify({
+            error: prepared.postgresSavedQueriesNeedRetest ? POSTGRES_RETEST_ERROR : POSTGRES_EMPTY_ERROR,
+            cuttlelyOutcome: 'expected'
+        })
+    }
     // With no called name (inline and direct specialists), run the tool whose name and schema the model was shown.
     return readyRaw(prepared.ready, input, prepared.toolName ?? prepared.tool?.name, assertCall)
 }

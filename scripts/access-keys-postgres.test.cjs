@@ -51,6 +51,7 @@ test(
             const { ChatFlow, ApiKey, ApiKeyResource, Organization, Workspace, User } = entities
             data = new DataSource({
                 ...options,
+                username: options.user,
                 database,
                 type: 'postgres',
                 entities: Object.values(entities),

@@ -4,9 +4,74 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags in versions through 5.11.2).
+
 ### Fixed
 
 -   **#457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
+
+## [1.7.8] - 2026-11-17
+
+### Changed
+
+-   Version History GitHub setup lists repository branches and saves the selected branch for copying and reading versions, including branch names with slashes.
+-   Shortened the website homepage release blurb to the latest fix and a linked upgrade reminder.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration. Existing GitHub connections keep their current branch; disconnect and reconnect to choose another branch. Named environment chains retain their configured mappings. Back up the database, encryption key and settings before upgrading. Operator onboarding requirements and default-Off access-key enforcement remain in effect.
+
+## [1.7.7] - 2026-11-16
+
+### Fixed
+
+-   Cancelling an agent-team chat no longer cancels another chat using the same specialist. The stop targets only the cancelled runtime run and its model connection.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration or configuration change. Back up the database, encryption key and settings before upgrading. Existing operator onboarding requirements and default-Off access-key enforcement remain in effect.
+
+## [1.7.6] - 2026-11-15
+
+### Changed
+
+-   Maintainers can run full verification and local release preparation on a fresh CI runner. The read-only workflow returns a checked Git bundle and report; publication still uses the release tool's normal resume path. [Release preparation](./docs/releases.md#prepare-on-a-fresh-ci-runner).
+
+### Fixed
+
+-   Together AI Kimi K3 standard token-price estimates now use $3 input and $15 output per million tokens in both chat and completion lists, matching the provider's published rates. Existing price overrides still take precedence. [Model prices](./docs/reference/model-list.md#176-price-review).
+-   **#501 (`0f7b89a1`):** Local user administration now shows pending and disabled account states consistently inside teams. Users offers guarded Disable/Reactivate actions and a labeled team-access view with per-team role, status, last login and current-team scope. Pending invitation role edits update the existing assignment, and invitation cancellation keeps the acceptance-race guard. The Roles page labels assignment counts as current-team counts. Stored role assignments are preserved.
+-   **#500 (`17d41830`):** User Management now offers **Reset password** for active non-owner accounts to callers with `users:manage`. The dialog uses the existing one-time reset link service, reports email delivery, and supports copying the link without mail configuration. Team, identity-provider, owner, and permission restrictions remain enforced by the server; sessions end when the user saves their new password.
+-   **#499 (`a4588106`):** Previewing a newly imported unpublished Harness keeps its conversation state outside runnable profiles, so preview chat no longer creates an unowned profile that blocks its first Publish. Draft state is isolated by canvas and workspace and is removed after its canvas is deleted. Existing published session paths and profile ownership guards are preserved.
+-   **#498 (`d8c7d095`):** Import & verify now normalizes date samples, generates required calendar and numeric test inputs, and samples parameters used through SQL expressions from referenced columns on selected tables. Optional filters stay unset unless they have an authored default. Existing query validation, output contracts, and publication gates remain in force.
+-   **#498 (`d8c7d095`):** Signed-in users can test a new unpublished Harness canvas before it has a Live roster. Admission checks the canvas workspace and name ownership; external and access-key runs still require the published harness.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and does not change the selected sign-in method, stored role assignments or access-key enforcement. Enforcement remains Off by default. Use matching 1.7.6 server and widget versions.
+-   New unpublished previews no longer leave runnable-profile blockers. Unowned files left by an earlier build are not removed automatically; use a new unused harness name or ask the instance operator to inspect them. [Upgrade guide](./docs/upgrading.md#upgrading-to-176).
+-   Disabling a local account ends its sessions, revokes invite/reset links and disables its owned access keys. Reactivation preserves roles but does not restore those sessions, links or keys. [Users and teams](./docs/how-to/users-without-authkit.md).
+-   The narrow Version History GitHub-copy limitation documented in 1.7.5 remains: a remote edit to a copied path that exactly matches the next local version is not yet detected. This release does not claim that follow-up is fixed.
+
+## [1.7.5] - 2026-11-14
+
+### Changed
+
+-   **#482 (`b22d9983`):** Version History can connect a GitHub repository that already has files or commits. The first copy adds its versions on top of the existing history and only fast-forwards, so files already on GitHub stay. The server records which paths it copied, and later versions update only those paths while GitHub still holds the bytes and mode it wrote. A version path that would replace a different existing file, or a GitHub change to a path this server copied, stops the copy with an error instead of overwriting it. Files added later on GitHub stay, and a branch reset behind the latest accepted tip stops the copy or read. One narrow case is a 1.7.6 follow-up: a GitHub edit to a copied path that exactly matches the next local version is not yet caught. [Version History](./docs/how-to/versioning.md).
+
+### Fixed
+
+-   **#495 (`04f95df5`):** Import & verify now reports output contracts for skipped saved queries as not tested, and PDF checks use the bundled agent runtime's Python libraries. A PostgreSQL card whose saved queries need a retest now returns that error instead of an empty success. Cards with no available actions or saved queries report that configuration instead. Missing test stamps are named in server logs and the run trace.
+
+-   **#494 (`a22175c8`):** Import & verify now tests every saved query in a large flow and checks each output contract against its own fresh result.
+
+-   **#491 (`f4edfc8c`):** Follow-up prompts no longer send blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one.
+
+### Upgrade notes / breaking changes
+
+-   This patch adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains Off by default.
 
 ## [1.7.4] - 2026-11-13
 
@@ -1025,7 +1090,11 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.7.8...HEAD
+[1.7.8]: https://github.com/cuttlely/cuttlely/compare/v1.7.7...v1.7.8
+[1.7.7]: https://github.com/cuttlely/cuttlely/compare/v1.7.6...v1.7.7
+[1.7.6]: https://github.com/cuttlely/cuttlely/compare/v1.7.5...v1.7.6
+[1.7.5]: https://github.com/cuttlely/cuttlely/compare/v1.7.4...v1.7.5
 [1.7.4]: https://github.com/cuttlely/cuttlely/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/cuttlely/cuttlely/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/cuttlely/cuttlely/compare/v1.7.1...v1.7.2
