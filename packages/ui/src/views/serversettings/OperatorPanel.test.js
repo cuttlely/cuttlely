@@ -57,3 +57,71 @@ test('operator sees source and management; env source is immutable', async () =>
     expect(container.textContent).toContain('Panel changes are disabled')
     expect(container.textContent).not.toContain('Operator action')
 })
+
+async function typeClaim() {
+    const input = container.querySelector('input')
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'CLAIM')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+}
+const requestButton = () => [...container.querySelectorAll('button')].find((button) => button.textContent === 'Request host-log code')
+const refusal = {
+    response: {
+        status: 429,
+        data: { code: 'OPERATOR_RATE_LIMIT', message: 'Too many operator proof requests or attempts. Try again later.' }
+    }
+}
+
+test('a refused code request shows the server message in an error alert', async () => {
+    await render({ state: 'Unclaimed', proofPurpose: 'claim' })
+    await typeClaim()
+    serverSettingsApi.operatorAction.mockRejectedValue(refusal)
+    await act(async () => requestButton().click())
+    const alert = container.querySelector('[role="alert"]')
+    expect(alert.textContent).toContain(refusal.response.data.message)
+    expect(alert.classList.contains('MuiAlert-standardError')).toBe(true)
+    expect(alert.classList.contains('MuiAlert-standardSuccess')).toBe(false)
+})
+test('a failed request without a server message shows the fallback text in an error alert', async () => {
+    await render({ state: 'Unclaimed', proofPurpose: 'claim' })
+    await typeClaim()
+    serverSettingsApi.operatorAction.mockRejectedValue(new Error('network'))
+    await act(async () => requestButton().click())
+    const alert = container.querySelector('[role="alert"]')
+    expect(alert.textContent).toContain('The operator action could not be completed.')
+    expect(alert.classList.contains('MuiAlert-standardError')).toBe(true)
+})
+test('a successful code request shows a success alert, and a retry after a refusal clears the error style', async () => {
+    await render({ state: 'Unclaimed', proofPurpose: 'claim' })
+    await typeClaim()
+    serverSettingsApi.operatorAction.mockRejectedValueOnce(refusal)
+    await act(async () => requestButton().click())
+    expect(container.querySelector('[role="alert"]').classList.contains('MuiAlert-standardError')).toBe(true)
+    serverSettingsApi.operatorAction.mockResolvedValueOnce({ data: { requested: true, message: 'Read the code from the host log.' } })
+    await act(async () => requestButton().click())
+    const alert = container.querySelector('[role="alert"]')
+    expect(alert.textContent).toContain('Read the code from the host log.')
+    expect(alert.classList.contains('MuiAlert-standardSuccess')).toBe(true)
+    expect(alert.classList.contains('MuiAlert-standardError')).toBe(false)
+})
+test('a rejected code confirmation shows an error alert', async () => {
+    await render({ state: 'Unclaimed', proofPurpose: 'claim', proofPending: true })
+    await typeClaim()
+    const codeInput = container.querySelector('input[type="password"]')
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(codeInput, 'wrong')
+        codeInput.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    serverSettingsApi.operatorAction.mockRejectedValue({
+        response: {
+            status: 403,
+            data: { code: 'OPERATOR_CODE_REJECTED', message: 'The operator proof code is invalid, expired or belongs to another session.' }
+        }
+    })
+    const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Confirm claim')
+    await act(async () => confirm.click())
+    const alert = container.querySelector('[role="alert"]')
+    expect(alert.textContent).toContain('The operator proof code is invalid')
+    expect(alert.classList.contains('MuiAlert-standardError')).toBe(true)
+})
