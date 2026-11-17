@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags in versions through 5.11.2).
+
 ### Fixed
 
 -   A chatflow containing only a Harness node now uses its LangSmith Analytics settings, with a parent run for the question and answer and child traces for in-process model calls. A Tool Agent wrapper is no longer required for this tracing path.
