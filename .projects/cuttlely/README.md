@@ -18,6 +18,8 @@ Cuttlely is open-source, context-aware agent orchestration (Apache-2.0). It give
 
 ## How to resume
 
+1.7.8 release documentation is prepared; start with STATUS for its remaining verification and publication steps. 1.7.7 is published; its release section records the verified tag, image, npm and website results. `docs/releases.md` and `scripts/release.mjs` describe the next release, including the protected-main PR path. User/team lifecycle landed in #501; its fresh CI and deployed checks are recorded in STATUS. Keep preparation, publication and deployment checks separate.
+
 1. Read [STATUS.md](./STATUS.md), then [OPEN.md](./OPEN.md), then the open issues: `gh issue list -R cuttlely/cuttlely`. Also check open pull requests (`gh pr list -R cuttlely/cuttlely`) so you do not redo work that is already in review.
 2. Read [DECISIONS.md](./DECISIONS.md) before changing architecture. Those decisions are settled. To change one, add a new entry with the reason; do not quietly redo it.
 3. Pick the next task from [PLAN.md](./PLAN.md) or an open issue that is not blocked on a maintainer decision.
@@ -118,7 +120,11 @@ For historical 1.7.0 release preparation, start with STATUS's facts before/after
 
 For historical 1.7.1 maintenance preparation, start with STATUS's Access-key scopes and beginner setup section. The four product manifests and release docs are prepared together, while publication and activation remain separate. `management.ts` owns the prerequisite preview and save recheck; the actual UI fixture and real migrated-Postgres delete regression are listed in ARTIFACTS. Use the final committed-head report, preserve hooks and leave service settings unchanged.
 
-For current work after the 1.7.4 release, start with STATUS's 1.7.4 section. The preparation branch `release/1.7.4-prep` landed on main as `774eed4e` (#487), after #484 at `c2e63f61`, #486 at `f9cb1123` and #483 at `9b4d8c90`. The 1.7.4 section is dated `## [1.7.4] - 2026-11-13` (cut as `986f64c5`, #489); the GitHub release was published on 2026-11-13, and new changelog notes go under `## [Unreleased]`. Preserve hooks. The 1.7.0 backup/operator recovery requirements and default-Off enforcement still apply. 1.7.3 is released as `d52b83e5` (#481).
+For local user/team lifecycle work, start with STATUS's lifecycle section, `identity/directory.ts`, the Users view and `UserTeamAccessDrawer.jsx`. Membership display state must not activate accounts or rewrite assignments. Disable/reactivate calls retain existing server authorization and revocation rules.
+
+For User Management password reset (landed in #500), start with STATUS's password-reset section and `packages/ui/src/views/users/ResetPasswordDialog.jsx`. The UI calls the existing `identity/actionLink.ts` service; preserve its team, owner, identity-provider and permission checks.
+
+Fileless-preview session work landed as `a4588106` (#499); start with STATUS's session-storage section. Draft session state stays outside executable profiles and is scoped by workspace/canvas; existing published session paths and profile ownership guards stay in place. Preserve the destination query guard, output contracts and publication gates. Final committed-head verification and deployed preview/publish QA remain separate checks.
 
 For canvas connection work (landed as #460 `21e832e7` and #462 `52e29426`), start with STATUS's resilient-save and silent-retry sections. `packages/ui/src/api/resilience.js` owns retry policy and dedupe keys; `packages/ui/src/api/connectionState.js` feeds the one app-shell connection chip. GET and HEAD retry by default, node load-method POST calls opt in, and the save queue owns the narrow draft and Live recovery rules. The reducer's `editRev` keeps later edits dirty after a save reply. Those fixes shipped under `## [1.7.3] - 2026-11-12`.
 

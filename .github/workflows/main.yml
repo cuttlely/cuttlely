@@ -149,6 +149,8 @@ jobs:
                   NODE_OPTIONS: '--max_old_space_size=4096'
             - run: pnpm harness:check
             - run: pnpm etl:check
+            - name: User Management UI regressions
+              run: pnpm --filter @cuttlely/ui test --runInBand src/views/users
             - run: pnpm test:coverage
               env:
                   PGPASSWORD: postgres

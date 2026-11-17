@@ -14,6 +14,7 @@ router.put('/github', requireOwner(), requireInstanceOperator(), flowVersionsCon
 router.delete('/github', requireOwner(), requireInstanceOperator(), flowVersionsController.disconnectGithub)
 router.post('/github/push', requireOwner(), requireInstanceOperator(), flowVersionsController.pushGithub)
 router.post('/github/repos', requireOwner(), requireInstanceOperator(), flowVersionsController.listGithubRepos)
+router.post('/github/branches', requireOwner(), requireInstanceOperator(), flowVersionsController.listGithubBranches)
 router.post('/github/repos/new', requireOwner(), requireInstanceOperator(), flowVersionsController.createGithubRepo)
 router.put('/environment', requireOwner(), requireInstanceOperator(), flowVersionsController.setEnvironment)
 // Promote, on a server labeled Prod: new versions from Dev. Owner only, like the GitHub connection.

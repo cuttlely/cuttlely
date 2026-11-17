@@ -317,6 +317,7 @@ const connectGithub = async (req: Request, res: Response, next: NextFunction) =>
             await flowVersionsService.getGithub().connect(
                 {
                     repo: body.repo,
+                    branch: body.branch,
                     token: body.token,
                     credentialId: body.credentialId,
                     credentialName: body.credentialName,
@@ -361,6 +362,21 @@ const listGithubRepos = async (req: Request, res: Response, next: NextFunction) 
     }
 }
 
+const listGithubBranches = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        return res.json(
+            await flowVersionsService
+                .getGithub()
+                .listBranches(
+                    { repo: req.body?.repo, token: req.body?.token, credentialId: req.body?.credentialId, host: req.body?.host },
+                    req.user?.activeWorkspaceId
+                )
+        )
+    } catch (error) {
+        next(githubError(error))
+    }
+}
+
 const createGithubRepo = async (req: Request, res: Response, next: NextFunction) => {
     try {
         return res.json(
@@ -388,6 +404,7 @@ const setEnvironment = async (req: Request, res: Response, next: NextFunction) =
 
 export default {
     listGithubRepos,
+    listGithubBranches,
     createGithubRepo,
     setEnvironment,
     getGithub,

@@ -12,6 +12,7 @@ import { beginVerification, executeVerify, recoverOrphanedRun, type SavedQuery, 
 import { readOnlyRows, testPinnedQuery, PinnedRequestError } from '../../services/pinned-queries'
 import { pinnedQueriesEnabled } from '../../services/pinned-queries/sql'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { importVerifyPython } from './python'
 
 const active = new Map<string, AbortController>()
 
@@ -51,7 +52,7 @@ async function writeRecord(chatflowId: string, record: VerifyRecord): Promise<vo
 
 function python(code: string): Promise<boolean> {
     return new Promise((resolve) => {
-        const child = spawn('python3', ['-c', code], { stdio: 'ignore' })
+        const child = spawn(importVerifyPython(), ['-c', code], { stdio: 'ignore' })
         const timer = setTimeout(() => {
             child.kill()
             resolve(false)

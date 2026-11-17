@@ -4,6 +4,36 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.8
+
+Back up the application database, encryption key and settings first. Use matching 1.7.8 server and widget packages. This patch adds no schema migration and preserves stored roles, memberships and the selected sign-in method. Access-key enforcement remains **Off** by default.
+
+Existing Version History GitHub connections keep their current branch. To select another branch, disconnect and reconnect using the new **Branch** dropdown. On a standard Dev/Prod pair, choose the same branch on both servers. Named environment chains keep the branch mappings in their environment list. Repository protection rules still apply; choose a branch the token can write to. [Version History](./how-to/versioning.md).
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from earlier versions.
+
+## Upgrading to 1.7.7
+
+Back up the application database, encryption key and settings first. Use matching 1.7.7 server and widget packages. Stopping an agent-team chat now cancels only that chat's runtime run and model connection; other chats using the same specialist keep running. This patch adds no schema migration or configuration change and preserves stored roles and memberships. Access-key enforcement remains **Off** by default.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from earlier versions. [Harnesses](./how-to/harnesses.md).
+
+## Upgrading to 1.7.6
+
+Back up the application database, encryption key and settings first. Use matching 1.7.6 server and widget packages. This patch adds no schema migration, keeps stored roles and memberships, and does not change your selected sign-in method or enforcement mode. Enforcement remains **Off** by default.
+
+-   **Imported queries.** Import & verify chooses required date, calendar and numeric test inputs automatically. Optional filters without defaults stay unset. Imported test stamps are still untrusted: run [Import & verify](./how-to/import-verify.md) on the target server and resolve every required check before Publish.
+-   **Unpublished harness previews.** New draft previews keep their conversation state outside runnable profiles. Files left by previews on an older build are not deleted automatically. If Publish reports an unowned leftover profile, use a new unused harness name or ask the instance operator to inspect it; do not delete unattributed files blindly.
+-   **User administration.** Password reset links and account controls retain the existing server permissions and owner protections. **Disable user** ends local sessions, revokes invite/reset links and disables the user's access keys. Automations using those keys may stop. **Reactivate user** preserves roles but does not restore those sessions, links or keys. Review [Users without AuthKit](./how-to/users-without-authkit.md) before using these actions.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from earlier versions. Installing this patch does not enable local users, mail delivery or access-key enforcement.
+
+## Upgrading to 1.7.5
+
+Back up the application database, encryption key and settings before upgrading. Use matching 1.7.5 server and widget versions. This patch fixes follow-up prompts that sent blank or invalid temperature values, or a temperature for OpenAI reasoning models that do not accept one (#491). It also fixes Import & verify reporting false output contract mismatches (#494) and reporting untested contracts as mismatches (#495). Version History can now connect a GitHub repository that already has files or commits (#482); an existing connection keeps working, and the server takes ownership only of paths its own copied commits wrote. It adds no schema migration and changes no configuration. It preserves the existing enforcement mode, which remains **Off** by default.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from older versions.
+
 ## Upgrading to 1.7.4
 
 Back up the application database, encryption key and settings before upgrading. Use matching 1.7.4 server and widget versions. This patch adds one migration at startup: a nullable `importVerify` column on `flow_version_state`. Existing rows are unchanged and Publish behaves as before. It preserves the existing enforcement mode.

@@ -189,6 +189,8 @@ An orange triangle on a card means that node was saved with an older version of 
 
 ## Test it in the canvas chat
 
+You can try a new unpublished team from its signed-in canvas before the first Publish. Draft conversations stay separate from runnable profiles. Imported teams should complete [Import & verify](./import-verify.md) and be tried with representative questions before publishing. External API and access-key runs continue to use a published harness.
+
 The chat button at the top right of a saved harness canvas runs the draft when one exists, and Live otherwise. Save the draft before you chat. Unsaved changes are not used. `POST /api/v1/harnesses/<name>/runs` is the external route and stays on Live until you **Publish**.
 
 1. Select the chat button (**Chat**).
@@ -325,7 +327,7 @@ Select the card or the team's name in List View. The harness page is `/harnesses
 1. Type a prompt under **Try it**, for example `Use the analyst database. How many tasks are open, and what are their titles?`
 2. Select **Run**.
 
-While it runs, the button reads **Running** and **Stop** cancels the run. The run card fills in as each step starts, and the answer box says `Waiting for the first token.` until text arrives.
+While it runs, the button reads **Running** and **Stop** cancels the run. Starting with 1.7.7, stopping one chat cancels only its runtime run and model connection; other chats using the same specialist keep running. The run card fills in as each step starts, and the answer box says `Waiting for the first token.` until text arrives.
 
 ![Try it while the run is going. The Run button reads Running, a Stop button is next to it, the Run card says Harness Prime sent work to analyst with the analyst running, and the answer box says Waiting for the first token.](../images/harnesses/harness-try-it-running.png)
 

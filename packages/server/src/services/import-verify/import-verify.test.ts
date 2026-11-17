@@ -1,5 +1,8 @@
+import { execFileSync } from 'child_process'
+import path from 'path'
+import { pathToFileURL } from 'url'
 import { applyCredential, resolveSlot, connectionSlots } from './connections'
-import { planDiscovery, valuesFromDiscovery } from './discover'
+import { expressionLookups, literalSamples, planDiscovery, valuesFromDiscovery } from './discover'
 import { inspectFlow } from './inspect'
 import {
     beginVerification,
@@ -11,7 +14,9 @@ import {
     recoverOrphanedRun
 } from './job'
 import type { VerifyDeps, VerifyRecord } from './job'
+import { setPinnedQueryDeps, testPinnedQuery } from '../pinned-queries'
 import { parseFlow, queryReady, untrustImportedFlow } from './stamps'
+import type { SavedQuery } from './stamps'
 
 const ACCOUNT_SQL = `SELECT o.name
 FROM account a
@@ -113,7 +118,182 @@ function memoryDeps(overrides: Partial<VerifyDeps> = {}): {
     return { deps, live, drafts, records }
 }
 
+function compilePinned(
+    entry: unknown,
+    args?: unknown
+): { runText: string; checkText: string; binds: unknown[] | null; order: string[]; statementHash: string } {
+    const moduleUrl = pathToFileURL(path.resolve(__dirname, '../../../../harness/runtime/pinned-query.mjs')).href
+    const program = `import { compilePinned } from ${JSON.stringify(moduleUrl)}
+const input = JSON.parse(process.argv[1])
+process.stdout.write(JSON.stringify(compilePinned(input.entry, input.args)))`
+    return JSON.parse(
+        execFileSync(process.execPath, ['--input-type=module', '-e', program, JSON.stringify({ entry, args })], { encoding: 'utf8' })
+    ) as { runText: string; checkText: string; binds: unknown[] | null; order: string[]; statementHash: string }
+}
+
+async function verifyExportedContract(
+    options: { importedSql?: string; omitRequired?: boolean; pinCount?: number; verifiedHere?: boolean; withoutSample?: boolean } = {}
+): Promise<VerifyRecord> {
+    const { generateExportFlowData } = require('../../../../ui/src/utils/genericHelper.js') as {
+        generateExportFlowData: (
+            flow: unknown,
+            knownNodeNames: string[],
+            credentials: Array<{ id: string; name: string; credentialName: string }>
+        ) => Record<string, unknown>
+    }
+    const sourcePins = Array.from({ length: options.pinCount || 1 }, (_, index) =>
+        pin({
+            id: `pin-${index + 1}`,
+            name: `pq_region_${index + 1}`,
+            sql: `SELECT :region AS region, ${index + 1} AS query_index LIMIT 10`,
+            params: [
+                options.omitRequired
+                    ? { name: 'region', type: 'text', default: 'north' }
+                    : {
+                          name: 'region',
+                          type: 'text',
+                          required: true,
+                          ...(options.withoutSample ? {} : { default: 'north' })
+                      }
+            ],
+            ...(options.verifiedHere ? { verifiedHere: true } : {})
+        })
+    )
+    const contracts = sourcePins.map((sourcePin) => ({
+        pin: sourcePin.name,
+        hash: compilePinned(sourcePin).statementHash,
+        mode: 'markdown',
+        fields: []
+    }))
+    const base = flow(sourcePins)
+    const source = {
+        ...base,
+        nodes: [
+            ...base.nodes,
+            {
+                id: 'specialist',
+                data: {
+                    id: 'specialist',
+                    name: 'harnessSpecialist',
+                    label: 'Reporting specialist',
+                    inputs: {
+                        trustedOutputs: JSON.stringify(contracts)
+                    }
+                }
+            }
+        ],
+        edges: [...base.edges, { source: 'pg', target: 'specialist' }]
+    }
+    const exported = generateExportFlowData(
+        structuredClone(source),
+        ['postgreSQLMCP', 'chatOpenAI', 'harnessSpecialist'],
+        [{ id: 'cred-openai', name: 'OpenAI main', credentialName: 'openAIApi' }]
+    ) as { nodes: Array<{ id?: string; data?: { inputs?: Record<string, unknown> } }>; edges: unknown[] }
+    if (options.importedSql) {
+        const postgres = exported.nodes.find((node) => node.id === 'pg')
+        const pins = JSON.parse(String(postgres?.data?.inputs?.pinnedQueries || '[]')) as Array<Record<string, unknown>>
+        pins[0].sql = options.importedSql
+        if (postgres?.data?.inputs) postgres.data.inputs.pinnedQueries = JSON.stringify(pins)
+    }
+    const { deps } = memoryDeps({
+        loadedNodeNames: ['postgreSQLMCP', 'chatOpenAI', 'harnessSpecialist'],
+        testPin: async ({ nodeId, entry, sampleValues, credentialId }) => {
+            const result = await testPinnedQuery({
+                body: { nodeId, entry, sampleValues, canvas: { credential: credentialId, inputs: {} } },
+                params: { chatflowId: 'imported-harness' },
+                user: { id: 'builder', activeWorkspaceId: 'workspace', activeOrganizationId: 'organization' }
+            } as never)
+            return {
+                ok: true,
+                rowCount: Number(result.rowCount || 0),
+                statementHash: String(result.statementHash || ''),
+                entry: result.entry as SavedQuery
+            }
+        }
+    })
+    setPinnedQueryDeps({
+        pinnedQueriesEnabled: () => true,
+        hasAnyPermission: async () => true,
+        getChatflowByIdForWorkspace: async () => ({ id: 'imported-harness', type: 'HARNESS' }),
+        flowDataForTestChat: async () => JSON.stringify(exported),
+        loadCredentialUrl: async () => '',
+        resolveAnalystConnection: () => ({ kind: 'url', postgresUrl: 'postgresql://example.invalid/test' }),
+        analystCallLimits: () => ({ rowCap: 100, timeoutMs: 15000 }),
+        compilePinned,
+        validateArgs: () => [],
+        stampPayload: (fields) => JSON.stringify(fields),
+        computeStamp: () => 'ff'.repeat(32),
+        pinnedToolDefinition: (entry) => {
+            const query = entry as { name?: unknown; purpose?: unknown }
+            return { name: String(query.name || ''), description: String(query.purpose || ''), inputSchema: {} }
+        },
+        queryAnalystUrl: async () => ({ rows: [{ region: 'north' }], total: 1 }),
+        getPinnedQueryKey: async () => Buffer.alloc(32, 1),
+        recordTest: async () => undefined
+    })
+    try {
+        return await executeVerify({ flowText: JSON.stringify(exported), record: null, deps })
+    } finally {
+        setPinnedQueryDeps(null)
+    }
+}
+
 describe('imported verification', () => {
+    test('an unchanged exported harness with output contracts verifies after import', async () => {
+        const record = await verifyExportedContract()
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('every saved query and output contract verifies across multiple batches', async () => {
+        const record = await verifyExportedContract({ pinCount: 9 })
+        expect(record.queries).toHaveLength(9)
+        expect(record.queries.every((query) => query.state === 'passed' && /^[a-f0-9]{64}$/.test(query.statementHash || ''))).toBe(true)
+        expect(record.blockers.filter((blocker) => blocker.id.startsWith('contract:') && blocker.id.endsWith(':hash'))).toEqual([])
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('an exported harness can be verified again after its queries were verified here', async () => {
+        const record = await verifyExportedContract({ verifiedHere: true })
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('an exported output contract keeps the hash of parameters without required', async () => {
+        const record = await verifyExportedContract({ omitRequired: true })
+        expect(record.blockers).toEqual([])
+        expect(record.status).toBe('ready')
+    })
+
+    test('an exported output contract still blocks after its query SQL changes', async () => {
+        const record = await verifyExportedContract({ importedSql: 'SELECT upper(:region) AS region LIMIT 10' })
+        expect(record.status).toBe('attention')
+        expect(record.blockers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'contract:specialist:pq_region_1:hash',
+                    message:
+                        'The output contract for pq_region_1 does not match the query that was just tested. Review the contract before publishing.'
+                })
+            ])
+        )
+    })
+
+    test('an output contract says not tested when its saved query could not run', async () => {
+        const record = await verifyExportedContract({ withoutSample: true })
+        expect(record.status).toBe('attention')
+        expect(record.blockers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'contract:specialist:pq_region_1:hash',
+                    message:
+                        'The output contract for pq_region_1 was not checked because its saved query was not tested: Cuttlely could not choose test values for region. The query was not run, and no sample values were requested. Review the contract before publishing.'
+                })
+            ])
+        )
+    })
+
     test('a stamp from another server is not ready, and the query text stays', () => {
         const original = flow()
         expect(queryReady(pin())).toBe(true)
@@ -625,6 +805,7 @@ describe('imported verification', () => {
             statementHashes: { [`pg\0pin-1`]: 'cd'.repeat(32) }
         })
         expect(missingHash.blockers.some((item) => item.id === 'contract:spec:pq_account_opportunity:hash')).toBe(true)
+        expect(missingHash.blockers.some((item) => item.message.includes('has no tested statement hash'))).toBe(true)
         expect(missingHash.smoke.some((item) => item.id === 'report')).toBe(false)
         const second = {
             id: 'pg-2',
@@ -1082,5 +1263,109 @@ describe('imported verification', () => {
         const next = applyCredential(canvas, 'pg:credential', 'cred-pg') as typeof canvas
         expect((next.nodes[0].data as { credential: string }).credential).toBe('cred-pg')
         expect((next.nodes[1].data as { credential: string }).credential).toBe('')
+    })
+})
+
+describe('destination sample values', () => {
+    test('database Date values become ISO dates and exclusive bounds cover the last observed day', () => {
+        const params = [
+            { name: 'from', type: 'date', required: true },
+            { name: 'to', type: 'date', required: true }
+        ]
+        const values = valuesFromDiscovery(
+            params,
+            [{ from: new Date('2025-12-30T00:00:00Z') }],
+            [
+                { param: 'from', table: 'orders', column: 'closed', op: '>=' },
+                { param: 'to', table: 'orders', column: 'closed', op: '<' }
+            ]
+        )
+        expect(values).toEqual({ from: '2025-12-30', to: '2025-12-31' })
+    })
+    test('calendar defaults obey parameter constraints and do not manufacture text identities', () => {
+        expect(
+            valuesFromDiscovery(
+                [
+                    { name: 'year', type: 'int8', required: true, min: 1900, max: 2100 },
+                    { name: 'account_name', type: 'text', required: true },
+                    { name: 'start_date', type: 'date', secure: true }
+                ],
+                [],
+                []
+            )
+        ).toEqual({ year: String(new Date().getUTCFullYear()) })
+    })
+})
+
+describe('expression sampling', () => {
+    test('an imported expression query is tested with a discovered identity and optional filters remain unset', async () => {
+        const entry = pin({
+            sql: 'WITH args AS (SELECT lower(:account_name) AS phrase) SELECT a.name FROM account a WHERE lower(a.name) = (SELECT phrase FROM args) LIMIT 10',
+            params: [
+                { name: 'account_name', type: 'text', required: true },
+                { name: 'year', type: 'int8', required: false },
+                { name: 'start_date', type: 'date', required: false }
+            ]
+        })
+        const canvas = flow([entry], 'cred-pg')
+        const calls: Record<string, unknown>[] = []
+        const { deps } = memoryDeps({
+            discover: async () => ({ rows: [{ account_name: 'Example Company' }] }),
+            testPin: async ({ sampleValues }) => {
+                calls.push(sampleValues)
+                return {
+                    ok: true,
+                    rowCount: 1,
+                    statementHash: 'cd'.repeat(32),
+                    entry: { ...entry, testedStamp: 'ff'.repeat(32), needsRetest: false }
+                }
+            }
+        })
+        const result = await executeVerify({ flowText: JSON.stringify(canvas), record: null, deps })
+        expect(result.queries[0].state).toBe('passed')
+        expect(calls).toEqual([{ account_name: 'Example Company' }])
+        expect(result.status).toBe('ready')
+    })
+
+    test('samples a name used through a CTE without reading unselected or sensitive columns', () => {
+        const sql = `WITH args AS (SELECT lower(:account_name) AS phrase)
+            SELECT a.name FROM public.account a JOIN private.secret s ON s.id = a.id
+            WHERE lower(a.name) = (SELECT phrase FROM args) AND s.password = :password`
+        const plans = expressionLookups(
+            sql,
+            ['public.account'],
+            [
+                { name: 'account_name', type: 'text', required: true },
+                { name: 'password', type: 'text', required: true }
+            ]
+        )
+        expect(plans).toHaveLength(1)
+        expect(plans[0].text).toContain('FROM "public"."account"')
+        expect(plans[0].text).not.toContain('secret')
+        expect(plans[0].bindings).toEqual([{ param: 'account_name', table: 'public.account', column: 'name', op: '=' }])
+    })
+    test('uses authored literal alternatives, while ignoring comments and secure parameters', () => {
+        expect(
+            literalSamples(
+                `-- :family = 'bad'
+SELECT CASE WHEN p.family = 'inventory' THEN 1 END FROM packet p`,
+                [{ name: 'family', type: 'text', required: true }]
+            )
+        ).toEqual({ family: 'inventory' })
+        expect(literalSamples(`SELECT :family = 'inventory'`, [{ name: 'family', required: true, secure: true }])).toEqual({})
+    })
+    test('does not activate mutually exclusive optional calendar filters', () => {
+        expect(
+            valuesFromDiscovery(
+                [
+                    { name: 'year', type: 'int8', required: false },
+                    { name: 'month', type: 'int8', required: false },
+                    { name: 'start_date', type: 'date', required: false },
+                    { name: 'end_date', type: 'date', required: false }
+                ],
+                [],
+                []
+            )
+        ).toEqual({})
     })
 })
