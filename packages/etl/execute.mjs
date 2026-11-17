@@ -16,6 +16,7 @@ import { openStore, storeScope } from './stores.mjs'
 import { clipText, isWellFormed, repairUnicode } from './text.mjs'
 import { compileTransforms, createSplitter, fillKeyTemplate, keyTemplateOf, splitDoc } from './transform.mjs'
 import { getPipeline, getVersion, setServedVersion } from './versions.mjs'
+import { createLoopYield } from './cooperate.mjs'
 
 // Metadata that only says where a chunk sits; leaving it out of the id means moved content is not re-embedded.
 const POSITIONAL = new Set(['row', 'line', 'segment', 'loc', 'chunk', 'chunkIndex', 'ordinal', 'offset'])
@@ -498,9 +499,18 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
         const seenKeys = new Set()
         let pendingSeed = []
         if (checkpoint && si === checkpoint.sourceIndex) {
+            const prefix = `${nodeId}:`
             const ids = stmt('SELECT DISTINCT source_id FROM records WHERE pipeline_id = ? AND seen_run = ? AND source_id LIKE ?')
                 .all(pipeline.id, run.id, `${nodeId}:%`)
                 .map((row) => row.source_id)
+                .filter((id) => {
+                    if (!id.startsWith(prefix)) return false
+                    const order = compareSegments(id.slice(prefix.length), checkpoint.unitKey)
+                    // Chunk upserts can be ahead of the saved checkpoint. Those keys must be replayed, not rejected.
+                    if (order > 0) return false
+                    // No document in this unit is committed when the checkpoint replays its first record.
+                    return order < 0 || checkpoint.done || Number(checkpoint.ordinal || 0) > 0
+                })
             for (const key of recordedKeys(pipeline.id, ids, run.id)) seenKeys.add(key)
         }
         const seedKeys = () => {
@@ -552,6 +562,13 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                     const reject = (error) => {
                         state.counters.errors += 1
                         const code = error.reason || error.code || 'parse_error'
+                        // Keep diagnostics independently of batch commit: an error-limit stop discards pending records.
+                        state.counters.firstDocumentError ||= {
+                            reason: clipText(code, 200),
+                            message: clipText(errorMessage(error), 1200),
+                            source: clipText(unit.key, 300),
+                            ordinal
+                        }
                         return settle('rejected', code, errorMessage(error))
                     }
                     if (doc.reject) {
@@ -680,6 +697,11 @@ async function* produce({ spec, pipeline, run, state, ctx, embedFp, control }) {
                 markSourceSeen(pipeline.id, run.id, unit.sourceId)
                 state.counters.unitsFailed += 1
                 state.counters.errors += 1
+                state.counters.firstDocumentError ||= {
+                    reason: clipText(error?.reason || error?.code || 'load_error', 200),
+                    message: clipText(errorMessage(error), 1200),
+                    source: clipText(unit.key, 300)
+                }
                 state.event('error', 'load', `${unit.key}: ${errorMessage(error)}`)
                 yield { ...done, kind: 'failed', bytes: Math.max(0, (unit.bytes || 0) - bytes) }
                 continue
@@ -1183,10 +1205,16 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
 
     let batch = newBatch()
     const flushLimit = settings.batchSize * 8
+    const yieldIfNeeded = createLoopYield()
     state.step('transform', { status: 'running' })
     state.step('split', { status: 'running' })
     try {
         for await (const item of produce({ spec, pipeline, run, state, ctx, embedFp, control })) {
+            const pause = yieldIfNeeded()
+            if (pause) {
+                state.persist()
+                await pause
+            }
             if (control.stopRequested || fatal) break
             if (item.type === 'chunk') batch.chunks.push(item)
             else batch.markers.push(item)
@@ -1194,9 +1222,11 @@ async function pump({ spec, pipeline, run, state, ctx, embedFp, control, embedde
             batch.position = item.position
             batch.bytes += item.bytes || 0
             if (state.counters.errors > settings.maxErrors) {
+                const first = state.counters.firstDocumentError
+                const cause = first ? ` First document error (${first.reason}): ${first.message}` : ''
                 fatal = new EtlError(
                     'too_many_errors',
-                    `Stopped after ${state.counters.errors} document errors (limit ${settings.maxErrors}).`
+                    `Stopped after ${state.counters.errors} document errors (limit ${settings.maxErrors}).${cause}`
                 )
                 break
             }

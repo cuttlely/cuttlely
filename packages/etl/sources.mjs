@@ -13,6 +13,7 @@ import { stableStringify } from './graph.mjs'
 import { JsonStrictError, parseStrict } from './json-strict.mjs'
 import { checkUploadAccess, entryRoots, pathAccess, relativeKey, repoDataExcludes } from './paths.mjs'
 import { coerceValue, defaultCaps, flattenLoaderMetadata, jsonMetadata, parseSchema, RecordReject } from './schema.mjs'
+import { createLoopYield } from './cooperate.mjs'
 
 const run = promisify(execFile)
 
@@ -122,7 +123,8 @@ export function configHash(source) {
 
 // `workspaceId` is the pipeline's workspace: an upload path must be in that workspace's upload folder, and a
 // folder walk skips uploads that belong to other workspaces.
-function fileList(inputs, { workspaceId } = {}) {
+async function fileList(inputs, { workspaceId } = {}) {
+    const yieldIfNeeded = createLoopYield()
     const entries = splitList(inputs.paths)
     if (!entries.length) throw new EtlError('bad_source', 'Streaming Files needs at least one file or folder path.')
     const include = splitList(inputs.include)
@@ -138,7 +140,7 @@ function fileList(inputs, { workspaceId } = {}) {
     }
     const roots = entryRoots(resolved, { workspaceId })
     const files = []
-    entries.forEach((entry, i) => {
+    for (const [i, entry] of entries.entries()) {
         const abs = resolved[i]
         const root = roots[i]
         let stat
@@ -153,10 +155,14 @@ function fileList(inputs, { workspaceId } = {}) {
         }
         if (stat.isDirectory()) {
             for (const file of walkFiles(abs, { respectGitignore: false, include })) {
+                const pause = yieldIfNeeded()
+                if (pause) await pause
                 if (readable(file.abs)) add(file.abs, file.size, file.mtimeMs)
             }
         } else add(abs, stat.size, Math.floor(stat.mtimeMs))
-    })
+        const pause = yieldIfNeeded()
+        if (pause) await pause
+    }
     files.sort((a, b) => compareSegments(a.key, b.key))
     return files.filter((file, i) => i === 0 || files[i - 1].key !== file.key)
 }
@@ -466,16 +472,19 @@ function* prefixRepoRels(files, subPath) {
 export async function estimateSource(source, ctx = {}) {
     if (source.kind !== 'stream') return null
     if (source.nodeName === 'etlFileSource') {
-        const files = fileList(source.inputs || {}, ctx)
+        const files = await fileList(source.inputs || {}, ctx)
         return { units: files.length, bytes: files.reduce((sum, file) => sum + file.size, 0) }
     }
     const { root, checkout, subPath } = await ensureRepo(source, ctx)
     const maxBytes = intInput(source.inputs?.maxFileKb, 1024) * 1024
     let units = 0
     let bytes = 0
+    const yieldIfNeeded = createLoopYield()
     for (const file of repoFiles(root, source.inputs || {}, { checkout, subPath })) {
         units += 1
         if (file.size <= maxBytes) bytes += file.size
+        const pause = yieldIfNeeded()
+        if (pause) await pause
     }
     return { units, bytes }
 }
@@ -486,7 +495,7 @@ export async function* sourceUnits(source, ctx = {}) {
     const inputs = source.inputs || {}
     const config = configHash(source)
     if (source.nodeName === 'etlFileSource') {
-        for (const file of fileList(inputs, ctx)) {
+        for (const file of await fileList(inputs, ctx)) {
             yield {
                 key: file.key,
                 sourceId: `${source.nodeId}:${file.key}`,
