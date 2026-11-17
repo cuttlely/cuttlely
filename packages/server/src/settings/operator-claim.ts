@@ -61,6 +61,19 @@ function denied(): never {
 function limited(): never {
     throw new SettingsError(429, 'OPERATOR_RATE_LIMIT', 'Too many operator proof requests or attempts. Try again later.')
 }
+// A refused code request reveals nothing about other users: no owner of the active code, no counts, no used slots.
+function requestRefused(): never {
+    throw new SettingsError(429, 'OPERATOR_RATE_LIMIT', "A new code can't be requested right now. Try again in a few minutes.")
+}
+// Only the person who holds the active code is told about it, and only about their own code.
+function ownProofActive(expires: number, now: number): never {
+    const minutes = Math.max(1, Math.ceil((expires - now) / 60000))
+    throw new SettingsError(
+        429,
+        'OPERATOR_PROOF_ACTIVE',
+        `You already have an active code. Use it in the session that requested it, or wait for it to expire (about ${minutes} min) before requesting another.`
+    )
+}
 function confirmation(body: Record<string, unknown>, word: string): void {
     if (body.confirm !== word) throw new SettingsError(400, 'CONFIRM_REQUIRED', `Type ${word} to confirm this operator action.`)
 }
@@ -234,6 +247,8 @@ export async function operatorPanelAction(req: Request, env: Env, action: string
             const budget = state.users[userKey] ?? { requests: 0, attempts: 0 }
             const now = Date.now()
             if (action === 'request') {
+                if (state.challenge && state.challenge.expires > now && state.challenge.user === who.user)
+                    ownProofActive(state.challenge.expires, now)
                 if (
                     (state.challenge && state.challenge.expires > now) ||
                     now - state.lastRequest < TTL ||
@@ -241,7 +256,7 @@ export async function operatorPanelAction(req: Request, env: Env, action: string
                     budget.requests >= 2 ||
                     (Object.keys(state.users).length >= 16 && !state.users[userKey])
                 )
-                    limited()
+                    requestRefused()
                 const code = randomBytes(32).toString('base64url')
                 state.challenge = {
                     hash: digest('operator-' + purpose + '\n' + code),

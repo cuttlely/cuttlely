@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { createRequire } = require('node:module')
 const fs = require('node:fs')
+const { createHash } = require('node:crypto')
 const os = require('node:os')
 const path = require('node:path')
 const serverRequire = createRequire(path.join(__dirname, '../packages/server/package.json'))
@@ -274,6 +275,91 @@ test('panel host-proof operator lifecycle using actual App.config', async (t) =>
                 assert.equal(codes.length, before)
                 for (let i = 0; i < 5; i++) assert.equal((await redeem('wrong', 'claim', cookies.other)).status, 403)
                 assert.equal((await redeem('wrong', 'claim', cookies.other)).status, 429)
+                assert.equal((await redeem(code)).status, 200)
+            })
+            await t.test('a second code request from the person holding the active code gets a distinct, caller-only refusal', async () => {
+                fs.rmSync(file, { force: true })
+                resetProofBudget()
+                const code = await requestCode()
+                const before = codes.length
+                const session = await issueApplicationSession(ctx, ownerId, 'local')
+                const newSession = 'cuttlely-local-session=' + session.token
+                for (const cookie of [cookies.owner, newSession]) {
+                    const refused = await post('request', { purpose: 'claim', confirm: 'CLAIM' }, cookie)
+                    assert.equal(refused.status, 429, JSON.stringify(refused.body))
+                    assert.equal(refused.body.code, 'OPERATOR_PROOF_ACTIVE')
+                    assert.match(
+                        refused.body.message,
+                        /^You already have an active code\. Use it in the session that requested it, or wait for it to expire \(about [1-5] min\) before requesting another\.$/
+                    )
+                    assert.ok(!JSON.stringify(refused.body).includes(code))
+                }
+                assert.equal(codes.length, before, 'a refused request mints and logs no code')
+                assert.equal((await redeem(code)).status, 200)
+            })
+            await t.test('every other refused code request gets one neutral message that says nothing about other users', async () => {
+                const neutral = "A new code can't be requested right now. Try again in a few minutes."
+                const digest = (value) => createHash('sha256').update(value).digest('hex')
+                const rewrite = (change) => {
+                    const state = JSON.parse(fs.readFileSync(proofFile, 'utf8'))
+                    change(state)
+                    fs.writeFileSync(proofFile, JSON.stringify(state), { mode: 0o600 })
+                }
+                const expectNeutral = async (cookie, label) => {
+                    const before = codes.length
+                    const refused = await post('request', { purpose: 'claim', confirm: 'CLAIM' }, cookie)
+                    assert.equal(refused.status, 429, label + ' ' + JSON.stringify(refused.body))
+                    assert.equal(refused.body.code, 'OPERATOR_RATE_LIMIT', label)
+                    assert.equal(refused.body.message, neutral, label)
+                    const text = JSON.stringify(refused.body)
+                    for (const secret of [ownerId, 'owner@example.invalid', digest(ownerId), 'successor'])
+                        assert.ok(!text.includes(secret), label + ' leaks ' + secret)
+                    assert.equal(codes.length, before, label + ' mints no code')
+                }
+                fs.rmSync(file, { force: true })
+                // A code held by someone else.
+                resetProofBudget()
+                await requestCode()
+                await expectNeutral(cookies.other, 'code held by another user')
+                // The five-minute wait, with no active code left.
+                rewrite((state) => delete state.challenge)
+                await expectNeutral(cookies.owner, 'five-minute wait')
+                await expectNeutral(cookies.other, 'five-minute wait (other user)')
+                // Hourly limit per user.
+                rewrite((state) => {
+                    state.lastRequest = 0
+                    for (const budget of Object.values(state.users)) budget.requests = 2
+                })
+                await expectNeutral(cookies.owner, 'per-user hourly limit')
+                // Hourly limit across all users.
+                rewrite((state) => {
+                    state.lastRequest = 0
+                    state.users = {}
+                    state.global.requests = 4
+                })
+                await expectNeutral(cookies.other, 'global hourly limit')
+                // All sixteen per-user slots are in use and the caller is new.
+                rewrite((state) => {
+                    state.lastRequest = 0
+                    state.global.requests = 0
+                    state.users = Object.fromEntries(
+                        Array.from({ length: 16 }, (_, i) => [digest('slot-' + i), { requests: 0, attempts: 0 }])
+                    )
+                })
+                await expectNeutral(cookies.other, 'user slot cap')
+                // Leave a claimed operator behind, as the neighbouring cases expect.
+                resetProofBudget()
+                assert.equal((await redeem(await requestCode())).status, 200)
+            })
+            await t.test('wrong-code attempts keep their own limit message', async () => {
+                fs.rmSync(file, { force: true })
+                resetProofBudget()
+                const code = await requestCode()
+                for (let i = 0; i < 5; i++) assert.equal((await redeem('wrong', 'claim', cookies.other)).status, 403)
+                const limited = await redeem('wrong', 'claim', cookies.other)
+                assert.equal(limited.status, 429)
+                assert.equal(limited.body.code, 'OPERATOR_RATE_LIMIT')
+                assert.equal(limited.body.message, 'Too many operator proof requests or attempts. Try again later.')
                 assert.equal((await redeem(code)).status, 200)
             })
             await t.test('concurrent double claim has exactly one winner; old proof cannot cross host recovery generation', async () => {

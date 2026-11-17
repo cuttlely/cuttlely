@@ -12,6 +12,7 @@ export default function OperatorPanel({ onChanged }) {
     const [code, setCode] = useState('')
     const [requested, setRequested] = useState(false)
     const [message, setMessage] = useState('')
+    const [failed, setFailed] = useState(false)
     const [busy, setBusy] = useState(false)
     const load = () =>
         serverSettingsApi
@@ -28,6 +29,7 @@ export default function OperatorPanel({ onChanged }) {
     const execute = async (requestProof = false) => {
         setBusy(true)
         setMessage('')
+        setFailed(false)
         try {
             const res = await serverSettingsApi.operatorAction(requestProof ? 'request' : proof ? purpose : action, {
                 purpose,
@@ -48,6 +50,7 @@ export default function OperatorPanel({ onChanged }) {
                 onChanged()
             }
         } catch (error) {
+            setFailed(true)
             setMessage(error?.response?.data?.message ?? 'The operator action could not be completed.')
         } finally {
             setBusy(false)
@@ -59,7 +62,11 @@ export default function OperatorPanel({ onChanged }) {
                 Instance operator
             </Typography>
             {status.reauthenticateUrl && <Button href={status.reauthenticateUrl}>Verify a fresh sign-in</Button>}
-            {message && <Alert sx={{ my: 1 }}>{message}</Alert>}
+            {message && (
+                <Alert severity={failed ? 'error' : 'success'} sx={{ my: 1 }}>
+                    {message}
+                </Alert>
+            )}
             {status.operator ? (
                 <>
                     <Typography>
