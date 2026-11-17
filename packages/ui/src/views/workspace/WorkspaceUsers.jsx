@@ -4,21 +4,7 @@ import { formatListDateTime } from '@/utils/formatDate'
 import { useNavigate } from 'react-router-dom'
 
 // material-ui
-import {
-    IconButton,
-    Checkbox,
-    Skeleton,
-    Box,
-    TableRow,
-    TableContainer,
-    Paper,
-    Table,
-    TableHead,
-    TableBody,
-    Button,
-    Stack,
-    Chip
-} from '@mui/material'
+import { Checkbox, Skeleton, Box, TableRow, TableContainer, Paper, Table, TableHead, TableBody, Button, Stack, Chip } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
 // project imports
@@ -27,7 +13,7 @@ import { StyledTableCell, StyledTableRow } from '@/ui-component/table/TableStyle
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import ErrorBoundary from '@/ErrorBoundary'
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
-import { PermissionButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
+import { PermissionButton, PermissionIconButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import InviteUsersDialog from '@/ui-component/dialog/InviteUsersDialog'
 import CreateUserDialog from '@/ui-component/dialog/CreateUserDialog'
 import EditWorkspaceUserRoleDialog from '@/views/workspace/EditWorkspaceUserRoleDialog'
@@ -127,29 +113,6 @@ const WorkspaceDetails = () => {
             cancelButtonName: 'Cancel',
             confirmButtonName: 'Send Invite',
             data: workspace
-        }
-        setDialogProps(dialogProp)
-        setShowAddUserDialog(true)
-    }
-
-    const onEditClick = (user) => {
-        if (user.status.toUpperCase() === 'INVITED') {
-            editInvite(user)
-        } else {
-            editUser(user)
-        }
-    }
-
-    const editInvite = (user) => {
-        const dialogProp = {
-            type: 'EDIT',
-            cancelButtonName: 'Cancel',
-            confirmButtonName: 'Update Invite',
-            data: {
-                ...user,
-                isWorkspaceUser: true
-            },
-            disableWorkspaceSelection: true
         }
         setDialogProps(dialogProp)
         setShowAddUserDialog(true)
@@ -460,51 +423,54 @@ const WorkspaceDetails = () => {
                                                             </StyledTableCell>
                                                             <StyledTableCell>
                                                                 {item.isOrgOwner ? (
-                                                                    <Chip size='small' label={'ORGANIZATION OWNER'} />
+                                                                    <Chip
+                                                                        size='small'
+                                                                        label={
+                                                                            item.status.toUpperCase() === 'INVITED'
+                                                                                ? 'Owner invitation pending'
+                                                                                : 'Super User, read-only'
+                                                                        }
+                                                                    />
                                                                 ) : (
                                                                     item.role.name
                                                                 )}
                                                             </StyledTableCell>
                                                             <StyledTableCell>
-                                                                {item.isOrgOwner ? (
-                                                                    <></>
-                                                                ) : (
-                                                                    <>
-                                                                        {'ACTIVE' === item.status.toUpperCase() && (
-                                                                            <Chip color={'success'} label={item.status.toUpperCase()} />
-                                                                        )}
-                                                                        {'INVITED' === item.status.toUpperCase() && (
-                                                                            <Chip color={'warning'} label={item.status.toUpperCase()} />
-                                                                        )}
-                                                                        {'INACTIVE' === item.status.toUpperCase() && (
-                                                                            <Chip color={'error'} label={item.status.toUpperCase()} />
-                                                                        )}
-                                                                    </>
+                                                                {'ACTIVE' === item.status.toUpperCase() && (
+                                                                    <Chip color={'success'} label={item.status.toUpperCase()} />
                                                                 )}
+                                                                {'INVITED' === item.status.toUpperCase() && (
+                                                                    <Chip color={'warning'} label={item.status.toUpperCase()} />
+                                                                )}
+                                                                {['INACTIVE', 'DISABLE', 'DISABLED'].includes(
+                                                                    item.status.toUpperCase()
+                                                                ) && <Chip color={'error'} label='DISABLED' />}
                                                             </StyledTableCell>
                                                             <StyledTableCell>
                                                                 {!item.lastLogin ? 'Never' : formatListDateTime(item.lastLogin)}
                                                             </StyledTableCell>
                                                             <StyledTableCell>
                                                                 {!item.isOrgOwner && item.status.toUpperCase() === 'INVITED' && (
-                                                                    <IconButton
-                                                                        title='Edit'
+                                                                    <PermissionIconButton
+                                                                        permissionId='workspace:update'
+                                                                        title='Change invitation role'
                                                                         color='primary'
-                                                                        onClick={() => onEditClick(item)}
+                                                                        onClick={() => editUser(item)}
                                                                     >
                                                                         <IconEdit />
-                                                                    </IconButton>
+                                                                    </PermissionIconButton>
                                                                 )}
                                                                 {!item.isOrgOwner &&
                                                                     item.userId !== currentUser.id &&
                                                                     item.status.toUpperCase() === 'ACTIVE' && (
-                                                                        <IconButton
+                                                                        <PermissionIconButton
+                                                                            permissionId='workspace:update'
                                                                             title='Change Role'
                                                                             color='primary'
-                                                                            onClick={() => onEditClick(item)}
+                                                                            onClick={() => editUser(item)}
                                                                         >
                                                                             <IconEdit />
-                                                                        </IconButton>
+                                                                        </PermissionIconButton>
                                                                     )}
                                                             </StyledTableCell>
                                                         </StyledTableRow>

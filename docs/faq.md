@@ -1,5 +1,13 @@
 # Frequently asked questions
 
+## Can I keep version history on a GitHub branch other than main?
+
+Yes. In Version History, select a repository and choose its **Branch** before connecting. Existing connections keep their branch; disconnect and reconnect to change it. The token must be able to write to that branch, and repository protection rules still apply. Named environment chains keep their configured mappings. [Version History](./how-to/versioning.md).
+
+## Does stopping one agent-team chat stop another chat?
+
+In 1.7.7, Stop cancels only that chat's runtime run and model connection. Other chats using the same specialist continue running. Upgrade an earlier server to get this fix. [Harnesses](./how-to/harnesses.md).
+
 ## Are stdio MCP servers enabled by default?
 
 No. Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly set the protocol to stdio.
@@ -70,3 +78,11 @@ Cuttlely sent a request and the application did not provide a usable answer. Eli
 5. If the message comes back, ask the person who runs your Cuttlely server to check that it is up.
 
 The create request for a new flow is never repeated automatically. If it gets no answer, that canvas blocks later create attempts because the original request may still have finished. Check your flows in another tab before leaving the canvas. If the flow is absent, leave this canvas and start a new one. If creation answers but its status check fails, Cuttlely repeats only that status check after 300 ms, 1 second, and 3 seconds; it never sends a second create request. If the check still fails, **The flow was created. We are still checking its save status.** appears with **Retry**. The message does not block the canvas, Save remains available, **Retry** repeats only the status check, and the same status check resumes when the browser comes online. On an existing flow, a canvas save without new file data is retried, but a follow-up update for its name or starter questions is not. An unanswered inline name stays in the header, keeps the canvas marked as unsaved, and is included by the next canvas **Save**. Starter questions stay pending for the next **Save** too. These updates do not show the canvas retry message. Cuttlely asks you to press **Save** again. Work saved before the message is kept. Reloading the page before a save goes through loses the unsaved edits.
+
+## Can an administrator reset a local user's password without email?
+
+Yes. In **Admin > Users**, select **Reset password**, then **Generate reset link**. Copy the one-time link and send it privately. Configured mail also delivers it, and the dialog reports delivery. The user's existing sessions end when they save their new password. The server checks team membership and permissions; owners use host recovery, and SSO accounts recover with their identity provider. [Reset a local user's password](./how-to/users-without-authkit.md#reset-a-local-users-password).
+
+## Why does an imported saved query need testing again?
+
+An export's test stamp belongs to its source server. **Import & verify** runs saved queries on this server with safe automatically chosen inputs and checks their output contracts. A missing connection, unsafe or unavailable sample, failed query or untested required output keeps the draft unready. The check leaves Live unchanged. [Import and verify](./how-to/import-verify.md).

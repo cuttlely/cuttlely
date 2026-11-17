@@ -11,16 +11,144 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-cleanup-'))
 process.env.CUTTLELY_DATA_DIR = dir
 process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 const { stopRun, waitForRun } = await import('./client.mjs')
-const { profileEnvPath } = await import('./profile.mjs')
+const { profileEnvPath, readProfileEnv } = await import('./profile.mjs')
 const { profileDir } = await import('./paths.mjs')
 const { saveHarness } = await import('./store.mjs')
 const { runHarness } = await import('./run.mjs')
+const { setGatewayContext, startGateway, stopGateway } = await import('./gateway.mjs')
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 const profile = 'cleanup-fixture--worker'
 fs.mkdirSync(path.dirname(profileEnvPath(profile)), { recursive: true })
 fs.writeFileSync(profileEnvPath(profile), 'API_SERVER_KEY=offline-fixture-only\n', { mode: 0o600 })
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+test('cancelling one chat stops only its runtime run and gateway model request', { timeout: 10000 }, async (t) => {
+    const name = 'cancel-isolation'
+    const flowOptions = { appDataSource: {}, harnessCaller: { via: 'session' } }
+    const calls = new Map()
+    const jobs = new Map()
+    const stopped = []
+    const ready = Promise.withResolvers()
+    const cancelled = Promise.withResolvers()
+    const loadNode = async () =>
+        class {
+            async init() {
+                return {
+                    invoke: async (messages, { signal } = {}) => {
+                        const text = String(messages.at(-1)?.content || '')
+                        if (text.startsWith('Gateway request ')) {
+                            const chatId = text.slice('Gateway request '.length)
+                            const reply = Promise.withResolvers()
+                            calls.set(chatId, { signal, reply })
+                            const abort = () => {
+                                reply.reject(signal.reason)
+                                if (chatId === 'chat-a') cancelled.resolve()
+                            }
+                            signal.addEventListener('abort', abort, { once: true })
+                            if (calls.size === 2) ready.resolve()
+                            try {
+                                return await reply.promise
+                            } finally {
+                                signal.removeEventListener('abort', abort)
+                            }
+                        }
+                        return {
+                            content: String(messages[0]?.content).includes('You route work')
+                                ? JSON.stringify({ steps: [{ specialist: 'worker', task: text }] })
+                                : 'The specialist finished.'
+                        }
+                    }
+                }
+            }
+        }
+    const previous = setGatewayContext(async () => ({ loadNode, flowOptions }))
+    const gateway = await startGateway({ port: 0 })
+    t.after(async () => {
+        for (const job of jobs.values()) job.controller.abort()
+        for (const call of calls.values()) call.reply.resolve({ content: 'cleanup' })
+        await Promise.all([...jobs.values()].map((job) => job.done))
+        setGatewayContext(previous)
+        await stopGateway()
+    })
+    saveHarness({ name, chief: { model: { nodeName: 'fixtureChat', inputs: {} } }, specialists: [{ name: 'worker', codeExecution: true }] })
+    // Only the runtime is simulated. Each admitted run opens a real HTTP request
+    // to the shared model gateway, just as Hermes does, and stop closes that request.
+    const fetchImpl = async (url, init = {}) => {
+        const pathname = new URL(url).pathname
+        if (init.method === 'POST' && pathname.endsWith('/v1/runs')) {
+            const body = JSON.parse(init.body)
+            const chatId = body.session_id.includes(':chat-a#turn-') ? 'chat-a' : 'chat-b'
+            const id = `runtime-${chatId}`
+            const job = { controller: new AbortController(), status: 'running' }
+            jobs.set(id, job)
+            job.done = fetch(`http://127.0.0.1:${gateway.port}/v1/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${readProfileEnv(`${name}--worker`).OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({ messages: [{ role: 'user', content: `Gateway request ${chatId}` }] }),
+                signal: job.controller.signal
+            })
+                .then(async (response) => {
+                    const result = await response.json()
+                    assert.equal(response.status, 200)
+                    job.status = 'completed'
+                    job.output = result.choices[0].message.content
+                })
+                .catch((error) => {
+                    job.status = job.controller.signal.aborted ? 'cancelled' : 'failed'
+                    job.error = error.message
+                })
+            return json({ run_id: id, status: 'running' }, 202)
+        }
+        const [, id, action] = pathname.match(/\/v1\/runs\/([^/]+)(?:\/(events|stop))?$/) || []
+        const job = jobs.get(id)
+        assert.ok(job, 'request must address an admitted run')
+        if (action === 'stop') {
+            stopped.push(id)
+            job.controller.abort()
+            return json({ status: 'stopping' })
+        }
+        if (action === 'events') {
+            return new Response(new ReadableStream({ start: (controller) => job.done.then(() => controller.close()) }), {
+                headers: { 'content-type': 'text/event-stream' }
+            })
+        }
+        return json({ status: job.status, output: job.output, error: job.error })
+    }
+    const controller = new AbortController()
+    const run = (chatId, signal) =>
+        runHarness({
+            name,
+            chatId,
+            input: 'Process the supplied fixture.',
+            baseUrl: 'http://127.0.0.1:9',
+            budgetMs: 0,
+            timeoutMs: 5000,
+            flowOptions,
+            loadNode,
+            fetchImpl,
+            signal
+        })
+    const a = assert.rejects(run('chat-a', controller.signal), { code: 'aborted' })
+    const b = run('chat-b')
+    // Observe failures immediately, even if a setup assertion fails before await b.
+    b.catch(() => {})
+    await ready.promise
+    controller.abort()
+    await a
+    await cancelled.promise
+    assert.deepEqual(stopped, ['runtime-chat-a'])
+    assert.equal(calls.get('chat-a').signal.aborted, true)
+    assert.equal(calls.get('chat-b').signal.aborted, false, 'another chat shares this profile but owns a different model request')
+    calls.get('chat-b').reply.resolve({ content: 'The other chat completed normally.' })
+    const result = await b
+    assert.equal(result.agents[0].status, 'completed')
+    assert.equal(jobs.get('runtime-chat-b').status, 'completed')
+    assert.deepEqual(stopped, ['runtime-chat-a'])
+})
 
 test('shutdown-interrupted runs finish polling immediately', async () => {
     let polls = 0

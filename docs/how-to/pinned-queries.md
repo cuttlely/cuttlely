@@ -84,6 +84,8 @@ A copy of the flow in the same workspace, still using the same credential, keeps
 
 A file imported onto this server is not treated as tested, even when the file still has a stamp. [Import and verify](./import-verify.md) retests each saved query here and keeps that work on the draft.
 
+At runtime, a saved query without a tested stamp is not offered. The server log names the PostgreSQL card and the affected saved queries, and the run trace shows a failed **PostgreSQL saved queries** step with the same retest message. If **query** is unticked and every saved query on that card needs a retest, a call returns a clear retest error instead of an empty result. Open the card and use **Test & save**, or finish [Import and verify](./import-verify.md) for an imported flow, before running it again.
+
 A passing test records who ran it. That person tested the statement. They did not approve it, and Cuttlely does not record a compliance sign-off.
 
 ## Free SQL stays available

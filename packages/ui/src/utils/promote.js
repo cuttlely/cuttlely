@@ -141,6 +141,7 @@ export const readLine = (status, timeAgo) => {
     if (!status?.connected || status.role !== 'read') return ''
     if (status.state === 'retrying' || status.state === 'stopped') return ''
     const from = previousEnvironmentTitle(status)
+    if (status.state === 'waiting') return `Waiting for the first version from ${from || 'the source'}`
     if (status.lastCheckedAt) {
         return from === 'Dev'
             ? `Looked for new versions from Dev ${timeAgo(status.lastCheckedAt)}`

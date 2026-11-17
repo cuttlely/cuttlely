@@ -1,5 +1,30 @@
-jest.mock('@/api/flowVersions', () => ({ __esModule: true, default: { getGithub: jest.fn(), listIncoming: jest.fn() } }))
+/* eslint-disable react/prop-types -- Lightweight MUI adapters for the Node test renderer. */
+jest.mock('@/api/flowVersions', () => ({
+    __esModule: true,
+    default: {
+        getGithub: jest.fn(),
+        listIncoming: jest.fn(),
+        listGithubRepos: jest.fn(),
+        listGithubBranches: jest.fn(),
+        connectGithub: jest.fn()
+    }
+}))
 jest.mock('@/api/credentials', () => ({ __esModule: true, default: { getCredentialsByName: jest.fn() } }))
+
+// Exercise the card's requests and selection without MUI's browser-only menu portal.
+jest.mock('@mui/material', () => {
+    const actual = jest.requireActual('@mui/material')
+    const React = require('react')
+    return {
+        ...actual,
+        Popover: () => null,
+        Collapse: (props) => (props.in ? props.children : null),
+        TextField: (props) =>
+            props.select
+                ? React.createElement('select', { value: props.value, onChange: props.onChange, disabled: props.disabled }, props.children)
+                : React.createElement(actual.TextField, props)
+    }
+})
 
 import { createElement } from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
@@ -7,6 +32,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import GithubCard from './GithubCard'
+import flowVersionsApi from '@/api/flowVersions'
 
 const status = {
     enabled: true,
@@ -84,5 +110,103 @@ describe('GithubCard host field', () => {
         })
         expect(texts(renderer)).toContain('has to start with https')
         expect(buttonNamed(renderer, 'Continue').props.disabled).toBe(true)
+        await act(async () => renderer.unmount())
+    })
+})
+
+describe('GithubCard branch selection', () => {
+    test('loads repository branches, changes the selection and sends it with Connect', async () => {
+        flowVersionsApi.listGithubRepos.mockResolvedValue({
+            data: {
+                account: 'acme',
+                repos: [
+                    { repo: 'acme/flows', empty: true },
+                    { repo: 'acme/other', empty: false }
+                ]
+            }
+        })
+        flowVersionsApi.listGithubBranches.mockRejectedValueOnce(new Error('Branches unavailable')).mockResolvedValue({
+            data: {
+                defaultBranch: 'trunk',
+                branches: [
+                    { name: 'trunk', protected: true },
+                    { name: 'teams/versions', protected: false }
+                ]
+            }
+        })
+        flowVersionsApi.connectGithub.mockResolvedValue({ data: { ...status, connected: false } })
+        const warnings = jest.spyOn(console, 'error').mockImplementation(() => {})
+        let renderer
+        try {
+            await act(async () => {
+                renderer = TestRenderer.create(
+                    createElement(
+                        MemoryRouter,
+                        null,
+                        createElement(
+                            ThemeProvider,
+                            { theme: createTheme() },
+                            createElement(GithubCard, { initialStatus: status, initialStep: 'token' })
+                        )
+                    )
+                )
+            })
+            await act(async () => {
+                renderer.root.findAll((node) => node.props.type === 'password')[0].props.onChange({ target: { value: 'example-token' } })
+            })
+            await act(async () => {
+                buttonNamed(renderer, 'Continue').props.onClick()
+            })
+            expect(flowVersionsApi.listGithubBranches).toHaveBeenCalledWith({
+                token: 'example-token',
+                host: 'github.com',
+                repo: 'acme/flows'
+            })
+            expect(buttonNamed(renderer, 'Connect').props.disabled).toBe(true)
+            await act(async () => {
+                buttonNamed(renderer, 'Retry').props.onClick()
+            })
+            const select = () => renderer.root.findAll((node) => node.props.select && node.props.label === 'Branch')[0]
+            expect(select().props.value).toBe('trunk')
+            expect(texts(renderer)).toContain('(protected)')
+            await act(async () => {
+                select().props.onChange({ target: { value: 'teams/versions' } })
+            })
+            let finishOldRequest
+            flowVersionsApi.listGithubBranches.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishOldRequest = resolve
+                    })
+            )
+            const chooseRepo = (repo) => renderer.root.findAll((node) => node.props.item?.repo === repo)[0].props.onSelect()
+            await act(async () => {
+                chooseRepo('acme/other')
+            })
+            expect(buttonNamed(renderer, 'Connect').props.disabled).toBe(true)
+            await act(async () => {
+                chooseRepo('acme/flows')
+            })
+            await act(async () => {
+                finishOldRequest({ data: { defaultBranch: 'other-only', branches: [{ name: 'other-only' }] } })
+            })
+            expect(select().props.value).toBe('trunk')
+            expect(texts(renderer)).not.toContain('other-only')
+            await act(async () => {
+                select().props.onChange({ target: { value: 'teams/versions' } })
+            })
+            await act(async () => {
+                buttonNamed(renderer, 'Connect').props.onClick()
+            })
+            expect(flowVersionsApi.connectGithub).toHaveBeenCalledWith({
+                token: 'example-token',
+                host: 'github.com',
+                repo: 'acme/flows',
+                branch: 'teams/versions'
+            })
+        } finally {
+            if (renderer) await act(async () => renderer.unmount())
+            warnings.mockRestore()
+        }
     })
 })

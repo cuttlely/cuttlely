@@ -1,3 +1,14 @@
+## Fileless preview and first publication
+
+Run `node --test packages/harness/draft-session.test.mjs` and the server's `src/services/harnesses/delete.test.ts`, then the final committed-head full gate. Deployed QA must preview a newly imported unpublished Harness, verify its saved queries and publish that same draft. The preview session belongs under `harness-draft-sessions`, never the future Live profile directory. Existing unowned profiles remain a publication blocker; inspect them as the instance operator or choose an unused name rather than weakening the ownership check.
+
+## Import sample regressions
+
+Run `pnpm --filter @cuttlely/server test --runInBand --runTestsByPath src/services/import-verify/import-verify.test.ts src/services/harnesses/delete.test.ts src/services/harnesses/caller.test.ts` and `node --test --test-concurrency=1 scripts/harness-draft-usage.test.mjs scripts/harness-queue-trace.test.mjs scripts/harness-schedule-tick.test.mjs`, then the final committed-head full gate. Import a separate test copy and confirm automatic samples, Retry reuse, publication holds and draft chat before calling deployed behavior verified. Existing Live content must stay on its own published roster.
+
+The canvas question picker can automatically load the next page when the browser scrolls toward Load more. Its browser test accepts a detached button only if the additional expected question is already visible; it still fails if that row never loads.
+Workflow edge selection uses an actual point on the SVG path away from the hover toolbar, then waits for React to apply the selected state before checking Delete.
+
 Warm-up modes: `CUTTLELY_WARM_HERMES=false` disables background warm-up, `probe` or unset uses conditional probes, and `true` selects full roster warm-up. The interval defaults to five minutes; save and restart to apply. Both active modes keep bounded concurrency and prioritize user work.
 
 Warm-up uses process-local evidence. Successful real specialist calls count as warm; evidence expires for probe decisions after `CUTTLELY_HERMES_KEEP_WARM_MINUTES` (five minutes when unset). Cold or recompiled profiles still need their own warm-up. A failed health check clears that evidence; an unsuccessful probe ends the cycle. External worker processes do not share this in-memory evidence.
@@ -313,9 +324,9 @@ Only actual verified host CLI bindings grandfather as the default operator. Lega
 
 Emergency root-shell invocation when the data belongs to node: `setpriv --reuid=node --regid=node --init-groups -- pnpm user --email you@example.com --bind-operator`. For Docker, use `docker compose exec -u node cuttlely pnpm user --email you@example.com --bind-operator`. Retain UID/0600 checks. If nobody can sign in, recover an explicitly selected account; do not infer authority from a password or owner role. [Full onboarding and recovery](../../docs/how-to/instance-operator.md).
 
-Refused host-log code requests: a request fails with 429 `OPERATOR_PROOF_ACTIVE` when the caller already holds an unexpired code (the message says to use it in the session that requested it, or wait about N minutes), and with 429 `OPERATOR_RATE_LIMIT` for every other refusal (the shared 4-per-hour limit, the per-user 2-per-hour limit and the 16-user cap), with one neutral message that names no other user. The wrong-code attempt limit keeps its own message. Known limitation: the proof state does not record who made the last request, so a plain 5-minute wait with no live code (for example right after the caller redeemed their code) gets the neutral `OPERATOR_RATE_LIMIT` message, not a message about the wait. A last-requester field in the proof state would fix that and is a possible follow-up. Check with `node --test scripts/panel-claim.test.cjs` and `pnpm --filter @cuttlely/ui test -- OperatorPanel`.
-
 Boot verification fixtures allocate both their HTTP and harness gateway ports independently. If smoke gets PROFILES_COMPILING after ping opens, inspect the isolated boot failure before retrying: a gateway bind failure can outlast the health cap. The fixture regression uses its own occupied listener; do not stop another service to make a test pass.
+
+Refused host-log code requests: a request fails with 429 `OPERATOR_PROOF_ACTIVE` when the caller already holds an unexpired code (the message says to use it in the session that requested it, or wait about N minutes), and with 429 `OPERATOR_RATE_LIMIT` for every other refusal (the shared 4-per-hour limit, the per-user 2-per-hour limit and the 16-user cap), with one neutral message that names no other user. The wrong-code attempt limit keeps its own message. Known limitation: the proof state does not record who made the last request, so a plain 5-minute wait with no live code (for example right after the caller redeemed their code) gets the neutral `OPERATOR_RATE_LIMIT` message, not a message about the wait. A last-requester field in the proof state would fix that and is a possible follow-up. Check with `node --test scripts/panel-claim.test.cjs` and `pnpm --filter @cuttlely/ui test -- OperatorPanel`.
 
 ## Ordinary sign-in save safety
 
@@ -345,7 +356,7 @@ Keep normal commit hooks enabled. After the final handoff commit, run the Infra 
 
 ## Proxy-safe HTTP timeouts
 
-Landed on main as `4588a835` ([#458](https://github.com/cuttlely/cuttlely/pull/458)). Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
+This branch is `fix/proxy-safe-timeouts` from main at `932bd8df`. Focused coverage is `cd packages/server && npx jest src/utils/httpServerTimeouts.test.ts --runInBand`. The server sets keep-alive and headers timeouts before `listen`; it does not set an overall request timeout. Keep proxy upstream idle reuse below the server keep-alive value. Keep stream read/send limits at least 300 seconds and gateway idle limits at least 120 seconds. The stream heartbeat remains 30 seconds. Do not expand this change into stream heartbeat, harness/TTS streaming, or node load-method work.
 
 ## Canvas error page after no response
 
@@ -363,11 +374,15 @@ GET and HEAD retry by default. A non-GET call retries only with `retry: true` or
 
 ## Import target-handle types
 
-Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Edges whose saved handle the node no longer has are dropped and reported on import ([#457](https://github.com/cuttlely/cuttlely/issues/457)); run `pnpm --dir packages/ui exec jest src/utils/normalizeCanvasFlow.test.js src/utils/edgeRefs.test.js` for the focused coverage. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
-## Local 1.7.4 release preparation
+## Historical local 1.7.5 release preparation
 
-The preparation branch `release/1.7.4-prep` landed on main as `774eed4e` (#487), after #484 at `c2e63f61`, #486 at `f9cb1123` and #483 at `9b4d8c90`. The four product manifests and current docs pins are 1.7.4. The release was cut as `986f64c5` (#489) with the `v1.7.4` tag and a GitHub release, and `CHANGELOG.md` dates it `## [1.7.4] - 2026-11-13`; new lines go under `## [Unreleased]`. Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of an ordinary change. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps that 1.7.3 and 1.7.4 used are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.4`.
+That branch was `release/1.7.5-prep`, folded with a normal merge of `origin/main` at `b22d9983` (#482). The four product manifests and current docs pins are 1.7.5. Keep the exact `## [1.7.5] - Unreleased` heading for the release tool. The landed changelog items are #482 (`b22d9983`), #491 (`f4edfc8c`), #494 (`a22175c8`) and #495 (`04f95df5`). Run one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify` on Node 24.15.0. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this preparation. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off. The cut steps are in `docs/releases.md` under Cutting a release. The import guide pins `v1.7.5`.
+
+## Historical local 1.7.4 release preparation
+
+That preparation shipped under `## [1.7.4] - 2026-11-13` in `986f64c5` ([#489](https://github.com/cuttlely/cuttlely/pull/489)). The four product manifests and docs pins were 1.7.4. The release included #483 `9b4d8c90`, #484 `c2e63f61`, and #486 `f9cb1123`.
 
 ## Historical local 1.7.3 release preparation
 
@@ -382,3 +397,7 @@ That local preparation used focused release, documentation and runtime checks, t
 Same-server nested flow and Harness calls reuse the parent principal; see [Calls between flows and Harnesses](../../docs/how-to/access-keys.md#calls-between-flows-and-harnesses).
 
 For per-chat nested caller changes, run `pnpm harness:check` before and after, plus the gateway/queue nested tests and `node --test scripts/hermes-analyst-scope.test.mjs`. Run the server nested authorization and access-key route suites, the real SQLite execution fixtures above, and `node --test scripts/harness-per-run-auth.test.cjs` after building components. Set `CUTTLELY_REQUIRE_HERMES_RUNTIME=1` with an importable runtime Python to require the actual MCP handler check. A scoped tool call must resolve only its own Harness/chat binding; missing scope must never fall through to a card credential. An active chat collision refuses the new run while the original chat keeps its binding. Follow a task's assigned full-gate slot; focused checks do not replace the final committed-head gate.
+
+## Fresh-runner release preparation
+
+When the local environment cannot run verification, use `gh workflow run release-prepare.yml --ref BRANCH -F prepare=false -f version=X.Y.Z` for an exact-head full report. After the release docs are merged, `--ref main -F prepare=true` runs the normal `pnpm release X.Y.Z --local` command and exports a validated annotated-tag Git bundle, source/release metadata and full verification report. The workflow has read-only repository permissions and does not publish. Verify that its source still equals current origin/main before importing the bundle and using the release tool's normal resume path. Repository protection still applies; never force main or move a published tag. See [Releases](../../docs/releases.md#prepare-on-a-fresh-ci-runner).

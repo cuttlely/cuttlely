@@ -8567,12 +8567,6 @@
                     "type": "integer",
                     "nullable": false,
                     "default": null
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null
                 }
             ],
             "foreignKeys": [],
@@ -14072,14 +14066,6 @@
                     "default": null,
                     "extra": "",
                     "collation": null
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_general_ci"
                 }
             ],
             "foreignKeys": [],
@@ -19845,14 +19831,6 @@
                     "default": null,
                     "extra": "",
                     "collation": null
-                },
-                {
-                    "name": "configurationFingerprint",
-                    "type": "varchar(64)",
-                    "nullable": true,
-                    "default": null,
-                    "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],

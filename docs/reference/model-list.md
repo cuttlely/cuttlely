@@ -90,3 +90,7 @@ Step 2 of [Cutting a release](../releases.md#cutting-a-release) is reading `mode
 -   OpenRouter, Fireworks, Together AI and NVIDIA NIM serve hundreds of models. Their lists are a short set of popular current models; anything else can be typed on the card.
 -   Check each card's default model is still in its list. `pnpm verify` fails when a default is missing or a model dropdown does not take typed names.
 -   The OpenAI, Azure OpenAI and Cohere LLM (text completion) entries are empty on purpose: those providers no longer offer a completion model. `scripts/model-list.test.mjs` lists them; take one out of that list when its provider offers a completion model again.
+
+## 1.7.6 price review
+
+The Together AI `moonshotai/Kimi-K3` entries use the standard published rates of $3 input and $15 output per million tokens in both chat and completion lists. These are token-cost estimates; billing tiers, caching, discounts and organization overrides can change the actual cost. [Together AI pricing](https://www.together.ai/pricing).

@@ -163,13 +163,25 @@ function collectHandles(node, kind) {
     return handles
 }
 
+// A handle that names the same input or output as a live one and differs only in its trailing type segment.
+function sameNameHandle(current, handles, kind) {
+    const marker = kind === 'source' ? '-output-' : '-input-'
+    const text = String(current)
+    const at = text.indexOf(marker)
+    if (at < 0) return ''
+    const rest = text.slice(at + marker.length)
+    const named = handles.filter((handle) => handle.name && rest.startsWith(`${handle.name}-`))
+    return named.length === 1 ? named[0].id : ''
+}
+
 function chooseHandle(current, handles, edge, kind) {
     if (!handles.length) return current
     if (current && handles.some((handle) => handle.id === current)) return current
     const prefixed = current ? handles.filter((handle) => handle.id.startsWith(`${current}-`)) : []
     if (prefixed.length === 1) return prefixed[0].id
-    const legacy = !current || prefixed.length > 0 || !handles.some((handle) => handle.id === current)
-    if (!legacy) return current
+    // Only a missing handle, or one saved without its type suffix, is a legacy form worth guessing for.
+    // A named handle the node no longer has stays as written so the import heal step drops it and says so.
+    if (current && !prefixed.length) return sameNameHandle(current, handles, kind) || current
     const inputName =
         String(edge?.targetHandle || '')
             .split('-input-')[1]

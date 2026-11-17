@@ -173,6 +173,12 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
     const [repos, setRepos] = useState([])
     const [query, setQuery] = useState('')
     const [picked, setPicked] = useState('')
+    const [branches, setBranches] = useState([])
+    const [branch, setBranch] = useState('')
+    const [branchRepo, setBranchRepo] = useState('')
+    const [branchLoading, setBranchLoading] = useState(false)
+    const [branchError, setBranchError] = useState('')
+    const [branchRetry, setBranchRetry] = useState(0)
     const [newName, setNewName] = useState(DEFAULT_REPO_NAME)
     const [play, setPlay] = useState(false)
     const lastState = useRef(null)
@@ -242,6 +248,49 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
     const tokenBody = tokenChoice === NEW_TOKEN ? { token, host } : { credentialId: tokenChoice, host }
     const shown = useMemo(() => filterRepos(repos, query), [repos, query])
 
+    const namedChain =
+        status?.environments?.length > 0 &&
+        !(
+            status.environments.length === 2 &&
+            status.environments[0].server === 'dev' &&
+            status.environments[0].branch === 'main' &&
+            status.environments[1].server === 'prod' &&
+            status.environments[1].branch === 'main'
+        )
+    const environmentIndex = status?.environments?.findIndex((item) => item.server === status.environment) ?? -1
+    const configuredBranch = namedChain ? status.environments[reading ? environmentIndex - 1 : environmentIndex]?.branch : null
+    useEffect(() => {
+        if (step !== 'repo' || !picked || picked === NEW_REPO) return undefined
+        let cancelled = false
+        setBranchLoading(true)
+        setBranchError('')
+        setBranch('')
+        setBranches([])
+        setBranchRepo('')
+        flowVersionsApi
+            .listGithubBranches({
+                ...(tokenChoice === NEW_TOKEN ? { token, host } : { credentialId: tokenChoice, host }),
+                repo: picked
+            })
+            .then((res) => {
+                if (cancelled) return
+                const rows = res.data.branches || []
+                const selected = configuredBranch || res.data.defaultBranch
+                setBranches(rows.length ? rows : [{ name: selected, protected: false }])
+                setBranch(configuredBranch || (rows.some((row) => row.name === selected) ? selected : rows[0]?.name) || selected)
+                setBranchRepo(picked)
+            })
+            .catch((err) => {
+                if (!cancelled) setBranchError(messageOf(err))
+            })
+            .finally(() => {
+                if (!cancelled) setBranchLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [step, picked, tokenChoice, token, host, configuredBranch, branchRetry])
+
     const startConnect = async () => {
         setError('')
         setStep('token')
@@ -292,6 +341,7 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
         setError('')
         try {
             let repo = picked
+            let selectedBranch = branch
             if (joinsExisting && picked === NEW_REPO) {
                 setError(`Pick the repository your ${readsFrom} server copies to.`)
                 return
@@ -308,8 +358,10 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                 const created = { repo, private: true, empty: true, pushedAt: null }
                 setRepos((list) => [created, ...list.filter((r) => r.repo !== repo)])
                 setPicked(repo)
+                const listed = await flowVersionsApi.listGithubBranches({ ...tokenBody, repo })
+                selectedBranch = listed.data.defaultBranch
             }
-            const res = await flowVersionsApi.connectGithub({ ...tokenBody, repo })
+            const res = await flowVersionsApi.connectGithub({ ...tokenBody, repo, branch: selectedBranch })
             setStatus(res.data)
             setStep('idle')
             setToken('')
@@ -436,6 +488,7 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                                 status.repo
                                             )}
                                         </Typography>
+                                        {status.branch && <Typography variant='caption'>Branch: {status.branch}</Typography>}
                                         <Typography variant='body2' color='text.secondary'>
                                             {(reading ? readLine(status, (iso) => timeAgo(iso)) : syncLine(status)) || status.message}
                                         </Typography>
@@ -611,7 +664,7 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                 <Typography variant='body2' color='text.secondary'>
                                     {joinsExisting
                                         ? `Signed in as ${account}. Pick the repository your ${readsFrom} server copies to.`
-                                        : `Signed in as ${account}. Pick an empty repository, or make a new private one.`}
+                                        : `Signed in as ${account}. Pick a repository, or make a new private one. Files already there stay. Cuttlely never overwrites GitHub.`}
                                 </Typography>
                                 {repos.length > 6 && (
                                     <TextField
@@ -682,12 +735,61 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                         InputProps={{ startAdornment: <InputAdornment position='start'>{account}/</InputAdornment> }}
                                     />
                                 </Collapse>
+                                {picked && picked !== NEW_REPO && (
+                                    <Stack spacing={1}>
+                                        <TextField
+                                            select
+                                            size='small'
+                                            label='Branch'
+                                            value={branchRepo === picked ? branch : ''}
+                                            disabled={branchLoading || Boolean(configuredBranch) || Boolean(busy)}
+                                            onChange={(event) => setBranch(event.target.value)}
+                                            helperText={
+                                                branchLoading
+                                                    ? 'Loading branches…'
+                                                    : configuredBranch
+                                                    ? 'This branch is set by the environment list.'
+                                                    : reading
+                                                    ? 'Choose the branch the previous environment copies to.'
+                                                    : 'Choose a branch this token can write to. Repository protection rules still apply.'
+                                            }
+                                            inputProps={{ 'data-testid': 'github-branch' }}
+                                        >
+                                            {branches.map((item) => (
+                                                <MenuItem key={item.name} value={item.name}>
+                                                    {item.name}
+                                                    {item.protected ? ' (protected)' : ''}
+                                                </MenuItem>
+                                            ))}
+                                            {configuredBranch && !branches.some((item) => item.name === configuredBranch) && (
+                                                <MenuItem value={configuredBranch}>{configuredBranch}</MenuItem>
+                                            )}
+                                        </TextField>
+                                        {branchError && (
+                                            <Alert
+                                                severity='error'
+                                                action={
+                                                    <Button color='inherit' onClick={() => setBranchRetry((value) => value + 1)}>
+                                                        Retry
+                                                    </Button>
+                                                }
+                                            >
+                                                {branchError}
+                                            </Alert>
+                                        )}
+                                    </Stack>
+                                )}
                                 {error && <Alert severity='error'>{error}</Alert>}
                                 <Stack direction='row' spacing={1}>
                                     <Button
                                         variant='contained'
                                         onClick={connect}
-                                        disabled={Boolean(busy) || !picked}
+                                        disabled={
+                                            Boolean(busy) ||
+                                            !picked ||
+                                            (picked !== NEW_REPO &&
+                                                (branchLoading || branchRepo !== picked || !branch || Boolean(branchError)))
+                                        }
                                         startIcon={
                                             busy === 'connect' ? (
                                                 <CircularProgress size={16} color='inherit' />

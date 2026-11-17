@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { applyCredential, connectionSlots, resolveSlot, type ConnectionResolution, type CredentialRow } from './connections'
-import { missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
+import { expressionLookups, literalSamples, missingRequired, planDiscovery, valuesFromDiscovery, type ParamSpec } from './discover'
 import { inspectFlow, nodeById, nodeIdProblems, relationsOf, type Blocker, type SmokeNeed } from './inspect'
 import {
     clearImportHold,
@@ -122,6 +122,13 @@ export interface VerifyDeps {
     concurrency?: number
     timeoutMs?: number
     signal?: AbortSignal
+}
+
+function queryForTest(pin: SavedQuery): SavedQuery {
+    const entry = { ...pin }
+    delete entry.importedVerification
+    delete entry.verifiedHere
+    return entry
 }
 
 function paramsOf(pin: SavedQuery): ParamSpec[] {
@@ -642,14 +649,26 @@ async function verifyBody(options: {
 
     const concurrency = Math.max(1, Math.min(deps.concurrency ?? 4, 8))
     const timeoutMs = deps.timeoutMs ?? 20000
-    const pending = record.queries.filter((item) => item.state === 'pending')
+    const pending = record.queries
+        .filter((item) => item.state === 'pending')
+        .map((item) => ({ nodeId: item.nodeId, pinId: item.pinId, indexOnNode: item.indexOnNode }))
 
     for (let offset = 0; offset < pending.length; offset += concurrency) {
         if (deps.signal?.aborted) {
             record.status = 'cancelled'
             break
         }
-        const slice = pending.slice(offset, offset + concurrency)
+        const slice = pending
+            .slice(offset, offset + concurrency)
+            .map(
+                (pendingQuery) =>
+                    record.queries.find(
+                        (item) =>
+                            item.nodeId === pendingQuery.nodeId &&
+                            item.pinId === pendingQuery.pinId &&
+                            item.indexOnNode === pendingQuery.indexOnNode
+                    )!
+            )
         await Promise.all(
             slice.map(async (query) => {
                 if (deps.signal?.aborted) return
@@ -668,12 +687,19 @@ async function verifyBody(options: {
                 }
                 const params = paramsOf(pin)
                 const relations = relationsOf(node)
-                let sample: Record<string, unknown> = {}
+                let sample: Record<string, unknown> = literalSamples(String(pin.sql || ''), params)
                 const planned = planDiscovery(String(pin.sql || ''), relations)
                 if ('text' in planned) {
                     try {
                         const found = await withTimeout(deps.discover({ node, sql: planned.text }), timeoutMs, deps.signal)
-                        sample = valuesFromDiscovery(params, found.rows || [], planned.bindings)
+                        sample = {
+                            ...sample,
+                            ...valuesFromDiscovery(
+                                params.filter((p) => p.required !== false),
+                                found.rows || [],
+                                planned.bindings
+                            )
+                        }
                     } catch (error) {
                         const err = error as { cancelled?: boolean; message?: string }
                         if (err.cancelled || deps.signal?.aborted) {
@@ -684,6 +710,31 @@ async function verifyBody(options: {
                     }
                 }
                 sample = { ...valuesFromDiscovery(params, [], []), ...sample }
+                for (const lookup of expressionLookups(
+                    String(pin.sql || ''),
+                    relations,
+                    params.filter((p) => p.required !== false && sample[p.name] === undefined)
+                )) {
+                    const name = lookup.bindings[0].param
+                    if (sample[name] !== undefined) continue
+                    try {
+                        const found = await withTimeout(deps.discover({ node, sql: lookup.text }), timeoutMs, deps.signal)
+                        Object.assign(
+                            sample,
+                            valuesFromDiscovery(
+                                params.filter((p) => p.name === name),
+                                found.rows || [],
+                                lookup.bindings
+                            )
+                        )
+                    } catch (error) {
+                        if (deps.signal?.aborted || (error as { cancelled?: boolean }).cancelled) {
+                            query.state = 'pending'
+                            query.message = 'Verification was stopped.'
+                            return
+                        }
+                    }
+                }
                 const missing = missingRequired(params, sample)
                 if (missing.length) {
                     query.state = 'failed'
@@ -705,7 +756,7 @@ async function verifyBody(options: {
                     attempts += 1
                     try {
                         result = await withTimeout(
-                            deps.testPin({ nodeId: query.nodeId, entry: pin, sampleValues: sample, credentialId }),
+                            deps.testPin({ nodeId: query.nodeId, entry: queryForTest(pin), sampleValues: sample, credentialId }),
                             timeoutMs,
                             deps.signal
                         )
@@ -754,8 +805,18 @@ async function verifyBody(options: {
     }
 
     const hashes: Record<string, string> = {}
+    const queryTests: Record<string, { tested: boolean; message: string }> = {}
     for (const query of record.queries) {
-        if (query.statementHash) hashes[`${query.nodeId}\0${query.pinId}`] = query.statementHash
+        const key = `${query.nodeId}\0${query.pinId}`
+        const tested = (query.state === 'passed' || query.state === 'empty') && Boolean(query.statementHash)
+        queryTests[key] = {
+            tested,
+            message:
+                query.state === 'passed' || query.state === 'empty'
+                    ? 'The saved query ran, but this test did not return a statement hash.'
+                    : query.message
+        }
+        if (tested && query.statementHash) hashes[key] = query.statementHash
     }
     let pdfAvailable: boolean | undefined
     const mayNeedPdf = JSON.stringify(flow).includes('pdf')
@@ -772,7 +833,8 @@ async function verifyBody(options: {
         pinnedQueriesEnabled: deps.pinnedQueriesEnabled,
         pdfAvailable,
         resolutions,
-        statementHashes: hashes
+        statementHashes: hashes,
+        queryTests
     })
     const queryBlockers: Blocker[] = record.queries
         .filter((item) => item.state === 'failed')

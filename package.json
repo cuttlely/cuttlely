@@ -1,6 +1,6 @@
 {
     "name": "cuttlely-workspace",
-    "version": "1.7.4",
+    "version": "1.7.8",
     "private": true,
     "license": "Apache-2.0",
     "description": "Context-aware agent orchestration. Open source, Apache-2.0.",
@@ -163,7 +163,7 @@
             "serialize-javascript": "^7.0.3",
             "@opentelemetry/propagator-jaeger": "^2.9.0",
             "jsondiffpatch": "^0.7.6",
-            "fast-xml-parser": "^5.7.3",
+            "fast-xml-parser": "^5.12.0",
             "express@4": "^4.22.3",
             "cookie@<0.7.0": "^0.7.2",
             "cookie-parser": "^1.4.7",
