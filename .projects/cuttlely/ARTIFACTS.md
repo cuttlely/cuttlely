@@ -7,10 +7,11 @@
 ## 1.7.9 release preparation
 
 -   `CHANGELOG.md`, `docs/releases.md`, `docs/upgrading.md`: patch scope, upgrade notes and the protected release procedure.
--   Root/translated READMEs, FAQ and docs indexes: standalone Harness tracing and the import/operator fixes.
+-   Root/translated READMEs, FAQ and docs indexes: standalone Harness tracing, ETL recovery, first-owner configuration and import/operator fixes.
+-   `docs/reference/release-1-7-9-audit.md`: every merge from v1.7.8 through `d1c72763`, source verification receipts and documentation/asset coverage.
 -   `packages/cli/README.md`, `packages/chat-widget/README.md`, Docker/Compose and embed examples: matching 1.7.9 pins.
 -   `website/src/components/Hero.astro`: one-sentence tracing headline and the existing linked backup reminder.
--   [Standalone tracing full verification](https://github.com/cuttlely/cuttlely/actions/runs/44048907366): all 28 full steps on `5224da37`, with the same tree merged as `964bbded` (#517). [Release preparation](https://github.com/cuttlely/cuttlely/actions/runs/44111606709) passed all 28 full steps on `f4b6c990` and checked candidate `b1107a6b`; version PR #519 is held unmerged and publication remains pending. Later code changes require a new preparation.
+-   [Standalone tracing full verification](https://github.com/cuttlely/cuttlely/actions/runs/44048907366): all 28 full steps on `5224da37`, with the same tree merged as `964bbded` (#517). [Release preparation](https://github.com/cuttlely/cuttlely/actions/runs/44111606709) passed all 28 full steps on `f4b6c990` and checked candidate `b1107a6b`; version PR #519 is closed as superseded. A fresh candidate must include #520 and #521 before authorized publication.
 
 ## First owner from host configuration
 

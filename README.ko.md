@@ -27,7 +27,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.7.9에서는 Harness 노드만 있는 채팅 흐름을 LangSmith로 추적할 수 있습니다.** 채팅 흐름의 Analytics에서 LangSmith를 켜세요. Tool Agent로 감쌀 필요가 없습니다. [LangSmith 추적](./docs/reference/langsmith-tracing.md).
+**1.7.9에서는 Harness 노드만 있는 채팅 흐름을 LangSmith로 추적할 수 있습니다.** 채팅 흐름의 Analytics에서 LangSmith를 켜세요. Tool Agent로 감쌀 필요가 없습니다. [LangSmith 추적](./docs/reference/langsmith-tracing.md). ETL은 스캔 중에도 요청에 응답하며 중단된 저장소 파일을 재개합니다. 로컬 비밀번호 인증을 사용하는 새 설치에서는 호스트 설정으로 첫 소유자를 만들 수 있습니다. [ETL](./docs/how-to/etl.md) · [첫 소유자](./docs/how-to/sign-in.md#from-host-configuration).
 
 **1.7.7은 에이전트 팀 채팅 간에 취소가 영향을 주는 문제를 수정합니다.** 한 채팅을 중지해도 같은 전문 에이전트를 사용하는 다른 채팅은 계속 실행됩니다. [Harnesses](./docs/how-to/harnesses.md).
 

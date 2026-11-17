@@ -2,7 +2,7 @@
 
 ## Current release work
 
-Prepare and publish 1.7.9 through the protected version PR, exact-tag image workflow and both tag-based npm publications. Verify the hosted version and isolated query behavior, then record final receipts in STATUS. No release artifact is claimed published during documentation preparation.
+Prepare a fresh 1.7.9 candidate including #520 and #521, then publish through a new protected version PR, the exact-tag image workflow and both tag-based npm publications. The earlier candidate and closed PR #519 are superseded. Verify the hosted version and isolated query behavior, then record final receipts in STATUS. No release artifact is claimed published during documentation preparation.
 
 ## Milestones
 
