@@ -507,3 +507,7 @@ A different repository or branch has a different scope. GitHub and GitHub Enterp
 ## D122. GitHub connections select a repository branch
 
 Version History connection settings explicitly name the branch so an operator can use a repository whose default branch rejects direct writes. The picker lists existing branches and protection labels; a standard Dev/Prod connection persists one selected branch in its private connection file and uses it for copying or reading. Older connections continue using main. Named environment chains retain their explicit per-environment mappings and accept valid slash branch names. Changing a connected branch requires Disconnect and Connect. This narrows D25's wording rule for GitHub connection settings; canvas actions still use Draft, Publish and Roll back. Branch selection does not bypass repository protection, fast-forward, ownership or secret checks.
+
+## D123. Harness credential reads follow the app DataSource
+
+On a server whose `DATABASE_TYPE` is `sqlite` or `postgres`, harness credential row reads and the compiled-profile cache stamp use the server's app DataSource, including on the queue worker. The sqlite file under `SECRETKEY_PATH`, `CUTTLELY_FLOWISE_DB`, or a path override remains the fallback when no source is registered (CLI, offline checks, MySQL or MariaDB). Callers compute the stamp asynchronously and pass it into the synchronous compile. Why: the file path can miss credential rotations on Postgres and can read the wrong store when `DATABASE_PATH` and `SECRETKEY_PATH` differ.
