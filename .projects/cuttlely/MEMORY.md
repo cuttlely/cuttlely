@@ -281,3 +281,7 @@ Release-tool dating changes a changelog heading's fragment. User-facing release 
 ## Verify runtime admission after a rollout
 
 The supervisor marks its child up when launching it, before that process first answers health. An up ping header therefore does not prove that a specialist can accept work. Pair version/database/runtime checks with an isolated real saved-query run before calling a release deployment verified. During 1.7.7 QA, initial admission returned `ECONNREFUSED`; a later independent query and repeated concurrent cancellation check succeeded. Preserve that distinction rather than claiming a proven startup root cause or hiding the initial failure.
+
+## Retire active sync work in restart fixtures
+
+`GithubSync.stop()` clears the current poll timer but does not wait for an active worker. An in-process restart or teardown must stop, await `idle()`, and stop again before replacing the instance, resetting its environment or deleting its repository. The finishing worker can schedule another poll. Waiting at that lifecycle boundary preserves the actual restart assertions and avoids concurrent fixture work against retired state.

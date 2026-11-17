@@ -15,6 +15,7 @@
 -   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
 -   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
 -   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
+-   `packages/versioning/src/github.test.ts`: restart and teardown wait for active sync work before swapping instances or removing fixture repositories; all 434 versioning tests pass.
 
 ## 1.7.7 release
 
