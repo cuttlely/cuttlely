@@ -720,3 +720,65 @@ describe('handles that list a single class', () => {
         expect(healed.attention.some((message) => message.includes('input it pointed at is no longer'))).toBe(true)
     })
 })
+
+describe('importing an edge whose saved handle the node no longer has', () => {
+    const importNodes = () => [
+        { id: 'chatOpenAI_0', data: { id: 'chatOpenAI_0', name: 'chatOpenAI', label: 'ChatOpenAI', inputs: {} } },
+        { id: 'bufferMemory_0', data: { id: 'bufferMemory_0', name: 'bufferMemory', label: 'Buffer Memory', inputs: {} } },
+        {
+            id: 'conversationChain_0',
+            data: { id: 'conversationChain_0', name: 'conversationChain', label: 'Conversation Chain', inputs: {} }
+        }
+    ]
+    const memoryOutput = 'bufferMemory_0-output-bufferMemory-BufferMemory|BaseChatMemory|BaseMemory'
+    const edgeFor = (id, sourceHandle, targetHandle, source = 'chatOpenAI_0') => ({
+        id,
+        source,
+        target: 'conversationChain_0',
+        sourceHandle,
+        targetHandle
+    })
+    const importEdges = (edges) => wizardHeal(specs)({ nodes: importNodes(), edges, route: '/canvas' })
+
+    it.each(['e-model', 'e-5'])('drops an edge from a removed source output and says so (edge id %s)', (id) => {
+        const healed = importEdges([
+            edgeFor(id, 'chatOpenAI_0-output-legacyLLM-ChatOpenAI', 'conversationChain_0-input-model-BaseChatModel')
+        ])
+        expect(healed.edges).toEqual([])
+        expect(healed.attention).toEqual([
+            'Removed the edge from ChatOpenAI to Conversation Chain: the output it came from is no longer on ChatOpenAI. Connect it again.'
+        ])
+    })
+
+    it.each([
+        ['an id that ends in a real input name', 'e-memory'],
+        ['a neutral id', 'e-7']
+    ])('drops an edge into an unknown input and says so, with %s', (_label, id) => {
+        const healed = importEdges([edgeFor(id, memoryOutput, 'conversationChain_0-input-history-BaseMemory', 'bufferMemory_0')])
+        expect(healed.edges).toEqual([])
+        expect(healed.attention).toEqual([
+            'Removed the edge from Buffer Memory to Conversation Chain: the input it pointed at is no longer on Conversation Chain. Connect it again.'
+        ])
+    })
+
+    it('keeps the edges that still match when another one is dropped', () => {
+        const healed = importEdges([
+            edgeFor(
+                'e-model',
+                'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseLanguageModel',
+                'conversationChain_0-input-model-BaseLanguageModel'
+            ),
+            edgeFor('e-memory', memoryOutput, 'conversationChain_0-input-history-BaseMemory', 'bufferMemory_0')
+        ])
+        expect(healed.edges.map((edge) => edge.id)).toEqual(['e-model'])
+        expect(healed.edges[0].targetHandle).toBe('conversationChain_0-input-model-BaseChatModel')
+        expect(healed.attention).toHaveLength(1)
+    })
+
+    it('still connects an edge that has no source handle to the only output', () => {
+        const healed = importEdges([edgeFor('e-model', undefined, 'conversationChain_0-input-model-BaseChatModel')])
+        expect(healed.edges.map((edge) => edge.id)).toEqual(['e-model'])
+        expect(healed.edges[0].sourceHandle).toMatch(/^chatOpenAI_0-output-chatOpenAI-ChatOpenAI/)
+        expect(healed.attention).toEqual([])
+    })
+})

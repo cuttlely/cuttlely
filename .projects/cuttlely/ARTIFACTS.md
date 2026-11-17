@@ -1,11 +1,3 @@
-## Standalone Harness LangSmith tracing
-
--   `packages/components/nodes/harness/Harness/Harness.ts`: authorized standalone parent lifecycle and child callbacks; existing tool tracing retains its caller's parent.
--   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
--   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
--   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
--   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
-
 ## 1.7.8 release
 
 -   [Published release v1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8), canonical `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); candidate `738c4dea` has the same tree.
@@ -15,6 +7,14 @@
 -   Root/translated READMEs, FAQ, docs indexes and package READMEs: branch-selection guidance and current install pins.
 -   `docs/images/versioning/github-branch.png`: current Branch menu from the real GitHub card, rendered with isolated fixture responses; no external account or live model call. The guide records its example repository, protected branch and slash branch choices.
 -   `website/src/components/Hero.astro`: one-sentence 1.7.8 release notice with the existing linked backup reminder.
+
+## Standalone Harness LangSmith tracing
+
+-   `packages/components/nodes/harness/Harness/Harness.ts`: authorized standalone parent lifecycle and child callbacks; existing tool tracing retains its caller's parent.
+-   `packages/components/src/handler.ts`: optional provider selection reuses credential/environment precedence without unrelated providers, usage counters or OTEL callbacks.
+-   `architecture/boundary-baseline.json`: three reviewed file-to-file tracing-helper dependencies with the shared credential-selection justification.
+-   `packages/components/nodes/harness/Harness/Harness.langsmith.test.ts`, existing Harness tests and `packages/components/src/langsmithCredentialDiagnostics.test.ts`: isolated SDK lifecycle, error/delivery, concurrency and credential regressions; selected by `scripts/verify.mjs` and Node CI.
+-   `docs/reference/langsmith-tracing.md`, `docs/how-to/harnesses.md` and the unreleased changelog: setup and in-process worker limits.
 
 ## 1.7.7 release
 
@@ -107,7 +107,8 @@
 
 -   `packages/ui/src/utils/edgeRefs.js`: `handlesEqual` matches the same input when only the trailing type segment changed, and `retargetEdgesToCurrentHandles` writes the live handle id during import healing.
 -   `packages/ui/src/utils/edgeRefs.test.js` imports `examples/imports/bakery-helper.json` as-is and keeps the ChatOpenAI to Conversation Chain edge; a genuinely different input still drops it.
--   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes under `## [1.7.3] - 2026-11-12` in `CHANGELOG.md`.
+-   `packages/ui/src/utils/normalizeCanvasFlow.js`: `chooseHandle` repairs a missing handle or one saved without its type segment, and leaves any other handle the node no longer has as written. `packages/ui/src/utils/normalizeCanvasFlow.test.js` and `packages/ui/src/utils/edgeRefs.test.js` cover a removed source output and an unknown input whose edge id ends in a real input name ([#457](https://github.com/cuttlely/cuttlely/issues/457)).
+-   User guidance: the Connections bullet in `docs/bring-your-flows.md`. Notes in `CHANGELOG.md`: the dated `## [1.7.3] - 2026-11-12` section for #454 and `## [Unreleased]` for #457.
 
 ## Same-server flow and Harness nested calls
 

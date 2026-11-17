@@ -1,9 +1,3 @@
-## Standalone Harness LangSmith tracing
-
-A chatflow ending in a standalone Harness creates its LangSmith parent from the flow's Analytics settings or the existing host tracing configuration. The parent opens after workspace/caller authorization, passes only its LangSmith tracer to in-process model calls, and closes after answer/artifact delivery or with the execution error. Tracing failures preserve the execution result. Harness-as-tool and agentflow parent ownership are retained; replays export nothing. Callback objects and credentials are not serialized into queue jobs, so a worker in another process does not inherit these child callbacks.
-
-The focused Harness and credential suites pass (132 tests), including real callback-manager/tracer parent links with an isolated client, concurrent-chat/project isolation, replay/auth refusal, keyless credential behavior, cancellation, delivery failure and upload failure. The application build and website build/link check pass (78 pages, 11,150 internal links). The local Harness check reaches the same dead-gateway bridge timeout before and after this change; no fixture assertion or timeout is relaxed. Full clean-runner verification remains a merge requirement. The focused tracing suites now run in the local full/fast gate and Node CI. No published patch or deployed LangSmith-account validation is claimed for this follow-up.
-
 ## 1.7.8 release
 
 [1.7.8 is published](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8) at `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)). GitHub branch selection landed in #512 and the shorter homepage release notice in #511; release documentation, translated introductions, install pins, package READMEs and the new Branch-menu screenshot landed in #513. All four product manifests are 1.7.8 and the changelog is dated 2026-11-17.
@@ -17,6 +11,12 @@ The version deployment succeeded and reported 1.7.8, database and agent runtime 
 The upgrade adds no schema migration. Existing connections retain their current branch; reconnect to select another. Named environment chains retain their mappings. Backup/operator recovery requirements and default-Off access-key enforcement remain in effect.
 
 Release asset review: the versioning guide has a fresh Branch-menu screenshot rendered from the actual GitHub card with isolated example repository/branch responses. It proves the selector layout and labels, not an external account connection. Existing recordings, posters, captions, other screenshots, logos, architecture/benchmark figures and their measured-version labels were reviewed and remain unchanged. Samples, API/SDK examples and provider model/pricing references need no change for this release. The npm packages carry the updated READMEs from the annotated tag.
+
+## Standalone Harness LangSmith tracing
+
+A chatflow ending in a standalone Harness creates its LangSmith parent from the flow's Analytics settings or the existing host tracing configuration. The parent opens after workspace/caller authorization, passes only its LangSmith tracer to in-process model calls, and closes after answer/artifact delivery or with the execution error. Tracing failures preserve the execution result. Harness-as-tool and agentflow parent ownership are retained; replays export nothing. Callback objects and credentials are not serialized into queue jobs, so a worker in another process does not inherit these child callbacks.
+
+The focused Harness and credential suites pass (132 tests), including real callback-manager/tracer parent links with an isolated client, concurrent-chat/project isolation, replay/auth refusal, keyless credential behavior, cancellation, delivery failure and upload failure. The application build and website build/link check pass (78 pages, 11,150 internal links). The local Harness check reaches the same dead-gateway bridge timeout before and after this change; no fixture assertion or timeout is relaxed. Full clean-runner verification remains a merge requirement. The focused tracing suites now run in the local full/fast gate and Node CI. No published patch or deployed LangSmith-account validation is claimed for this follow-up.
 
 ## Repository branch selection
 
@@ -221,6 +221,8 @@ Now the interceptor rejects a no-response error as it is. `ErrorBoundary` shows 
 Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). `CHANGELOG.md` records this fix under `## [1.7.3] - 2026-11-12`; the dated 1.7.2 notes stay as shipped.
 
 Importing a saved chatflow keeps an edge that still points at the same input when only the handle type name changed. The shipped Bakery helper example (`examples/imports/bakery-helper.json`) stores the Conversation Chain model handle with `BaseLanguageModel` while the refreshed node uses `BaseChatModel`. Comparison now treats those as the same input, then writes the live handle id, so the ChatOpenAI to Conversation Chain connection stays. A genuinely different input still drops the edge. The Connections bullet in `docs/bring-your-flows.md` describes this. Focused `packages/ui/src/utils/edgeRefs.test.js` coverage imports that shipped file as-is and includes a different-input case.
+
+Edges whose saved handle the node no longer has ([#457](https://github.com/cuttlely/cuttlely/issues/457)): `chooseHandle` in `packages/ui/src/utils/normalizeCanvasFlow.js` no longer treats every unknown handle as a legacy form. An edge with no handle, or a handle saved without its type segment, is still matched to the live handle. A handle that names the same input or output with only the trailing type changed is still pointed at the live one. Any other unknown source output or target input stays as written, so `healImportedFlow` drops the edge and the import reports it, as the Connections bullet in `docs/bring-your-flows.md` says. The edge id and the node's first output are no longer used to guess a replacement. Focused tests are in `packages/ui/src/utils/normalizeCanvasFlow.test.js` and `packages/ui/src/utils/edgeRefs.test.js`. The `CHANGELOG.md` entry is under `## [Unreleased]`.
 
 The 1.7.0 backup, operator onboarding/recovery and default-Off enforcement requirements still apply.
 
