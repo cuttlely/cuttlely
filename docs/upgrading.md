@@ -4,6 +4,17 @@ An upgrade has three steps: back up, upgrade, and check. If something goes wrong
 
 Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you have to change yourself is listed under **Upgrade notes / breaking changes**. [Releases and support](./releases.md) explains which versions get fixes.
 
+## Upgrading to 1.7.9
+
+Back up the application database, encryption key and settings first. Use matching 1.7.9 server and widget packages. This patch adds no schema migration and preserves sign-in configuration, roles, memberships and default-Off access-key enforcement.
+
+-   **LangSmith.** A chatflow containing only a Harness node uses its existing Analytics credential and project. Save LangSmith as enabled in **Configuration → Advanced → Analytics**. A Tool Agent wrapper is no longer required. Callbacks remain in process; separate workers do not receive serialized credentials or callbacks. [LangSmith tracing](./reference/langsmith-tracing.md#harness-chatflows).
+-   **Imports.** An edge whose source output or target input no longer exists is dropped and reported, instead of being moved to another port. Review the import report and reconnect the intended ports. [Bring your flows](./bring-your-flows.md).
+-   **Operator requests.** Refused code requests and confirmations appear as errors. Your own active-code message explains how to use it; shared limits keep neutral wording. Existing proof, expiry and rate-limit checks remain enforced. [Instance operator](./how-to/instance-operator.md).
+-   **Dependency security.** The XML parser override includes the fix for quadratic CPU use on unterminated stop-node tags. No operator setting is needed.
+
+The 1.7.0 operator onboarding and recovery requirements below still apply when upgrading from earlier versions.
+
 ## Upgrading to 1.7.8
 
 Back up the application database, encryption key and settings first. Use matching 1.7.8 server and widget packages. This patch adds no schema migration and preserves stored roles, memberships and the selected sign-in method. Access-key enforcement remains **Off** by default.

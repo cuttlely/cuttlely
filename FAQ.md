@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.7.8)
+# Cuttlely FAQ (1.7.9)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,7 +38,11 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
-### What's new in 1.7.8?
+### What's new in 1.7.9?
+
+A standalone Harness chatflow now uses its LangSmith Analytics settings without a Tool Agent wrapper. Imports drop edges whose inputs or outputs are gone, operator request failures show clear error messages, and the XML parser dependency includes a security fix. Use matching 1.7.9 server and widget packages. No schema migration is added. [LangSmith tracing](./docs/reference/langsmith-tracing.md) · [Upgrade guide](./docs/upgrading.md).
+
+### What changed in 1.7.8?
 
 Version History lets you select the GitHub branch for copies and reads, including branch names with slashes. Existing connections keep working, and repository protection still applies. The homepage release notice is shorter. Use matching 1.7.8 server and widget packages. No schema migration is added. [Version History](./docs/how-to/versioning.md) · [Upgrade guide](./docs/upgrading.md).
 
