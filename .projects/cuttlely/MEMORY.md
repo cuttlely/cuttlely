@@ -287,3 +287,7 @@ The supervisor marks its child up when launching it, before that process first a
 `GithubSync.stop()` clears the current poll timer but does not wait for an active worker. An in-process restart or teardown must stop, await `idle()`, and stop again before replacing the instance, resetting its environment or deleting its repository. The finishing worker can schedule another poll. Waiting at that lifecycle boundary preserves the actual restart assertions and avoids concurrent fixture work against retired state.
 
 A restarted sync instance also needs the server's `start()` call. Omitting it leaves first-use initialization pending: a later `status()` can schedule a first poll during reconnect, racing another check over the temporary adoption ref. Model the full startup lifecycle before testing subsequent saves.
+
+## Control artifact timestamps in count-limit fixtures
+
+Artifact merges order all specialists by write time and identify a file by specialist plus name. Back-to-back writes need not share a filesystem timestamp. A count-limit fixture expecting two filenames must give its third specialist image an explicit older time; otherwise a newer same-name image from that other specialist can correctly displace the older filename. Preserve the count, size and deduplication assertions instead of relying on timestamp ties.

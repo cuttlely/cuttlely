@@ -2,6 +2,12 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.9
+
+-   **Trace a single Harness node.** Use LangSmith Analytics without a Tool Agent wrapper. [LangSmith tracing](../reference/langsmith-tracing.md#harness-chatflows).
+-   **Review dropped import edges.** Missing source outputs and target inputs are reported instead of reassigned. [Bring your flows](../bring-your-flows.md).
+-   **Read operator request errors.** Active-code guidance and neutral limit messages appear as errors when a request is refused. [Instance operator](./instance-operator.md).
+
 ## New in 1.7.8
 
 -   **Choose a GitHub branch for version history.** Select a repository, then a branch. Existing connections keep working, and named environment chains retain their mappings. [Version History](./versioning.md).
