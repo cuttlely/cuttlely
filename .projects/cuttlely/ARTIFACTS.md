@@ -1,4 +1,6 @@
-## 1.7.8 release preparation
+## 1.7.8 release
+
+1.7.8 was cut on main as `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)) with the `v1.7.8` tag. `CHANGELOG.md` dates it `## [1.7.8] - 2026-11-17`. The GitHub release [Cuttlely 1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8) was published on 2026-11-16. Image, npm and deployment availability were not checked here.
 
 -   `CHANGELOG.md`, `docs/releases.md` and `docs/upgrading.md`: release scope, protected preparation procedure and upgrade behavior.
 -   Root/translated READMEs, FAQ, docs indexes and package READMEs: branch-selection guidance and current install pins.

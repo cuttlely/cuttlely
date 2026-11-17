@@ -1,6 +1,6 @@
-## 1.7.8 release preparation
+## 1.7.8 release
 
-The release scope is GitHub branch selection from #512 and the shorter homepage release notice from #511. Documentation, current installation pins, package READMEs, FAQs and English/Japanese/Korean/Chinese release introductions target 1.7.8. The homepage keeps one short release sentence and a linked backup reminder. `CHANGELOG.md` has the planned 1.7.8 section; the release tool still owns the four product version bumps, date, candidate commit and tag. The release/translation checks pass (43 tests), and the website build checks 78 pages and 11,140 internal links. Publication and deployment have not been claimed.
+The 1.7.8 patch was cut on main as `943541c1` ([#514](https://github.com/cuttlely/cuttlely/pull/514)); the `v1.7.8` tag points at it, and the GitHub release [Cuttlely 1.7.8](https://github.com/cuttlely/cuttlely/releases/tag/v1.7.8) was published on 2026-11-16. The release scope is GitHub branch selection from #512 and the shorter homepage release notice from #511. Documentation, current installation pins, package READMEs, FAQs and English/Japanese/Korean/Chinese release introductions are 1.7.8. The homepage keeps one short release sentence and a linked backup reminder. `CHANGELOG.md` dates it `## [1.7.8] - 2026-11-17`, and new lines go under `## [Unreleased]`. Image, npm and deployment availability were not checked here.
 
 The upgrade adds no schema migration. Existing connections retain their current branch; reconnect to select another. Named environment chains retain their mappings. Backup/operator recovery requirements and default-Off access-key enforcement remain in effect.
 
@@ -102,9 +102,9 @@ Landed on `main` as `f4edfc8c` ([#491](https://github.com/cuttlely/cuttlely/pull
 
 ## Historical 1.7.5 release preparation
 
-This branch is `release/1.7.5-prep`, folded with a normal merge of `origin/main` at `b22d9983` ([#482](https://github.com/cuttlely/cuttlely/pull/482)). It prepares the unpublished 1.7.5 patch. The four product manifests and current docs pins are 1.7.5. `CHANGELOG.md` uses the planned heading `## [1.7.5] - Unreleased` so the release tool can date it at cut time. The date stays `Unreleased` until the cut.
+That branch was `release/1.7.5-prep`, folded with a normal merge of `origin/main` at `b22d9983` ([#482](https://github.com/cuttlely/cuttlely/pull/482)). It prepared the 1.7.5 patch, which was cut on main as `ea05c456` ([#497](https://github.com/cuttlely/cuttlely/pull/497)). The four product manifests and docs pins were 1.7.5. `CHANGELOG.md` dates it `## [1.7.5] - 2026-11-14`.
 
-[#491](https://github.com/cuttlely/cuttlely/pull/491) is `f4edfc8c`. [#494](https://github.com/cuttlely/cuttlely/pull/494) is `a22175c8`. [#495](https://github.com/cuttlely/cuttlely/pull/495) is `04f95df5`. [#482](https://github.com/cuttlely/cuttlely/pull/482) is `b22d9983`. Those squash commits are named in the 1.7.5 changelog. The #482 follow-ups waived for 1.7.5 remain documented; the narrow same-content conflict case is not claimed fixed by 1.7.6. This patch adds no schema migration and changes no configuration. Publication, tagging and activation stay later steps. The 1.7.0 backup, operator onboarding/recovery and default-Off enforcement requirements still apply.
+[#491](https://github.com/cuttlely/cuttlely/pull/491) is `f4edfc8c`. [#494](https://github.com/cuttlely/cuttlely/pull/494) is `a22175c8`. [#495](https://github.com/cuttlely/cuttlely/pull/495) is `04f95df5`. [#482](https://github.com/cuttlely/cuttlely/pull/482) is `b22d9983`. Those squash commits are named in the 1.7.5 changelog. The #482 follow-ups waived for 1.7.5 remain documented; the narrow same-content conflict case is not claimed fixed by 1.7.6. This patch adds no schema migration and changes no configuration. The 1.7.0 backup, operator onboarding/recovery and default-Off enforcement requirements still apply.
 
 ## Historical 1.7.4 release preparation
 
