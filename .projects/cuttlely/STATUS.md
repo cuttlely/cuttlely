@@ -1,10 +1,18 @@
-## Repository branch selection (prepared change)
+## 1.7.8 release preparation
 
-The GitHub connection picker loads a repository's branches, marks protected branches, and starts with its default branch. A standard Dev/Prod connection saves the chosen branch for both copying and reading; older connections retain main. Named environment chains retain their configured branch mappings and accept slash names. Branch listing uses the existing operator, workspace credential and host checks. Selecting another repository clears the old selection, and listing failures prevent Connect until retried. Versioning, UI selection and route-permission tests pass, as do type checks, the UI build, lint, architecture boundaries, the secret scan and the website build/link check. The wording check permits branch labels in GitHub settings while continuing to reject other Git terminology. The complete verification gate is required before merge. Deployment has not been verified for this change.
+The release scope is GitHub branch selection from #512 and the shorter homepage release notice from #511. Documentation, current installation pins, package READMEs, FAQs and English/Japanese/Korean/Chinese release introductions target 1.7.8. The homepage keeps one short release sentence and a linked backup reminder. `CHANGELOG.md` has the planned 1.7.8 section; the release tool still owns the four product version bumps, date, candidate commit and tag. The release/translation checks pass (43 tests), and the website build checks 78 pages and 11,140 internal links. Publication and deployment have not been claimed.
 
-## Homepage release summary
+The upgrade adds no schema migration. Existing connections retain their current branch; reconnect to select another. Named environment chains retain their mappings. Backup/operator recovery requirements and default-Off access-key enforcement remain in effect.
 
-The homepage hero shows the latest 1.7.7 cancellation fix in one sentence, followed by a short backup reminder. The changelog and upgrade/recovery guide remain linked; earlier release details and operator instructions stay in those full guides. The website build passes, including 78 pages and 11,115 internal links. This copy change does not change product versions or application behavior.
+Release asset review: the versioning guide has a fresh Branch-menu screenshot rendered from the actual GitHub card with isolated example repository/branch responses. It proves the selector layout and labels, not an external account connection. Existing recordings, posters, captions, other screenshots, logos, architecture/benchmark figures and their measured-version labels were reviewed and remain unchanged. Samples, API/SDK examples and provider model/pricing references need no change for this release. The npm packages carry the updated READMEs from the eventual annotated tag.
+
+## Repository branch selection
+
+The GitHub connection picker loads a repository's branches, marks protected branches, and starts with its default branch. A standard Dev/Prod connection saves the chosen branch for both copying and reading; older connections retain main. Named environment chains retain their configured branch mappings and accept slash names. Branch listing uses the existing operator, workspace credential and host checks. Selecting another repository clears the old selection, and listing failures prevent Connect until retried. Versioning, UI selection and route-permission tests pass, as do type checks, the UI build, lint, architecture boundaries, the secret scan and the website build/link check. The wording check permits branch labels in GitHub settings while continuing to reject other Git terminology. The change merged in [#512](https://github.com/cuttlely/cuttlely/pull/512) as `22967fb4`. [Full verification](https://github.com/cuttlely/cuttlely/actions/runs/43998073610) passed all 27 steps on `e72c0e65`; the merged tree matches that checked tree. Deployment has not been verified for this change.
+
+## Homepage release summary (1.7.7)
+
+The 1.7.7 homepage hero showed the cancellation fix in one sentence, followed by a short backup reminder. The changelog and upgrade/recovery guide remain linked; earlier release details and operator instructions stay in those full guides. The website build passes, including 78 pages and 11,115 internal links. This copy change does not change product versions or application behavior.
 
 ## 1.7.7 release
 

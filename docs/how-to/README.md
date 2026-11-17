@@ -2,6 +2,10 @@
 
 Step-by-step guides for building, installing, signing in and running Cuttlely. Each guide covers one task. The full docs index, with the reference pages, is the [Docs overview](../README.md).
 
+## New in 1.7.8
+
+-   **Choose a GitHub branch for version history.** Select a repository, then a branch. Existing connections keep working, and named environment chains retain their mappings. [Version History](./versioning.md).
+
 ## New in 1.7.7
 
 -   **Cancellation stays within one chat.** Stopping an agent-team chat leaves other chats using the same specialist running. [Harnesses](./harnesses.md).

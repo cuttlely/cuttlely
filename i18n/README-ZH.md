@@ -25,6 +25,8 @@ chief-of-staff 里的分析员先保持关闭，直到你把 `CUTTLELY_ANALYST` 
 
 英文 README 是原文。内容不一致时，以英文版为准。
 
+**1.7.8 可让你选择保存版本历史的 GitHub 分支。** 选取仓库后，再选择 **Branch**。现有连接仍可继续使用，仓库的保护规则也仍然有效。[版本历史](../docs/how-to/versioning.md)。
+
 ## 目录
 
 -   [A/B 测试每一项改动，再让它上线](#ab-test-every-change-before-it-goes-live)
