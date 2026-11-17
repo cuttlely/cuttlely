@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   Version History GitHub setup lists repository branches and saves the selected branch for copying and reading versions, including branch names with slashes.
+
 -   Shortened the website homepage release blurb to the latest fix and a linked upgrade reminder.
 
 ## [1.7.7] - 2026-11-16

@@ -404,13 +404,13 @@ On a GitHub Enterprise host, create the token on that host, not on github.com. T
 
     ![Step 2, Pick where to keep it. Signed in as rosas-bakery. rosas-bakery/cuttlely-flows is selected and marked Empty. Below it are rosas-bakery/website, order-forms and menu-photos, then Make a new private repository.](../images/versioning/github-pick-repo.png)
 
-4. Pick a repository, or select **Make a new private repository** and give it a name (`cuttlely-flows` is filled in for you). An empty repository still works. A repository that already has files works too. Files added there later stay, and the next copy adds new versions on top of them.
+4. Pick a repository, or select **Make a new private repository** and give it a name (`cuttlely-flows` is filled in for you). An empty repository still works. A repository that already has files works too. Files added there later stay, and the next copy adds new versions on top of them. Choose a branch from the **Branch** dropdown. It lists the repository's branches, marks protected ones, and starts with the default branch. Choose one the token can write to; protection rules still apply. An empty repository starts on its default branch. The connected card shows the saved branch. To change it, disconnect and connect again. On a Dev/Prod pair, select the same branch on both servers. Named environment chains keep the branch mappings from their environment list; the dropdown shows that configured branch.
 
     ![Make a new private repository is selected, with a name box that reads rosas-bakery/ cuttlely-flows.](../images/versioning/github-new-repo.png)
 
     A token made for one repository cannot create repositories (see [Which GitHub token to use](#which-github-token-to-use)). If Cuttlely says so, create a private repository on GitHub, give the token access to it, and pick it from the list.
 
-5. Select **Connect**. Cuttlely checks the repository, saves the token, and copies every version so far. A check mark plays when the copy is done.
+5. Choose the **Branch**, then select **Connect**. Cuttlely checks the repository, saves the token, and copies every version so far. A check mark plays when the copy is done.
 
 ![Connected to rosas-bakery/cuttlely-flows, with a green check, Last synced just now, and an Up to date chip. The card names the sign-in it uses, GitHub: rosas-bakery/cuttlely-flows, and has Sync Now and Disconnect buttons. Under This server is, Not Set is selected.](../images/versioning/github-connected.png)
 

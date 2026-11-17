@@ -13,7 +13,7 @@ import {
     setGithubForTests,
     versionsDir
 } from './index'
-import { authEnv, checkToken, classifyFailure, GithubSync, parseRepo, scrub } from './github'
+import { authEnv, checkToken, classifyFailure, GithubSync, parseRepo, scrub, validGithubBranch } from './github'
 import { githubEndpoint } from './githubHost'
 import { environmentListFingerprint } from './environments'
 import { flowFolderName } from './serialize'
@@ -1833,6 +1833,63 @@ describe('copying history to a repository', () => {
     })
 })
 
+describe('selected repository branch', () => {
+    test('copies and subsequent saves use the selected slash branch after restart, leaving main untouched', async () => {
+        await save('First')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN, branch: 'teams/versions' }, WS)
+        expect(bareMain(bare)).toBeNull()
+        const first = bareRef(bare, 'refs/heads/teams/versions')
+        expect(first).not.toBeNull()
+        expect(await sync.status()).toMatchObject({ branch: 'teams/versions', state: 'up-to-date' })
+        sync.stop()
+        sync = makeSync()
+        setGithubForTests(sync)
+        await save('Second')
+        await sync.tryNow()
+        expect(bareRef(bare, 'refs/heads/teams/versions')).not.toBe(first)
+        expect(bareMain(bare)).toBeNull()
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN, branch: 'teams/versions' }, WS)
+        expect(await sync.status()).toMatchObject({ branch: 'teams/versions', role: 'read' })
+        expect(await runGit(getStore().dir, ['rev-parse', 'refs/versions/incoming'])).toMatchObject({
+            stdout: bareRef(bare, 'refs/heads/teams/versions') + '\n'
+        })
+        expectTokenNowhere()
+    })
+
+    test('copies to an existing non-default branch without advancing main', async () => {
+        foreignCommit(bare, path.join(tmp, 'seed-main'), 'main', { 'README.md': 'Existing project\n' })
+        const main = bareMain(bare)
+        execFileSync('git', ['--git-dir', bare, 'update-ref', 'refs/heads/teams/versions', main!], { env: cleanEnv() })
+        await save('First')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN, branch: 'teams/versions' }, WS)
+        expect(bareMain(bare)).toBe(main)
+        expect(bareRef(bare, 'refs/heads/teams/versions')).not.toBe(main)
+        expect(bareFile(bare, 'refs/heads/teams/versions', 'README.md')).toBe('Existing project\n')
+        expect(await sync.status()).toMatchObject({ state: 'up-to-date' })
+    })
+
+    test('a missing selected branch on an existing repository is refused without saving a connection', async () => {
+        await save('First')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const main = bareMain(bare)
+        await sync.disconnect()
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN, branch: 'missing' }, WS)).rejects.toMatchObject({ status: 409 })
+        expect(sync.isConnected()).toBe(false)
+        expect(bareMain(bare)).toBe(main)
+    })
+
+    test.each(['', '-main', 'a:b', 'a..b', 'a\\b', 'a b', 'a/.hidden', 'a.lock/b', 'a/', 'a@{b', 'a?b', 'a[b'])(
+        'refuses unsafe branch %s',
+        async (branch) => {
+            expect(validGithubBranch(branch)).toBe(false)
+            await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN, branch }, WS)).rejects.toMatchObject({ status: 400 })
+            expect(gitCalls).toHaveLength(0)
+        }
+    )
+})
+
 describe('picking or creating a repository', () => {
     function stubFetch(routes: Record<string, { status: number; body: unknown }>) {
         const calls: { url: string; init: any }[] = []
@@ -1844,6 +1901,40 @@ describe('picking or creating a repository', () => {
         }) as unknown as typeof fetch
         return { fetchStub, calls }
     }
+
+    test('lists all branch pages, including protected and slash names, using repository default metadata', async () => {
+        const { fetchStub, calls } = stubFetch({
+            'GET /repos/acme/flows': { status: 200, body: { default_branch: 'trunk' } },
+            'GET /repos/acme/flows/branches?per_page=100&page=1': {
+                status: 200,
+                body: Array.from({ length: 100 }, (_, i) => ({ name: `team/branch-${i}`, protected: i === 0 }))
+            },
+            'GET /repos/acme/flows/branches?per_page=100&page=2': { status: 200, body: [{ name: 'trunk', protected: true }] }
+        })
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub })
+        const list = await sync.listBranches({ repo: 'acme/flows', token: TOKEN }, WS)
+        expect(list.defaultBranch).toBe('trunk')
+        expect(list.branches).toHaveLength(101)
+        expect(list.branches[0]).toEqual({ name: 'team/branch-0', protected: true })
+        for (const call of calls) {
+            expect(call.init.redirect).toBe('manual')
+            expect(call.url).not.toContain(TOKEN)
+        }
+    })
+
+    test('empty repositories return their default branch, and denied branch listing fails', async () => {
+        const routes = {
+            'GET /repos/acme/flows': { status: 200, body: { default_branch: 'trunk' } },
+            'GET /repos/acme/flows/branches?per_page=100&page=1': { status: 200, body: [] }
+        }
+        const { fetchStub } = stubFetch(routes)
+        sync.stop()
+        sync = makeSync({ fetch: fetchStub })
+        expect(await sync.listBranches({ repo: 'acme/flows', token: TOKEN }, WS)).toEqual({ defaultBranch: 'trunk', branches: [] })
+        routes['GET /repos/acme/flows/branches?per_page=100&page=1'] = { status: 403, body: [] }
+        await expect(sync.listBranches({ repo: 'acme/flows', token: TOKEN }, WS)).rejects.toMatchObject({ status: 400 })
+    })
 
     test('lists the repositories the token can write to, with empty ones marked', async () => {
         const { fetchStub, calls } = stubFetch({
