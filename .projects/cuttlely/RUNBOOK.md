@@ -372,7 +372,7 @@ GET and HEAD retry by default. A non-GET call retries only with `retry: true` or
 
 ## Import target-handle types
 
-Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
+Landed on main as `95c64dab` ([#454](https://github.com/cuttlely/cuttlely/pull/454)). This fix shipped under `## [1.7.3] - 2026-11-12`. Edges whose saved handle the node no longer has are dropped and reported on import ([#457](https://github.com/cuttlely/cuttlely/issues/457)); run `pnpm --dir packages/ui exec jest src/utils/normalizeCanvasFlow.test.js src/utils/edgeRefs.test.js` for the focused coverage. Focused coverage is `packages/ui/src/utils/edgeRefs.test.js`, including the shipped Bakery helper import. After the Infra prebuild check, run one exact-head `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`. Keep normal commit hooks enabled. Do not build Docker images, tag, publish or change live configuration as part of this work. The 1.7.0 backup and operator-recovery requirements still apply. Enforcement remains default Off.
 
 ## Historical local 1.7.5 release preparation
 

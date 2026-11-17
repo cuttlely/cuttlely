@@ -8,6 +8,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   The workspace `fast-xml-parser` override moves from `^5.7.3` to `^5.12.0`, which closes [GHSA-474x-hrwr-fgx4](https://github.com/advisories/GHSA-474x-hrwr-fgx4) (quadratic CPU use on unterminated stop-node tags in versions through 5.11.2).
 
+### Fixed
+
+-   **#457:** Importing a chatflow no longer reattaches an edge whose source output or target input is gone. Such an edge was moved to the node's first output, or to an input named by the last part of the edge id, so it stayed on the canvas and the import said nothing. It is now dropped and the import reports it, as [Bring your flows](./docs/bring-your-flows.md) says. A handle saved without its type, or with only the type changed, is still matched to the live one.
+
 ## [1.7.8] - 2026-11-17
 
 ### Changed
