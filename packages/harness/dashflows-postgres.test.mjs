@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { after, before, test } from 'node:test'
 import { compilePinned } from './runtime/pinned-query.mjs'
 import { appDatabaseStoresOn, dashStore, openSqliteDashStore, setDashStore } from './dashflows.mjs'
-import { initDashStore } from './dashflows-postgres.mjs'
+import { copyDashStoreToAppDb, initDashStore } from './dashflows-postgres.mjs'
 import { adminConfig, adminQuery, freshDatabase, pgSkip, poolSource } from './test/dashflows-pg.mjs'
 
 const SNAPSHOT_TEXT = 'zz-snapshot-row-text'
@@ -166,6 +166,30 @@ test('the switch accepts only 1 or true', async () => {
         assert.equal(appDatabaseStoresOn({ CUTTLELY_APP_DATABASE_STORES: value }), false)
 })
 
+test('a writer lock held for the whole wait refuses the copy with the busy wording and touches nothing', async () => {
+    const file = tempFile()
+    await seed(file)
+    const hash = digestFile(file)
+    const writer = new DatabaseSync(file)
+    writer.exec('BEGIN IMMEDIATE')
+    const { calls, source } = untouchedSource('postgres')
+    const { lines, log } = capture()
+    try {
+        const started = Date.now()
+        assert.deepEqual(await copyDashStoreToAppDb(file, source, { log, waitMs: 200, pollMs: 50 }), { outcome: 'refused-lease' })
+        assert.ok(Date.now() - started >= 200)
+    } finally {
+        writer.exec('ROLLBACK')
+        writer.close()
+    }
+    assert.deepEqual(lines, [
+        'Dash Flows storage move not started: dashflows.sqlite stayed locked by another writer for 2 minutes. Nothing was copied. Dash Flows keeps using dashflows.sqlite and will try again at the next start. If another Cuttlely instance shares this data directory, stop it first.'
+    ])
+    assert.deepEqual(calls, [])
+    assert.equal(digestFile(file), hash)
+    assert.equal(fs.existsSync(`${file}.migrated`), false)
+})
+
 // ---- Real Postgres ----
 let database
 let pg
@@ -267,6 +291,7 @@ pgTest('AC4 AC8 writes land in Postgres, the moved file keeps its size and time,
     assert.equal(after.mtimeMs, moved.mtimeMs)
     assert.equal(fs.existsSync(file), false)
     assert.equal(fs.existsSync(`${file}-wal`), false)
+    assert.equal(fs.existsSync(`${file}-shm`), false)
 })
 
 pgTest('AC5 a second start copies nothing; a crash during the copy or before moving the file aside resumes cleanly', async () => {
@@ -397,6 +422,34 @@ pgTest('AC9 switching off restores the data as it was at the copy; switching on 
     assert.equal((await marker()).rolledBackAt, undefined)
 })
 
+pgTest('both files present after a committed copy: neither is touched, Postgres is served and both names are logged', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    assert.equal((await init(file, log)).outcome, 'copied')
+    const created = await dashStore().save(null, 'team-a', 'owner-1', onDemand('Saved after the copy'))
+    setDashStore(null)
+    // A copy of the moved file is put back beside it, for example by hand.
+    fs.copyFileSync(`${file}.migrated`, file)
+    fs.chmodSync(file, 0o644)
+    const live = digestFile(file)
+    const moved = fs.statSync(`${file}.migrated`)
+    const movedHash = digestFile(`${file}.migrated`)
+    assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'already-copied' })
+    assert.equal(
+        lines.at(-1),
+        'Dash Flows is in the application database. dashflows.sqlite and dashflows.sqlite.migrated both exist and were left in place; remove or rename one to finish the move.'
+    )
+    assert.equal(digestFile(file), live)
+    assert.equal(fs.statSync(file).mode & 0o777, 0o644)
+    assert.equal(digestFile(`${file}.migrated`), movedHash)
+    assert.equal(fs.statSync(`${file}.migrated`).mtimeMs, moved.mtimeMs)
+    assert.equal(fs.statSync(`${file}.migrated`).mode & 0o777, 0o444)
+    assert.equal(dashStore().backend, 'postgres')
+    assert.ok(await dashStore().get(created.id, 'team-a'))
+    assert.ok(await dashStore().get(seeded.ids.private, 'team-a'))
+})
+
 pgTest('AC15 a login without CREATE gets the named refusal and stays on SQLite', async () => {
     const role = `zz_dash_nocreate_${randomBytes(4).toString('hex')}`
     const password = randomBytes(12).toString('hex')
@@ -419,6 +472,18 @@ pgTest('AC15 a login without CREATE gets the named refusal and stays on SQLite',
         await pg.source.query('CREATE SCHEMA cuttlely_dashflows')
         assert.equal((await init(file, log, { source: limited.source })).outcome, 'refused-privilege')
         assert.match(lines.at(-1), /lacks USAGE and CREATE on schema cuttlely_dashflows\./)
+        // The re-copy of a moved file with no committed copy is checked too: the file is put back, nothing
+        // is created, and Dash Flows stays on SQLite.
+        await pg.source.query('DROP SCHEMA cuttlely_dashflows')
+        fs.renameSync(file, `${file}.migrated`)
+        fs.chmodSync(`${file}.migrated`, 0o444)
+        assert.deepEqual(await init(file, log, { source: limited.source }), { backend: 'sqlite', outcome: 'refused-privilege' })
+        assert.match(lines.at(-1), /lacks CREATE on the application database\./)
+        assert.equal(digestFile(file), hash)
+        assert.equal(fs.statSync(file).mode & 0o777, 0o644)
+        assert.equal(fs.existsSync(`${file}.migrated`), false)
+        assert.equal(await schemaPresent(), false)
+        assert.equal(dashStore().backend, 'sqlite')
     } finally {
         await limited.end()
         await pg.source.query('DROP SCHEMA IF EXISTS cuttlely_dashflows CASCADE')

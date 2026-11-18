@@ -439,7 +439,7 @@ const MESSAGES = {
     reused: 'Dash Flows is using the copy already in the application database. Changes made in dashflows.sqlite while CUTTLELY_APP_DATABASE_STORES was off were not carried forward.',
     lease: (row) =>
         `Dash Flows storage move not started: a dashboard refresh is still running after 2 minutes (dashboard ${row.id}, workspace ${row.workspace}). Nothing was copied. Dash Flows keeps using dashflows.sqlite and will try again at the next start. If another Cuttlely instance shares this data directory, stop it first.`,
-    busy: 'Dash Flows storage move not started: dashflows.sqlite was still busy after 2 minutes. Nothing was copied. Dash Flows keeps using dashflows.sqlite and will try again at the next start. If another Cuttlely instance shares this data directory, stop it first.',
+    busy: 'Dash Flows storage move not started: dashflows.sqlite stayed locked by another writer for 2 minutes. Nothing was copied. Dash Flows keeps using dashflows.sqlite and will try again at the next start. If another Cuttlely instance shares this data directory, stop it first.',
     verify: (m) =>
         `Dash Flows storage move failed verification (${m.table}: ${m.source} rows in dashflows.sqlite, ${m.copied} copied). Nothing was switched; Dash Flows keeps using dashflows.sqlite.`,
     privilege: (missing) =>
@@ -457,7 +457,7 @@ const MESSAGES = {
         'Dash Flows is in the application database; its copy was already there. dashflows.sqlite is kept read-only as dashflows.sqlite.migrated.',
     unreachable: (code) =>
         `Dash Flows could not open its tables in the application database (${code}). Its requests fail until the database is reachable.`,
-    kept: 'Dash Flows is in the application database. dashflows.sqlite.migrated already exists, so dashflows.sqlite was left in place and is not used.'
+    kept: 'Dash Flows is in the application database. dashflows.sqlite and dashflows.sqlite.migrated both exist and were left in place; remove or rename one to finish the move.'
 }
 const errorCode = (error) =>
     String(error?.code || error?.name || 'error')
@@ -513,12 +513,16 @@ async function preflight(file, { waitMs, pollMs }) {
 }
 
 // Ends the SQLite transaction, checkpoints the WAL and keeps the file read-only beside the new store.
+// When both files already exist, neither is touched (design 4.9 (b)).
 function retire(db, file) {
     db.exec('ROLLBACK')
+    const migrated = `${file}.migrated`
+    if (fs.existsSync(migrated)) {
+        db.close()
+        return false
+    }
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
     db.close()
-    const migrated = `${file}.migrated`
-    if (fs.existsSync(migrated)) return false
     if (fs.existsSync(file)) fs.renameSync(file, migrated)
     for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
     fs.chmodSync(migrated, 0o444)
@@ -659,22 +663,26 @@ export async function initDashStore({
     let outcome = 'nothing-to-copy'
     const moved = () => !fs.existsSync(file) && fs.existsSync(`${file}.migrated`)
     try {
-        // The privilege check guards creating and copying. After a move the data is only in Postgres.
-        const missing = moved() ? null : await missingPrivilege(source)
-        if (missing) {
-            log.warn(MESSAGES.privilege(missing))
-            return sqlite('refused-privilege')
-        }
-        if (!fs.existsSync(file) && fs.existsSync(`${file}.migrated`)) {
-            // A moved file with no copy in this database: put the file back and copy it, as on a first start.
+        if (moved()) {
+            // A moved file with no committed copy in this database: put the file back and copy it, as on a
+            // first start (design 4.9 (a)). Reading the marker creates nothing.
             const marker = await source.transaction(async (tx) => {
-                await ensureSchema(tx)
-                return readMarker((sql, params = []) => tx.query(sql, params))
+                const q = (sql, params = []) => tx.query(sql, params)
+                if (!(await schemaExists(q))) return null
+                const [row] = await q(`SELECT to_regclass($1) IS NOT NULL AS present`, [`${S}.dash_flow_store_meta`])
+                return row.present === true ? readMarker(q) : null
             })
             if (!marker) {
                 fs.renameSync(`${file}.migrated`, file)
                 fs.chmodSync(file, 0o644)
             }
+        }
+        // The privilege check runs before every copy, including the re-copy above (design 4.9 (c)). Once the
+        // file is moved aside and the marker is committed, nothing is created, so it is skipped.
+        const missing = moved() ? null : await missingPrivilege(source)
+        if (missing) {
+            log.warn(MESSAGES.privilege(missing))
+            return sqlite('refused-privilege')
         }
         if (fs.existsSync(file)) {
             outcome = (await copyDashStoreToAppDb(file, source, { log, waitMs, pollMs })).outcome
