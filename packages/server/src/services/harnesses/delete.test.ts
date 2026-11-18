@@ -112,6 +112,7 @@ const fakeModules = (file: string) => {
         return Promise.resolve({
             specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
             compileProfileCached: () => undefined,
+            credentialIdsFor: () => [],
             profileDestinationConflicts: (row: Row) => {
                 if (takenProfiles.includes('unresolvable')) throw new Error('Specialist "scout" collides with another model profile.')
                 return takenProfiles.filter((entry) => entry.startsWith(`${row.name.toLowerCase()}`))
@@ -139,6 +140,9 @@ const fakeModules = (file: string) => {
                 })
             }
         })
+    }
+    if (file === 'credential-store.mjs') {
+        return Promise.resolve({ credentialStampAsync: async () => '', setCredentialSource() {}, readCredentialRowAsync: async () => null })
     }
     return Promise.reject(new Error(`unexpected module ${file}`))
 }

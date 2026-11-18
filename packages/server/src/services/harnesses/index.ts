@@ -270,11 +270,14 @@ async function saveUnderName(
     } else if (name) {
         await clearStaleNameData(name, record as { specialists?: Array<{ name?: unknown }> })
     }
+    // Stamp first, then the existing no-await window through the conflict check, save and compile.
+    const { credentialStampAsync } = await loadHarness('credential-store.mjs')
+    const stamp = await credentialStampAsync(profile.credentialIdsFor({ ...record, workspaceId: ws }))
     // Again with no await between it, the save and the compile: two names whose specialists join to the same profile
     // (a + b--c, a--b + c) cannot both pass.
     assertNoProfileConflicts(profile, record, name)
     const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
-    profile.compileProfileCached(saved)
+    profile.compileProfileCached(saved, { credentialStamp: stamp })
     // A successful save clears a latched boot failure so assertHarnessAvailable stops returning 503.
     clearBootFailure(saved.name)
     warmHarnesses([saved.name])

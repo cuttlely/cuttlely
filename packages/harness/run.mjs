@@ -83,9 +83,11 @@ import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { credentialStampAsync } from './credential-store.mjs'
 import {
     compileProfileCached,
     compileTryProfile,
+    credentialIdsFor,
     discardTryProfile,
     noteLiveTry,
     tryProfileName,
@@ -489,7 +491,9 @@ async function runTurnBody(
     let profileMs = 0
     if (needsHermes) {
         // A try id compiles into its own profile directory. The published profile is not opened for write.
-        const compiled = harness.tryId ? compileTryProfile(harness, harness.tryId) : compileProfileCached(harness)
+        const compiled = harness.tryId
+            ? compileTryProfile(harness, harness.tryId)
+            : compileProfileCached(harness, { credentialStamp: await credentialStampAsync(credentialIdsFor(harness)) })
         profileMs = Date.now() - profileStarted
         roster = compiled.roster || harness
     }
@@ -3974,7 +3978,9 @@ export async function warmHarnessProfiles({
         let roster
         try {
             // The lock covers the compile only. The health wait below can run for minutes and must not hold it.
-            const compiled = await lock(() => compileProfileCached(record))
+            // The stamp is computed before the lock so the lock stays compile-only.
+            const stamp = await credentialStampAsync(credentialIdsFor(record))
+            const compiled = await lock(() => compileProfileCached(record, { credentialStamp: stamp }))
             roster = compiled.roster || record
         } catch (error) {
             console.warn(`[harness] ${record.name} warm-up skipped: ${error.message}`)

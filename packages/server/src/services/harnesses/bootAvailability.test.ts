@@ -22,6 +22,9 @@ describe('boot failure refuses shared harness runs', () => {
             if (file === 'profile.mjs') {
                 return { recompileOutdatedProfiles: () => [{ name: 'helper', status: 'failed', error: 'boom' }] }
             }
+            if (file === 'credential-store.mjs') {
+                return { credentialStampAsync: async () => '', setCredentialSource() {}, readCredentialRowAsync: async () => null }
+            }
             throw new Error(`unexpected ${file}`)
         })
     })

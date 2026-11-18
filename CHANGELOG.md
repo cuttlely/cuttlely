@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
+
 ## [1.7.9] - 2026-11-17
 
 ### Added
