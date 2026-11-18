@@ -358,6 +358,8 @@ The four product manifests are prepared at 1.7.1 with an Unreleased changelog. P
 
 Run `node --test scripts/access-keys.test.cjs scripts/access-keys-production.test.cjs` for SQLite/execution/UI regressions. For real Postgres, use a disposable local test service and the standard `CUTTLELY_TEST_PG_HOST`, `CUTTLELY_TEST_PG_PORT`, `CUTTLELY_TEST_PG_USER` and test-password inputs, then run `CUTTLELY_TEST_PG_REQUIRED=1 node --test scripts/access-keys-postgres.test.cjs`. The script creates and drops its own test database, runs the real migrations and exercises the delete route plus rollback; it never reads deployment database settings. An entity-synchronized database alone cannot reproduce the historical UUID/varchar mismatch. No Docker image build is needed.
 
+Dash Flows on the application database: `pnpm harness:check` runs the SQLite half of `packages/harness/dashflows.test.mjs` and `dashflows-postgres.test.mjs` and skips the Postgres half. With a disposable local Postgres and the same `CUTTLELY_TEST_PG_*` and test-password inputs, run `CUTTLELY_TEST_PG_REQUIRED=1 node --test packages/harness/dashflows.test.mjs packages/harness/dashflows-postgres.test.mjs`; each file creates and drops its own database. The CI `build` job runs them against its Postgres service and fails if any case was skipped.
+
 Keep normal commit hooks enabled. After the final handoff commit, run the Infra precheck and one exact-head full `nice -n 19 env CI=true CUTTLELY_VERIFY_JEST_WORKERS=3 pnpm verify`, retaining command, HEAD before/after, session, PID, timestamps, exit and the report. Fix real failures only and retain rerun provenance. No push, PR, merge, tag, publish, deployment or live configuration change is part of this preparation.
 
 ## Proxy-safe HTTP timeouts
