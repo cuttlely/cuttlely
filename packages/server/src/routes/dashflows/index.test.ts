@@ -133,3 +133,18 @@ it('cancels only the requested refresh in the builder workspace', async () => {
     await request(app(editor)).post('/dashflows/demo/cancel-refresh').send({ runId: 'current-run' }).expect(200)
     expect(store.cancel).toHaveBeenCalledWith('demo', 'team-a', 'current-run')
 })
+it('maps a SQLite busy error from the store to a retryable 409, never a 503', async () => {
+    const busy = (errcode: number) => Object.assign(new Error('database is locked'), { code: 'ERR_SQLITE_ERROR', errcode })
+    ;(store.list as jest.Mock).mockImplementationOnce(() => {
+        throw busy(5)
+    })
+    const listed = await request(app(editor)).get('/dashflows')
+    expect(listed.status).toBe(409)
+    expect(listed.body.message).toBe('Dash Flows is busy. Try again.')
+    ;(store.cancel as jest.Mock).mockImplementationOnce(() => Promise.reject(busy(517)))
+    const cancelled = await request(app(editor)).post('/dashflows/demo/cancel-refresh').send({ runId: 'run' })
+    expect(cancelled.status).toBe(409)
+    expect(cancelled.body.message).toBe('Dash Flows is busy. Try again.')
+    ;(store.get as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error('another failure')))
+    expect((await request(app(editor)).get('/dashflows/demo')).status).toBe(500)
+})

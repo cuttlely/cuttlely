@@ -124,6 +124,8 @@ Inside it, `data/database.sqlite` is the database and `data/encryption.key` is t
 
 If you set `DATABASE_PATH`, `SECRETKEY_PATH`, `CUTTLELY_DATA_DIR` or `FLOWISE_SECRETKEY_OVERWRITE` yourself, back up what they point to, and keep the key value. `CUTTLELY_SECRETKEY_OVERWRITE` is the same key. If both are set and the values differ, Cuttlely refuses to start.
 
+On a Postgres host with `CUTTLELY_APP_DATABASE_STORES` on, Dash Flows keeps its data in the application database, so the database backup covers it. See [Storage on Postgres (preview)](./how-to/dashflows.md#storage-on-postgres-preview).
+
 ## 1. Back up
 
 Stop Cuttlely first, so the database file is complete.

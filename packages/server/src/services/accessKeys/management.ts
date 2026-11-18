@@ -103,7 +103,7 @@ async function choices(req: Request) {
     const { dashFlowsEnabled } = await import('../dashflows/enabled')
     if (dashFlowsEnabled() && (await hasAnyPermission(req, 'chatflows:view'))) {
         const { runtime } = await import('../dashflows')
-        for (const row of (await runtime()).dashStore().list(user.activeWorkspaceId))
+        for (const row of await (await runtime()).dashStore().list(user.activeWorkspaceId))
             resources.push({
                 resourceType: 'DASHFLOW',
                 resourceId: row.id,

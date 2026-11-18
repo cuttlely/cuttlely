@@ -109,11 +109,11 @@ export const accessKeyRouteGuard: RequestHandler = (req, _res, next) => {
             const store = mod.dashStore()
             try {
                 if (read) {
-                    if (parts[2] === 'refresh-status') store.status(parts[1], key.workspaceId)
-                    else store.published(parts[1], key.workspaceId)
+                    if (parts[2] === 'refresh-status') await store.status(parts[1], key.workspaceId)
+                    else await store.published(parts[1], key.workspaceId)
                 } else {
                     const report = parts[2] === 'accounts' && parts[4] === 'report'
-                    const dashboard = report ? store.published(parts[1], key.workspaceId) : store.get(parts[1], key.workspaceId)
+                    const dashboard = report ? await store.published(parts[1], key.workspaceId) : await store.get(parts[1], key.workspaceId)
                     if (report) {
                         const { hasPublishedAccount } = await import('../../routes/dashflows/public')
                         if (!hasPublishedAccount(dashboard.snapshot, parts[3])) throw new AppError(404, 'Account not published.')

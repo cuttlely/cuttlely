@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { test } from 'node:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { after, before, test } from 'node:test'
 import {
     catalog,
     materializeCached,
     pipelinePeriods,
     materialize,
     openDashStore,
+    openSqliteDashStore,
     validateDefinition,
     validateSnapshot
 } from './dashflows.mjs'
+import { openPostgresDashStore } from './dashflows-postgres.mjs'
+import { freshDatabase, pgSkip, poolSource } from './test/dashflows-pg.mjs'
 import { compilePinned } from './runtime/pinned-query.mjs'
 
 // Synthetic contract fixture. This is not a Supreme export or a live database result.
@@ -55,16 +58,68 @@ const result = () => ({
     truncated: false,
     pinned: { id: pin.id, name: pin.name, version: pin.version, hash: card.hash }
 })
-function storeTest(fn) {
+// The store suite runs on both backends: dashflows.sqlite and the application database's Postgres.
+const BACKENDS = ['sqlite', 'postgres']
+const skipFor = (backend) => (backend === 'postgres' ? pgSkip : false)
+let pgDatabase
+let pg
+before(async () => {
+    if (pgSkip) return
+    pgDatabase = await freshDatabase('zz_dashflows_store')
+    pg = poolSource(pgDatabase.config)
+})
+after(async () => {
+    await pg?.end()
+    await pgDatabase?.drop()
+})
+async function storeTest(backend, fn) {
+    if (backend === 'postgres') {
+        await pg.source.query('DROP SCHEMA IF EXISTS cuttlely_dashflows CASCADE')
+        const store = await openPostgresDashStore(pg.source)
+        const set = (sql, params) => pg.source.query(`UPDATE cuttlely_dashflows.dash_flow SET ${sql}`, params)
+        return fn(store, {
+            open: () => openPostgresDashStore(pg.source),
+            expire: (id) => set('lease_until=0 WHERE id=$1', [id]),
+            leaseUntil: async (id) =>
+                Number((await pg.source.query('SELECT lease_until FROM cuttlely_dashflows.dash_flow WHERE id=$1', [id]))[0].lease_until),
+            setInterval: (id, intervalSeconds) =>
+                set('definition=$1,next_refresh=1 WHERE id=$2', [JSON.stringify({ ...definition, intervalSeconds }), id])
+        })
+    }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dashflow-'))
     const file = path.join(dir, 'dash.sqlite')
-    const store = openDashStore(file)
+    const store = await openDashStore(file)
+    const run = (sql, ...params) => {
+        const db = new DatabaseSync(file)
+        try {
+            return db.prepare(sql).run(...params)
+        } finally {
+            db.close()
+        }
+    }
     try {
-        fn(store, file)
+        await fn(store, {
+            file,
+            open: () => openDashStore(file),
+            expire: (id) => run('UPDATE dash_flow SET lease_until=0 WHERE id=?', id),
+            leaseUntil: (id) => {
+                const db = new DatabaseSync(file)
+                try {
+                    return db.prepare('SELECT lease_until FROM dash_flow WHERE id=?').get(id).lease_until
+                } finally {
+                    db.close()
+                }
+            },
+            setInterval: (id, intervalSeconds) =>
+                run('UPDATE dash_flow SET definition=?,next_refresh=1 WHERE id=?', JSON.stringify({ ...definition, intervalSeconds }), id)
+        })
     } finally {
         store.close()
         fs.rmSync(dir, { recursive: true, force: true })
     }
+}
+const backendTest = (name, fn) => {
+    for (const backend of BACKENDS) test(`[${backend}] ${name}`, { skip: skipFor(backend) }, () => storeTest(backend, fn))
 }
 test('catalog exposes tested source metadata, never SQL, credentials or secure parameters', () => {
     const record = structuredClone(harness)
@@ -133,54 +188,54 @@ test('definition bounds, unique identities and explicit scope are enforced', () 
     ])
         assert.throws(() => validateDefinition({ ...definition, ...patch }))
 })
-test('durable team isolation, optimistic saves, overlap leases and last-good snapshots', () =>
-    storeTest((store, file) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        assert.throws(() => store.get(saved.id, 'team-b'), /not found/)
-        assert.throws(() => store.save(saved.id, 'team-b', 'owner', definition, 1), /not found/)
-        assert.throws(() => store.list(''), /Workspace/)
-        const claim = store.claim(saved.id, 'team-a')
-        assert.throws(() => store.claim(saved.id, 'team-a'), /already running/)
-        assert.throws(() => store.save(saved.id, 'team-a', 'owner', definition, 1), /refreshing/)
-        store.settle(saved.id, 'team-a', claim, { id: 'good', cards: [result()] }, null)
-        assert.equal(store.due(Date.now() + 604801000).length, 1)
-        const failed = store.claim(saved.id, 'team-a')
-        store.settle(saved.id, 'team-a', failed, null, 'Source unavailable')
-        assert.equal(store.get(saved.id, 'team-a').snapshot.id, 'good')
-        assert.equal(store.get(saved.id, 'team-a').error, 'Source unavailable')
-        const reopened = openDashStore(file)
-        assert.equal(reopened.get(saved.id, 'team-a').snapshot.id, 'good')
-        reopened.close()
-        assert.throws(() => store.save(saved.id, 'team-a', 'owner', definition, 5), /changed/)
-    }))
-test('publish freezes definition and data, passive reads do not execute, and revocation is immediate', () =>
-    storeTest((store) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        assert.throws(() => store.published(saved.id, 'team-a'), /not published/)
-        assert.throws(() => store.publish(saved.id, 'team-a', 1), /Refresh/)
-        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), { id: 'published-data' }, null)
-        store.publish(saved.id, 'team-a', 1)
-        assert.throws(() => store.published(saved.id, 'team-b'), /not found/)
-        store.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Draft edits' }, 1)
-        assert.equal(store.published(saved.id, 'team-a').definition.title, definition.title)
-        assert.equal(store.published(saved.id, 'team-a').snapshot.id, 'published-data')
-        assert.equal(store.get(saved.id, 'team-a').snapshot, null)
-        store.unpublish(saved.id, 'team-a')
-        assert.throws(() => store.published(saved.id, 'team-a'), /not published/)
-    }))
+backendTest('durable team isolation, optimistic saves, overlap leases and last-good snapshots', async (store, ctx) => {
+    const saved = await store.save(null, 'team-a', 'owner', definition)
+    await assert.rejects(store.get(saved.id, 'team-b'), /not found/)
+    await assert.rejects(store.save(saved.id, 'team-b', 'owner', definition, 1), /not found/)
+    await assert.rejects(store.list(''), /Workspace/)
+    const claim = await store.claim(saved.id, 'team-a')
+    await assert.rejects(store.claim(saved.id, 'team-a'), /already running/)
+    await assert.rejects(store.save(saved.id, 'team-a', 'owner', definition, 1), /refreshing/)
+    await store.settle(saved.id, 'team-a', claim, { id: 'good', cards: [result()] }, null)
+    assert.equal((await store.due(Date.now() + 604801000)).length, 1)
+    const failed = await store.claim(saved.id, 'team-a')
+    await store.settle(saved.id, 'team-a', failed, null, 'Source unavailable')
+    assert.equal((await store.get(saved.id, 'team-a')).snapshot.id, 'good')
+    assert.equal((await store.get(saved.id, 'team-a')).error, 'Source unavailable')
+    const reopened = await ctx.open()
+    assert.equal((await reopened.get(saved.id, 'team-a')).snapshot.id, 'good')
+    reopened.close()
+    await assert.rejects(store.save(saved.id, 'team-a', 'owner', definition, 5), /changed/)
+})
+backendTest('publish freezes definition and data, passive reads do not execute, and revocation is immediate', async (store) => {
+    const saved = await store.save(null, 'team-a', 'owner', definition)
+    await assert.rejects(store.published(saved.id, 'team-a'), /not published/)
+    await assert.rejects(store.publish(saved.id, 'team-a', 1), /Refresh/)
+    await store.settle(saved.id, 'team-a', await store.claim(saved.id, 'team-a'), { id: 'published-data' }, null)
+    await store.publish(saved.id, 'team-a', 1)
+    await assert.rejects(store.published(saved.id, 'team-b'), /not found/)
+    await store.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Draft edits' }, 1)
+    assert.equal((await store.published(saved.id, 'team-a')).definition.title, definition.title)
+    assert.equal((await store.published(saved.id, 'team-a')).snapshot.id, 'published-data')
+    assert.equal((await store.get(saved.id, 'team-a')).snapshot, null)
+    await store.unpublish(saved.id, 'team-a')
+    await assert.rejects(store.published(saved.id, 'team-a'), /not published/)
+})
 
-test('saved non-weekly intervals stay stored but are not returned as due work', () =>
-    storeTest((store, file) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        const db = new DatabaseSync(file)
-        db.prepare('UPDATE dash_flow SET definition=?,next_refresh=1 WHERE id=?').run(
-            JSON.stringify({ ...definition, intervalSeconds: 3600 }),
-            saved.id
-        )
-        db.close()
-        assert.equal(store.get(saved.id, 'team-a').definition.intervalSeconds, 3600)
-        assert.deepEqual(store.due(Date.now()), [])
-    }))
+backendTest('saved non-weekly intervals stay stored but are not returned as due work', async (store, ctx) => {
+    const saved = await store.save(null, 'team-a', 'owner', definition)
+    await ctx.setInterval(saved.id, 3600)
+    assert.equal((await store.get(saved.id, 'team-a')).definition.intervalSeconds, 3600)
+    assert.deepEqual(await store.due(Date.now()), [])
+})
+backendTest('list keeps newest-first order', async (store) => {
+    const ids = []
+    for (let i = 0; i < 3; i++) ids.push((await store.save(null, 'team-a', 'owner', { ...definition, title: `Board ${i}` })).id)
+    assert.deepEqual(
+        (await store.list('team-a')).map((row) => row.id),
+        ids.reverse()
+    )
+})
 
 test('explicit source completeness permits a LIMIT 1 aggregate envelope and typed nested projection', async () => {
     const aggregatePin = { ...pin, sql: pin.sql.replace('LIMIT 100', 'LIMIT 1') }
@@ -286,9 +341,9 @@ function attemptBetweenReadAndWrite(t, file, mutation, action) {
 }
 
 test('claim locks the selected revision before a competing save can change it', (t) =>
-    storeTest((store, file) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        const claim = attemptBetweenReadAndWrite(
+    storeTest('sqlite', async (store, { file }) => {
+        const saved = await store.save(null, 'team-a', 'owner', definition)
+        const claim = await attemptBetweenReadAndWrite(
             t,
             file,
             (db) =>
@@ -299,16 +354,16 @@ test('claim locks the selected revision before a competing save can change it', 
         )
         assert.equal(claim.revision, saved.revision)
         assert.equal(claim.definition.title, definition.title)
-        store.settle(saved.id, 'team-a', claim, { id: 'first' }, null)
-        assert.equal(store.get(saved.id, 'team-a').refreshing, false)
-        const peer = openDashStore(file)
+        await store.settle(saved.id, 'team-a', claim, { id: 'first' }, null)
+        assert.equal((await store.get(saved.id, 'team-a')).refreshing, false)
+        const peer = openSqliteDashStore(file)
         try {
-            const next = peer.save(saved.id, 'team-a', 'owner', { ...definition, title: 'New draft' }, saved.revision)
-            const nextClaim = store.claim(saved.id, 'team-a')
+            const next = await peer.save(saved.id, 'team-a', 'owner', { ...definition, title: 'New draft' }, saved.revision)
+            const nextClaim = await store.claim(saved.id, 'team-a')
             assert.equal(nextClaim.revision, next.revision)
             assert.equal(nextClaim.definition.title, 'New draft')
-            store.settle(saved.id, 'team-a', nextClaim, { id: 'second' }, null)
-            assert.equal(peer.get(saved.id, 'team-a').refreshing, false)
+            await store.settle(saved.id, 'team-a', nextClaim, { id: 'second' }, null)
+            assert.equal((await peer.get(saved.id, 'team-a')).refreshing, false)
         } finally {
             peer.close()
         }
@@ -316,11 +371,11 @@ test('claim locks the selected revision before a competing save can change it', 
 
 for (const mutation of ['save', 'unpublish']) {
     test(`publication locks its read against a competing ${mutation}, and later revocation wins`, (t) =>
-        storeTest((store, file) => {
-            const saved = store.save(null, 'team-a', 'owner', definition)
-            store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), { id: 'materialized' }, null)
-            store.publish(saved.id, 'team-a', saved.revision)
-            const publication = attemptBetweenReadAndWrite(
+        storeTest('sqlite', async (store, { file }) => {
+            const saved = await store.save(null, 'team-a', 'owner', definition)
+            await store.settle(saved.id, 'team-a', await store.claim(saved.id, 'team-a'), { id: 'materialized' }, null)
+            await store.publish(saved.id, 'team-a', saved.revision)
+            const publication = await attemptBetweenReadAndWrite(
                 t,
                 file,
                 (db) =>
@@ -334,13 +389,13 @@ for (const mutation of ['save', 'unpublish']) {
                 () => store.publish(saved.id, 'team-a', saved.revision)
             )
             assert.equal(publication.snapshot.id, 'materialized')
-            const peer = openDashStore(file)
+            const peer = openSqliteDashStore(file)
             try {
-                peer.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Later draft' }, saved.revision)
-                assert.throws(() => store.publish(saved.id, 'team-a', saved.revision), /Refresh/)
-                assert.equal(store.published(saved.id, 'team-a').definition.title, definition.title)
-                peer.unpublish(saved.id, 'team-a')
-                assert.throws(() => store.published(saved.id, 'team-a'), /not published/)
+                await peer.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Later draft' }, saved.revision)
+                await assert.rejects(store.publish(saved.id, 'team-a', saved.revision), /Refresh/)
+                assert.equal((await store.published(saved.id, 'team-a')).definition.title, definition.title)
+                await peer.unpublish(saved.id, 'team-a')
+                await assert.rejects(store.published(saved.id, 'team-a'), /not published/)
             } finally {
                 peer.close()
             }
@@ -365,21 +420,22 @@ test('cached refresh revalidates source receipts, preserves freshness and keys e
     await materializeCached(definition, harness, execute, cache, false)
     assert.equal(calls, 3)
 })
-test('durable query cache isolates workspaces/dashboards, expires from original fetch time and survives reopen', () => {
-    storeTest((store, file) => {
-        const row = store.save(null, 'team-a', 'owner', definition)
-        const second = store.save(null, 'team-a', 'owner', definition)
-        const cache = store.queryCache(row.id, 'team-a')
-        cache.put('one', { raw: result(), fetchedAt: new Date().toISOString() })
-        assert.equal(store.queryCache(second.id, 'team-a').get('one'), null)
-        assert.throws(() => store.queryCache(row.id, 'team-b'), /not found/)
-        const reopened = openDashStore(file)
-        assert.ok(reopened.queryCache(row.id, 'team-a').get('one'))
+backendTest(
+    'durable query cache isolates workspaces/dashboards, expires from original fetch time and survives reopen',
+    async (store, ctx) => {
+        const row = await store.save(null, 'team-a', 'owner', definition)
+        const second = await store.save(null, 'team-a', 'owner', definition)
+        const cache = await store.queryCache(row.id, 'team-a')
+        await cache.put('one', { raw: result(), fetchedAt: new Date().toISOString() })
+        assert.equal(await (await store.queryCache(second.id, 'team-a')).get('one'), null)
+        await assert.rejects(store.queryCache(row.id, 'team-b'), /not found/)
+        const reopened = await ctx.open()
+        assert.ok(await (await reopened.queryCache(row.id, 'team-a')).get('one'))
         reopened.close()
-        cache.put('expired', { raw: result(), fetchedAt: new Date(Date.now() - 7 * 3600000).toISOString() })
-        assert.equal(cache.get('expired'), null)
-    })
-})
+        await cache.put('expired', { raw: result(), fetchedAt: new Date(Date.now() - 7 * 3600000).toISOString() })
+        assert.equal(await cache.get('expired'), null)
+    }
+)
 test('pipeline preset periods use UTC boundaries including next-year quarters', () => {
     const periods = pipelinePeriods(new Date('2026-12-31T23:59:00Z'))
     assert.equal(periods.length, 5)
@@ -433,16 +489,16 @@ test('refresh freezes all twenty period/region views and refuses incomplete gene
     assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].source.params.region, 'EMEA')
     assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].rowsFromEvidence, true)
     assert.equal(frozen.pipelineViews.views['EMEA:90'].cards[0].rows, undefined)
-    storeTest((store) => {
-        const saved = store.save(null, 'team-a', 'owner', def)
-        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), frozen, null)
-        const published = store.publish(saved.id, 'team-a', saved.revision, true)
-        assert.equal(Object.keys(store.publicView(published.publicToken).publication.snapshot.pipelineViews.views).length, 20)
+    await storeTest('sqlite', async (store) => {
+        const saved = await store.save(null, 'team-a', 'owner', def)
+        await store.settle(saved.id, 'team-a', await store.claim(saved.id, 'team-a'), frozen, null)
+        const published = await store.publish(saved.id, 'team-a', saved.revision, true)
+        assert.equal(Object.keys((await store.publicView(published.publicToken)).publication.snapshot.pipelineViews.views).length, 20)
         const incomplete = structuredClone(frozen)
         delete incomplete.pipelineViews.views['APJ:90']
-        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), incomplete, null)
-        assert.throws(() => store.publish(saved.id, 'team-a', saved.revision, true), /prepare every period and region/)
-        assert.equal(Object.keys(store.publicView(published.publicToken).publication.snapshot.pipelineViews.views).length, 20)
+        await store.settle(saved.id, 'team-a', await store.claim(saved.id, 'team-a'), incomplete, null)
+        await assert.rejects(store.publish(saved.id, 'team-a', saved.revision, true), /prepare every period and region/)
+        assert.equal(Object.keys((await store.publicView(published.publicToken)).publication.snapshot.pipelineViews.views).length, 20)
     })
     await materializeCached(
         { ...def, cards: [{ ...rangedCard, params: { ...pipelinePeriods()[2], region: 'APJ' } }] },
@@ -471,107 +527,118 @@ test('refresh freezes all twenty period/region views and refuses incomplete gene
         /period\/region snapshot is incomplete/
     )
 })
-test('public publishing is opt-in, frozen, revocable, and does not revive an old token', () => {
-    storeTest((store) => {
-        const row = store.save(null, 'team-a', 'owner', definition)
-        const claim = store.claim(row.id, 'team-a')
-        store.settle(row.id, 'team-a', claim, { cards: [{ cardId: card.id, rows: [{ account_name: 'Synthetic' }] }] }, null)
-        assert.equal(store.publish(row.id, 'team-a', row.revision).publicToken, null)
-        const publicView = store.publish(row.id, 'team-a', row.revision, true)
-        assert.ok(publicView.publicToken)
-        assert.equal(store.publicView(publicView.publicToken).workspace, 'team-a')
-        assert.throws(() => store.publicView(row.id), /not found/)
-        const slot = store.reservePublicReport(publicView.publicToken)
-        store.attachPublicReport(slot, 'run-one')
-        assert.ok(store.hasPublicReport(publicView.publicToken, 'run-one'))
-        assert.equal(store.hasPublicReport('other-token', 'run-one'), false)
-        for (let i = 1; i < 10; i++) store.reservePublicReport(publicView.publicToken)
-        assert.throws(() => store.reservePublicReport(publicView.publicToken), /hourly report limit/)
-        store.unpublish(row.id, 'team-a')
-        assert.throws(() => store.publicView(publicView.publicToken), /not found/)
-        const newView = store.publish(row.id, 'team-a', row.revision, true)
-        assert.notEqual(newView.publicToken, publicView.publicToken)
-        store.publish(row.id, 'team-a', row.revision, false)
-        assert.throws(() => store.publicView(newView.publicToken), /not found/)
-    })
+backendTest('public publishing is opt-in, frozen, revocable, and does not revive an old token', async (store) => {
+    const row = await store.save(null, 'team-a', 'owner', definition)
+    const claim = await store.claim(row.id, 'team-a')
+    await store.settle(row.id, 'team-a', claim, { cards: [{ cardId: card.id, rows: [{ account_name: 'Synthetic' }] }] }, null)
+    assert.equal((await store.publish(row.id, 'team-a', row.revision)).publicToken, null)
+    const publicView = await store.publish(row.id, 'team-a', row.revision, true)
+    assert.ok(publicView.publicToken)
+    assert.equal((await store.publicView(publicView.publicToken)).workspace, 'team-a')
+    await assert.rejects(store.publicView(row.id), /not found/)
+    const slot = await store.reservePublicReport(publicView.publicToken)
+    await store.attachPublicReport(slot, 'run-one')
+    assert.ok(await store.hasPublicReport(publicView.publicToken, 'run-one'))
+    assert.equal(await store.hasPublicReport('other-token', 'run-one'), false)
+    for (let i = 1; i < 10; i++) await store.reservePublicReport(publicView.publicToken)
+    await assert.rejects(store.reservePublicReport(publicView.publicToken), /hourly report limit/)
+    await store.unpublish(row.id, 'team-a')
+    await assert.rejects(store.publicView(publicView.publicToken), /not found/)
+    const newView = await store.publish(row.id, 'team-a', row.revision, true)
+    assert.notEqual(newView.publicToken, publicView.publicToken)
+    await store.publish(row.id, 'team-a', row.revision, false)
+    await assert.rejects(store.publicView(newView.publicToken), /not found/)
 })
-test('refresh progress persists across connections, rejects stale workers and retains terminal failure details', () => {
-    storeTest((store, file) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        const claim = store.claim(saved.id, 'team-a')
-        store.progress(saved.id, 'team-a', claim, { phase: 'views', completed: 12, total: 20, active: ['EMEA · Next 90 days'] })
-        const peer = openDashStore(file)
-        assert.equal(peer.status(saved.id, 'team-a').refreshProgress.completed, 12)
-        assert.equal(peer.status(saved.id, 'team-a').snapshot, undefined)
-        assert.throws(() => peer.status(saved.id, 'team-b'), /not found/)
-        store.progress(saved.id, 'team-a', { ...claim, token: 'stale' }, { phase: 'saving', completed: 20 })
-        assert.equal(peer.status(saved.id, 'team-a').refreshProgress.completed, 12)
-        store.settle(saved.id, 'team-a', claim, null, 'Source failed.')
-        assert.equal(peer.status(saved.id, 'team-a').refreshProgress.status, 'failed')
-        assert.deepEqual(peer.status(saved.id, 'team-a').refreshProgress.failedItems, ['EMEA · Next 90 days'])
-        assert.ok(peer.status(saved.id, 'team-a').refreshProgress.finishedAt)
-        const next = store.claim(saved.id, 'team-a')
-        store.progress(saved.id, 'team-a', claim, { phase: 'old', completed: 20 })
-        assert.equal(peer.status(saved.id, 'team-a').refreshProgress.phase, 'starting')
-        store.settle(saved.id, 'team-a', next, { cards: [] }, null)
-        assert.equal(peer.status(saved.id, 'team-a').refreshProgress.status, 'completed')
-        store.claim(saved.id, 'team-a')
-        const expired = new DatabaseSync(file)
-        expired.prepare('UPDATE dash_flow SET lease_until=0 WHERE id=?').run(saved.id)
-        expired.close()
-        assert.equal(peer.status(saved.id, 'team-a').refreshProgress.status, 'interrupted')
+backendTest(
+    'refresh progress persists across connections, rejects stale workers and retains terminal failure details',
+    async (store, ctx) => {
+        const saved = await store.save(null, 'team-a', 'owner', definition)
+        const claim = await store.claim(saved.id, 'team-a')
+        await store.progress(saved.id, 'team-a', claim, { phase: 'views', completed: 12, total: 20, active: ['EMEA · Next 90 days'] })
+        const peer = await ctx.open()
+        assert.equal((await peer.status(saved.id, 'team-a')).refreshProgress.completed, 12)
+        assert.equal((await peer.status(saved.id, 'team-a')).snapshot, undefined)
+        await assert.rejects(peer.status(saved.id, 'team-b'), /not found/)
+        await store.progress(saved.id, 'team-a', { ...claim, token: 'stale' }, { phase: 'saving', completed: 20 })
+        assert.equal((await peer.status(saved.id, 'team-a')).refreshProgress.completed, 12)
+        await store.settle(saved.id, 'team-a', claim, null, 'Source failed.')
+        assert.equal((await peer.status(saved.id, 'team-a')).refreshProgress.status, 'failed')
+        assert.deepEqual((await peer.status(saved.id, 'team-a')).refreshProgress.failedItems, ['EMEA · Next 90 days'])
+        assert.ok((await peer.status(saved.id, 'team-a')).refreshProgress.finishedAt)
+        const next = await store.claim(saved.id, 'team-a')
+        await store.progress(saved.id, 'team-a', claim, { phase: 'old', completed: 20 })
+        assert.equal((await peer.status(saved.id, 'team-a')).refreshProgress.phase, 'starting')
+        await store.settle(saved.id, 'team-a', next, { cards: [] }, null)
+        assert.equal((await peer.status(saved.id, 'team-a')).refreshProgress.status, 'completed')
+        await store.claim(saved.id, 'team-a')
+        await ctx.expire(saved.id)
+        assert.equal((await peer.status(saved.id, 'team-a')).refreshProgress.status, 'interrupted')
         peer.close()
-    })
+    }
+)
+backendTest('force cancel fences late snapshots, progress and cache writes, and permits an immediate restart', async (store) => {
+    const saved = await store.save(null, 'team-a', 'owner', definition)
+    await store.settle(saved.id, 'team-a', await store.claim(saved.id, 'team-a'), { id: 'last-good', cards: [] }, null)
+    await store.publish(saved.id, 'team-a', saved.revision)
+    const old = await store.claim(saved.id, 'team-a')
+    assert.equal((await store.status(saved.id, 'team-a')).refreshProgress.runId, old.token)
+    await assert.rejects(store.cancel(saved.id, 'team-b', old.token), /not found/)
+    await assert.rejects(store.cancel(saved.id, 'team-a', 'stale-token'), /refresh changed/)
+    const cache = await store.queryCache(saved.id, 'team-a', old)
+    await store.cancel(saved.id, 'team-a', old.token)
+    assert.equal((await store.status(saved.id, 'team-a')).refreshProgress.status, 'cancelled')
+    assert.ok((await store.get(saved.id, 'team-a')).nextRefresh > Date.now())
+    assert.equal(await store.heartbeat(saved.id, 'team-a', old), false)
+    const next = await store.claim(saved.id, 'team-a')
+    await assert.rejects(store.assertActive(saved.id, 'team-a', old), /cancelled/)
+    await assert.rejects(cache.put('old-result', { raw: result(), fetchedAt: new Date().toISOString() }), /cancelled/)
+    await store.progress(saved.id, 'team-a', old, { phase: 'old-run' })
+    await store.settle(saved.id, 'team-a', old, { id: 'stale', cards: [] }, null)
+    assert.equal((await store.status(saved.id, 'team-a')).refreshProgress.runId, next.token)
+    assert.equal((await store.get(saved.id, 'team-a')).snapshot.id, 'last-good')
+    assert.equal((await store.published(saved.id, 'team-a')).snapshot.id, 'last-good')
+    assert.equal(await store.heartbeat(saved.id, 'team-a', next), true)
+    await store.settle(saved.id, 'team-a', next, { id: 'fresh', cards: [] }, null)
+    assert.equal((await store.get(saved.id, 'team-a')).snapshot.id, 'fresh')
 })
-test('force cancel fences late snapshots, progress and cache writes, and permits an immediate restart', () => {
-    storeTest((store) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        store.settle(saved.id, 'team-a', store.claim(saved.id, 'team-a'), { id: 'last-good', cards: [] }, null)
-        store.publish(saved.id, 'team-a', saved.revision)
-        const old = store.claim(saved.id, 'team-a')
-        assert.equal(store.status(saved.id, 'team-a').refreshProgress.runId, old.token)
-        assert.throws(() => store.cancel(saved.id, 'team-b', old.token), /not found/)
-        assert.throws(() => store.cancel(saved.id, 'team-a', 'stale-token'), /refresh changed/)
-        const cache = store.queryCache(saved.id, 'team-a', old)
-        store.cancel(saved.id, 'team-a', old.token)
-        assert.equal(store.status(saved.id, 'team-a').refreshProgress.status, 'cancelled')
-        assert.ok(store.get(saved.id, 'team-a').nextRefresh > Date.now())
-        assert.equal(store.heartbeat(saved.id, 'team-a', old), false)
-        const next = store.claim(saved.id, 'team-a')
-        assert.throws(() => store.assertActive(saved.id, 'team-a', old), /cancelled/)
-        assert.throws(() => cache.put('old-result', { raw: result(), fetchedAt: new Date().toISOString() }), /cancelled/)
-        store.progress(saved.id, 'team-a', old, { phase: 'old-run' })
-        store.settle(saved.id, 'team-a', old, { id: 'stale', cards: [] }, null)
-        assert.equal(store.status(saved.id, 'team-a').refreshProgress.runId, next.token)
-        assert.equal(store.get(saved.id, 'team-a').snapshot.id, 'last-good')
-        assert.equal(store.published(saved.id, 'team-a').snapshot.id, 'last-good')
-        assert.equal(store.heartbeat(saved.id, 'team-a', next), true)
-        store.settle(saved.id, 'team-a', next, { id: 'fresh', cards: [] }, null)
-        assert.equal(store.get(saved.id, 'team-a').snapshot.id, 'fresh')
-    })
+backendTest('a lost worker expires without waiting for the old long lease and cannot renew itself after expiry', async (store, ctx) => {
+    const saved = await store.save(null, 'team-a', 'owner', definition)
+    const claim = await store.claim(saved.id, 'team-a')
+    assert.ok((await ctx.leaseUntil(saved.id)) <= Date.now() + 90000)
+    await ctx.expire(saved.id)
+    assert.equal((await store.status(saved.id, 'team-a')).refreshProgress.status, 'interrupted')
+    assert.equal(await store.heartbeat(saved.id, 'team-a', claim), false)
+    await assert.rejects(store.assertActive(saved.id, 'team-a', claim), /interrupted/)
+    const retry = await store.claim(saved.id, 'team-a')
+    assert.notEqual(retry.token, claim.token)
+    assert.equal(retry.resumeSince, claim.startedAt)
+    await store.progress(saved.id, 'team-a', retry, { phase: 'views', completed: 4, total: 20 })
+    await store.cancel(saved.id, 'team-a', retry.token, 'interrupted')
+    const next = await store.claim(saved.id, 'team-a')
+    assert.equal(next.resumeSince, claim.startedAt)
+    await store.settle(saved.id, 'team-a', next, { id: 'complete', cards: [] }, null)
+    assert.equal((await store.claim(saved.id, 'team-a')).resumeSince, null)
 })
-test('a lost worker expires without waiting for the old long lease and cannot renew itself after expiry', () => {
-    storeTest((store, file) => {
-        const saved = store.save(null, 'team-a', 'owner', definition)
-        const claim = store.claim(saved.id, 'team-a')
-        const db = new DatabaseSync(file)
-        const lease = db.prepare('SELECT lease_until FROM dash_flow WHERE id=?').get(saved.id).lease_until
-        assert.ok(lease <= Date.now() + 90000)
-        db.prepare('UPDATE dash_flow SET lease_until=0 WHERE id=?').run(saved.id)
-        db.close()
-        assert.equal(store.status(saved.id, 'team-a').refreshProgress.status, 'interrupted')
-        assert.equal(store.heartbeat(saved.id, 'team-a', claim), false)
-        assert.throws(() => store.assertActive(saved.id, 'team-a', claim), /interrupted/)
-        const retry = store.claim(saved.id, 'team-a')
-        assert.notEqual(retry.token, claim.token)
-        assert.equal(retry.resumeSince, claim.startedAt)
-        store.progress(saved.id, 'team-a', retry, { phase: 'views', completed: 4, total: 20 })
-        store.cancel(saved.id, 'team-a', retry.token, 'interrupted')
-        const next = store.claim(saved.id, 'team-a')
-        assert.equal(next.resumeSince, claim.startedAt)
-        store.settle(saved.id, 'team-a', next, { id: 'complete', cards: [] }, null)
-        assert.equal(store.claim(saved.id, 'team-a').resumeSince, null)
-    })
+backendTest('race: two claims give one lease and one 409, and a stale-revision save is a 409', async (store) => {
+    const saved = await store.save(null, 'team-a', 'owner', definition)
+    const outcomes = await Promise.allSettled([store.claim(saved.id, 'team-a'), store.claim(saved.id, 'team-a')])
+    assert.equal(outcomes.filter((o) => o.status === 'fulfilled').length, 1)
+    const lost = outcomes.find((o) => o.status === 'rejected')
+    assert.equal(lost.reason.status, 409)
+    assert.match(lost.reason.message, /already running/)
+    const won = outcomes.find((o) => o.status === 'fulfilled').value
+    await store.settle(saved.id, 'team-a', won, { id: 'one', cards: [] }, null)
+    await store.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Second' }, saved.revision)
+    const stale = await store.save(saved.id, 'team-a', 'owner', { ...definition, title: 'Stale' }, saved.revision).catch((error) => error)
+    assert.equal(stale.status, 409)
+})
+backendTest('race: fifteen concurrent public report reservations give exactly ten', async (store) => {
+    const row = await store.save(null, 'team-a', 'owner', definition)
+    await store.settle(row.id, 'team-a', await store.claim(row.id, 'team-a'), { cards: [] }, null)
+    const { publicToken } = await store.publish(row.id, 'team-a', row.revision, true)
+    const outcomes = await Promise.allSettled(Array.from({ length: 15 }, () => store.reservePublicReport(publicToken)))
+    assert.equal(outcomes.filter((o) => o.status === 'fulfilled').length, 10)
+    assert.ok(outcomes.filter((o) => o.status === 'rejected').every((o) => o.reason.status === 429))
 })
 
 test('restart recovery reuses only this refresh chain and revalidates cached receipts', async () => {

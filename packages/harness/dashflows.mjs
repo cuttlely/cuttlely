@@ -1,5 +1,7 @@
 // Dashflows store typed source rows, never generated prose. Like the harness queue,
 // this BETA uses a local SQLite database shared by processes on the same data volume.
+// With CUTTLELY_APP_DATABASE_STORES on a Postgres host, dashflows-postgres.mjs serves the
+// same async store interface from the application database instead.
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID, createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -265,7 +267,7 @@ export async function materialize(definition, record, execute, sourceTime = () =
     const snapshots = []
     const executed = new Map()
     for (const card of definition.cards) {
-        onProgress({ phase: 'sources', completed: snapshots.length, total: definition.cards.length, active: [card.title] })
+        await onProgress({ phase: 'sources', completed: snapshots.length, total: definition.cards.length, active: [card.title] })
         const { item, pin } = sourceFor(record, card.source)
         if (item.hash !== card.hash) fail('The pinned source changed. Re-select it before refreshing.', 409)
         validateArgs(pin, card.params)
@@ -277,7 +279,7 @@ export async function materialize(definition, record, execute, sourceTime = () =
         snapshot.source.harness = definition.harness
         snapshots.push(snapshot)
     }
-    onProgress({ phase: 'sources', completed: snapshots.length, total: definition.cards.length, active: [] })
+    await onProgress({ phase: 'sources', completed: snapshots.length, total: definition.cards.length, active: [] })
     if (!snapshots.length) fail('Add a card before refreshing.')
     return { id: randomUUID(), refreshedAt: new Date().toISOString(), cards: snapshots }
 }
@@ -316,7 +318,7 @@ export async function materializeCached(
             inflight.set(
                 key,
                 (async () => {
-                    const candidate = preferCache || resumeSince ? cache.get(key) : null
+                    const candidate = preferCache || resumeSince ? await cache.get(key) : null
                     // A retry may reuse only validated results fetched during this refresh chain.
                     const cached =
                         candidate && (preferCache || Date.parse(candidate.fetchedAt) >= Date.parse(resumeSince)) ? candidate : null
@@ -330,14 +332,14 @@ export async function materializeCached(
     const time = (item, args) => pending.get(keyFor(item, args))?.fetchedAt
     const snapshot = await materialize(definition, record, run, time, onProgress)
     // The active result must validate before anything enters the durable cache.
-    const persist = (cards) => {
+    const persist = async (cards) => {
         for (const card of cards) {
             const { item } = sourceFor(record, card.source)
             const key = keyFor(item, card.params)
-            cache.put(key, pending.get(key))
+            await cache.put(key, pending.get(key))
         }
     }
-    persist(definition.cards)
+    await persist(definition.cards)
     const pipeline = definition.cards.filter((card) => card.source.endsWith(':pq_pipeline_window'))
     const group = (card) =>
         JSON.stringify([
@@ -365,7 +367,7 @@ export async function materializeCached(
                 active: [...active],
                 failedViews: [...failedViews]
             })
-        report()
+        await report()
         let index = 0
         const worker = async () => {
             while (index < jobs.length) {
@@ -377,7 +379,7 @@ export async function materializeCached(
                     ]
                 }`
                 active.add(label)
-                report()
+                await report()
                 try {
                     const rangedCards = cards.map((card) => ({
                         ...card,
@@ -393,13 +395,13 @@ export async function materializeCached(
                             return { ...rest, ...(rangedCards[i].rowsPath ? { rows } : { rowsFromEvidence: true }) }
                         })
                     }
-                    persist(rangedCards)
+                    await persist(rangedCards)
                 } catch (error) {
                     failedViews.push(label)
                     throw error
                 } finally {
                     active.delete(label)
-                    report()
+                    await report()
                 }
             }
         }
@@ -411,14 +413,12 @@ export async function materializeCached(
             fail('The period/region snapshot is incomplete. Last good data was kept; retry Refresh.', 422)
         snapshot.pipelineViews = { periods, regions, views }
     }
-    onProgress({ phase: 'saving', completed: 1, total: 1, active: [] })
+    await onProgress({ phase: 'saving', completed: 1, total: 1, active: [] })
     return snapshot
 }
 
-export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    const db = new DatabaseSync(file)
-    db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+export const defaultDashFile = () => path.join(dataRoot(), 'dashflows.sqlite')
+export const SQLITE_DASH_SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
         CREATE TABLE IF NOT EXISTS dash_flow (
             id TEXT PRIMARY KEY, workspace TEXT NOT NULL, owner TEXT NOT NULL, revision INTEGER NOT NULL,
             definition TEXT NOT NULL, snapshot TEXT, published TEXT, error TEXT,
@@ -435,7 +435,12 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         CREATE TABLE IF NOT EXISTS dash_flow_refresh_status (
             dashboard TEXT NOT NULL, workspace TEXT NOT NULL, token TEXT NOT NULL, progress TEXT NOT NULL,
             PRIMARY KEY(dashboard, workspace)
-        );`)
+        );`
+// The SQLite backend. Its SQL and transactions are unchanged; asyncStore() gives it the async interface.
+function sqliteDashStore(file) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const db = new DatabaseSync(file)
+    db.exec(SQLITE_DASH_SCHEMA)
     const rowFor = (id, workspace) => {
         if (!workspace) fail('Workspace required.', 403)
         const row = db.prepare('SELECT * FROM dash_flow WHERE id=? AND workspace=?').get(id, workspace)
@@ -736,7 +741,35 @@ export function openDashStore(file = path.join(dataRoot(), 'dashflows.sqlite')) 
         }
     }
 }
+// Every store method returns a promise, whichever backend serves it.
+function asyncStore(sync) {
+    const wrapped = { backend: 'sqlite', close: () => sync.close() }
+    for (const [name, method] of Object.entries(sync)) if (name !== 'close') wrapped[name] = async (...args) => method(...args)
+    wrapped.queryCache = async (...args) => {
+        const cache = sync.queryCache(...args)
+        return { get: async (key) => cache.get(key), put: async (key, value) => cache.put(key, value) }
+    }
+    return wrapped
+}
+export function openSqliteDashStore(file = defaultDashFile()) {
+    return asyncStore(sqliteDashStore(file))
+}
+// Picks the backend once: the application database's Postgres when a source is given, otherwise dashflows.sqlite.
+export async function openDashStore(file = defaultDashFile(), { source } = {}) {
+    if (source?.dialect === 'postgres') return (await import('./dashflows-postgres.mjs')).openPostgresDashStore(source)
+    return openSqliteDashStore(file)
+}
+export function appDatabaseStoresOn(env = process.env) {
+    return env.CUTTLELY_APP_DATABASE_STORES === '1' || env.CUTTLELY_APP_DATABASE_STORES === 'true'
+}
 let store
+let storeFile
+// Boot selects the backend before the server listens; without a selection Dash Flows opens dashflows.sqlite on first use.
+export function setDashStore(next, file) {
+    if (store && store !== next) store.close()
+    store = next || undefined
+    storeFile = file
+}
 export function dashStore() {
-    return store || (store = openDashStore())
+    return store || (store = openSqliteDashStore(storeFile))
 }

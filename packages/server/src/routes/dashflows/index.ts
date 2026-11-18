@@ -9,6 +9,7 @@ import { runtime, saveDashboard, sources, startDashboardRefresh } from '../../se
 import { dashFlowsEnabled } from '../../services/dashflows/enabled'
 import harnessesService from '../../services/harnesses'
 import { AppError } from '../../errors/appError'
+import { dashFlowsBusy } from '../../services/dashflows/busy'
 
 const router = express.Router()
 // Team links require an interactive session; a harness API key cannot enumerate snapshots.
@@ -27,6 +28,8 @@ const action =
         try {
             await fn(req, res, requireWorkspaceIdFromReq(req))
         } catch (error) {
+            // A writer waiting behind the boot-time copy of dashflows.sqlite gets a retryable conflict, never a 503.
+            if (dashFlowsBusy(error)) return next(new AppError(409, 'Dash Flows is busy. Try again.'))
             const mod = await runtime()
             next(error instanceof mod.DashFlowError ? new AppError((error as any).status, (error as Error).message) : error)
         }
@@ -34,7 +37,7 @@ const action =
 router.get(
     '/',
     edit,
-    action(async (_req, res, ws) => res.json((await runtime()).dashStore().list(ws)))
+    action(async (_req, res, ws) => res.json(await (await runtime()).dashStore().list(ws)))
 )
 router.get(
     '/sources/:name',
@@ -52,7 +55,7 @@ router.get(
     '/:id/published',
     view,
     action(async (req, res, ws) => {
-        const result = (await runtime()).dashStore().published(req.params.id, ws)
+        const result = await (await runtime()).dashStore().published(req.params.id, ws)
         await harnessesService.getHarness(result.definition.harness, ws)
         await completeAccessKeyAdmission(req)
         res.setHeader('Cache-Control', 'no-store')
@@ -64,14 +67,14 @@ router.get(
     edit,
     action(async (req, res, ws) => {
         res.setHeader('Cache-Control', 'no-store')
-        return res.json((await runtime()).dashStore().get(req.params.id, ws))
+        return res.json(await (await runtime()).dashStore().get(req.params.id, ws))
     })
 )
 router.get(
     '/:id/refresh-status',
     (req, res, next) => (req.user?.apiKeyId ? view : edit)(req, res, next),
     action(async (req, res, ws) => {
-        const status = (await runtime()).dashStore().status(req.params.id, ws)
+        const status = await (await runtime()).dashStore().status(req.params.id, ws)
         await completeAccessKeyAdmission(req)
         return res.json(status)
     })
@@ -103,20 +106,20 @@ router.post(
 router.post(
     '/:id/cancel-refresh',
     edit,
-    action(async (req, res, ws) => res.json((await runtime()).dashStore().cancel(req.params.id, ws, req.body?.runId)))
+    action(async (req, res, ws) => res.json(await (await runtime()).dashStore().cancel(req.params.id, ws, req.body?.runId)))
 )
 router.post(
     '/:id/publish',
     edit,
     action(async (req, res, ws) =>
-        res.json((await runtime()).dashStore().publish(req.params.id, ws, req.body.revision, req.body.public === true))
+        res.json(await (await runtime()).dashStore().publish(req.params.id, ws, req.body.revision, req.body.public === true))
     )
 )
 router.delete(
     '/:id/publish',
     edit,
     action(async (req, res, ws) => {
-        ;(await runtime()).dashStore().unpublish(req.params.id, ws)
+        await (await runtime()).dashStore().unpublish(req.params.id, ws)
         res.sendStatus(204)
     })
 )

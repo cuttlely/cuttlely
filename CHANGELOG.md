@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Dash Flows can keep its data in the application's Postgres database behind the default-off `CUTTLELY_APP_DATABASE_STORES` switch; on first start it copies and verifies `dashflows.sqlite` and keeps it as a read-only `dashflows.sqlite.migrated`. [Storage on Postgres (preview)](./docs/how-to/dashflows.md#storage-on-postgres-preview) · [#516](https://github.com/cuttlely/cuttlely/issues/516).
+
 ### Fixed
 
 -   Harness profile cache now notices credential changes on Postgres and on SQLite hosts whose DATABASE_PATH differs from SECRETKEY_PATH. [#522](https://github.com/cuttlely/cuttlely/pull/522).
