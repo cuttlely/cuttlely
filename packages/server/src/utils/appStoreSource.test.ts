@@ -80,5 +80,7 @@ it('hands the harness the app database dialect and a logger, and never fails the
         throw Object.assign(new Error('connection detail that must not be logged'), { code: 'ENOENT' })
     })
     expect(failed).toBeUndefined()
-    expect(log.warn).toHaveBeenCalledWith('Dash Flows storage check failed (ENOENT); Dash Flows keeps using dashflows.sqlite.')
+    expect(log.warn).toHaveBeenCalledWith(
+        'Dash Flows storage check failed (ENOENT). Dash Flows serves dashflows.sqlite if it is present; while only dashflows.sqlite.migrated is present, its requests answer 503.'
+    )
 })

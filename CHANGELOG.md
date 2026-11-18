@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Dash Flows can keep its data in the application's Postgres database behind the default-off `CUTTLELY_APP_DATABASE_STORES` switch; on first start it copies and verifies `dashflows.sqlite` and keeps it as a read-only `dashflows.sqlite.migrated`. [Storage on Postgres (preview)](./docs/how-to/dashflows.md#storage-on-postgres-preview) · [#516](https://github.com/cuttlely/cuttlely/issues/516).
+-   Dash Flows can keep its data in the application's Postgres database behind the default-off `CUTTLELY_APP_DATABASE_STORES` switch; on first start it copies and verifies `dashflows.sqlite` and keeps it as a read-only `dashflows.sqlite.migrated`. Turning the switch on again reuses the copy already in the application database and drops changes made in `dashflows.sqlite` while it was off. [Storage on Postgres (preview)](./docs/how-to/dashflows.md#storage-on-postgres-preview) · [#516](https://github.com/cuttlely/cuttlely/issues/516).
 
 ### Fixed
 

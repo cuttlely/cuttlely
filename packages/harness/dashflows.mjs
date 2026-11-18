@@ -751,7 +751,10 @@ function asyncStore(sync) {
     }
     return wrapped
 }
+// Never create an empty dashflows.sqlite beside a moved-aside one: that would hide every dashboard (#516).
+export const DASH_STORE_MID_MOVE = 'Dash Flows storage is mid-move; check the start log.'
 export function openSqliteDashStore(file = defaultDashFile()) {
+    if (!fs.existsSync(file) && fs.existsSync(`${file}.migrated`)) throw new DashFlowError(DASH_STORE_MID_MOVE, 503)
     return asyncStore(sqliteDashStore(file))
 }
 // Picks the backend once: the application database's Postgres when a source is given, otherwise dashflows.sqlite.

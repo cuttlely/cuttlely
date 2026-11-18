@@ -10,6 +10,11 @@ const published = jest.fn((_id: string, workspace: string) => {
     return { definition: { harness: 'synthetic-contract' }, snapshot: { id: 'stored-data' } }
 })
 const startRefresh = jest.fn(async (id: string, _workspace: string, _preferCache = false) => ({ id, refreshing: true }))
+class mockDashFlowError extends Error {
+    constructor(message: string, public status = 400) {
+        super(message)
+    }
+}
 const store = {
     status: jest.fn(() => ({ refreshing: true, refreshProgress: { phase: 'views', completed: 12, total: 20 } })),
     cancel: jest.fn(() => ({ refreshing: false, refreshProgress: { status: 'cancelled' } })),
@@ -20,7 +25,7 @@ const store = {
     unpublish: jest.fn()
 }
 jest.mock('../../services/dashflows', () => ({
-    runtime: async () => ({ dashStore: () => store, DashFlowError: class extends Error {} }),
+    runtime: async () => ({ dashStore: () => store, DashFlowError: mockDashFlowError }),
     startDashboardRefresh: (id: string, workspace: string, preferCache: boolean) => startRefresh(id, workspace, preferCache),
     saveDashboard: jest.fn(),
     sources: jest.fn()
@@ -147,4 +152,13 @@ it('maps a SQLite busy error from the store to a retryable 409, never a 503', as
     expect(cancelled.body.message).toBe('Dash Flows is busy. Try again.')
     ;(store.get as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error('another failure')))
     expect((await request(app(editor)).get('/dashflows/demo')).status).toBe(500)
+})
+
+it('answers 503 while Dash Flows storage is mid-move, instead of creating an empty store', async () => {
+    ;(store.list as jest.Mock).mockImplementationOnce(() => {
+        throw new mockDashFlowError('Dash Flows storage is mid-move; check the start log.', 503)
+    })
+    const listed = await request(app(editor)).get('/dashflows')
+    expect(listed.status).toBe(503)
+    expect(listed.body.message).toBe('Dash Flows storage is mid-move; check the start log.')
 })

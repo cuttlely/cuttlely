@@ -73,7 +73,11 @@ export async function registerAppStoreSource(dataSource: DataSource, log: Log, l
         const { initDashStore } = await loadModule()
         return await initDashStore({ source: makeAppStoreSource(dataSource), log })
     } catch (error) {
-        log.warn(`Dash Flows storage check failed (${(error as any)?.code || 'error'}); Dash Flows keeps using dashflows.sqlite.`)
+        log.warn(
+            `Dash Flows storage check failed (${
+                (error as any)?.code || 'error'
+            }). Dash Flows serves dashflows.sqlite if it is present; while only dashflows.sqlite.migrated is present, its requests answer 503.`
+        )
         return undefined
     }
 }

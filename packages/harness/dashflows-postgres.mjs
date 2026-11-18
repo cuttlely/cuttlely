@@ -457,7 +457,13 @@ const MESSAGES = {
         'Dash Flows is in the application database; its copy was already there. dashflows.sqlite is kept read-only as dashflows.sqlite.migrated.',
     unreachable: (code) =>
         `Dash Flows could not open its tables in the application database (${code}). Its requests fail until the database is reachable.`,
-    kept: 'Dash Flows is in the application database. dashflows.sqlite and dashflows.sqlite.migrated both exist and were left in place; remove or rename one to finish the move.'
+    kept: 'Dash Flows is in the application database. dashflows.sqlite and dashflows.sqlite.migrated both exist and were left in place; remove or rename one to finish the move.',
+    stillOpen:
+        'Dash Flows is in the application database, but another process still has dashflows.sqlite open, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.',
+    notMoved: (code) =>
+        `Dash Flows is in the application database, but dashflows.sqlite could not be moved aside (${code}). It was left in place and is not used; the move aside finishes at the next start.`,
+    diverged:
+        'Dash Flows storage move stopped: dashflows.sqlite differs from the copy already in the application database, and no switch-off was recorded. Nothing was switched; Dash Flows keeps using dashflows.sqlite. Decide which copy to keep before starting with CUTTLELY_APP_DATABASE_STORES on again.'
 }
 const errorCode = (error) =>
     String(error?.code || error?.name || 'error')
@@ -513,20 +519,22 @@ async function preflight(file, { waitMs, pollMs }) {
 }
 
 // Ends the SQLite transaction, checkpoints the WAL and keeps the file read-only beside the new store.
-// When both files already exist, neither is touched (design 4.9 (b)).
+// When both files already exist, neither is touched (design 4.9 (b)). When another process still reads the
+// file, the checkpoint cannot finish: the file and its WAL stay as they are, so the rollback file stays whole.
 function retire(db, file) {
     db.exec('ROLLBACK')
     const migrated = `${file}.migrated`
     if (fs.existsSync(migrated)) {
         db.close()
-        return false
+        return 'kept'
     }
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    const checkpoint = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
     db.close()
+    if (checkpoint.busy !== 0 || checkpoint.log !== checkpoint.checkpointed) return 'still-open'
     if (fs.existsSync(file)) fs.renameSync(file, migrated)
     for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
     fs.chmodSync(migrated, 0o444)
-    return true
+    return 'moved'
 }
 
 // One-store copy and verify (#516). SQLite stays authoritative until the Postgres copy is verified and committed.
@@ -547,10 +555,13 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
             await q(`SELECT pg_advisory_xact_lock(hashtext('dashflows-copy'))`)
             const marker = await readMarker(q)
             if (marker && marker.sourceDigest === digest.all && !marker.rolledBackAt) return { outcome: 'already-copied', digest }
+            // A difference with no recorded switch-off is not a rollback: refuse rather than drop either side.
+            if (marker && !marker.rolledBackAt) return { outcome: 'diverged', digest }
             if (marker) {
-                // Re-enable after a rollback, or writes after the copy: keep the Postgres copy (Founder decision Q2).
+                // Re-enable after a rollback: keep the Postgres copy (Founder decision Q2). The marker takes this
+                // file's digest, so if the move aside does not finish now, the next start only finishes it.
                 const { rolledBackAt: _rolledBackAt, ...rest } = marker
-                await writeMarker(q, { ...rest, reusedAt: new Date().toISOString() })
+                await writeMarker(q, { ...rest, sourceDigest: digest.all, reusedAt: new Date().toISOString() })
                 return { outcome: 'reused', digest }
             }
             await q(`TRUNCATE ${S}.dash_flow, ${S}.dash_flow_query_cache, ${S}.dash_flow_public_report, ${S}.dash_flow_refresh_status`)
@@ -614,10 +625,30 @@ export async function copyDashStoreToAppDb(file, source, { log = console, waitMs
         log.warn(MESSAGES.failed(errorCode(error)))
         return { outcome: 'failed' }
     }
+    if (result.outcome === 'diverged') {
+        db.exec('ROLLBACK')
+        db.close()
+        log.warn(MESSAGES.diverged)
+        return { outcome: 'diverged' }
+    }
     if (result.outcome === 'reused') log.warn(MESSAGES.reused)
-    if (!retire(db, file)) log.warn(MESSAGES.kept)
+    // The copy is committed from here on: Postgres serves even if the file cannot be moved aside.
+    let retired
+    try {
+        retired = retire(db, file)
+    } catch (error) {
+        try {
+            db.close()
+        } catch {
+            /* Already closed. */
+        }
+        log.warn(MESSAGES.notMoved(errorCode(error)))
+        return { outcome: result.outcome, rows: counts(result.digest), retired: 'failed' }
+    }
+    if (retired === 'kept') log.warn(MESSAGES.kept)
+    else if (retired === 'still-open') log.warn(MESSAGES.stillOpen)
     else log.info(result.outcome === 'copied' ? MESSAGES.moved(result.digest) : MESSAGES.finished)
-    return { outcome: result.outcome, rows: counts(result.digest) }
+    return { outcome: result.outcome, rows: counts(result.digest), retired }
 }
 
 // Switch off (or not Postgres) after a move: put dashflows.sqlite back as it was at the copy. No reverse copy.
@@ -661,6 +692,7 @@ export async function initDashStore({
     if (enabled && !onPostgres) log.info(MESSAGES.ignored)
     if (!enabled || !onPostgres) return sqlite((await restore(file, onPostgres ? source : null, log)) ? 'rolled-back' : 'unchanged')
     let outcome = 'nothing-to-copy'
+    let committed = false
     const moved = () => !fs.existsSync(file) && fs.existsSync(`${file}.migrated`)
     try {
         if (moved()) {
@@ -687,17 +719,18 @@ export async function initDashStore({
         if (fs.existsSync(file)) {
             outcome = (await copyDashStoreToAppDb(file, source, { log, waitMs, pollMs })).outcome
             if (!['copied', 'already-copied', 'reused'].includes(outcome)) return sqlite(outcome)
+            committed = true
         }
         const store = await openPostgresDashStore(source)
         setDashStore(store)
         return { backend: 'postgres', outcome }
     } catch (error) {
-        if (!moved()) {
+        if (!moved() && !committed) {
             log.warn(MESSAGES.failed(errorCode(error)))
             return sqlite('failed')
         }
         log.warn(MESSAGES.unreachable(errorCode(error)))
-        // Already moved: serve Postgres, whose calls fail until it is reachable, rather than a new empty file.
+        // Already moved, or the copy is committed: serve Postgres, whose calls fail until it is reachable.
         setDashStore(postgresDashStore(source))
         return { backend: 'postgres', outcome: 'failed' }
     }

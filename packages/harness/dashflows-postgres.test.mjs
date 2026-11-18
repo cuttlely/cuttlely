@@ -7,9 +7,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { after, before, test } from 'node:test'
+import { spawn } from 'node:child_process'
+import { after, before, mock, test } from 'node:test'
 import { compilePinned } from './runtime/pinned-query.mjs'
-import { appDatabaseStoresOn, dashStore, openSqliteDashStore, setDashStore } from './dashflows.mjs'
+import { DASH_STORE_MID_MOVE, appDatabaseStoresOn, dashStore, openSqliteDashStore, setDashStore } from './dashflows.mjs'
 import { copyDashStoreToAppDb, initDashStore } from './dashflows-postgres.mjs'
 import { adminConfig, adminQuery, freshDatabase, pgSkip, poolSource } from './test/dashflows-pg.mjs'
 
@@ -188,6 +189,22 @@ test('a writer lock held for the whole wait refuses the copy with the busy wordi
     assert.deepEqual(calls, [])
     assert.equal(digestFile(file), hash)
     assert.equal(fs.existsSync(`${file}.migrated`), false)
+})
+
+test('a moved-aside file without dashflows.sqlite answers 503 and never creates an empty file', async () => {
+    const file = tempFile()
+    await seed(file)
+    fs.renameSync(file, `${file}.migrated`)
+    const midMove = (error) => error.status === 503 && error.message === DASH_STORE_MID_MOVE
+    setDashStore(null, file)
+    try {
+        assert.throws(() => dashStore(), midMove)
+        assert.throws(() => openSqliteDashStore(file), midMove)
+    } finally {
+        setDashStore(null)
+    }
+    assert.equal(fs.existsSync(file), false)
+    assert.equal(DASH_STORE_MID_MOVE, 'Dash Flows storage is mid-move; check the start log.')
 })
 
 // ---- Real Postgres ----
@@ -448,6 +465,133 @@ pgTest('both files present after a committed copy: neither is touched, Postgres 
     assert.equal(dashStore().backend, 'postgres')
     assert.ok(await dashStore().get(created.id, 'team-a'))
     assert.ok(await dashStore().get(seeded.ids.private, 'team-a'))
+})
+
+// Rows in a moved-aside file, read from a scratch copy so the read-only file is never opened.
+function rowsIn(migrated) {
+    const scratch = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dashflow-check-')), 'copy.sqlite')
+    fs.copyFileSync(migrated, scratch)
+    const db = new DatabaseSync(scratch)
+    try {
+        return db
+            .prepare('SELECT id FROM dash_flow ORDER BY id')
+            .all()
+            .map((row) => row.id)
+    } finally {
+        db.close()
+    }
+}
+
+const READER = `const { DatabaseSync } = require('node:sqlite')
+const db = new DatabaseSync(process.argv[1])
+db.exec('BEGIN')
+db.prepare('SELECT count(*) AS n FROM dash_flow').get()
+process.stdout.write('ready\\n')
+process.stdin.resume()
+process.stdin.on('end', () => {
+    db.exec('COMMIT')
+    db.close()
+    process.exit(0)
+})`
+
+pgTest('another process reading dashflows.sqlite during the move: the WAL is kept, nothing is moved aside, Postgres serves', async () => {
+    const file = tempFile()
+    await seed(file)
+    const child = spawn(process.execPath, ['-e', READER, file], { stdio: ['pipe', 'pipe', 'inherit'] })
+    const exited = new Promise((resolve) => child.on('exit', resolve))
+    try {
+        await new Promise((resolve, reject) => {
+            child.stdout.on('data', (chunk) => String(chunk).includes('ready') && resolve())
+            child.on('exit', () => reject(new Error('reader exited early')))
+        })
+        // A commit after the reader's snapshot leaves frames the checkpoint cannot copy while it reads.
+        const writer = openSqliteDashStore(file)
+        const late = await writer.save(null, 'team-a', 'owner-1', onDemand('Written while another process reads'))
+        writer.close()
+        const { lines, log } = capture()
+        assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'copied' })
+        assert.equal(
+            lines.at(-1),
+            'Dash Flows is in the application database, but another process still has dashflows.sqlite open, so its WAL checkpoint did not finish. dashflows.sqlite and its WAL were left as they are and are not used; the move aside finishes at the next start.'
+        )
+        assert.equal(fs.existsSync(file), true)
+        assert.equal(fs.existsSync(`${file}-wal`), true)
+        assert.equal(fs.existsSync(`${file}.migrated`), false)
+        assert.equal(dashStore().backend, 'postgres')
+        assert.ok(await dashStore().get(late.id, 'team-a'))
+        setDashStore(null)
+        child.stdin.end()
+        await exited
+        // With the reader gone, the next start only finishes the move, and the moved-aside file is whole.
+        assert.equal((await init(file, log)).outcome, 'already-copied')
+        assert.equal(fs.existsSync(file), false)
+        assert.equal(fs.existsSync(`${file}-wal`), false)
+        assert.deepEqual(rowsIn(`${file}.migrated`), (await pgRows('dash_flow')).map((row) => row.id).sort())
+        assert.ok(rowsIn(`${file}.migrated`).includes(late.id))
+    } finally {
+        if (child.exitCode === null) child.kill()
+    }
+})
+
+pgTest(
+    'a failed move aside after the commit serves Postgres, says so, and the next start finishes it without dropping writes',
+    async () => {
+        const file = tempFile()
+        await seed(file)
+        const real = fs.renameSync
+        const blocked = mock.method(fs, 'renameSync', (from, to) => {
+            if (String(to).endsWith('.migrated')) throw Object.assign(new Error('blocked'), { code: 'EACCES' })
+            return real(from, to)
+        })
+        const { lines, log } = capture()
+        try {
+            assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'copied' })
+        } finally {
+            blocked.mock.restore()
+        }
+        assert.equal(
+            lines.at(-1),
+            'Dash Flows is in the application database, but dashflows.sqlite could not be moved aside (EACCES). It was left in place and is not used; the move aside finishes at the next start.'
+        )
+        assert.ok(lines.every((line) => !line.includes('Nothing was switched')))
+        assert.equal(fs.existsSync(file), true)
+        assert.equal(fs.existsSync(`${file}.migrated`), false)
+        assert.equal(dashStore().backend, 'postgres')
+        const created = await dashStore().save(null, 'team-a', 'owner-1', onDemand('Saved after the commit'))
+        setDashStore(null)
+        assert.deepEqual(await init(file, log), { backend: 'postgres', outcome: 'already-copied' })
+        assert.ok(await dashStore().get(created.id, 'team-a'))
+        assert.equal(fs.existsSync(file), false)
+        assert.equal(fs.statSync(`${file}.migrated`).mode & 0o777, 0o444)
+    }
+)
+
+pgTest('a difference with no recorded switch-off is refused and stays on SQLite, dropping neither side', async () => {
+    const file = tempFile()
+    const seeded = await seed(file)
+    const { lines, log } = capture()
+    assert.equal((await init(file, log)).outcome, 'copied')
+    const inPostgres = await dashStore().save(null, 'team-a', 'owner-1', onDemand('Only in Postgres'))
+    setDashStore(null)
+    const copied = await marker()
+    // A crash before the move aside, then a write into dashflows.sqlite by another process.
+    fs.chmodSync(`${file}.migrated`, 0o644)
+    fs.renameSync(`${file}.migrated`, file)
+    const writer = openSqliteDashStore(file)
+    const inSqlite = await writer.save(null, 'team-a', 'owner-1', onDemand('Only in SQLite'))
+    writer.close()
+    assert.deepEqual(await init(file, log), { backend: 'sqlite', outcome: 'diverged' })
+    assert.equal(
+        lines.at(-1),
+        'Dash Flows storage move stopped: dashflows.sqlite differs from the copy already in the application database, and no switch-off was recorded. Nothing was switched; Dash Flows keeps using dashflows.sqlite. Decide which copy to keep before starting with CUTTLELY_APP_DATABASE_STORES on again.'
+    )
+    assert.deepEqual(await marker(), copied)
+    assert.equal(fs.existsSync(file), true)
+    assert.equal(fs.existsSync(`${file}.migrated`), false)
+    assert.equal(dashStore().backend, 'sqlite')
+    assert.ok(await dashStore().get(inSqlite.id, 'team-a'))
+    assert.ok(await dashStore().get(seeded.ids.private, 'team-a'))
+    assert.ok((await pgRows('dash_flow')).some((row) => row.id === inPostgres.id))
 })
 
 pgTest('AC15 a login without CREATE gets the named refusal and stays on SQLite', async () => {
