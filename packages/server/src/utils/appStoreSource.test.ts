@@ -77,7 +77,7 @@ it('hands the harness the app database dialect and a logger, and never fails the
     })
     expect(dataSource.createQueryRunner).not.toHaveBeenCalled()
     const failed = await registerAppStoreSource(dataSource, log, async () => {
-        throw Object.assign(new Error('postgres://user:secret@host/db'), { code: 'ENOENT' })
+        throw Object.assign(new Error('connection detail that must not be logged'), { code: 'ENOENT' })
     })
     expect(failed).toBeUndefined()
     expect(log.warn).toHaveBeenCalledWith('Dash Flows storage check failed (ENOENT); Dash Flows keeps using dashflows.sqlite.')
