@@ -75,3 +75,19 @@ describe('split-path SQLite credential rotation', () => {
         expect(result.stdout).toContain('split-path SQLite rotation assertions passed')
     })
 })
+
+describe('split-path SQLite with the server DataSource', () => {
+    it('the registered source reads and rotates credentials in the DATABASE_PATH database, never the SECRETKEY_PATH file', () => {
+        // The child builds the real server DataSource, runs the sqlite migrations on a
+        // temp file and calls registerAppCredentialSource with the decorated entity.
+        const child = path.join(__dirname, 'credentialSource.server-datasource.child.mjs')
+        const result = spawnSync(process.execPath, [child], {
+            encoding: 'utf8',
+            env: process.env
+        })
+        if (result.status !== 0) {
+            throw new Error(`server DataSource child exited ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+        }
+        expect(result.stdout).toContain('server DataSource split-path assertions passed')
+    })
+})
